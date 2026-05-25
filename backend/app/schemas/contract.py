@@ -1,0 +1,75 @@
+"""
+合同相关Pydantic模型
+"""
+from typing import Optional, Dict, Any, List
+from pydantic import BaseModel, Field
+from datetime import date, datetime
+from decimal import Decimal
+
+
+class ContractBase(BaseModel):
+    """合同基础模型"""
+    
+    contract_number: str = Field(..., max_length=50, description="合同编号")
+    title: Optional[str] = Field(None, max_length=500, description="合同标题")
+    currency: str = Field(default="CNY", description="合同币种")
+    total_amount: Decimal = Field(..., ge=0, description="合同总金额")
+    signed_date: Optional[date] = Field(None, description="签订日期")
+    start_date: Optional[date] = Field(None, description="生效日期")
+    end_date: Optional[date] = Field(None, description="到期日期")
+    remarks: Optional[str] = Field(None, description="备注")
+
+
+class ContractCreate(ContractBase):
+    """创建合同"""
+
+    customer_id: Optional[int] = Field(None, description="客户ID（可选，解析后可关联）")
+    original_file_path: str = Field(..., description="合同文件路径")
+    file_hash: Optional[str] = Field(None, description="文件哈希")
+
+
+class ContractUpdate(BaseModel):
+    """更新合同"""
+    
+    title: Optional[str] = Field(None, max_length=500)
+    status: Optional[str] = Field(None, description="状态")
+    signed_date: Optional[date] = None
+    start_date: Optional[date] = None
+    end_date: Optional[date] = None
+    remarks: Optional[str] = None
+    contract_data: Optional[Dict[str, Any]] = Field(None, description="AI解析数据")
+
+
+class ContractResponse(ContractBase):
+    """合同响应"""
+
+    id: int
+    customer_id: Optional[int] = None
+    customer_name: Optional[str] = None
+    sales_person_id: int
+    paid_amount: Decimal
+    remaining_amount: Decimal
+    total_amount_in_cny: Optional[Decimal] = None
+    paid_amount_in_cny: Optional[Decimal] = None
+    remaining_amount_in_cny: Optional[Decimal] = None
+    confidence: Optional[float] = None
+    needs_review: Optional[bool] = False
+    status: str
+    original_file_path: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ContractParseResult(BaseModel):
+    """合同解析结果"""
+    
+    task_id: str = Field(..., description="任务ID")
+    status: str = Field(..., description="解析状态")
+    contract_id: Optional[int] = Field(None, description="合同ID")
+    parsed_data: Optional[Dict[str, Any]] = Field(None, description="解析数据")
+    confidence: Optional[float] = Field(None, description="置信度")
+    needs_review: bool = Field(default=False, description="是否需要人工审核")
+    message: Optional[str] = Field(None, description="消息")

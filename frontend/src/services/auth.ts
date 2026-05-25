@@ -1,0 +1,37 @@
+import api from './api'
+import type { User, ApiResponse } from '@/types'
+
+export interface LoginData {
+  username: string
+  password: string
+}
+
+export interface RegisterData {
+  username: string
+  password: string
+  email?: string
+  full_name?: string
+  role?: string
+  department?: string
+}
+
+export interface TokenResponse {
+  access_token: string
+  refresh_token: string
+  expires_in: number
+  user: User
+}
+
+export const authApi = {
+  login: (data: LoginData): Promise<TokenResponse> =>
+    api.post('/auth/login', data),
+
+  register: (data: RegisterData): Promise<User> =>
+    api.post('/auth/register', data),
+
+  refreshToken: (refreshToken: string): Promise<{ access_token: string; expires_in: number }> =>
+    api.post('/auth/refresh', { refresh_token: refreshToken }),
+
+  getCurrentUser: (): Promise<User> =>
+    api.get('/auth/me'),
+}

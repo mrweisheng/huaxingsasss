@@ -1,0 +1,86 @@
+"""
+应用配置管理模块
+从环境变量读取配置，提供类型安全的配置访问
+"""
+from typing import List, Optional
+from pydantic_settings import BaseSettings
+from pydantic import Field
+
+
+class Settings(BaseSettings):
+    """应用配置类"""
+    
+    # 应用基础配置
+    APP_NAME: str = "合同管理系统"
+    APP_ENV: str = "development"
+    DEBUG: bool = True
+    API_V1_STR: str = "/api/v1"
+    SECRET_KEY: str
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    
+    # 数据库配置
+    POSTGRES_SERVER: str = "localhost"
+    POSTGRES_PORT: int = 5432
+    POSTGRES_DB: str = "contract_db"
+    POSTGRES_USER: str = "admin"
+    POSTGRES_PASSWORD: str = "dev_password"
+    
+    @property
+    def DATABASE_URL(self) -> str:
+        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    
+    @property
+    def ASYNC_DATABASE_URL(self) -> str:
+        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+    
+    # Redis配置
+    REDIS_HOST: str = "localhost"
+    REDIS_PORT: int = 6379
+    REDIS_DB: int = 0
+    
+    @property
+    def REDIS_URL(self) -> str:
+        return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
+    
+    # Celery配置
+    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
+    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
+    
+    # AI服务配置（SiliconFlow）
+    SILICONFLOW_API_KEY: str = ""
+    SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    SILICONFLOW_VISION_MODEL: str = "Qwen/Qwen3-VL-32B-Instruct"
+    SILICONFLOW_TEXT_MODEL: str = "Qwen/Qwen3-VL-8B-Instruct"
+    
+    # DeepSeek备用配置
+    DEEPSEEK_API_KEY: Optional[str] = None
+    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
+    DEEPSEEK_MODEL: str = "deepseek-chat"
+    
+    # 文件存储配置
+    UPLOAD_DIR: str = "/data/contract-system"
+    CONTRACT_UPLOAD_DIR: str = "/data/contract-system/contracts"
+    RECEIPT_UPLOAD_DIR: str = "/data/contract-system/receipts"
+    SCREENSHOT_UPLOAD_DIR: str = "/data/contract-system/screenshots"
+    TEMP_UPLOAD_DIR: str = "/data/contract-system/temp"
+    MAX_FILE_SIZE: int = 52428800  # 50MB
+    
+    # CORS配置
+    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
+    
+    # 日志配置
+    LOG_LEVEL: str = "DEBUG"
+    LOG_FORMAT: str = "json"
+    
+    # 汇率配置
+    DEFAULT_EXCHANGE_RATE_HKD_CNY: float = 0.92
+    DEFAULT_EXCHANGE_RATE_USD_CNY: float = 7.25
+    
+    class Config:
+        env_file = ".env"
+        case_sensitive = True
+
+
+# 创建全局配置实例
+settings = Settings()
