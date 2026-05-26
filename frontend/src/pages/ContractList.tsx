@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Table, Button, Input, Space, Tag, Select, DatePicker } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
@@ -37,8 +37,14 @@ export default function ContractList() {
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadContracts = useCallback(async () => {
+    // Cancel previous request
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setLoading(true)
     try {
       const params: any = { page, per_page: 20, keyword: keyword || undefined }
@@ -47,18 +53,24 @@ export default function ContractList() {
         params.date_from = dateRange[0].format('YYYY-MM-DD')
         params.date_to = dateRange[1].format('YYYY-MM-DD')
       }
-      const response = await contractApi.getList(params)
+      const response = await contractApi.getList(params, controller.signal)
       setContracts(response.items)
       setTotal(response.pagination.total)
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
       console.error(error)
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
     }
   }, [page, keyword, statusFilter, dateRange])
 
   useEffect(() => {
     loadContracts()
+    return () => {
+      abortControllerRef.current?.abort()
+    }
   }, [loadContracts])
 
   const handleSearch = (value: string) => {

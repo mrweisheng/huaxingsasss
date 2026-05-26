@@ -8,11 +8,13 @@ export const contractApi = {
     status?: string
     customer_id?: number
     keyword?: string
-  }): Promise<PaginatedResponse<Contract>> =>
-    api.get('/contracts', { params }),
+    date_from?: string
+    date_to?: string
+  }, signal?: AbortSignal): Promise<PaginatedResponse<Contract>> =>
+    api.get('/contracts', { params, signal }),
 
-  getById: (id: number): Promise<Contract> =>
-    api.get(`/contracts/${id}`),
+  getById: (id: number, signal?: AbortSignal): Promise<Contract> =>
+    api.get(`/contracts/${id}`, { signal }),
 
   uploadAndParse: (file: File, customerId?: number): Promise<any> => {
     const formData = new FormData()
@@ -32,6 +34,6 @@ export const contractApi = {
   confirmParsedData: (id: number, parsedData: any): Promise<Contract> =>
     api.post(`/contracts/${id}/confirm-parsed-data`, parsedData),
 
-  getParseStatus: (contractId: number): Promise<any> =>
-    api.get(`/contracts/parse-status/${contractId}`),
+  getParseStatus: (contractId: number, signal?: AbortSignal): Promise<any> =>
+    api.get(`/contracts/parse-status/${contractId}`, { signal }),
 }

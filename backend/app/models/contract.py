@@ -2,7 +2,6 @@
 合同模型
 """
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DECIMAL, Date, JSON, Index
-from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
@@ -36,7 +35,7 @@ class Contract(BaseModel):
     file_hash = Column(String(64), index=True, comment="文件SHA256哈希")
     
     # AI解析的结构化数据
-    contract_data = Column(JSONB, nullable=False, server_default="'{}'", comment="AI解析的结构化数据")
+    contract_data = Column(JSON, nullable=False, server_default="'{}'", comment="AI解析的结构化数据")
     
     # AI解析元数据
     confidence = Column(DECIMAL(5, 4), comment="AI解析置信度")

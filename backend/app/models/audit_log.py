@@ -1,8 +1,7 @@
 """
 审计日志模型
 """
-from sqlalchemy import Column, String, Text, Integer, ForeignKey, JSON, INET, Index
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Column, String, Text, Integer, ForeignKey, Index, JSON
 from app.models.base import BaseModel
 
 
@@ -15,9 +14,9 @@ class AuditLog(BaseModel):
     action = Column(String(50), nullable=False, index=True, comment="操作类型")
     entity_type = Column(String(50), nullable=False, index=True, comment="实体类型")
     entity_id = Column(Integer, index=True, comment="实体ID")
-    old_values = Column(JSONB, comment="修改前的值")
-    new_values = Column(JSONB, comment="修改后的值")
-    ip_address = Column(INET, comment="IP地址")
+    old_values = Column(JSON, comment="修改前的值")
+    new_values = Column(JSON, comment="修改后的值")
+    ip_address = Column(String(45), comment="IP地址")
     user_agent = Column(Text, comment="User-Agent")
     
     # 索引

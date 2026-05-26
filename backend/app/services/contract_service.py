@@ -4,7 +4,7 @@
 from typing import Optional, List, Dict, Any
 from decimal import Decimal
 from datetime import date
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, contains_eager
 from sqlalchemy import or_, func, String
 
 from app.models.contract import Contract
@@ -34,24 +34,29 @@ class ContractService:
         Returns:
             (合同列表, 总数)
         """
-        query = db.query(Contract).outerjoin(Customer, Contract.customer_id == Customer.id)
-        
+        query = (
+            db.query(Contract)
+            .outerjoin(Customer, Contract.customer_id == Customer.id)
+            .options(contains_eager(Contract.customer))
+            .filter(Contract.is_deleted == False)
+        )
+
         # 状态过滤
         if status:
             query = query.filter(Contract.status == status)
-        
+
         # 客户ID过滤
         if customer_id:
             query = query.filter(Contract.customer_id == customer_id)
-        
+
         # 业务员过滤
         if sales_person_id:
             query = query.filter(Contract.sales_person_id == sales_person_id)
-        
+
         # 客户名称模糊搜索
         if customer_name:
             query = query.filter(Customer.name.ilike(f"%{customer_name}%"))
-        
+
         # 关键词全文搜索
         if keyword:
             query = query.filter(
@@ -61,27 +66,28 @@ class ContractService:
                     Contract.contract_data.cast(String).ilike(f"%{keyword}%")
                 )
             )
-        
+
         # 日期范围过滤
         if date_from:
             query = query.filter(Contract.signed_date >= date_from)
         if date_to:
             query = query.filter(Contract.signed_date <= date_to)
-        
+
         # 总数
         total = query.count()
-        
-        # 分页
+
+        # 分页（使用 contains_eager 后 Customer 已 join 加载，无需 N+1 回查）
         items = query.order_by(Contract.created_at.desc())\
             .offset((page - 1) * per_page)\
             .limit(per_page)\
             .all()
 
-        # 填充 customer_name
+        # 填充 customer_name（从已加载的 customer 关系获取，无额外查询）
         for item in items:
-            if item.customer_id:
-                customer = db.query(Customer).filter(Customer.id == item.customer_id).first()
-                item.customer_name = customer.name if customer else None
+            if item.customer:
+                item.customer_name = item.customer.name
+            else:
+                item.customer_name = None
 
         return items, total
     
@@ -133,9 +139,12 @@ class ContractService:
     
     @staticmethod
     def get_contract(db: Session, contract_id: int) -> Optional[Contract]:
-        """获取合同详情"""
-        return db.query(Contract).filter(Contract.id == contract_id).first()
-    
+        """获取合同详情（排除已软删除）"""
+        return db.query(Contract).filter(
+            Contract.id == contract_id,
+            Contract.is_deleted == False
+        ).first()
+
     @staticmethod
     def update_contract(
         db: Session,
@@ -144,31 +153,31 @@ class ContractService:
     ) -> Optional[Contract]:
         """更新合同"""
         contract = ContractService.get_contract(db, contract_id)
-        
+
         if not contract:
             return None
-        
+
         # 更新字段
         update_data = contract_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(contract, field, value)
-        
+
         db.commit()
         db.refresh(contract)
-        
+
         return contract
-    
+
     @staticmethod
     def delete_contract(db: Session, contract_id: int) -> bool:
-        """删除合同"""
-        contract = ContractService.get_contract(db, contract_id)
-        
+        """软删除合同"""
+        contract = db.query(Contract).filter(Contract.id == contract_id).first()
+
         if not contract:
             return False
-        
-        db.delete(contract)
+
+        contract.soft_delete()
         db.commit()
-        
+
         return True
     
     @staticmethod

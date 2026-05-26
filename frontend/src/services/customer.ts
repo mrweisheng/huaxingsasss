@@ -6,11 +6,11 @@ export const customerApi = {
     page?: number
     per_page?: number
     keyword?: string
-  }): Promise<PaginatedResponse<Customer>> =>
-    api.get('/customers', { params }),
+  }, signal?: AbortSignal): Promise<PaginatedResponse<Customer>> =>
+    api.get('/customers', { params, signal }),
 
-  getById: (id: number): Promise<Customer> =>
-    api.get(`/customers/${id}`),
+  getById: (id: number, signal?: AbortSignal): Promise<Customer> =>
+    api.get(`/customers/${id}`, { signal }),
 
   create: (data: Partial<Customer>): Promise<Customer> =>
     api.post('/customers', data),

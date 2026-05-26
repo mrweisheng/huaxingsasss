@@ -4,7 +4,7 @@
 """
 from typing import List, Optional
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, model_validator
 
 
 class Settings(BaseSettings):
@@ -77,8 +77,24 @@ class Settings(BaseSettings):
     DEFAULT_EXCHANGE_RATE_HKD_CNY: float = 0.92
     DEFAULT_EXCHANGE_RATE_USD_CNY: float = 7.25
     
+    @model_validator(mode="after")
+    def validate_required(self):
+        """启动时校验必填配置项"""
+        if not self.SECRET_KEY or len(self.SECRET_KEY) < 32:
+            raise ValueError(
+                "SECRET_KEY 必须设置且长度 ≥ 32 字符。"
+                "请检查 .env 文件或环境变量。"
+            )
+        if not self.SILICONFLOW_API_KEY:
+            raise ValueError(
+                "SILICONFLOW_API_KEY 必须设置。"
+                "请检查 .env 文件或环境变量。"
+            )
+        return self
+
     class Config:
         env_file = ".env"
+        env_file_encoding = "utf-8"
         case_sensitive = True
 
 

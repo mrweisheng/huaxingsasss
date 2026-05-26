@@ -18,10 +18,17 @@ cp .env.example .env
 # 编辑.env文件，修改数据库连接、AI API密钥等配置
 ```
 
-### 3. 启动数据库（Docker）
+### 3. 启动依赖服务
+
+确保 PostgreSQL 和 Redis 已启动（使用系统服务）：
 
 ```bash
-docker-compose up -d postgres redis
+# Linux systemd
+systemctl start postgresql redis
+
+# macOS Homebrew
+brew services start postgresql
+brew services start redis
 ```
 
 ### 4. 运行数据库迁移
@@ -60,8 +67,6 @@ backend/
 │   └── utils/           # 工具函数 ✅
 ├── migrations/          # Alembic迁移 ✅
 ├── tests/               # 测试 ⏳
-── docker-compose.yml   # Docker编排 ✅
-├── Dockerfile           # Docker镜像 ✅
 ├── pyproject.toml       # 依赖管理 ✅
 └── README.md            # 本文档
 ```
@@ -73,7 +78,6 @@ backend/
 - ✅ 数据库表结构（7张表）
 - ✅ 多币种支持（CNY/HKD/USD）
 - ✅ 汇率管理表
-- ✅ Docker开发环境
 
 ## 待实现功能
 

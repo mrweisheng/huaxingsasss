@@ -1,14 +1,16 @@
 import api from './api'
 import type { Payment, PaginatedResponse } from '@/types'
 
+export interface PaymentListParams {
+  page?: number
+  per_page?: number
+  contract_id?: number
+  status?: string
+}
+
 export const paymentApi = {
-  getList: (params?: {
-    page?: number
-    per_page?: number
-    contract_id?: number
-    status?: string
-  }): Promise<PaginatedResponse<Payment>> =>
-    api.get('/payments', { params }),
+  getList: (params?: PaymentListParams, signal?: AbortSignal): Promise<PaginatedResponse<Payment>> =>
+    api.get('/payments', { params, signal }),
 
   uploadReceipt: (data: {
     contract_id: number
@@ -29,12 +31,12 @@ export const paymentApi = {
     formData.append('payment_method', data.payment_method)
     if (data.notes) formData.append('notes', data.notes)
     if (data.file) formData.append('file', data.file)
-    
+
     return api.post('/payments/upload-receipt', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
   },
 
-  getContractPayments: (contractId: number): Promise<any> =>
-    api.get(`/payments/contract/${contractId}`),
+  getContractPayments: (contractId: number, signal?: AbortSignal): Promise<any> =>
+    api.get(`/payments/contract/${contractId}`, { signal }),
 }

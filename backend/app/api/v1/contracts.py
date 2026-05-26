@@ -125,11 +125,17 @@ async def upload_and_parse_contract(
         sales_person_id=current_user.id
     )
 
-    # TODO: 提交异步AI解析任务
-    # task_id = submit_parse_task(contract.id, relative_path)
+    # 提交异步 Celery 任务进行 AI 解析
+    try:
+        from app.tasks.contract_tasks import parse_contract_task
+        task = parse_contract_task.delay(contract.id, relative_path)
+        task_id = task.id
+    except Exception:
+        # Celery 不可用则使用 mock（开发/测试环境）
+        task_id = "mock-task-id"
 
     return ContractParseResult(
-        task_id="mock-task-id",
+        task_id=task_id,
         status="parsing",
         contract_id=contract.id,
         message="合同上传成功，正在AI解析中..."

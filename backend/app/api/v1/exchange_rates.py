@@ -25,23 +25,16 @@ def get_latest_rate(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取最新汇率"""
-    rate = ExchangeRateService.get_exchange_rate(
+    """获取最新汇率（含日期和来源信息，单次查询）"""
+    rate_record = ExchangeRateService.get_exchange_rate_record(
         db, from_currency, to_currency, date.today()
     )
 
-    if rate is None:
+    if rate_record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"未找到 {from_currency} -> {to_currency} 的汇率"
         )
-
-    # 查找最近一条记录获取日期信息
-    rate_record = db.query(ExchangeRate).filter(
-        ExchangeRate.from_currency == from_currency,
-        ExchangeRate.to_currency == to_currency,
-        ExchangeRate.is_active == True
-    ).order_by(ExchangeRate.rate_date.desc()).first()
 
     return ResponseModel(
         code=200,
@@ -49,9 +42,9 @@ def get_latest_rate(
         data={
             "from_currency": from_currency,
             "to_currency": to_currency,
-            "rate": float(rate),
-            "rate_date": str(rate_record.rate_date) if rate_record else str(date.today()),
-            "source": rate_record.source if rate_record else "fallback"
+            "rate": float(rate_record.rate),
+            "rate_date": str(rate_record.rate_date),
+            "source": rate_record.source or "fallback"
         }
     )
 

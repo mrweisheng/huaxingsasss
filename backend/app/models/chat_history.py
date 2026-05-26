@@ -2,7 +2,6 @@
 对话历史模型
 """
 from sqlalchemy import Column, String, Text, Integer, ForeignKey, DECIMAL, JSON, Index
-from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from app.models.base import BaseModel
 
 
@@ -15,9 +14,9 @@ class ChatHistory(BaseModel):
     session_id = Column(String(100), index=True, comment="会话ID")
     question = Column(Text, nullable=False, comment="用户问题")
     answer = Column(Text, comment="AI回答")
-    context_contracts = Column(ARRAY(Integer), comment="参考的合同ID列表")
+    context_contracts = Column(JSON, comment="参考的合同ID列表")
     intent_type = Column(String(50), comment="意图类型")
-    extracted_entities = Column(JSONB, comment="提取的实体")
+    extracted_entities = Column(JSON, comment="提取的实体")
     sql_query = Column(Text, comment="生成的SQL查询")
     llm_model = Column(String(50), comment="使用的模型")
     tokens_used = Column(Integer, comment="消耗的token数")

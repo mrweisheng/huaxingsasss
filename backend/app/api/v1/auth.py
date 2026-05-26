@@ -3,7 +3,7 @@
 """
 from typing import Optional
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends, HTTPException, status, Body
+from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -17,6 +17,7 @@ from app.core.security import (
 from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse
 from app.api.dependencies import get_current_user
+from app.utils.rate_limiter import login_rate_limiter
 
 router = APIRouter()
 
@@ -76,9 +77,15 @@ def register(
 
 
 @router.post("/login", response_model=TokenResponse)
-# TODO: 添加登录速率限制（如 slowapi 或自定义中间件）
-def login(login_data: UserLogin, db: Session = Depends(get_db)):
+async def login(request: Request, login_data: UserLogin, db: Session = Depends(get_db)):
     """用户登录"""
+    # 速率限制（基于客户端IP）
+    client_ip = request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+    await login_rate_limiter.check(f"login:{client_ip}")
+
     # 查找用户
     user = db.query(User).filter(User.username == login_data.username).first()
     

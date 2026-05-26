@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Table, Button, Input, Space } from 'antd'
 import { PlusOutlined } from '@ant-design/icons'
@@ -12,22 +12,34 @@ export default function CustomerList() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [keyword, setKeyword] = useState('')
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadCustomers = useCallback(async () => {
+    // Cancel previous request
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setLoading(true)
     try {
-      const response = await customerApi.getList({ page, per_page: 20, keyword })
+      const response = await customerApi.getList({ page, per_page: 20, keyword }, controller.signal)
       setCustomers(response.items)
       setTotal(response.pagination.total)
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
       console.error(error)
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
     }
   }, [page, keyword])
 
   useEffect(() => {
     loadCustomers()
+    return () => {
+      abortControllerRef.current?.abort()
+    }
   }, [loadCustomers])
 
   const handleSearch = (value: string) => {

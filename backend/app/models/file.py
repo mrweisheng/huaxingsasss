@@ -2,7 +2,6 @@
 文件模型
 """
 from sqlalchemy import Column, String, Text, Integer, ForeignKey, BigInteger, DECIMAL, JSON, Index, UniqueConstraint
-from sqlalchemy.dialects.postgresql import JSONB
 from app.models.base import BaseModel
 
 
@@ -28,7 +27,7 @@ class File(BaseModel):
     ocr_confidence = Column(DECIMAL(5, 4), comment="OCR置信度")
     
     # AI识别结果（微信截图专用）
-    ai_extracted_data = Column(JSONB, server_default="'{}'", comment="AI提取的数据")
+    ai_extracted_data = Column(JSON, server_default="'{}'", comment="AI提取的数据")
     
     # 上传者
     uploaded_by = Column(Integer, ForeignKey("users.id"), index=True, comment="上传者ID")

@@ -151,7 +151,7 @@
 | **状态管理** | Zustand | 4.4+ | 轻量简洁、比Redux易上手 |
 | **HTTP客户端** | Axios | 1.6+ | 成熟稳定、拦截器机制完善 |
 | **文件存储** | 本地文件系统 | - | 一期简单直接，后续可无缝切换到MinIO/OSS |
-| **部署方式** | Docker Compose | - | 容器化、环境一致性、一键启动 |
+| **部署方式** | 原生服务 | - | 直接部署，systemd管理进程 |
 | **Web服务器** | Nginx | 1.24+ | 反向代理、静态文件服务、SSL终止 |
 | **日志系统** | Python logging + ELK | - | 结构化日志、便于排查问题 |
 | **监控告警** | Prometheus + Grafana | - | 二期考虑，一期暂不实施 |
@@ -166,9 +166,6 @@ contract-management-system/
 ├── requirements.txt                   # pip依赖（备选）
 ├── .env.example                       # 环境变量模板
 ├── .gitignore
-├── docker-compose.yml                 # Docker编排文件
-├── Dockerfile.backend                 # 后端Docker镜像
-├── Dockerfile.frontend                # 前端Docker镜像
 │
 ├── backend/                           # FastAPI后端
 │   ├── app/
@@ -2425,7 +2422,6 @@ async def list_contracts(
 - [ ] 配置PostgreSQL数据库 + Alembic迁移
 - [ ] 实现用户认证（JWT登录/登出）
 - [ ] 搭建React前端脚手架
-- [ ] 配置Docker开发环境
 - [ ] 编写单元测试框架
 
 **交付物：**

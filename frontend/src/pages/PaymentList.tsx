@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react'
-import { Table, Card, Tag, Input, Space, Select } from 'antd'
-import { paymentApi } from '@/services/payment'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Table, Card, Tag, Space, Select } from 'antd'
+import { paymentApi, type PaymentListParams } from '@/services/payment'
 import type { Payment } from '@/types'
 
 const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
@@ -33,24 +33,36 @@ export default function PaymentList() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadPayments = useCallback(async () => {
+    // Cancel previous request
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setLoading(true)
     try {
-      const params: any = { page, per_page: 20 }
+      const params: PaymentListParams = { page, per_page: 20 }
       if (statusFilter) params.status = statusFilter
-      const response = await paymentApi.getList(params)
+      const response = await paymentApi.getList(params, controller.signal)
       setPayments(response.items)
       setTotal(response.pagination.total)
-    } catch (error) {
+    } catch (error: any) {
+      if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
       console.error(error)
     } finally {
-      setLoading(false)
+      if (!controller.signal.aborted) {
+        setLoading(false)
+      }
     }
   }, [page, statusFilter])
 
   useEffect(() => {
     loadPayments()
+    return () => {
+      abortControllerRef.current?.abort()
+    }
   }, [loadPayments])
 
   const handleStatusChange = (value: string | undefined) => {

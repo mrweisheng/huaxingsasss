@@ -12,16 +12,17 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT配置
 ALGORITHM = "HS256"
+TOKEN_TYPE_ACCESS = "access"
 
 
 def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] = None) -> str:
     """
     创建访问令牌（Access Token）
-    
+
     Args:
         subject: 用户ID或其他标识
         expires_delta: 过期时间增量
-        
+
     Returns:
         JWT token字符串
     """
@@ -29,8 +30,8 @@ def create_access_token(subject: str | Any, expires_delta: Optional[timedelta] =
         expire = datetime.now(timezone.utc) + expires_delta
     else:
         expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-    
-    to_encode = {"exp": expire, "sub": str(subject)}
+
+    to_encode = {"exp": expire, "sub": str(subject), "type": TOKEN_TYPE_ACCESS}
     encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
 
@@ -54,42 +55,51 @@ def create_refresh_token(subject: str | Any) -> str:
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     """
     验证密码
-    
+
     Args:
         plain_password: 明文密码
         hashed_password: 哈希密码
-        
+
     Returns:
         是否匹配
     """
+    # bcrypt 5.0+ 要求密码不超过 72 字节
+    if len(plain_password.encode('utf-8')) > 72:
+        plain_password = plain_password[:72]
     return pwd_context.verify(plain_password, hashed_password)
 
 
 def get_password_hash(password: str) -> str:
     """
     生成密码哈希
-    
+
     Args:
         password: 明文密码
-        
+
     Returns:
         哈希后的密码
     """
+    # bcrypt 5.0+ 要求密码不超过 72 字节
+    if len(password.encode('utf-8')) > 72:
+        password = password[:72]
     return pwd_context.hash(password)
 
 
 def decode_access_token(token: str) -> Optional[dict]:
     """
     解码访问令牌
-    
+
     Args:
         token: JWT token
-        
+
     Returns:
         解码后的payload，失败返回None
     """
     try:
         payload = jwt.decode(token, settings.SECRET_KEY, algorithms=[ALGORITHM])
+        # 拒绝 refresh token 被用于 access 端点
+        if payload.get("type") == "refresh":
+            return None
         return payload
     except JWTError:
         return None

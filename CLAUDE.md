@@ -18,8 +18,8 @@ cd backend
 # 安装依赖
 poetry install
 
-# 启动 PostgreSQL + Redis
-docker-compose up -d postgres redis
+# 确保 PostgreSQL 和 Redis 已启动（系统服务方式）
+# systemctl start postgresql redis
 
 # 数据库迁移
 cd migrations && alembic upgrade head
@@ -29,6 +29,9 @@ cd migrations && alembic revision --autogenerate -m "description"
 
 # 启动开发服务器（热重载）
 uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 启动 Celery Worker（另开终端）
+celery -A app.tasks.celery_app worker --loglevel=info
 
 # 运行测试
 pytest
@@ -43,13 +46,6 @@ cd frontend
 npm install
 npm run dev        # 开发服务器 http://localhost:3000，自动代理 /api → localhost:8000
 npm run build      # TypeScript 检查 + Vite 构建
-```
-
-### Full Stack (Docker)
-
-```bash
-cd backend
-docker-compose up --build   # 启动全部服务（PostgreSQL + Redis + Backend）
 ```
 
 ## Architecture

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Descriptions, Card, Button, Spin, Table, Tag, Alert, Divider } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
@@ -39,23 +39,42 @@ export default function ContractDetail() {
   const [summary, setSummary] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const abortControllerRef = useRef<AbortController | null>(null)
 
   useEffect(() => {
     if (!id) return
+
+    // Cancel previous request
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     setLoading(true)
     setError('')
     Promise.all([
-      contractApi.getById(Number(id)),
-      paymentApi.getContractPayments(Number(id)),
+      contractApi.getById(Number(id), controller.signal),
+      paymentApi.getContractPayments(Number(id), controller.signal),
     ])
       .then(([c, p]) => {
+        if (controller.signal.aborted) return
         setContract(c)
         const data = p.data || p
         setPayments(data.payments || [])
         setSummary(data)
       })
-      .catch((e) => setError(e.response?.data?.detail || '加载失败'))
-      .finally(() => setLoading(false))
+      .catch((e) => {
+        if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
+        setError(e.response?.data?.detail || '加载失败')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      controller.abort()
+    }
   }, [id])
 
   if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin tip="加载中..." /></div>

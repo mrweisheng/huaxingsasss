@@ -35,13 +35,25 @@ const processQueue = (token: string | null, error: unknown = null) => {
   failedQueue = []
 }
 
-// 响应拦截器 - 401时自动尝试刷新token
+function isAuthEndpoint(url: string): boolean {
+  return url.includes('/auth/login') || url.includes('/auth/refresh')
+}
+
+// 响应拦截器 - 401时自动尝试刷新token（含递归保护）
 api.interceptors.response.use(
   (response) => response.data,
   async (error) => {
     const originalRequest = error.config
 
     if (error.response?.status === 401 && !originalRequest._retry) {
+      // 递归保护：认证端点本身返回 401 时直接登出，不再重试
+      if (isAuthEndpoint(originalRequest.url || '')) {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
+
       const refreshToken = localStorage.getItem('refresh_token')
 
       if (!refreshToken) {

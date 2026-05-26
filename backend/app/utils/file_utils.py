@@ -60,19 +60,19 @@ async def save_uploaded_file(
     return relative_path, file_hash, file_size
 
 
-# 文件魔数字节映射
+# 文件魔数字节映射（支持扩展名变体）
 MAGIC_BYTES = {
-    b'\xff\xd8\xff': 'jpeg',
-    b'\x89PNG\r\n\x1a\n': 'png',
-    b'%PDF': 'pdf',
+    b'\xff\xd8\xff': ('jpeg', 'jpg'),
+    b'\x89PNG\r\n\x1a\n': ('png',),
+    b'%PDF': ('pdf',),
 }
 
 
 def validate_file_magic(content: bytes, allowed_extensions: list[str]) -> bool:
     """通过文件魔数字节验证文件真实类型"""
-    for magic, ext in MAGIC_BYTES.items():
+    for magic, exts in MAGIC_BYTES.items():
         if content.startswith(magic):
-            return ext in allowed_extensions
+            return any(ext in allowed_extensions for ext in exts)
     return False
 
 
