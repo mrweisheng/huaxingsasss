@@ -60,7 +60,7 @@ def list_payments(
                 item.customer_name = customer.name if customer else None
 
     return PaginatedResponse(
-        items=[PaymentResponse.from_orm(item) for item in items],
+        items=[PaymentResponse.model_validate(item) for item in items],
         pagination=PaginationModel(
             page=page,
             per_page=per_page,

@@ -5,6 +5,7 @@ from typing import Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlalchemy.orm import Session
+import structlog
 
 from app.db.session import get_db
 from app.core.security import (
@@ -18,6 +19,8 @@ from app.models.user import User
 from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse
 from app.api.dependencies import get_current_user
 from app.utils.rate_limiter import login_rate_limiter
+
+logger = structlog.get_logger()
 
 router = APIRouter()
 
@@ -79,42 +82,98 @@ def register(
 @router.post("/login", response_model=TokenResponse)
 async def login(request: Request, login_data: UserLogin, db: Session = Depends(get_db)):
     """用户登录"""
-    # 速率限制（基于客户端IP）
     client_ip = request.client.host if request.client else "unknown"
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         client_ip = forwarded.split(",")[0].strip()
-    await login_rate_limiter.check(f"login:{client_ip}")
+
+    logger.info("login_attempt", username=login_data.username, client_ip=client_ip)
+
+    # 速率限制（基于客户端IP）
+    try:
+        await login_rate_limiter.check(f"login:{client_ip}")
+    except HTTPException:
+        logger.warning("login_rate_limited", username=login_data.username, client_ip=client_ip)
+        raise
 
     # 查找用户
-    user = db.query(User).filter(User.username == login_data.username).first()
-    
-    if not user or not verify_password(login_data.password, user.password_hash):
+    logger.debug("login_query_user", username=login_data.username)
+    try:
+        user = db.query(User).filter(User.username == login_data.username).first()
+    except Exception as e:
+        logger.error("login_db_query_error", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="数据库查询失败，请检查数据库连接"
+        )
+
+    if not user:
+        logger.warning("login_user_not_found", username=login_data.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户名或密码错误",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    
+
+    # 验证密码
+    logger.debug("login_verify_password", username=login_data.username)
+    try:
+        password_valid = verify_password(login_data.password, user.password_hash)
+    except ValueError as e:
+        logger.error("login_password_verify_value_error", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="密码验证服务异常（密码格式错误）"
+        )
+    except Exception as e:
+        logger.error("login_password_verify_error", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="密码验证服务异常"
+        )
+
+    if not password_valid:
+        logger.warning("login_wrong_password", username=login_data.username, user_id=user.id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户名或密码错误",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     if not user.is_active:
+        logger.warning("login_user_disabled", username=login_data.username, user_id=user.id)
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="用户已被禁用"
         )
-    
+
     # 生成token
-    access_token = create_access_token(subject=user.id)
-    refresh_token = create_refresh_token(subject=user.id)
-    
+    logger.debug("login_generating_tokens", username=login_data.username, user_id=user.id)
+    try:
+        access_token = create_access_token(subject=user.id)
+        refresh_token = create_refresh_token(subject=user.id)
+    except Exception as e:
+        logger.error("login_token_generation_error", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="令牌生成失败"
+        )
+
     # 更新最后登录时间
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
-    
+    try:
+        user.last_login_at = datetime.now(timezone.utc)
+        db.commit()
+    except Exception as e:
+        logger.warning("login_update_last_login_failed", error=str(e), exc_info=True)
+        db.rollback()
+
+    logger.info("login_success", username=login_data.username, user_id=user.id, role=user.role)
+
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=3600,
-        user=UserResponse.from_orm(user)
+        user=UserResponse.model_validate(user)
     )
 
 

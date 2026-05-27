@@ -58,7 +58,7 @@ def list_customers(
         .all()
     
     return PaginatedResponse(
-        items=[CustomerResponse.from_orm(item) for item in items],
+        items=[CustomerResponse.model_validate(item) for item in items],
         pagination=PaginationModel(
             page=page,
             per_page=per_page,

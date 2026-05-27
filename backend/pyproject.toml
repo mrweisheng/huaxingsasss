@@ -1,54 +1,53 @@
-[tool.poetry]
+[project]
 name = "contract-management-system"
 version = "0.1.0"
 description = "企业级合同管理与智能客服Agent系统"
-authors = ["Qoder <qoder@huaxing.com>"]
-readme = "README.md"
-package-mode = false
+requires-python = ">=3.12,<3.13"
 
-[tool.poetry.dependencies]
-python = "^3.11"
+dependencies = [
+    # Web框架
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
 
-# Web框架
-fastapi = "^0.109.0"
-uvicorn = {extras = ["standard"], version = "^0.27.0"}
+    # 数据库
+    "sqlalchemy>=2.0.36",
+    "asyncpg>=0.30.0",
+    "alembic>=1.14.0",
+    "psycopg2-binary>=2.9.10",
 
-# 数据库
-sqlalchemy = "^2.0.25"
-asyncpg = "^0.29.0"
-alembic = "^1.13.1"
+    # 认证与安全
+    "python-jose[cryptography]>=3.4.0",
+    "bcrypt>=4.2.0",
+    "python-multipart>=0.0.17",
 
-# 认证与安全
-python-jose = {extras = ["cryptography"], version = "^3.3.0"}
-passlib = {extras = ["bcrypt"], version = "^1.7.4"}
-python-multipart = "^0.0.6"
+    # 异步任务
+    "celery>=5.4.0",
+    "redis>=5.2.0",
 
-# 异步任务
-celery = "^5.3.6"
-redis = "^5.0.1"
+    # HTTP客户端
+    "httpx>=0.28.0",
+    "requests>=2.32.0",
 
-# HTTP客户端
-httpx = "^0.26.0"
-requests = "^2.31.0"
+    # 数据处理
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.6.0",
+    "python-dateutil>=2.9.0",
+    "email-validator>=2.2.0",
 
-# 数据处理
-pydantic = "^2.5.3"
-pydantic-settings = "^2.1.0"
-python-dateutil = "^2.8.2"
+    # 文件处理
+    "python-magic>=0.4.27",
+    "pillow>=11.0.0",
 
-# 文件处理
-python-magic = "^0.4.27"
-Pillow = "^10.2.0"
+    # AI服务
+    "dashscope>=1.25.0",
+    "openai>=1.57.0",
 
-# 日志与监控
-structlog = "^24.1.0"
+    # 日志与监控
+    "structlog>=24.4.0",
 
-# 开发工具
-pytest = "^7.4.4"
-pytest-asyncio = "^0.23.3"
-black = "^24.1.1"
-flake8 = "^7.0.0"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+    # 开发工具
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "black>=24.10.0",
+    "flake8>=7.1.0",
+]

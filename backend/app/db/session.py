@@ -3,7 +3,10 @@
 """
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
+import structlog
 from app.config import settings
+
+logger = structlog.get_logger()
 
 # 创建数据库引擎
 engine = create_engine(
@@ -27,5 +30,8 @@ def get_db():
     db = SessionLocal()
     try:
         yield db
+    except Exception as e:
+        logger.error("database_query_error", error=str(e), exc_info=True)
+        raise
     finally:
         db.close()

@@ -204,7 +204,7 @@ class ContractAgent:
         for r in records:
             if r.role == "user":
                 content = r.question
-                meta = r.metadata or {}
+                meta = r.extra_metadata or {}
                 if meta.get("image_context"):
                     content += f"\n\n[图片分析上下文]\n{meta['image_context']}"
                 messages.append({"role": "user", "content": content})
@@ -216,7 +216,7 @@ class ContractAgent:
             elif r.role == "tool":
                 messages.append({
                     "role": "tool",
-                    "tool_call_id": r.metadata.get("tool_call_id", "") if r.metadata else "",
+                    "tool_call_id": r.extra_metadata.get("tool_call_id", "") if r.extra_metadata else "",
                     "content": r.answer or "",
                 })
 

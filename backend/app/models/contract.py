@@ -1,7 +1,7 @@
 """
 合同模型
 """
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DECIMAL, Date, JSON, Index
+from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DECIMAL, Date, JSON, Index, text
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
@@ -23,19 +23,19 @@ class Contract(BaseModel):
     currency = Column(String(3), nullable=False, default="CNY", comment="合同币种: CNY/HKD/USD")
     total_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="合同总金额")
     paid_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="已付金额")
-    remaining_amount = Column(DECIMAL(15, 2), server_default="total_amount - paid_amount", comment="剩余金额")
+    remaining_amount = Column(DECIMAL(15, 2), comment="剩余金额")
     
     # 折算CNY金额
     total_amount_in_cny = Column(DECIMAL(15, 2), comment="合同总额折算CNY")
     paid_amount_in_cny = Column(DECIMAL(15, 2), default=0, comment="已付金额折算CNY")
-    remaining_amount_in_cny = Column(DECIMAL(15, 2), server_default="COALESCE(total_amount_in_cny, 0) - paid_amount_in_cny", comment="剩余尾款折算CNY")
+    remaining_amount_in_cny = Column(DECIMAL(15, 2), comment="剩余尾款折算CNY")
     
     # 合同文件
     original_file_path = Column(String(500), nullable=False, comment="原始合同文件路径")
     file_hash = Column(String(64), index=True, comment="文件SHA256哈希")
     
     # AI解析的结构化数据
-    contract_data = Column(JSON, nullable=False, server_default="'{}'", comment="AI解析的结构化数据")
+    contract_data = Column(JSON, nullable=False, server_default=text("'{}'::json"), comment="AI解析的结构化数据")
     
     # AI解析元数据
     confidence = Column(DECIMAL(5, 4), comment="AI解析置信度")

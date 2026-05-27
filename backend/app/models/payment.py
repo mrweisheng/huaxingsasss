@@ -1,7 +1,7 @@
 """
 付款模型
 """
-from sqlalchemy import Column, String, Text, Integer, ForeignKey, DECIMAL, Date, Index, UniqueConstraint
+from sqlalchemy import Column, String, Text, Integer, ForeignKey, DECIMAL, Date, Index, UniqueConstraint, text
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
@@ -25,8 +25,8 @@ class Payment(BaseModel):
     
     # 汇率结算
     exchange_rate = Column(DECIMAL(10, 6), comment="使用的汇率")
-    amount_in_cny = Column(DECIMAL(15, 2), server_default="amount * COALESCE(exchange_rate, 1)", comment="折算CNY金额")
-    paid_amount_in_cny = Column(DECIMAL(15, 2), server_default="paid_amount * COALESCE(exchange_rate, 1)", comment="已付折算CNY")
+    amount_in_cny = Column(DECIMAL(15, 2), comment="折算CNY金额")
+    paid_amount_in_cny = Column(DECIMAL(15, 2), comment="已付折算CNY")
     
     # 时间
     due_date = Column(Date, index=True, comment="应付款日期")

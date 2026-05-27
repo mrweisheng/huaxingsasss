@@ -3,6 +3,7 @@
 从环境变量读取配置，提供类型安全的配置访问
 """
 from typing import List, Optional
+from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings
 from pydantic import Field, model_validator
 
@@ -28,19 +29,25 @@ class Settings(BaseSettings):
     
     @property
     def DATABASE_URL(self) -> str:
-        return f"postgresql://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-    
+        password = quote_plus(self.POSTGRES_PASSWORD)
+        return f"postgresql://{self.POSTGRES_USER}:{password}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+
     @property
     def ASYNC_DATABASE_URL(self) -> str:
-        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{self.POSTGRES_PASSWORD}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
+        password = quote_plus(self.POSTGRES_PASSWORD)
+        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{password}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
     
     # Redis配置
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
     REDIS_DB: int = 0
-    
+    REDIS_PASSWORD: str = ""
+
     @property
     def REDIS_URL(self) -> str:
+        if self.REDIS_PASSWORD:
+            password = quote_plus(self.REDIS_PASSWORD)
+            return f"redis://:{password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
     
     # Celery配置

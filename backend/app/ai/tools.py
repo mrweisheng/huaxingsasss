@@ -512,7 +512,7 @@ TOOL_DEFINITIONS = [
                         "enum": ["pending", "partial", "paid", "overdue", "cancelled"],
                         "description": "付款状态筛选",
                     },
-                    "overdue_only": {"type": "boolean", "description": "只返回逾期付款", "default": false},
+                    "overdue_only": {"type": "boolean", "description": "只返回逾期付款", "default": False},
                     "page": {"type": "integer", "default": 1},
                     "per_page": {"type": "integer", "default": 20},
                 },

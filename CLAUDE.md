@@ -12,31 +12,35 @@ Monorepo 结构：`backend/` (FastAPI) + `frontend/` (React/TypeScript)。
 
 ### Backend
 
+使用 [UV](https://docs.astral.sh/uv/) 管理依赖，无需手动激活虚拟环境，所有命令前缀 `uv run`。
+
 ```bash
 cd backend
 
 # 安装依赖
-poetry install
-
-# 确保 PostgreSQL 和 Redis 已启动（系统服务方式）
-# systemctl start postgresql redis
-
-# 数据库迁移
-cd migrations && alembic upgrade head
-
-# 创建新迁移
-cd migrations && alembic revision --autogenerate -m "description"
+uv sync
 
 # 启动开发服务器（热重载）
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+
+# 启动生产服务器
+uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 
 # 启动 Celery Worker（另开终端）
-celery -A app.tasks.celery_app worker --loglevel=info
+uv run celery -A app.tasks.celery_app worker --loglevel=info
+
+# 数据库迁移
+uv run alembic -c migrations/alembic.ini upgrade head
+
+# 创建新迁移
+uv run alembic -c migrations/alembic.ini revision --autogenerate -m "description"
 
 # 运行测试
-pytest
-pytest tests/test_auth.py -k "test_login"  # 单个测试
+uv run pytest
+uv run pytest tests/test_auth.py -k "test_login"  # 单个测试
 ```
+
+镜像源已配置为阿里云（`pyproject.toml` → `[tool.uv]`）。
 
 ### Frontend
 

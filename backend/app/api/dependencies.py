@@ -5,21 +5,33 @@ from typing import Optional
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
+import structlog
 
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.db.session import get_db
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+logger = structlog.get_logger()
+
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
 
 def get_current_user(
-    token: str = Depends(oauth2_scheme),
+    token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db)
 ) -> User:
     """获取当前用户"""
+    if not token:
+        logger.warning("auth_missing_token")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="未提供认证令牌",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
     payload = decode_access_token(token)
     if not payload:
+        logger.warning("auth_invalid_token")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的认证令牌",
@@ -28,14 +40,32 @@ def get_current_user(
 
     user_id = payload.get("sub")
     if not user_id:
+        logger.warning("auth_token_missing_subject")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="无效的认证令牌",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
-    user = db.query(User).filter(User.id == int(user_id)).first()
-    if not user or not user.is_active:
+    try:
+        user = db.query(User).filter(User.id == int(user_id)).first()
+    except Exception as e:
+        logger.error("auth_db_query_error", error=str(e), user_id=user_id, exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="数据库查询失败"
+        )
+
+    if not user:
+        logger.warning("auth_user_not_found", user_id=user_id)
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="用户不存在或已禁用",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if not user.is_active:
+        logger.warning("auth_user_disabled", user_id=user_id, username=user.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在或已禁用",

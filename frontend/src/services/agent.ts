@@ -1,27 +1,67 @@
-import api from './api'
+import api, { API_BASE_URL } from './api'
 import type { ChatSession, ChatMessage, UploadResult } from '../types/agent'
 
 const API_BASE = '/agent'
 
+// api.ts 响应拦截器已解包 response.data，返回的即 body 对象 { code, data }
+type ApiBody<T> = { code: number; data: T }
+
+/** 后端 snake_case → 前端 camelCase */
+function mapSession(raw: any): ChatSession {
+  return {
+    sessionId: raw.session_id,
+    createdAt: raw.created_at ?? null,
+    messageCount: raw.message_count ?? 0,
+    title: raw.title ?? null,
+  }
+}
+
+function mapMessage(raw: any): ChatMessage {
+  return {
+    id: raw.id,
+    sessionId: raw.session_id ?? '',
+    role: raw.role,
+    content: raw.content ?? '',
+    toolCalls: raw.tool_calls ?? undefined,
+    intentType: raw.intent_type ?? undefined,
+    createdAt: raw.created_at ?? '',
+  }
+}
+
+function mapUploadResult(raw: any): UploadResult {
+  return {
+    fileId: raw.file_id,
+    fileName: raw.file_name ?? '',
+    fileSize: raw.file_size ?? 0,
+  }
+}
+
 export const agentApi = {
-  createSession: (): Promise<{ code: number; data: ChatSession }> =>
-    api.post(`${API_BASE}/sessions`),
+  createSession: async (): Promise<ApiBody<ChatSession>> => {
+    const body: any = await api.post(`${API_BASE}/sessions`)
+    return { code: body.code, data: mapSession(body.data) }
+  },
 
-  listSessions: (): Promise<{ code: number; data: ChatSession[] }> =>
-    api.get(`${API_BASE}/sessions`),
+  listSessions: async (): Promise<ApiBody<ChatSession[]>> => {
+    const body: any = await api.get(`${API_BASE}/sessions`)
+    return { code: body.code, data: (body.data || []).map(mapSession) }
+  },
 
-  deleteSession: (sessionId: string): Promise<{ code: number; data: null }> =>
+  deleteSession: (sessionId: string): Promise<any> =>
     api.delete(`${API_BASE}/sessions/${sessionId}`),
 
-  getHistory: (sessionId: string): Promise<{ code: number; data: ChatMessage[] }> =>
-    api.get(`${API_BASE}/history/${sessionId}`),
+  getHistory: async (sessionId: string): Promise<ApiBody<ChatMessage[]>> => {
+    const body: any = await api.get(`${API_BASE}/history/${sessionId}`)
+    return { code: body.code, data: (body.data || []).map(mapMessage) }
+  },
 
-  uploadFile: async (file: File): Promise<{ code: number; data: UploadResult }> => {
+  uploadFile: async (file: File): Promise<ApiBody<UploadResult>> => {
     const formData = new FormData()
     formData.append('file', file)
-    return api.post(`${API_BASE}/upload`, formData, {
+    const body: any = await api.post(`${API_BASE}/upload`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
+    return { code: body.code, data: mapUploadResult(body.data) }
   },
 
   /**
@@ -34,9 +74,8 @@ export const agentApi = {
     attachments?: { file_id: string; file_type: string }[],
   ): Promise<Response> => {
     const token = localStorage.getItem('access_token')
-    const baseUrl = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
-    return fetch(`${baseUrl}${API_BASE}/chat`, {
+    return fetch(`${API_BASE_URL}${API_BASE}/chat`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

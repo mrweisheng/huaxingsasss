@@ -51,7 +51,7 @@ def list_contracts(
     )
     
     return PaginatedResponse(
-        items=[ContractResponse.from_orm(item) for item in items],
+        items=[ContractResponse.model_validate(item) for item in items],
         pagination=PaginationModel(
             page=page,
             per_page=per_page,

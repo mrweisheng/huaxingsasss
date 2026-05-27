@@ -1,6 +1,6 @@
 import axios from 'axios'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
+export const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '/api/v1'
 
 const api = axios.create({
   baseURL: API_BASE_URL,
@@ -37,6 +37,11 @@ const processQueue = (token: string | null, error: unknown = null) => {
 
 function isAuthEndpoint(url: string): boolean {
   return url.includes('/auth/login') || url.includes('/auth/refresh')
+}
+
+interface RefreshTokenResponse {
+  access_token: string
+  expires_in: number
 }
 
 // 响应拦截器 - 401时自动尝试刷新token（含递归保护）
@@ -76,10 +81,11 @@ api.interceptors.response.use(
       isRefreshing = true
 
       try {
-        const response = await axios.post(`${API_BASE_URL}/auth/refresh`, {
+        const response = await api.post<RefreshTokenResponse>('/auth/refresh', {
           refresh_token: refreshToken,
         })
-        const newToken = response.data.access_token
+        // @ts-expect-error: 响应拦截器已解包 response.data，返回 body 本身
+        const newToken = response.access_token
         localStorage.setItem('access_token', newToken)
         processQueue(newToken)
         originalRequest.headers.Authorization = `Bearer ${newToken}`

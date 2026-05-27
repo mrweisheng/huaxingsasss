@@ -2,9 +2,12 @@
 基于 Redis 的速率限制器
 """
 import time
+import structlog
 from typing import Optional
 from fastapi import HTTPException, Request
 from app.config import settings
+
+logger = structlog.get_logger()
 
 
 class RateLimiter:
@@ -28,7 +31,8 @@ class RateLimiter:
                     decode_responses=True
                 )
                 self._redis_client.ping()
-            except Exception:
+            except Exception as e:
+                logger.warning("rate_limiter_redis_unavailable", error=str(e))
                 self._redis_client = None  # Redis 不可用时回退到内存存储
 
     async def check(self, key: str) -> None:

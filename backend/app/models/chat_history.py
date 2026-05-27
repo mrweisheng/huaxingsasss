@@ -23,7 +23,7 @@ class ChatHistory(BaseModel):
     tokens_used = Column(Integer, comment="消耗的token数")
     confidence = Column(DECIMAL(5, 4), comment="回答置信度")
     tool_calls = Column(JSON, comment="LLM工具调用数组")
-    metadata = Column(JSON, comment="附加元数据")
+    extra_metadata = Column("metadata", JSON, comment="附加元数据")
 
     # 索引
     __table_args__ = (
