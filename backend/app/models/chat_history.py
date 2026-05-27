@@ -7,12 +7,13 @@ from app.models.base import BaseModel
 
 class ChatHistory(BaseModel):
     """对话历史表"""
-    
+
     __tablename__ = "chat_history"
-    
+
     user_id = Column(Integer, ForeignKey("users.id"), index=True, comment="用户ID")
     session_id = Column(String(100), index=True, comment="会话ID")
-    question = Column(Text, nullable=False, comment="用户问题")
+    role = Column(String(20), nullable=False, default="user", comment="角色: user/assistant/tool/system")
+    question = Column(Text, nullable=False, default="", comment="用户问题")
     answer = Column(Text, comment="AI回答")
     context_contracts = Column(JSON, comment="参考的合同ID列表")
     intent_type = Column(String(50), comment="意图类型")
@@ -21,7 +22,9 @@ class ChatHistory(BaseModel):
     llm_model = Column(String(50), comment="使用的模型")
     tokens_used = Column(Integer, comment="消耗的token数")
     confidence = Column(DECIMAL(5, 4), comment="回答置信度")
-    
+    tool_calls = Column(JSON, comment="LLM工具调用数组")
+    metadata = Column(JSON, comment="附加元数据")
+
     # 索引
     __table_args__ = (
         Index("idx_chat_user", "user_id"),

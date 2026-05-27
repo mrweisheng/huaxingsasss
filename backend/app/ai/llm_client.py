@@ -1,10 +1,10 @@
 """
-LLM客户端 - SiliconFlow Qwen-VL集成
+LLM客户端 - SiliconFlow Qwen-VL + DeepSeek Agent
 """
 import base64
 import json
 import re
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, AsyncGenerator, List
 import httpx
 from app.config import settings
 
@@ -225,4 +225,196 @@ class SiliconFlowClient:
             "answer": answer,
             "tokens_used": result.get("usage", {}).get("total_tokens", 0),
             "confidence": 0.9
+        }
+
+
+class DeepSeekClient:
+    """DeepSeek API客户端，支持流式输出和函数调用"""
+
+    def __init__(self):
+        self.api_key = settings.DEEPSEEK_API_KEY
+        self.base_url = settings.DEEPSEEK_BASE_URL
+        self.model = settings.DEEPSEEK_AGENT_MODEL
+
+    async def chat_completion_stream(
+        self,
+        messages: List[dict],
+        tools: Optional[List[dict]] = None,
+        temperature: float = 0.3,
+        max_tokens: int = 4096,
+    ) -> AsyncGenerator[dict, None]:
+        """
+        流式调用 DeepSeek API，支持函数调用。
+        逐个 yield 解析后的 SSE 事件。
+
+        Yields:
+            {"type": "text", "content": "..."} — 文本增量
+            {"type": "tool_call", "id": "...", "name": "...", "arguments": "..."} — 工具调用
+            {"type": "done", "finish_reason": "..."} — 完成
+        """
+        payload: dict = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens,
+            "stream": True,
+        }
+        if tools:
+            payload["tools"] = tools
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            async with client.stream(
+                "POST",
+                f"{self.base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+            ) as response:
+                if response.status_code != 200:
+                    error_body = await response.aread()
+                    raise Exception(f"DeepSeek API error {response.status_code}: {error_body.decode()}")
+
+                current_tool_calls: dict = {}
+
+                async for line in response.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    data = line[6:]
+                    if data == "[DONE]":
+                        # flush remaining tool calls
+                        for tc in current_tool_calls.values():
+                            yield {
+                                "type": "tool_call",
+                                "id": tc["id"],
+                                "name": tc["name"],
+                                "arguments": tc.get("arguments", ""),
+                            }
+                        yield {"type": "done", "finish_reason": "stop"}
+                        return
+
+                    try:
+                        chunk = json.loads(data)
+                    except json.JSONDecodeError:
+                        continue
+
+                    delta = chunk.get("choices", [{}])[0].get("delta", {})
+                    finish_reason = chunk.get("choices", [{}])[0].get("finish_reason")
+
+                    # 文本内容
+                    content = delta.get("content")
+                    if content:
+                        yield {"type": "text", "content": content}
+
+                    # 工具调用（增量）
+                    tool_calls = delta.get("tool_calls")
+                    if tool_calls:
+                        for tc in tool_calls:
+                            idx = tc.get("index", 0)
+                            if idx not in current_tool_calls:
+                                current_tool_calls[idx] = {
+                                    "id": tc.get("id", ""),
+                                    "name": tc.get("function", {}).get("name", ""),
+                                    "arguments": "",
+                                }
+                            if tc.get("id"):
+                                current_tool_calls[idx]["id"] = tc["id"]
+                            fn = tc.get("function", {})
+                            if fn.get("name"):
+                                current_tool_calls[idx]["name"] = fn["name"]
+                            if fn.get("arguments"):
+                                current_tool_calls[idx]["arguments"] += fn["arguments"]
+
+                    # usage 信息（流式模式下最后的 chunk 可能包含）
+                    usage = chunk.get("usage")
+                    if usage:
+                        yield {
+                            "type": "usage",
+                            "prompt_tokens": usage.get("prompt_tokens", 0),
+                            "completion_tokens": usage.get("completion_tokens", 0),
+                            "total_tokens": usage.get("total_tokens", 0),
+                        }
+
+                    # finish
+                    if finish_reason == "tool_calls":
+                        for tc in current_tool_calls.values():
+                            yield {
+                                "type": "tool_call",
+                                "id": tc["id"],
+                                "name": tc["name"],
+                                "arguments": tc.get("arguments", ""),
+                            }
+                        current_tool_calls = {}
+                        yield {"type": "done", "finish_reason": "tool_calls"}
+                        return
+
+                    if finish_reason == "stop":
+                        for tc in current_tool_calls.values():
+                            yield {
+                                "type": "tool_call",
+                                "id": tc["id"],
+                                "name": tc["name"],
+                                "arguments": tc.get("arguments", ""),
+                            }
+                        yield {"type": "done", "finish_reason": "stop"}
+                        return
+
+    async def analyze_image_with_vl(
+        self,
+        image_path: str,
+        prompt: str,
+    ) -> Dict[str, Any]:
+        """使用 SiliconFlow VL 模型分析图片（复用现有 SiliconFlow 配置）"""
+        sf_client = SiliconFlowClient()
+
+        with open(image_path, "rb") as f:
+            image_base64 = base64.b64encode(f.read()).decode()
+
+        payload = {
+            "model": sf_client.vision_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                        },
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+            "temperature": 0.1,
+            "max_tokens": 4096,
+        }
+
+        headers = {
+            "Authorization": f"Bearer {sf_client.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            response = await client.post(
+                f"{sf_client.base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+
+        if response.status_code != 200:
+            raise Exception(f"VL API error: {response.text}")
+
+        result = response.json()
+        content = result["choices"][0]["message"]["content"]
+
+        try:
+            structured_data = json.loads(content)
+        except json.JSONDecodeError:
+            structured_data = sf_client._extract_json_from_text(content)
+
+        return {
+            "data": structured_data,
+            "tokens_used": result.get("usage", {}).get("total_tokens", 0),
         }

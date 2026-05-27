@@ -53,10 +53,16 @@ class Settings(BaseSettings):
     SILICONFLOW_VISION_MODEL: str = "Qwen/Qwen3-VL-32B-Instruct"
     SILICONFLOW_TEXT_MODEL: str = "Qwen/Qwen3-VL-8B-Instruct"
     
-    # DeepSeek备用配置
+    # DeepSeek配置（Agent智能体模型）
     DEEPSEEK_API_KEY: Optional[str] = None
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
     DEEPSEEK_MODEL: str = "deepseek-chat"
+    DEEPSEEK_AGENT_MODEL: str = "deepseek-chat"
+
+    # Agent配置
+    AGENT_MAX_ITERATIONS: int = 8
+    AGENT_HISTORY_WINDOW: int = 20
+    AGENT_MAX_SUMMARY_MESSAGES: int = 10
     
     # 文件存储配置
     UPLOAD_DIR: str = "/data/contract-system"

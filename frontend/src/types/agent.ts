@@ -1,0 +1,44 @@
+/**
+ * Agent 智能助手相关类型定义
+ */
+
+export interface AttachmentItem {
+  fileId: string
+  fileType: 'image' | 'pdf'
+  fileName?: string
+}
+
+export interface ToolCall {
+  id: string
+  name: string
+  arguments: string
+  result?: string
+}
+
+export interface ChatMessage {
+  id: number
+  sessionId: string
+  role: 'user' | 'assistant' | 'tool' | 'system'
+  content: string
+  toolCalls?: ToolCall[]
+  intentType?: string
+  createdAt: string
+}
+
+export interface ChatSession {
+  sessionId: string
+  createdAt: string | null
+  messageCount: number
+  title: string | null
+}
+
+export interface SSEEvent {
+  event: 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'done' | 'error'
+  data: Record<string, any>
+}
+
+export interface UploadResult {
+  fileId: string
+  fileName: string
+  fileSize: number
+}
