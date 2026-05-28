@@ -74,7 +74,15 @@ async def chat(
     """SSE 流式对话"""
     question = request.question or ""
     if not question.strip() and request.attachments:
-        question = "请分析这张图片"
+        # 根据附件类型动态生成默认提示词
+        has_pdf = any(a.file_type == "pdf" for a in request.attachments)
+        has_image = any(a.file_type in ("image", "receipt") for a in request.attachments)
+        if has_pdf and has_image:
+            question = "请分析上传的文件（含 PDF 和图片）"
+        elif has_pdf:
+            question = "请分析上传的 PDF 文件内容"
+        else:
+            question = "请分析上传的图片内容"
 
     agent = ContractAgent(db, current_user)
 

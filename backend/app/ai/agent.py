@@ -164,27 +164,88 @@ class ContractAgent:
         }
 
     async def _process_attachments(self, attachments: List[dict]) -> str:
-        """处理图片附件，返回分析结果的文本描述"""
+        """处理附件（图片或 PDF），返回分析结果的文本描述"""
         results = []
         for att in attachments:
             file_id = att.get("file_id", "")
-            analysis_type = att.get("file_type", "receipt")
+            file_type = att.get("file_type", "image")
 
             file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
             if not os.path.exists(file_path):
                 results.append(f"文件 {file_id} 不存在")
                 continue
 
-            prompt = RECEIPT_ANALYSIS_PROMPT if analysis_type == "receipt" else CONTRACT_ANALYSIS_PROMPT
-
-            try:
-                analysis = await self.llm.analyze_image_with_vl(file_path, prompt)
-                results.append(f"图片分析结果: {json.dumps(analysis.get('data', {}), ensure_ascii=False)}")
-            except Exception as e:
-                logger.exception("Image analysis failed")
-                results.append(f"图片分析失败: {str(e)}")
+            if file_type == "pdf":
+                result = await self._process_pdf(file_path)
+                results.append(result)
+            else:
+                prompt = RECEIPT_ANALYSIS_PROMPT if file_type == "receipt" else CONTRACT_ANALYSIS_PROMPT
+                try:
+                    analysis = await self.llm.analyze_image_with_vl(file_path, prompt)
+                    results.append(f"图片分析结果: {json.dumps(analysis.get('data', {}), ensure_ascii=False)}")
+                except Exception as e:
+                    logger.exception("Image analysis failed")
+                    results.append(f"图片分析失败: {str(e)}")
 
         return "\n".join(results)
+
+    async def _process_pdf(self, file_path: str) -> str:
+        """处理 PDF 文件：先尝试提取文本，文本量少则渲染页面为图片送 VL 分析"""
+        try:
+            import fitz
+        except ImportError:
+            return "PDF 分析功能不可用（缺少 PyMuPDF 依赖）"
+
+        try:
+            doc = fitz.open(file_path)
+        except Exception:
+            return f"PDF 文件无法解析"
+
+        num_pages = len(doc)
+
+        # Step 1: 尝试提取文本
+        all_text = ""
+        for page_num in range(num_pages):
+            page = doc[page_num]
+            text = page.get_text()
+            if text.strip():
+                all_text += f"\n--- 第{page_num + 1}/{num_pages}页 ---\n{text.strip()}"
+
+        # 文本量充足（>100字符），直接返回文本
+        if len(all_text.strip()) >= 100:
+            doc.close()
+            return f"PDF 文本提取成功（共{num_pages}页）：{all_text}"
+
+        # Step 2: 文本量不足 → 判为扫描件，逐页渲染为图片送 VL 分析
+        logger.info("PDF text too short (%d chars), rendering pages as images", len(all_text.strip()))
+
+        page_results = []
+        for page_num in range(num_pages):
+            page = doc[page_num]
+            pix = page.get_pixmap(dpi=200)
+            img_bytes = pix.tobytes("png")
+
+            tmp_path = os.path.join(settings.TEMP_UPLOAD_DIR, f"{uuid.uuid4()}.png")
+            try:
+                with open(tmp_path, "wb") as f:
+                    f.write(img_bytes)
+
+                analysis = await self.llm.analyze_image_with_vl(tmp_path, CONTRACT_ANALYSIS_PROMPT)
+                page_results.append(
+                    f"第{page_num + 1}/{num_pages}页: {json.dumps(analysis.get('data', {}), ensure_ascii=False)}"
+                )
+            except Exception as e:
+                logger.exception("PDF page %d analysis failed", page_num)
+                page_results.append(f"第{page_num + 1}/{num_pages}页分析失败: {str(e)}")
+            finally:
+                if os.path.exists(tmp_path):
+                    os.unlink(tmp_path)
+
+        doc.close()
+
+        if len(page_results) == 1:
+            return page_results[0]
+        return f"PDF 共有 {num_pages} 页，逐页分析结果：\n" + "\n".join(page_results)
 
     def _load_history(self, session_id: str) -> List[dict]:
         """从数据库加载对话历史"""

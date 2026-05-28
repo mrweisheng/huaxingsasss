@@ -7,6 +7,7 @@ import {
   Avatar,
   Tag,
   Upload,
+  Badge,
   message,
   Empty,
   Spin,
@@ -213,7 +214,7 @@ export default function AgentChat() {
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+      if (e.key === 'Enter' && !e.shiftKey) {
         e.preventDefault()
         handleSend()
       }
@@ -305,23 +306,65 @@ export default function AgentChat() {
         <div
           style={{
             padding: '8px 24px',
-            background: '#fff',
-            borderTop: '1px solid #f0f0f0',
+            background: '#fffbf0',
+            borderTop: '1px solid #ffe58f',
             display: 'flex',
             gap: 8,
             flexWrap: 'wrap',
+            alignItems: 'center',
           }}
         >
-          {pendingFiles.map((f, i) => (
-            <Tag
-              key={i}
-              closable
-              onClose={() => removePendingFile(i)}
-              color="blue"
-            >
-              <PaperClipOutlined /> {f.name}
-            </Tag>
-          ))}
+          <span style={{ fontSize: 12, color: '#d48806', marginRight: 4, whiteSpace: 'nowrap' }}>
+            待发送 ({pendingFiles.length})
+          </span>
+          {pendingFiles.map((f, i) =>
+            f.type.startsWith('image/') ? (
+              <span
+                key={i}
+                style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                onClick={() => removePendingFile(i)}
+              >
+                <img
+                  src={URL.createObjectURL(f)}
+                  alt={f.name}
+                  style={{
+                    height: 48,
+                    width: 48,
+                    borderRadius: 6,
+                    objectFit: 'cover',
+                    border: '1px solid #d9d9d9',
+                  }}
+                />
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: -6,
+                    right: -6,
+                    background: '#ff4d4f',
+                    color: '#fff',
+                    borderRadius: '50%',
+                    width: 16,
+                    height: 16,
+                    fontSize: 10,
+                    lineHeight: '16px',
+                    textAlign: 'center',
+                  }}
+                >
+                  ×
+                </span>
+              </span>
+            ) : (
+              <Tag
+                key={i}
+                closable
+                onClose={() => removePendingFile(i)}
+                color="orange"
+                style={{ margin: 0 }}
+              >
+                <PaperClipOutlined /> {f.name}
+              </Tag>
+            )
+          )}
         </div>
       )}
 
@@ -336,18 +379,20 @@ export default function AgentChat() {
           alignItems: 'flex-end',
         }}
       >
-        <Upload
-          beforeUpload={handleFileSelect}
-          showUploadList={false}
-          accept="image/*,.pdf"
-        >
-          <Button icon={<PaperClipOutlined />} disabled={isStreaming} />
-        </Upload>
+        <Badge count={pendingFiles.length} size="small" offset={[-8, 8]}>
+          <Upload
+            beforeUpload={handleFileSelect}
+            showUploadList={false}
+            accept="image/*,.pdf"
+          >
+            <Button icon={<PaperClipOutlined />} disabled={isStreaming} />
+          </Upload>
+        </Badge>
         <Input.TextArea
           value={inputText}
           onChange={(e) => setInputText(e.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="输入消息... (Ctrl+Enter 发送)"
+          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
           autoSize={{ minRows: 1, maxRows: 4 }}
           disabled={isStreaming}
           style={{ flex: 1 }}
