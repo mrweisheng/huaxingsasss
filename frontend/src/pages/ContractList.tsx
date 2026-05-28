@@ -23,8 +23,9 @@ const currencySymbol: Record<string, string> = {
   USD: '$',
 }
 
-function formatAmount(amount: number, currency: string): string {
+function formatAmount(amount: number | null | undefined, currency: string): string {
   const symbol = currencySymbol[currency] || '¥'
+  if (amount == null) return `${symbol}--`
   return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
