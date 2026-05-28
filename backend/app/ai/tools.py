@@ -345,25 +345,95 @@ class ToolExecutor:
 
         return json.dumps({"contracts": results, "total": len(results)}, ensure_ascii=False)
 
-    # ── 图片分析工具 ──
+    # ── 文件分析工具 ──
+
+    @staticmethod
+    def _detect_image_mime(header: bytes) -> str:
+        """读取文件头判断图片 MIME 类型"""
+        if header[:4] == b"\x89PNG":
+            return "image/png"
+        if header[:3] == b"\xff\xd8\xff":
+            return "image/jpeg"
+        if header[:4] == b"GIF8":
+            return "image/gif"
+        if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
+            return "image/webp"
+        if header[:2] == b"BM":
+            return "image/bmp"
+        return ""  # 不是已知图片格式
+
+    def _extract_text_sync(self, file_path: str) -> str:
+        """同步提取 Word/文本文件内容"""
+        # 先尝试 Word
+        try:
+            from docx import Document
+            doc = Document(file_path)
+            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+            if paragraphs:
+                return "Word 文档内容:\n" + "\n".join(paragraphs)[:10000]
+        except ImportError:
+            pass
+        except Exception:
+            pass
+
+        # 再尝试纯文本（多种编码）
+        for encoding in ("utf-8", "gbk", "gb2312", "utf-16"):
+            try:
+                with open(file_path, "r", encoding=encoding) as f:
+                    text = f.read(20000)
+                return "文件内容:\n" + text[:10000]
+            except (UnicodeDecodeError, UnicodeError):
+                continue
+        return ""
+
+    def _extract_excel_sync(self, file_path: str) -> str:
+        """同步提取 Excel 表格数据"""
+        try:
+            import openpyxl
+            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+            rows = []
+            for sheet_name in wb.sheetnames:
+                ws = wb[sheet_name]
+                rows.append(f"[工作表: {sheet_name}]")
+                count = 0
+                for row in ws.iter_rows():
+                    vals = [str(c.value) if c.value is not None else "" for c in row]
+                    line = "\t".join(vals)
+                    if line.strip():
+                        rows.append(line)
+                        count += 1
+                    if count >= 200:
+                        rows.append(f"... (仅前 200 行)")
+                        break
+            wb.close()
+            return "Excel 表格数据:\n" + "\n".join(rows)[:10000]
+        except ImportError:
+            return ""
+        except Exception:
+            return ".xls 旧格式不受支持，请转换为 .xlsx"
 
     def analyze_image(self, file_id: str, analysis_type: str = "receipt") -> str:
-        """使用 SiliconFlow VL 模型分析图片，同步调用"""
+        """分析上传的文件（图片/PDF/Word/Excel/文本），同步调用"""
         file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
         if not os.path.exists(file_path):
             return json.dumps({"error": f"文件不存在: {file_id}"}, ensure_ascii=False)
 
-        if analysis_type == "receipt":
-            prompt = RECEIPT_ANALYSIS_PROMPT
-        elif analysis_type == "contract":
-            prompt = CONTRACT_ANALYSIS_PROMPT
-        else:
-            prompt = RECEIPT_ANALYSIS_PROMPT
+        # 1) 读取文件头判断是否为图片
+        with open(file_path, "rb") as f:
+            header = f.read(12)
+            f.seek(0)
+            file_bytes = f.read()
 
-        try:
-            with open(file_path, "rb") as f:
-                image_base64 = base64.b64encode(f.read()).decode()
+        mime = self._detect_image_mime(header)
 
+        if mime:
+            # 是图片 → VL 模型分析
+            prompt = {
+                "receipt": RECEIPT_ANALYSIS_PROMPT,
+                "contract": CONTRACT_ANALYSIS_PROMPT,
+            }.get(analysis_type, RECEIPT_ANALYSIS_PROMPT)
+
+            image_base64 = base64.b64encode(file_bytes).decode()
             payload = {
                 "model": settings.SILICONFLOW_VISION_MODEL,
                 "messages": [
@@ -372,7 +442,7 @@ class ToolExecutor:
                         "content": [
                             {
                                 "type": "image_url",
-                                "image_url": {"url": f"data:image/jpeg;base64,{image_base64}"},
+                                "image_url": {"url": f"data:{mime};base64,{image_base64}"},
                             },
                             {"type": "text", "text": prompt},
                         ],
@@ -387,33 +457,95 @@ class ToolExecutor:
                 "Content-Type": "application/json",
             }
 
-            with httpx.Client(timeout=60.0) as client:
-                response = client.post(
-                    f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
-                    json=payload,
-                    headers=headers,
-                )
-
-            if response.status_code != 200:
-                return json.dumps({"error": f"VL API 错误: {response.text}"}, ensure_ascii=False)
-
-            result = response.json()
-            content = result["choices"][0]["message"]["content"]
-
             try:
-                structured = json.loads(content)
-            except json.JSONDecodeError:
-                structured = {"raw": content}
+                with httpx.Client(timeout=60.0) as client:
+                    response = client.post(
+                        f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    )
+                if response.status_code != 200:
+                    return json.dumps({"error": f"VL API 错误: {response.text}"}, ensure_ascii=False)
 
-            return json.dumps({
-                "success": True,
-                "data": structured,
-                "analysis_type": analysis_type,
-            }, ensure_ascii=False)
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+                try:
+                    structured = json.loads(content)
+                except json.JSONDecodeError:
+                    structured = {"raw": content}
 
-        except Exception as e:
-            logger.exception("analyze_image failed")
-            return json.dumps({"error": f"图片分析失败: {str(e)}"}, ensure_ascii=False)
+                return json.dumps({
+                    "success": True,
+                    "data": structured,
+                    "file_type": "image",
+                    "analysis_type": analysis_type,
+                }, ensure_ascii=False)
+            except Exception as e:
+                logger.exception("analyze_image VL call failed")
+                return json.dumps({"error": f"图片分析失败: {str(e)}"}, ensure_ascii=False)
+
+        # 2) 不是图片 → 尝试 PDF 解析
+        if header[:4] == b"%PDF":
+            try:
+                import fitz
+                doc = fitz.open(file_path)
+                pages_text = []
+                for page_num in range(len(doc)):
+                    page = doc[page_num]
+                    text = page.get_text()
+                    if text.strip():
+                        pages_text.append(f"第{page_num + 1}页:\n{text.strip()}")
+                    else:
+                        # 扫描页 → 渲染为图片并用 VL 分析
+                        pix = page.get_pixmap(dpi=200)
+                        img_bytes = pix.tobytes("png")
+                        img_b64 = base64.b64encode(img_bytes).decode()
+                        prompt = CONTRACT_ANALYSIS_PROMPT if analysis_type == "contract" else RECEIPT_ANALYSIS_PROMPT
+
+                        payload = {
+                            "model": settings.SILICONFLOW_VISION_MODEL,
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                                        {"type": "text", "text": prompt},
+                                    ],
+                                }
+                            ],
+                            "temperature": 0.1,
+                            "max_tokens": 4096,
+                        }
+                        headers = {
+                            "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                            "Content-Type": "application/json",
+                        }
+                        with httpx.Client(timeout=60.0) as client:
+                            resp = client.post(f"{settings.SILICONFLOW_BASE_URL}/chat/completions", json=payload, headers=headers)
+                        if resp.status_code == 200:
+                            content = resp.json()["choices"][0]["message"]["content"]
+                            pages_text.append(f"第{page_num + 1}页(扫描): {content[:500]}")
+                        else:
+                            pages_text.append(f"第{page_num + 1}页分析失败")
+                doc.close()
+                result = "\n".join(pages_text)
+                return json.dumps({"success": True, "data": {"content": result[:5000]}, "file_type": "pdf"}, ensure_ascii=False)
+            except ImportError:
+                return json.dumps({"error": "PDF 分析不可用（缺少 PyMuPDF）"}, ensure_ascii=False)
+            except Exception as e:
+                return json.dumps({"error": f"PDF 分析失败: {str(e)}"}, ensure_ascii=False)
+
+        # 3) 尝试 Word / 文本
+        text_result = self._extract_text_sync(file_path)
+        if text_result:
+            return json.dumps({"success": True, "data": {"content": text_result}, "file_type": "document"}, ensure_ascii=False)
+
+        # 4) 尝试 Excel
+        excel_result = self._extract_excel_sync(file_path)
+        if excel_result:
+            return json.dumps({"success": True, "data": {"content": excel_result}, "file_type": "excel"}, ensure_ascii=False)
+
+        return json.dumps({"error": "无法识别的文件类型，支持：图片、PDF、Word、Excel、文本"}, ensure_ascii=False)
 
     def execute(self, tool_name: str, arguments: dict) -> str:
         """统一执行入口"""
@@ -595,7 +727,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "analyze_image",
-            "description": "分析上传的图片（凭证、合同、截图）。图片需先通过聊天上传接口上传。返回提取的结构化信息。",
+            "description": "分析上传的文件（支持图片、PDF、Word、Excel、文本文件）。图片/扫描件通过视觉模型提取信息，文档类提取文字内容。文件需先通过聊天上传接口上传。",
             "parameters": {
                 "type": "object",
                 "required": ["file_id", "analysis_type"],
@@ -604,7 +736,7 @@ TOOL_DEFINITIONS = [
                     "analysis_type": {
                         "type": "string",
                         "enum": ["receipt", "contract", "general"],
-                        "description": "分析类型",
+                        "description": "分析类型（图片/扫描件适用）",
                     },
                 },
             },

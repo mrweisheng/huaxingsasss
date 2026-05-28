@@ -26,6 +26,10 @@ import {
   ToolOutlined,
   CheckCircleOutlined,
   LoadingOutlined,
+  FilePdfOutlined,
+  FileWordOutlined,
+  FileExcelOutlined,
+  FileTextOutlined,
 } from '@ant-design/icons'
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage, ToolCall } from '@/types/agent'
@@ -42,7 +46,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_payment_summary: '付款汇总',
   get_overdue_payments: '逾期查询',
   get_expiring_contracts: '到期合同',
-  analyze_image: '图片分析',
+  analyze_image: '文件分析',
 }
 
 function ToolCallView({ toolCall }: { toolCall: ToolCall }) {
@@ -76,26 +80,32 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           {/* 附件预览 */}
           {msg.attachments && msg.attachments.length > 0 && (
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-              {msg.attachments.map((att, i) =>
-                att.fileType === 'image' && att.preview ? (
-                  <img
-                    key={i}
-                    src={att.preview}
-                    alt={att.fileName || '附件'}
-                    style={{
-                      maxWidth: 200,
-                      maxHeight: 200,
-                      borderRadius: 10,
-                      objectFit: 'cover',
-                      border: '2px solid #1677ff',
-                    }}
-                  />
-                ) : (
-                  <Tag key={i} color="blue">
-                    <PaperClipOutlined /> {att.fileName || 'PDF文件'}
+              {msg.attachments.map((att, i) => {
+                if (att.fileType === 'image' && att.preview) {
+                  return (
+                    <img
+                      key={i}
+                      src={att.preview}
+                      alt={att.fileName || '附件'}
+                      style={{
+                        maxWidth: 200, maxHeight: 200,
+                        borderRadius: 10, objectFit: 'cover',
+                        border: '2px solid #1677ff',
+                      }}
+                    />
+                  )
+                }
+                const fileIcon = att.fileType === 'pdf' ? <FilePdfOutlined />
+                  : att.fileType === 'word' ? <FileWordOutlined />
+                  : att.fileType === 'excel' ? <FileExcelOutlined />
+                  : att.fileType === 'text' ? <FileTextOutlined />
+                  : <PaperClipOutlined />
+                return (
+                  <Tag key={i} color="blue" style={{ margin: 0 }}>
+                    {fileIcon} {att.fileName || '文件'}
                   </Tag>
                 )
-              )}
+              })}
             </div>
           )}
           {/* 文字内容 */}
@@ -317,43 +327,47 @@ export default function AgentChat() {
           <span style={{ fontSize: 12, color: '#d48806', marginRight: 4, whiteSpace: 'nowrap' }}>
             待发送 ({pendingFiles.length})
           </span>
-          {pendingFiles.map((f, i) =>
-            f.type.startsWith('image/') ? (
-              <span
-                key={i}
-                style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
-                onClick={() => removePendingFile(i)}
-              >
-                <img
-                  src={URL.createObjectURL(f)}
-                  alt={f.name}
-                  style={{
-                    height: 48,
-                    width: 48,
-                    borderRadius: 6,
-                    objectFit: 'cover',
-                    border: '1px solid #d9d9d9',
-                  }}
-                />
+          {pendingFiles.map((f, i) => {
+            const name = f.name.toLowerCase()
+            let icon: React.ReactNode
+            let color: string
+            if (f.type.startsWith('image/')) {
+              return (
                 <span
-                  style={{
-                    position: 'absolute',
-                    top: -6,
-                    right: -6,
-                    background: '#ff4d4f',
-                    color: '#fff',
-                    borderRadius: '50%',
-                    width: 16,
-                    height: 16,
-                    fontSize: 10,
-                    lineHeight: '16px',
-                    textAlign: 'center',
-                  }}
+                  key={i}
+                  style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                  onClick={() => removePendingFile(i)}
                 >
-                  ×
+                  <img
+                    src={URL.createObjectURL(f)}
+                    alt={f.name}
+                    style={{
+                      height: 48, width: 48, borderRadius: 6,
+                      objectFit: 'cover', border: '1px solid #d9d9d9',
+                    }}
+                  />
+                  <span style={{
+                    position: 'absolute', top: -6, right: -6,
+                    background: '#ff4d4f', color: '#fff',
+                    borderRadius: '50%', width: 16, height: 16,
+                    fontSize: 10, lineHeight: '16px', textAlign: 'center',
+                  }}>×</span>
                 </span>
-              </span>
-            ) : (
+              )
+            } else if (name.endsWith('.pdf')) {
+              icon = <FilePdfOutlined />
+              color = '#f5222d'
+            } else if (name.endsWith('.docx') || name.endsWith('.doc')) {
+              icon = <FileWordOutlined />
+              color = '#1677ff'
+            } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+              icon = <FileExcelOutlined />
+              color = '#52c41a'
+            } else {
+              icon = <FileTextOutlined />
+              color = '#faad14'
+            }
+            return (
               <Tag
                 key={i}
                 closable
@@ -361,10 +375,10 @@ export default function AgentChat() {
                 color="orange"
                 style={{ margin: 0 }}
               >
-                <PaperClipOutlined /> {f.name}
+                <span style={{ color }}>{icon}</span> {f.name}
               </Tag>
             )
-          )}
+          })}
         </div>
       )}
 
@@ -383,7 +397,7 @@ export default function AgentChat() {
           <Upload
             beforeUpload={handleFileSelect}
             showUploadList={false}
-            accept="image/*,.pdf"
+            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
           >
             <Button icon={<PaperClipOutlined />} disabled={isStreaming} />
           </Upload>

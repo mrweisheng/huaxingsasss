@@ -2,9 +2,11 @@
  * Agent 智能助手相关类型定义
  */
 
+export type FileType = 'image' | 'pdf' | 'word' | 'excel' | 'text'
+
 export interface AttachmentItem {
   fileId: string
-  fileType: 'image' | 'pdf'
+  fileType: FileType
   fileName?: string
   preview?: string // 图片 base64 预览
 }

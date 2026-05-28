@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field
 
 class AttachmentItem(BaseModel):
     file_id: str = Field(..., description="上传接口返回的文件ID")
-    file_type: str = Field("image", description="文件类型: image/pdf")
+    file_type: str = Field("image", description="文件类型: image/pdf/word/excel/text")
 
 
 class ChatRequest(BaseModel):

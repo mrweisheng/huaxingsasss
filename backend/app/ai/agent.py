@@ -56,17 +56,17 @@ class ContractAgent:
         # 保存用户消息
         self._save_message(session_id, "user", user_message, metadata={"attachments": attachments})
 
-        # 处理附件（图片分析）
-        image_context = ""
+        # 处理附件（图片/PDF/文档分析）
+        file_context = ""
         if attachments:
-            image_context = await self._process_attachments(attachments)
-            yield {"event": "thinking", "data": {"message": "图片分析完成"}}
+            file_context = await self._process_attachments(attachments)
+            yield {"event": "thinking", "data": {"message": "文件分析完成"}}
 
         # 加载对话历史
         history = self._load_history(session_id)
 
         # 构建消息
-        messages = self._build_messages(history, user_message, image_context)
+        messages = self._build_messages(history, user_message, file_context)
 
         # ReAct 循环
         total_tokens = 0
@@ -164,7 +164,7 @@ class ContractAgent:
         }
 
     async def _process_attachments(self, attachments: List[dict]) -> str:
-        """处理附件（图片或 PDF），返回分析结果的文本描述"""
+        """处理附件（图片/PDF/Word/Excel/文本），返回分析结果的文本描述"""
         results = []
         for att in attachments:
             file_id = att.get("file_id", "")
@@ -178,7 +178,17 @@ class ContractAgent:
             if file_type == "pdf":
                 result = await self._process_pdf(file_path)
                 results.append(result)
+            elif file_type == "word":
+                text = self._extract_text(file_path, "word")
+                results.append(f"Word 文档内容:\n{text}")
+            elif file_type == "excel":
+                text = self._extract_excel(file_path)
+                results.append(f"Excel 表格数据:\n{text}")
+            elif file_type == "text":
+                text = self._extract_text(file_path, "text")
+                results.append(f"文本文件内容:\n{text}")
             else:
+                # 图片处理（原有逻辑）
                 prompt = RECEIPT_ANALYSIS_PROMPT if file_type == "receipt" else CONTRACT_ANALYSIS_PROMPT
                 try:
                     analysis = await self.llm.analyze_image_with_vl(file_path, prompt)
@@ -188,6 +198,68 @@ class ContractAgent:
                     results.append(f"图片分析失败: {str(e)}")
 
         return "\n".join(results)
+
+    def _extract_text(self, file_path: str, file_type: str) -> str:
+        """提取 Word 文档或纯文本文件内容"""
+        if file_type == "word":
+            try:
+                from docx import Document
+                doc = Document(file_path)
+                paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+                if not paragraphs:
+                    return "Word 文档内容为空或为纯图片文档"
+                text = "\n".join(paragraphs)
+                # 限制长度避免超出 token 限制
+                return text[:10000] if len(text) > 10000 else text
+            except ImportError:
+                return "Word 文档解析不可用（缺少 python-docx 依赖）"
+            except Exception as e:
+                return f"Word 文档解析失败: {str(e)}"
+
+        # 纯文本文件
+        try:
+            for encoding in ("utf-8", "gbk", "gb2312", "utf-16"):
+                try:
+                    with open(file_path, "r", encoding=encoding) as f:
+                        text = f.read(20000)
+                    return text[:10000] if len(text) > 10000 else text
+                except (UnicodeDecodeError, UnicodeError):
+                    continue
+            return "文本文件无法解码（尝试了 utf-8、gbk、gb2312、utf-16）"
+        except Exception as e:
+            return f"文本文件读取失败: {str(e)}"
+
+    def _extract_excel(self, file_path: str) -> str:
+        """提取 Excel 表格数据"""
+        try:
+            import openpyxl
+        except ImportError:
+            return "Excel 解析不可用（缺少 openpyxl 依赖）"
+
+        try:
+            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        except Exception:
+            # .xls 旧格式不支持
+            return "无法解析该 Excel 文件（仅支持 .xlsx 格式，旧版 .xls 请转换为 .xlsx 后重试）"
+
+        rows_text = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows_text.append(f"[工作表: {sheet_name}]")
+            count = 0
+            for row in ws.iter_rows():
+                vals = [str(c.value) if c.value is not None else "" for c in row]
+                line = "\t".join(vals)
+                if line.strip():
+                    rows_text.append(line)
+                    count += 1
+                if count >= 200:  # 最多 200 行
+                    rows_text.append(f"... (仅显示前 200 行，共 {ws.max_row} 行)")
+                    break
+
+        wb.close()
+        text = "\n".join(rows_text)
+        return text[:10000] if len(text) > 10000 else text
 
     async def _process_pdf(self, file_path: str) -> str:
         """处理 PDF 文件：先尝试提取文本，文本量少则渲染页面为图片送 VL 分析"""
@@ -266,8 +338,8 @@ class ContractAgent:
             if r.role == "user":
                 content = r.question
                 meta = r.extra_metadata or {}
-                if meta.get("image_context"):
-                    content += f"\n\n[图片分析上下文]\n{meta['image_context']}"
+                if meta.get("file_context"):
+                    content += f"\n\n[文件分析上下文]\n{meta['file_context']}"
                 messages.append({"role": "user", "content": content})
             elif r.role == "assistant":
                 msg = {"role": "assistant", "content": r.answer}
@@ -287,7 +359,7 @@ class ContractAgent:
         self,
         history: List[dict],
         user_message: str,
-        image_context: str = "",
+        file_context: str = "",
     ) -> List[dict]:
         """构建完整的消息数组"""
         system = {
@@ -305,8 +377,8 @@ class ContractAgent:
         messages.extend(history)
 
         # 如果历史为空或最后一条不是当前消息，添加当前消息
-        if image_context:
-            full_content = f"{user_message}\n\n[图片分析上下文]\n{image_context}"
+        if file_context:
+            full_content = f"{user_message}\n\n[文件分析上下文]\n{file_context}"
         else:
             full_content = user_message
 

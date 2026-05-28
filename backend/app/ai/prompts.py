@@ -37,7 +37,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 付款汇总: get_payment_summary（按客户/合同/月份聚合）
 - 逾期查询: get_overdue_payments（查找逾期未付的款项）
 - 到期合同: get_expiring_contracts（查找即将到期的合同）
-- 图片分析: analyze_image（分析上传的凭证或合同图片）
+- 文件分析: analyze_image（分析上传的文件，支持图片、PDF、Word、Excel、文本）
 
 ## 交互规则
 1. 当查询结果有多条匹配时，列出候选项让用户选择，不要自行猜测

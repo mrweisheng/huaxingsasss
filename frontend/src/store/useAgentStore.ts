@@ -86,9 +86,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       for (const file of attachments) {
         try {
           const res = await agentApi.uploadFile(file)
+          // 根据文件名后缀判断类型（比 MIME 更可靠）
+          const name = file.name.toLowerCase()
+          let fileType: string
+          if (file.type.startsWith('image/')) {
+            fileType = 'image'
+          } else if (name.endsWith('.pdf')) {
+            fileType = 'pdf'
+          } else if (name.endsWith('.docx') || name.endsWith('.doc')) {
+            fileType = 'word'
+          } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+            fileType = 'excel'
+          } else if (name.endsWith('.txt') || name.endsWith('.csv') || name.endsWith('.text')) {
+            fileType = 'text'
+          } else {
+            fileType = 'pdf' // 未知类型默认
+          }
           const item: typeof uploadedAttachments[number] = {
             file_id: res.data.fileId,
-            file_type: file.type.startsWith('image/') ? 'image' : 'pdf',
+            file_type: fileType,
             fileName: file.name,
           }
           // 生成图片预览
