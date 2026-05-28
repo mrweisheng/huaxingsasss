@@ -88,11 +88,33 @@ def health_check():
 @app.on_event("startup")
 async def on_startup():
     """应用启动时的初始化"""
+    # 自动执行数据库迁移
+    _run_migrations()
+
     logger.info(
         "app_starting",
         app_name=settings.APP_NAME,
         env=settings.APP_ENV,
     )
+
+
+def _run_migrations():
+    """启动时自动执行 Alembic 迁移"""
+    import os
+    from alembic.config import Config
+    from alembic import command
+
+    try:
+        alembic_cfg_path = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)),
+            "migrations", "alembic.ini"
+        )
+        alembic_cfg = Config(alembic_cfg_path)
+        command.upgrade(alembic_cfg, "head")
+        logger.info("database_migrations_applied")
+    except Exception as e:
+        logger.error("database_migration_failed", error=str(e))
+        raise
 
 
 @app.on_event("shutdown")
