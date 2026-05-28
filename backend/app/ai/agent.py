@@ -16,6 +16,7 @@ from app.ai.prompts import (
     build_system_prompt,
     RECEIPT_ANALYSIS_PROMPT,
     CONTRACT_ANALYSIS_PROMPT,
+    GENERAL_ANALYSIS_PROMPT,
     SUMMARY_PROMPT,
 )
 from app.ai.tools import ToolExecutor, TOOL_DEFINITIONS
@@ -175,149 +176,24 @@ class ContractAgent:
                 results.append(f"文件 {file_id} 不存在")
                 continue
 
-            if file_type == "pdf":
-                result = await self._process_pdf(file_path)
-                results.append(result)
-            elif file_type == "word":
-                text = self._extract_text(file_path, "word")
-                results.append(f"Word 文档内容:\n{text}")
-            elif file_type == "excel":
-                text = self._extract_excel(file_path)
-                results.append(f"Excel 表格数据:\n{text}")
-            elif file_type == "text":
-                text = self._extract_text(file_path, "text")
-                results.append(f"文本文件内容:\n{text}")
-            else:
-                # 图片处理（原有逻辑）
-                prompt = RECEIPT_ANALYSIS_PROMPT if file_type == "receipt" else CONTRACT_ANALYSIS_PROMPT
-                try:
-                    analysis = await self.llm.analyze_image_with_vl(file_path, prompt)
-                    results.append(f"图片分析结果: {json.dumps(analysis.get('data', {}), ensure_ascii=False)}")
-                except Exception as e:
-                    logger.exception("Image analysis failed")
-                    results.append(f"图片分析失败: {str(e)}")
+            # 统一使用 ToolExecutor.analyze_image 处理所有文件类型
+            # 该方法已内置自动检测文件类型并分别处理的逻辑
+            try:
+                analysis_result = self.executor.analyze_image(file_id, analysis_type="general")
+                parsed = json.loads(analysis_result)
+                if parsed.get("success"):
+                    data = parsed.get("data", {})
+                    file_type_label = parsed.get("file_type", file_type)
+                    results.append(f"[{file_type_label} 文件分析结果] {json.dumps(data, ensure_ascii=False)}")
+                else:
+                    results.append(f"文件分析失败: {parsed.get('error', '未知错误')}")
+            except json.JSONDecodeError:
+                results.append(f"文件分析结果解析失败: {analysis_result[:200]}")
+            except Exception as e:
+                logger.exception("Attachment analysis failed for %s", file_id)
+                results.append(f"文件分析异常: {str(e)}")
 
         return "\n".join(results)
-
-    def _extract_text(self, file_path: str, file_type: str) -> str:
-        """提取 Word 文档或纯文本文件内容"""
-        if file_type == "word":
-            try:
-                from docx import Document
-                doc = Document(file_path)
-                paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-                if not paragraphs:
-                    return "Word 文档内容为空或为纯图片文档"
-                text = "\n".join(paragraphs)
-                # 限制长度避免超出 token 限制
-                return text[:10000] if len(text) > 10000 else text
-            except ImportError:
-                return "Word 文档解析不可用（缺少 python-docx 依赖）"
-            except Exception as e:
-                return f"Word 文档解析失败: {str(e)}"
-
-        # 纯文本文件
-        try:
-            for encoding in ("utf-8", "gbk", "gb2312", "utf-16"):
-                try:
-                    with open(file_path, "r", encoding=encoding) as f:
-                        text = f.read(20000)
-                    return text[:10000] if len(text) > 10000 else text
-                except (UnicodeDecodeError, UnicodeError):
-                    continue
-            return "文本文件无法解码（尝试了 utf-8、gbk、gb2312、utf-16）"
-        except Exception as e:
-            return f"文本文件读取失败: {str(e)}"
-
-    def _extract_excel(self, file_path: str) -> str:
-        """提取 Excel 表格数据"""
-        try:
-            import openpyxl
-        except ImportError:
-            return "Excel 解析不可用（缺少 openpyxl 依赖）"
-
-        try:
-            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-        except Exception:
-            # .xls 旧格式不支持
-            return "无法解析该 Excel 文件（仅支持 .xlsx 格式，旧版 .xls 请转换为 .xlsx 后重试）"
-
-        rows_text = []
-        for sheet_name in wb.sheetnames:
-            ws = wb[sheet_name]
-            rows_text.append(f"[工作表: {sheet_name}]")
-            count = 0
-            for row in ws.iter_rows():
-                vals = [str(c.value) if c.value is not None else "" for c in row]
-                line = "\t".join(vals)
-                if line.strip():
-                    rows_text.append(line)
-                    count += 1
-                if count >= 200:  # 最多 200 行
-                    rows_text.append(f"... (仅显示前 200 行，共 {ws.max_row} 行)")
-                    break
-
-        wb.close()
-        text = "\n".join(rows_text)
-        return text[:10000] if len(text) > 10000 else text
-
-    async def _process_pdf(self, file_path: str) -> str:
-        """处理 PDF 文件：先尝试提取文本，文本量少则渲染页面为图片送 VL 分析"""
-        try:
-            import fitz
-        except ImportError:
-            return "PDF 分析功能不可用（缺少 PyMuPDF 依赖）"
-
-        try:
-            doc = fitz.open(file_path)
-        except Exception:
-            return f"PDF 文件无法解析"
-
-        num_pages = len(doc)
-
-        # Step 1: 尝试提取文本
-        all_text = ""
-        for page_num in range(num_pages):
-            page = doc[page_num]
-            text = page.get_text()
-            if text.strip():
-                all_text += f"\n--- 第{page_num + 1}/{num_pages}页 ---\n{text.strip()}"
-
-        # 文本量充足（>100字符），直接返回文本
-        if len(all_text.strip()) >= 100:
-            doc.close()
-            return f"PDF 文本提取成功（共{num_pages}页）：{all_text}"
-
-        # Step 2: 文本量不足 → 判为扫描件，逐页渲染为图片送 VL 分析
-        logger.info("PDF text too short (%d chars), rendering pages as images", len(all_text.strip()))
-
-        page_results = []
-        for page_num in range(num_pages):
-            page = doc[page_num]
-            pix = page.get_pixmap(dpi=200)
-            img_bytes = pix.tobytes("png")
-
-            tmp_path = os.path.join(settings.TEMP_UPLOAD_DIR, f"{uuid.uuid4()}.png")
-            try:
-                with open(tmp_path, "wb") as f:
-                    f.write(img_bytes)
-
-                analysis = await self.llm.analyze_image_with_vl(tmp_path, CONTRACT_ANALYSIS_PROMPT)
-                page_results.append(
-                    f"第{page_num + 1}/{num_pages}页: {json.dumps(analysis.get('data', {}), ensure_ascii=False)}"
-                )
-            except Exception as e:
-                logger.exception("PDF page %d analysis failed", page_num)
-                page_results.append(f"第{page_num + 1}/{num_pages}页分析失败: {str(e)}")
-            finally:
-                if os.path.exists(tmp_path):
-                    os.unlink(tmp_path)
-
-        doc.close()
-
-        if len(page_results) == 1:
-            return page_results[0]
-        return f"PDF 共有 {num_pages} 页，逐页分析结果：\n" + "\n".join(page_results)
 
     def _load_history(self, session_id: str) -> List[dict]:
         """从数据库加载对话历史"""

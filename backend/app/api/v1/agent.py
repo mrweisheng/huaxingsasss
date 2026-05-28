@@ -76,19 +76,23 @@ async def chat(
     if not question.strip() and request.attachments:
         # 根据附件类型动态生成默认提示词
         types = {a.file_type for a in request.attachments}
+        type_labels = []
         if "image" in types or "receipt" in types:
-            if len(types) > 1:
-                question = "请分析上传的文件（含图片、PDF、文档等）"
-            else:
-                question = "请分析上传的图片内容"
-        elif "pdf" in types:
-            question = "请分析上传的 PDF 文件内容"
-        elif "word" in types:
-            question = "请分析上传的 Word 文档内容"
-        elif "excel" in types:
-            question = "请分析上传的 Excel 表格数据"
-        elif "text" in types:
-            question = "请分析上传的文本文件内容"
+            type_labels.append("图片")
+        if "pdf" in types:
+            type_labels.append("PDF")
+        if "word" in types:
+            type_labels.append("Word 文档")
+        if "excel" in types:
+            type_labels.append("Excel 表格")
+        if "text" in types:
+            type_labels.append("文本文件")
+
+        if len(type_labels) > 1:
+            joined = "、".join(type_labels)
+            question = f"请分析上传的文件（包含{joined}），提取关键信息并总结内容"
+        elif len(type_labels) == 1:
+            question = f"请分析上传的{type_labels[0]}内容，提取关键信息并总结"
         else:
             question = "请分析上传的文件内容"
 

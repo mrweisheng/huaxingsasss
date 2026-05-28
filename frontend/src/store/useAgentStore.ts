@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { agentApi } from '../services/agent'
-import type { ChatSession, ChatMessage, SSEEvent } from '../types/agent'
+import type { ChatSession, ChatMessage, SSEEvent, FileType } from '../types/agent'
 
 interface AgentState {
   sessions: ChatSession[]
@@ -81,14 +81,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
 
     // 上传附件并生成预览
-    const uploadedAttachments: { file_id: string; file_type: string; fileName?: string; preview?: string }[] = []
+    const uploadedAttachments: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
     if (attachments && attachments.length > 0) {
       for (const file of attachments) {
         try {
           const res = await agentApi.uploadFile(file)
           // 根据文件名后缀判断类型（比 MIME 更可靠）
           const name = file.name.toLowerCase()
-          let fileType: string
+          let fileType: FileType
           if (file.type.startsWith('image/')) {
             fileType = 'image'
           } else if (name.endsWith('.pdf')) {
@@ -100,7 +100,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           } else if (name.endsWith('.txt') || name.endsWith('.csv') || name.endsWith('.text')) {
             fileType = 'text'
           } else {
-            fileType = 'pdf' // 未知类型默认
+            fileType = 'image' // 未知类型默认尝试图片分析
           }
           const item: typeof uploadedAttachments[number] = {
             file_id: res.data.fileId,
@@ -131,7 +131,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       content: content,
       attachments: uploadedAttachments.map(a => ({
         fileId: a.file_id,
-        fileType: a.file_type as 'image' | 'pdf',
+        fileType: a.file_type,
         fileName: a.fileName,
         preview: a.preview,
       })),
