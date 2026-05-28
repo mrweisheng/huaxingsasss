@@ -94,24 +94,64 @@ RECEIPT_ANALYSIS_PROMPT = """你是一个专业的凭证识别助手。请分析
 4. 日期必须是YYYY-MM-DD格式"""
 
 
-CONTRACT_ANALYSIS_PROMPT = """你是一个专业的合同信息提取助手。请分析这张合同图片，提取关键信息并返回JSON格式：
+CONTRACT_ANALYSIS_PROMPT = """你是一个专业的合同信息提取助手，专门处理两地车牌指标过户服务相关的合同。请分析这张合同图片，提取关键信息并返回JSON格式：
 
 {
   "contract_number": "合同编号",
   "title": "合同标题",
   "signed_date": "签订日期（YYYY-MM-DD）",
-  "party_a": "甲方名称",
-  "party_b": "乙方名称",
+  "business_type": "业务类型：车辆业务 或 中港牌业务",
+  "business_description": "一句话业务描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌",
+  "party_a": {
+    "name": "甲方名称（通常是公司方）",
+    "contact": "联系方式",
+    "address": "地址"
+  },
+  "party_b": {
+    "name": "乙方姓名（通常是客户）",
+    "id_type": "证件类型",
+    "id_number": "证件号码",
+    "phone": "联系电话"
+  },
+  "vehicle_info": {
+    "plate_number": "车牌号",
+    "vehicle_model": "车型，如丰田阿尔法30系",
+    "registration_number": "登记编号"
+  },
+  "port": "通行口岸（仅中港牌业务，如深圳湾口岸、皇岗口岸）",
+  "service_items": [
+    {
+      "name": "服务项目名称",
+      "description": "描述",
+      "amount": 项目金额
+    }
+  ],
+  "payment_terms": [
+    {
+      "name": "款项名称（如定金/尾款/第一期）",
+      "amount": 金额,
+      "due_date": "应付款日期（YYYY-MM-DD）",
+      "condition": "支付条件"
+    }
+  ],
   "total_amount": 总金额（数字）,
   "currency": "币种（CNY/HKD/USD）",
-  "service_description": "服务内容摘要",
+  "validity_period": {
+    "start_date": "生效日期（YYYY-MM-DD）",
+    "end_date": "到期日期（YYYY-MM-DD）"
+  },
+  "special_terms": ["特殊条款列表"],
   "confidence": 置信度（0-1）
 }
 
 严格要求：
-1. 只返回纯JSON
-2. 无法识别的字段设为null
-3. 金额必须是数字类型"""
+1. 只返回纯JSON，不要包含markdown格式
+2. 无法识别的字段设为null，数组字段设为空数组[]
+3. 金额必须是数字类型
+4. 日期必须是YYYY-MM-DD格式
+5. business_type判断规则：涉及购车/卖车为"车辆业务"，涉及车牌办理/过户/新办为"中港牌业务"
+6. business_description要具体，提取车型、口岸等关键信息
+7. vehicle_info仅当合同中明确提及车辆信息时填写"""
 
 
 GENERAL_ANALYSIS_PROMPT = """你是一个专业的文档分析助手。请分析这份文件的内容，提取关键信息并以清晰的结构返回。

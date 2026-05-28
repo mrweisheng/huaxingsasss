@@ -52,6 +52,29 @@ def parse_contract_task(self, contract_id: int, file_path: str):
             except (ValueError, TypeError):
                 pass
 
+        if "business_type" in parsed_data:
+            contract.business_type = parsed_data["business_type"]
+
+        if "business_description" in parsed_data:
+            contract.business_description = parsed_data["business_description"]
+
+        validity = parsed_data.get("validity_period")
+        if isinstance(validity, dict):
+            if validity.get("start_date"):
+                try:
+                    contract.start_date = date.fromisoformat(validity["start_date"])
+                except (ValueError, TypeError):
+                    pass
+            if validity.get("end_date"):
+                try:
+                    contract.end_date = date.fromisoformat(validity["end_date"])
+                except (ValueError, TypeError):
+                    pass
+
+        # 同步重算 remaining_amount
+        if contract.total_amount and contract.paid_amount is not None:
+            contract.remaining_amount = contract.total_amount - contract.paid_amount
+
         # 根据置信度设置状态
         if confidence >= 0.85:
             contract.status = "active"

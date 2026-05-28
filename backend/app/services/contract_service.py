@@ -123,6 +123,8 @@ class ContractService:
         contract = Contract(
             contract_number=contract_data.contract_number,
             title=contract_data.title,
+            business_type=contract_data.business_type,
+            business_description=contract_data.business_description,
             customer_id=contract_data.customer_id,
             sales_person_id=sales_person_id,
             currency=contract_data.currency,
@@ -207,12 +209,32 @@ class ContractService:
         # 从解析数据中提取关键字段
         if 'total_amount' in contract_data:
             contract.total_amount = Decimal(str(contract_data['total_amount']))
+            contract.remaining_amount = contract.total_amount - contract.paid_amount
         
         if 'signed_date' in contract_data:
             try:
                 contract.signed_date = date.fromisoformat(contract_data['signed_date'])
             except (ValueError, TypeError):
                 pass
+
+        if 'business_type' in contract_data:
+            contract.business_type = contract_data['business_type']
+
+        if 'business_description' in contract_data:
+            contract.business_description = contract_data['business_description']
+
+        validity = contract_data.get('validity_period')
+        if isinstance(validity, dict):
+            if validity.get('start_date'):
+                try:
+                    contract.start_date = date.fromisoformat(validity['start_date'])
+                except (ValueError, TypeError):
+                    pass
+            if validity.get('end_date'):
+                try:
+                    contract.end_date = date.fromisoformat(validity['end_date'])
+                except (ValueError, TypeError):
+                    pass
         
         # 根据置信度设置状态
         if confidence >= 0.85:

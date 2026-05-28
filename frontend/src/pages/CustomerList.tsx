@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Button, Input, Space } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Table, Button, Input, Space, Popconfirm, message } from 'antd'
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { customerApi } from '@/services/customer'
 import type { Customer } from '@/types'
 
@@ -47,6 +47,16 @@ export default function CustomerList() {
     setPage(1)
   }
 
+  const handleDelete = async (id: number) => {
+    try {
+      await customerApi.delete(id)
+      message.success('删除成功')
+      loadCustomers()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '删除失败')
+    }
+  }
+
   const columns = [
     { title: '客户名称', dataIndex: 'name', key: 'name' },
     { title: '联系人', dataIndex: 'contact_person', key: 'contact_person' },
@@ -56,11 +66,25 @@ export default function CustomerList() {
     {
       title: '操作',
       key: 'action',
-      width: 90,
+      width: 130,
       render: (_: any, record: Customer) => (
-        <Button type="link" size="small" onClick={() => navigate(`/customers/${record.id}`)}>
-          详情
-        </Button>
+        <Space size="small">
+          <Button type="link" size="small" onClick={() => navigate(`/customers/${record.id}`)}>
+            详情
+          </Button>
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除客户「${record.name}」吗？`}
+            onConfirm={() => handleDelete(record.id)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]

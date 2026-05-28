@@ -14,6 +14,8 @@ class Contract(BaseModel):
     # 合同基本信息
     contract_number = Column(String(50), unique=True, nullable=False, index=True, comment="合同编号")
     title = Column(String(500), comment="合同标题")
+    business_type = Column(String(50), index=True, comment="业务类型: 车辆业务/中港牌业务")
+    business_description = Column(String(200), comment="业务描述")
     
     # 关联关系
     customer_id = Column(Integer, ForeignKey("customers.id", ondelete="RESTRICT"), index=True, comment="客户ID（可为空，解析后关联）")

@@ -96,12 +96,14 @@ class SiliconFlowClient:
     def _build_contract_extraction_prompt(self) -> str:
         """构建合同解析Prompt"""
         return """
-你是一个专业的合同信息提取助手。请仔细分析这张合同图片，提取以下关键信息并以严格的JSON格式返回：
+你是一个专业的合同信息提取助手，专门处理两地车牌指标过户服务相关的合同。请仔细分析这张合同图片，提取以下关键信息并以严格的JSON格式返回：
 
 {
   "contract_number": "合同编号（字符串）",
   "title": "合同标题（字符串）",
   "signed_date": "签订日期（YYYY-MM-DD格式）",
+  "business_type": "业务类型：车辆业务 或 中港牌业务",
+  "business_description": "一句话业务描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌",
   "party_a": {
     "name": "甲方名称（字符串）",
     "contact": "联系方式（字符串）",
@@ -111,32 +113,48 @@ class SiliconFlowClient:
     "name": "乙方姓名（字符串）",
     "id_type": "证件类型（字符串）",
     "id_number": "证件号码（字符串）",
+    "phone": "联系电话（字符串）",
     "address": "地址（字符串，如无则为null）"
   },
-  "service_content": {
-    "description": "服务内容描述（字符串）",
-    "license_plate": "车牌号（字符串，如无则为null）",
-    "port": "通行口岸（字符串，如无则为null）"
+  "vehicle_info": {
+    "plate_number": "车牌号（字符串，如无则为null）",
+    "vehicle_model": "车型，如丰田阿尔法30系（字符串，如无则为null）",
+    "registration_number": "登记编号（字符串，如无则为null）"
   },
+  "port": "通行口岸，如深圳湾口岸、皇岗口岸（仅中港牌业务，如无则为null）",
+  "service_items": [
+    {
+      "name": "服务项目名称",
+      "description": "描述",
+      "amount": 项目金额（数字）
+    }
+  ],
   "payment_terms": [
     {
-      "type": "款项类型（deposit/final/installment）",
-      "name": "款项名称（字符串）",
+      "name": "款项名称（如定金/尾款/第一期）",
       "amount": 金额（数字类型）,
-      "condition": "支付条件（字符串）",
-      "due_date": "应付款日期（YYYY-MM-DD格式，如无则为null）"
+      "due_date": "应付款日期（YYYY-MM-DD格式，如无则为null）",
+      "condition": "支付条件"
     }
   ],
   "total_amount": 合同总金额（数字类型）,
-  "currency": "币种（CNY/HKD/USD）"
+  "currency": "币种（CNY/HKD/USD）",
+  "validity_period": {
+    "start_date": "生效日期（YYYY-MM-DD格式，如无则为null）",
+    "end_date": "到期日期（YYYY-MM-DD格式，如无则为null）"
+  },
+  "special_terms": ["特殊条款列表"],
+  "confidence": 置信度（0-1之间的数字）
 }
 
 严格要求：
 1. 只返回纯JSON，不要包含markdown格式或其他文字说明
-2. 如果某个字段无法识别，设为null
+2. 如果某个字段无法识别，设为null，数组字段设为空数组[]
 3. 金额统一转换为数字类型
 4. 日期统一为YYYY-MM-DD格式
-5. 确保JSON格式合法
+5. business_type判断规则：涉及购车/卖车为"车辆业务"，涉及车牌办理/过户/新办为"中港牌业务"
+6. business_description要具体，提取车型、口岸等关键信息
+7. 确保JSON格式合法
         """.strip()
     
     def _extract_json_from_text(self, text: str) -> Dict[str, Any]:

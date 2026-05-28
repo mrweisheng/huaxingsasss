@@ -27,6 +27,8 @@ export interface Contract {
   id: number
   contract_number: string
   title?: string
+  business_type?: string
+  business_description?: string
   customer_id: number
   customer_name?: string
   sales_person_id: number

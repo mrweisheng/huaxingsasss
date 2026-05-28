@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Button, Input, Space, Tag, Select, DatePicker } from 'antd'
-import { PlusOutlined } from '@ant-design/icons'
+import { Table, Button, Input, Space, Tag, Select, DatePicker, Popconfirm, message } from 'antd'
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
@@ -21,6 +21,11 @@ const currencySymbol: Record<string, string> = {
   CNY: '¥',
   HKD: 'HK$',
   USD: '$',
+}
+
+const businessTypeColor: Record<string, string> = {
+  '车辆业务': 'blue',
+  '中港牌业务': 'green',
 }
 
 function formatAmount(amount: number | null | undefined, currency: string): string {
@@ -89,10 +94,35 @@ export default function ContractList() {
     setPage(1)
   }
 
+  const handleDelete = async (id: number) => {
+    try {
+      await contractApi.delete(id)
+      message.success('删除成功')
+      loadContracts()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '删除失败')
+    }
+  }
+
   const columns = [
     { title: '合同编号', dataIndex: 'contract_number', key: 'contract_number', width: 180 },
     { title: '客户名称', dataIndex: 'customer_name', key: 'customer_name', render: (v: string) => v || '-' },
     { title: '合同标题', dataIndex: 'title', key: 'title', ellipsis: true },
+    {
+      title: '业务类型',
+      dataIndex: 'business_type',
+      key: 'business_type',
+      width: 100,
+      render: (v: string) => v ? <Tag color={businessTypeColor[v] || 'default'}>{v}</Tag> : '-',
+    },
+    {
+      title: '业务摘要',
+      dataIndex: 'business_description',
+      key: 'business_description',
+      width: 160,
+      ellipsis: true,
+      render: (v: string) => v || '-',
+    },
     { title: '币种', dataIndex: 'currency', key: 'currency', width: 70 },
     {
       title: '总金额',
@@ -139,11 +169,25 @@ export default function ContractList() {
     {
       title: '操作',
       key: 'action',
-      width: 90,
+      width: 130,
       render: (_: any, record: Contract) => (
-        <Button type="link" size="small" onClick={() => navigate(`/contracts/${record.id}`)}>
-          详情
-        </Button>
+        <Space size="small">
+          <Button type="link" size="small" onClick={() => navigate(`/contracts/${record.id}`)}>
+            详情
+          </Button>
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除合同 ${record.contract_number} 吗？`}
+            onConfirm={() => handleDelete(record.id)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]
@@ -185,7 +229,7 @@ export default function ContractList() {
         dataSource={contracts}
         loading={loading}
         rowKey="id"
-        scroll={{ x: 1200 }}
+        scroll={{ x: 1500 }}
         pagination={{ current: page, pageSize: 20, total, onChange: setPage, showTotal: (t) => `共 ${t} 条` }}
       />
     </div>

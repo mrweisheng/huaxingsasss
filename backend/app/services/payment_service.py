@@ -72,6 +72,8 @@ class PaymentService:
                 contract.paid_amount += (amount_in_cny / contract_rate).quantize(Decimal('0.01'))
 
         contract.paid_amount_in_cny = (contract.paid_amount_in_cny or 0) + amount_in_cny
+        contract.remaining_amount = contract.total_amount - contract.paid_amount
+        contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
 
         if contract.paid_amount_in_cny and contract.total_amount_in_cny and contract.paid_amount_in_cny >= contract.total_amount_in_cny:
             contract.status = 'completed'

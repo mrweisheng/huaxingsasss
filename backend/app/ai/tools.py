@@ -49,6 +49,8 @@ class ToolExecutor:
             "id": c.id,
             "contract_number": c.contract_number,
             "title": c.title,
+            "business_type": c.business_type,
+            "business_description": c.business_description,
             "customer_name": c.customer.name if c.customer else None,
             "currency": c.currency,
             "total_amount": float(c.total_amount) if c.total_amount else 0,
@@ -346,6 +348,8 @@ class ToolExecutor:
             contract_create = ContractCreate(
                 contract_number=contract_number,
                 title=kwargs.get("title"),
+                business_type=kwargs.get("business_type"),
+                business_description=kwargs.get("business_description"),
                 customer_id=customer_id,
                 currency=kwargs.get("currency", "CNY"),
                 total_amount=Decimal(str(kwargs.get("total_amount", 0))),
@@ -365,6 +369,7 @@ class ToolExecutor:
                 "source": "agent",
                 "file_id": file_id,
                 "business_type": kwargs.get("business_type"),
+                "business_description": kwargs.get("business_description"),
                 **(contract_data_raw if isinstance(contract_data_raw, dict) else {}),
             }
             self.db.commit()
@@ -867,7 +872,8 @@ TOOL_DEFINITIONS = [
                     "total_amount": {"type": "number", "description": "合同总金额"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "币种，默认CNY"},
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
-                    "business_type": {"type": "string", "description": "业务类型，如：买港车、办两地牌"},
+                    "business_type": {"type": "string", "enum": ["车辆业务", "中港牌业务"], "description": "业务大类：车辆业务（买车卖车）或中港牌业务（办理中港车牌）"},
+                    "business_description": {"type": "string", "description": "业务具体描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌"},
                 },
             },
         },

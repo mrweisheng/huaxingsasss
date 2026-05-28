@@ -9,9 +9,11 @@ from decimal import Decimal
 
 class ContractBase(BaseModel):
     """合同基础模型"""
-    
+
     contract_number: str = Field(..., max_length=50, description="合同编号")
     title: Optional[str] = Field(None, max_length=500, description="合同标题")
+    business_type: Optional[str] = Field(None, max_length=50, description="业务类型: 车辆业务/中港牌业务")
+    business_description: Optional[str] = Field(None, max_length=200, description="业务描述")
     currency: str = Field(default="CNY", description="合同币种")
     total_amount: Decimal = Field(..., ge=0, description="合同总金额")
     signed_date: Optional[date] = Field(None, description="签订日期")
@@ -30,8 +32,10 @@ class ContractCreate(ContractBase):
 
 class ContractUpdate(BaseModel):
     """更新合同"""
-    
+
     title: Optional[str] = Field(None, max_length=500)
+    business_type: Optional[str] = Field(None, max_length=50, description="业务类型")
+    business_description: Optional[str] = Field(None, max_length=200, description="业务描述")
     status: Optional[str] = Field(None, description="状态")
     signed_date: Optional[date] = None
     start_date: Optional[date] = None
