@@ -7,11 +7,17 @@ from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.exchange_rate import ExchangeRate
+from app.config import settings
 
 
 class ExchangeRateService:
     """汇率管理服务"""
-    
+
+    FALLBACK_RATES = {
+        ("HKD", "CNY"): Decimal(str(getattr(settings, "DEFAULT_EXCHANGE_RATE_HKD_CNY", "0.92"))),
+        ("USD", "CNY"): Decimal(str(getattr(settings, "DEFAULT_EXCHANGE_RATE_USD_CNY", "7.25"))),
+    }
+
     @staticmethod
     def get_exchange_rate(
         db: Session,
@@ -28,13 +34,20 @@ class ExchangeRateService:
             rate_date: 汇率日期
 
         Returns:
-            汇率值 Decimal，如果找不到则返回 None
+            汇率值 Decimal，如果找不到则返回配置中的默认值
         """
         if from_currency == to_currency:
             return Decimal('1.0')
 
         record = ExchangeRateService._query_rate_record(db, from_currency, to_currency, rate_date)
-        return record.rate if record else None
+        if record:
+            return record.rate
+
+        fallback = ExchangeRateService.FALLBACK_RATES.get((from_currency.upper(), to_currency.upper()))
+        if fallback:
+            return fallback
+
+        return None
 
     @staticmethod
     def get_exchange_rate_record(

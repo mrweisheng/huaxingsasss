@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.tasks.contract_tasks",
         "app.tasks.receipt_ocr_tasks",
         "app.tasks.cleanup_tasks",
+        "app.tasks.exchange_rate_tasks",
     ],
 )
 
@@ -37,5 +38,9 @@ celery_app.conf.beat_schedule = {
         "task": "app.tasks.cleanup_tasks.cleanup_temp_files",
         "schedule": crontab(minute=0, hour=3),  # 每天凌晨3点
         "args": (24,),
+    },
+    "sync-daily-exchange-rates": {
+        "task": "app.tasks.exchange_rate_tasks.sync_daily_rates",
+        "schedule": crontab(minute=30, hour=0),  # 每天凌晨0:30
     },
 }

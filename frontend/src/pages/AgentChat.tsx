@@ -32,6 +32,8 @@ import {
 } from '@ant-design/icons'
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage, ToolCall } from '@/types/agent'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 
 const { Text } = Typography
 
@@ -60,6 +62,109 @@ function ToolCallView({ toolCall }: { toolCall: ToolCall }) {
     >
       <ToolOutlined /> {label}
     </Tag>
+  )
+}
+
+/** Markdown 渲染组件 */
+function MarkdownRenderer({ content }: { content: string }) {
+  return (
+    <div className="markdown-content">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // 表格样式
+          table: ({ children }) => (
+            <table style={{
+              width: '100%',
+              borderCollapse: 'collapse',
+              margin: '8px 0',
+              fontSize: 13,
+            }}>
+              {children}
+            </table>
+          ),
+          thead: ({ children }) => (
+            <thead style={{ background: '#f0f5ff' }}>
+              {children}
+            </thead>
+          ),
+          th: ({ children }) => (
+            <th style={{
+              border: '1px solid #d9d9d9',
+              padding: '6px 10px',
+              textAlign: 'left',
+              fontWeight: 600,
+              color: '#333',
+            }}>
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td style={{
+              border: '1px solid #d9d9d9',
+              padding: '6px 10px',
+              color: '#555',
+            }}>
+              {children}
+            </td>
+          ),
+          // 加粗文字
+          strong: ({ children }) => (
+            <strong style={{ color: '#1677ff' }}>
+              {children}
+            </strong>
+          ),
+          // 段落
+          p: ({ children }) => (
+            <p style={{ margin: '6px 0' }}>
+              {children}
+            </p>
+          ),
+          // 有序/无序列表
+          ol: ({ children }) => (
+            <ol style={{ margin: '6px 0', paddingLeft: 20 }}>
+              {children}
+            </ol>
+          ),
+          ul: ({ children }) => (
+            <ul style={{ margin: '6px 0', paddingLeft: 20 }}>
+              {children}
+            </ul>
+          ),
+          li: ({ children }) => (
+            <li style={{ margin: '4px 0' }}>
+              {children}
+            </li>
+          ),
+          // 代码块
+          code: ({ inline, children }: any) =>
+            inline ? (
+              <code style={{
+                background: '#f0f0f0',
+                padding: '2px 6px',
+                borderRadius: 4,
+                fontSize: 12,
+                color: '#eb2f96',
+              }}>
+                {children}
+              </code>
+            ) : (
+              <pre style={{
+                background: '#f5f5f5',
+                padding: 12,
+                borderRadius: 6,
+                overflow: 'auto',
+                fontSize: 12,
+                margin: '8px 0',
+              }}>
+                <code>{children}</code>
+              </pre>
+            ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
   )
 }
 
@@ -153,11 +258,10 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
                 background: '#f5f5f5',
                 padding: '10px 16px',
                 borderRadius: '12px 12px 12px 2px',
-                whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word',
               }}
             >
-              {msg.content}
+              <MarkdownRenderer content={msg.content} />
             </div>
           ) : msg.toolCalls?.length ? (
             <Spin size="small" />
