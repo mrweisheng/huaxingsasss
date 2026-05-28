@@ -54,16 +54,18 @@ class ContractAgent:
         if not session_id:
             session_id = str(uuid.uuid4())
 
-        # 保存用户消息
-        self._save_message(session_id, "user", user_message, metadata={"attachments": attachments})
-
-        # 处理附件（图片/PDF/文档分析）
+        # 先处理附件，再保存消息（确保 file_context 写入数据库）
         file_context = ""
         if attachments:
             file_context = await self._process_attachments(attachments)
             yield {"event": "thinking", "data": {"message": "文件分析完成"}}
 
-        # 加载对话历史
+        self._save_message(session_id, "user", user_message, metadata={
+            "attachments": attachments,
+            "file_context": file_context,
+        })
+
+        # 加载对话历史（当前用户消息已含 file_context）
         history = self._load_history(session_id)
 
         # 构建消息
@@ -166,21 +168,42 @@ class ContractAgent:
 
     async def _process_attachments(self, attachments: List[dict]) -> str:
         """处理附件（图片/PDF/Word/Excel/文本），返回分析结果的文本描述"""
+        logger.info("[PROCESS_ATTACHMENTS] 开始处理 %d 个附件", len(attachments))
         results = []
-        for att in attachments:
+        for i, att in enumerate(attachments):
             file_id = att.get("file_id", "")
             file_type = att.get("file_type", "image")
 
+            logger.info("[PROCESS_ATTACHMENTS] 处理附件[%d]: file_id=%s, file_type=%s", i, file_id, file_type)
+
             file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
-            if not os.path.exists(file_path):
+            logger.info("[PROCESS_ATTACHMENTS]   文件路径: %s", file_path)
+            logger.info("[PROCESS_ATTACHMENTS]   文件存在: %s", os.path.exists(file_path))
+
+            if os.path.exists(file_path):
+                try:
+                    size = os.path.getsize(file_path)
+                    logger.info("[PROCESS_ATTACHMENTS]   文件大小: %d bytes", size)
+                except Exception as e:
+                    logger.warning("[PROCESS_ATTACHMENTS]   获取文件大小失败: %s", e)
+            else:
+                logger.warning("[PROCESS_ATTACHMENTS]   文件不存在! TEMP_UPLOAD_DIR=%s", settings.TEMP_UPLOAD_DIR)
+                # 列出临时目录内容帮助调试
+                try:
+                    files = os.listdir(settings.TEMP_UPLOAD_DIR)
+                    logger.info("[PROCESS_ATTACHMENTS]   临时目录内容: %s", files)
+                except Exception:
+                    pass
                 results.append(f"文件 {file_id} 不存在")
                 continue
 
             # 统一使用 ToolExecutor.analyze_image 处理所有文件类型
-            # 该方法已内置自动检测文件类型并分别处理的逻辑
             try:
+                logger.info("[PROCESS_ATTACHMENTS]   调用 analyze_image(file_id=%s, analysis_type=general)", file_id)
                 analysis_result = self.executor.analyze_image(file_id, analysis_type="general")
+                logger.info("[PROCESS_ATTACHMENTS]   analyze_image 返回长度: %d", len(analysis_result))
                 parsed = json.loads(analysis_result)
+                logger.info("[PROCESS_ATTACHMENTS]   解析结果: success=%s, keys=%s", parsed.get("success"), list(parsed.keys()))
                 if parsed.get("success"):
                     data = parsed.get("data", {})
                     file_type_label = parsed.get("file_type", file_type)
@@ -188,11 +211,13 @@ class ContractAgent:
                 else:
                     results.append(f"文件分析失败: {parsed.get('error', '未知错误')}")
             except json.JSONDecodeError:
+                logger.warning("[PROCESS_ATTACHMENTS]   JSON 解析失败: %s", analysis_result[:200])
                 results.append(f"文件分析结果解析失败: {analysis_result[:200]}")
             except Exception as e:
-                logger.exception("Attachment analysis failed for %s", file_id)
+                logger.exception("[PROCESS_ATTACHMENTS] 附件分析异常 file_id=%s", file_id)
                 results.append(f"文件分析异常: {str(e)}")
 
+        logger.info("[PROCESS_ATTACHMENTS] 处理完成，返回 %d 条结果", len(results))
         return "\n".join(results)
 
     def _load_history(self, session_id: str) -> List[dict]:
@@ -260,6 +285,10 @@ class ContractAgent:
 
         if not history or history[-1].get("role") != "user":
             messages.append({"role": "user", "content": full_content})
+        elif file_context:
+            # 当前用户消息已在历史中（_save_message 先于 _process_attachments），
+            # 但不含 file_context，需要追加
+            messages[-1]["content"] += f"\n\n[文件分析上下文]\n{file_context}"
 
         return messages
 

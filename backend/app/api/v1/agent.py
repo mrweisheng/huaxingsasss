@@ -72,6 +72,21 @@ async def chat(
     db: Session = Depends(get_db),
 ):
     """SSE 流式对话"""
+    # ===== 调试日志 =====
+    logger.info("=" * 60)
+    logger.info("[AGENT CHAT] 收到聊天请求")
+    logger.info("[AGENT CHAT] user: %s", current_user.username)
+    logger.info("[AGENT CHAT] session_id: %s", request.session_id)
+    logger.info("[AGENT CHAT] question: %s", request.question or "(空)")
+    logger.info("[AGENT CHAT] attachments: %s", request.attachments)
+    if request.attachments:
+        for i, att in enumerate(request.attachments):
+            logger.info("[AGENT CHAT]   attachment[%d]: file_id=%s, file_type=%s", i, att.file_id, att.file_type)
+    else:
+        logger.info("[AGENT CHAT]   attachments: None (请求中没有 attachments 字段)")
+    logger.info("=" * 60)
+    # ====================
+
     question = request.question or ""
     if not question.strip() and request.attachments:
         # 根据附件类型动态生成默认提示词
