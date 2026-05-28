@@ -53,7 +53,7 @@ export default function Layout() {
             <LogoutOutlined /> 退出登录
           </a>
         </Header>
-        <Content style={{ margin: '24px 16px', padding: 24, background: '#fff' }}>
+        <Content style={{ margin: '24px 16px', padding: 24, background: '#fff', overflow: 'auto' }}>
           <Outlet />
         </Content>
       </AntLayout>

@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import {
-  Card,
   Input,
   Button,
   Drawer,
@@ -27,11 +26,10 @@ import {
   CheckCircleOutlined,
   LoadingOutlined,
 } from '@ant-design/icons'
-import type { UploadFile } from 'antd'
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage, ToolCall } from '@/types/agent'
 
-const { Text, Paragraph } = Typography
+const { Text } = Typography
 
 const TOOL_LABELS: Record<string, string> = {
   search_customers: '搜索客户',
@@ -68,15 +66,52 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
         <div
           style={{
             maxWidth: '70%',
-            background: '#1677ff',
-            color: '#fff',
-            padding: '10px 16px',
-            borderRadius: '12px 12px 2px 12px',
-            whiteSpace: 'pre-wrap',
-            wordBreak: 'break-word',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-end',
+            gap: 6,
           }}
         >
-          {msg.content}
+          {/* 附件预览 */}
+          {msg.attachments && msg.attachments.length > 0 && (
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {msg.attachments.map((att, i) =>
+                att.fileType === 'image' && att.preview ? (
+                  <img
+                    key={i}
+                    src={att.preview}
+                    alt={att.fileName || '附件'}
+                    style={{
+                      maxWidth: 200,
+                      maxHeight: 200,
+                      borderRadius: 10,
+                      objectFit: 'cover',
+                      border: '2px solid #1677ff',
+                    }}
+                  />
+                ) : (
+                  <Tag key={i} color="blue">
+                    <PaperClipOutlined /> {att.fileName || 'PDF文件'}
+                  </Tag>
+                )
+              )}
+            </div>
+          )}
+          {/* 文字内容 */}
+          {msg.content ? (
+            <div
+              style={{
+                background: '#1677ff',
+                color: '#fff',
+                padding: '10px 16px',
+                borderRadius: '12px 12px 2px 12px',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+              }}
+            >
+              {msg.content}
+            </div>
+          ) : null}
         </div>
         <Avatar
           icon={<UserOutlined />}
@@ -200,7 +235,7 @@ export default function AgentChat() {
   }, [])
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 120px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 160px)' }}>
       {/* 顶部工具栏 */}
       <div
         style={{
@@ -364,8 +399,7 @@ export default function AgentChat() {
                 <Popconfirm
                   key="delete"
                   title="确定删除此会话？"
-                  onConfirm={(e) => {
-                    e?.stopPropagation()
+                  onConfirm={() => {
                     deleteSession(session.sessionId)
                   }}
                 >

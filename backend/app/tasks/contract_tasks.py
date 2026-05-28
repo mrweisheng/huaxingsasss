@@ -1,6 +1,7 @@
 """
 合同解析异步任务
 """
+import asyncio
 from celery import current_task
 from app.tasks.celery_app import celery_app
 from app.ai.llm_client import SiliconFlowClient
@@ -30,7 +31,7 @@ def parse_contract_task(self, contract_id: int, file_path: str):
         current_task.update_state(state="PROCESSING", meta={"progress": 60})
 
         client = SiliconFlowClient()
-        result = client.parse_contract_image(file_path)
+        result = asyncio.run(client.parse_contract_image(file_path))
 
         parsed_data = result["data"]
         confidence = result["confidence"]

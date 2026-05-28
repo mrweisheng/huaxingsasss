@@ -141,8 +141,6 @@ class SiliconFlowClient:
     
     def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
         """从文本中提取JSON部分"""
-        import re
-        
         match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
         if match:
             return json.loads(match.group(1))

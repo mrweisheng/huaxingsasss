@@ -277,7 +277,7 @@ class ContractAgent:
             answer=answer,
             role=role,
             tool_calls=tool_calls,
-            metadata=metadata or {},
+            extra_metadata=metadata or {},
             llm_model=settings.DEEPSEEK_AGENT_MODEL,
         )
         self.db.add(record)
@@ -298,7 +298,7 @@ class ContractAgent:
             answer=result,
             role="tool",
             intent_type=tool_name,
-            metadata={"tool_call_id": tool_call_id},
+            extra_metadata={"tool_call_id": tool_call_id},
             llm_model=settings.DEEPSEEK_AGENT_MODEL,
         )
         self.db.add(record)

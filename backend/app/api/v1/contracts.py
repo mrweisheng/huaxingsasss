@@ -191,12 +191,6 @@ def get_contract(
         customer = db.query(Customer).filter(Customer.id == contract.customer_id).first()
         contract.customer_name = customer.name if customer else None
     
-    if not contract:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="合同不存在"
-        )
-    
     # 权限检查
     if current_user.role != "admin" and contract.sales_person_id != current_user.id:
         raise HTTPException(

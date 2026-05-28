@@ -6,6 +6,7 @@ export interface AttachmentItem {
   fileId: string
   fileType: 'image' | 'pdf'
   fileName?: string
+  preview?: string // 图片 base64 预览
 }
 
 export interface ToolCall {
@@ -20,6 +21,7 @@ export interface ChatMessage {
   sessionId: string
   role: 'user' | 'assistant' | 'tool' | 'system'
   content: string
+  attachments?: AttachmentItem[]
   toolCalls?: ToolCall[]
   intentType?: string
   createdAt: string

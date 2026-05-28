@@ -1,6 +1,7 @@
 """
 付款凭证 OCR 异步任务
 """
+import asyncio
 from celery import current_task
 from app.tasks.celery_app import celery_app
 from app.ai.llm_client import SiliconFlowClient
@@ -31,7 +32,7 @@ def ocr_receipt_task(self, payment_id: int, file_path: str):
         current_task.update_state(state="PROCESSING", meta={"progress": 60})
 
         client = SiliconFlowClient()
-        result = client.parse_receipt_image(file_path)
+        result = asyncio.run(client.parse_contract_image(file_path))
 
         recognized_data = result["data"]
 

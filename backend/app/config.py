@@ -2,7 +2,7 @@
 应用配置管理模块
 从环境变量读取配置，提供类型安全的配置访问
 """
-from typing import List, Optional
+from typing import Optional
 from urllib.parse import quote_plus
 from pydantic_settings import BaseSettings
 from pydantic import Field, model_validator
@@ -78,9 +78,6 @@ class Settings(BaseSettings):
     SCREENSHOT_UPLOAD_DIR: str = "/data/contract-system/screenshots"
     TEMP_UPLOAD_DIR: str = "/data/contract-system/temp"
     MAX_FILE_SIZE: int = 52428800  # 50MB
-    
-    # CORS配置
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:5173"]
     
     # 日志配置
     LOG_LEVEL: str = "DEBUG"

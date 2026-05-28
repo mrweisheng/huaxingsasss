@@ -72,13 +72,17 @@ async def chat(
     db: Session = Depends(get_db),
 ):
     """SSE 流式对话"""
+    question = request.question or ""
+    if not question.strip() and request.attachments:
+        question = "请分析这张图片"
+
     agent = ContractAgent(db, current_user)
 
     async def event_generator():
         try:
             async for event in agent.chat(
                 session_id=request.session_id,
-                user_message=request.question,
+                user_message=question,
                 attachments=[a.model_dump() for a in request.attachments] if request.attachments else None,
             ):
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"

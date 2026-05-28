@@ -80,17 +80,26 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       sessionId = await get().createSession()
     }
 
-    // 上传附件
-    let uploadedAttachments: { file_id: string; file_type: string }[] | undefined
+    // 上传附件并生成预览
+    const uploadedAttachments: { file_id: string; file_type: string; fileName?: string; preview?: string }[] = []
     if (attachments && attachments.length > 0) {
-      uploadedAttachments = []
       for (const file of attachments) {
         try {
           const res = await agentApi.uploadFile(file)
-          uploadedAttachments.push({
+          const item: typeof uploadedAttachments[number] = {
             file_id: res.data.fileId,
-            file_type: file.type.startsWith('image/') ? 'receipt' : 'general',
-          })
+            file_type: file.type.startsWith('image/') ? 'image' : 'pdf',
+            fileName: file.name,
+          }
+          // 生成图片预览
+          if (file.type.startsWith('image/')) {
+            item.preview = await new Promise<string>((resolve) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve(reader.result as string)
+              reader.readAsDataURL(file)
+            })
+          }
+          uploadedAttachments.push(item)
         } catch {
           set({ error: `文件上传失败: ${file.name}` })
           return
@@ -98,12 +107,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
     }
 
-    // 添加用户消息到列表
+    // 添加用户消息到列表（含附件预览）
     const userMessage: ChatMessage = {
       id: Date.now(),
       sessionId: sessionId,
       role: 'user',
       content: content,
+      attachments: uploadedAttachments.map(a => ({
+        fileId: a.file_id,
+        fileType: a.file_type as 'image' | 'pdf',
+        fileName: a.fileName,
+        preview: a.preview,
+      })),
       createdAt: new Date().toISOString(),
     }
     set((state) => ({

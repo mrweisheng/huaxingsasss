@@ -12,7 +12,7 @@ class AttachmentItem(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    question: str = Field(..., min_length=1, max_length=5000, description="用户消息")
+    question: str = Field(default="", max_length=5000, description="用户消息")
     session_id: Optional[str] = Field(None, description="会话ID，为空则创建新会话")
     attachments: Optional[List[AttachmentItem]] = Field(None, description="附件列表")
 

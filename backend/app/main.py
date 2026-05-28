@@ -2,7 +2,6 @@
 FastAPI应用主入口
 """
 from fastapi import FastAPI, Request
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import structlog
 
@@ -23,15 +22,6 @@ app = FastAPI(
     description="企业级合同管理与智能客服系统",
     docs_url="/docs",
     redoc_url="/redoc"
-)
-
-# CORS中间件
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
 )
 
 # 请求日志中间件（记录请求耗时、注入 request_id）

@@ -52,3 +52,7 @@ def setup_logging():
     # 将标准 logging 重定向到 structlog
     import logging
     logging.basicConfig(format="%(message)s", stream=sys.stdout, level=settings.LOG_LEVEL)
+
+    # 屏蔽第三方 HTTP 库的连接细节日志
+    for name in ("httpx", "openai", "httpcore", "urllib3", "asyncio"):
+        logging.getLogger(name).setLevel(logging.WARNING)
