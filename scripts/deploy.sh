@@ -5,16 +5,10 @@ PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 echo "=== 部署开始 $(date '+%Y-%m-%d %H:%M:%S') ==="
 echo "项目目录: $PROJECT_DIR"
 
-# 后端：安装依赖
+# 安装后端依赖
 echo ">>> 安装后端依赖..."
 cd "$PROJECT_DIR/backend"
 uv sync
-
-# 前端：安装依赖 + 构建
-echo ">>> 构建前端..."
-cd "$PROJECT_DIR/frontend"
-npm install --production=false
-npm run build
 
 # 重启服务（pm2）
 echo ">>> 重启服务..."
