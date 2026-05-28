@@ -128,6 +128,7 @@ class ContractService:
             currency=contract_data.currency,
             total_amount=contract_data.total_amount,
             paid_amount=Decimal('0'),
+            remaining_amount=contract_data.total_amount,
             original_file_path=contract_data.original_file_path,
             file_hash=contract_data.file_hash,
             signed_date=contract_data.signed_date,

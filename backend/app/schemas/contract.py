@@ -48,7 +48,7 @@ class ContractResponse(ContractBase):
     customer_name: Optional[str] = None
     sales_person_id: int
     paid_amount: Decimal
-    remaining_amount: Decimal
+    remaining_amount: Optional[Decimal] = None
     total_amount_in_cny: Optional[Decimal] = None
     paid_amount_in_cny: Optional[Decimal] = None
     remaining_amount_in_cny: Optional[Decimal] = None
