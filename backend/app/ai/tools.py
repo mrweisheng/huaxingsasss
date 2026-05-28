@@ -6,8 +6,10 @@ import base64
 import json
 import logging
 import os
+import shutil
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional
 
 from datetime import timedelta
@@ -23,7 +25,9 @@ from app.models.payment import Payment
 from app.models.user import User
 from app.ai.prompts import RECEIPT_ANALYSIS_PROMPT, CONTRACT_ANALYSIS_PROMPT
 from app.services.contract_service import ContractService
+from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
+from app.utils.file_utils import calculate_file_hash
 
 logger = logging.getLogger(__name__)
 
@@ -208,6 +212,181 @@ class ToolExecutor:
         return json.dumps({"payments": results, "total": total}, ensure_ascii=False)
 
     # ── 动作工具 ──
+
+    def create_customer(self, **kwargs) -> str:
+        """创建客户。如果同名+同电话/邮箱的客户已存在，返回已有客户。"""
+        if self.user.role not in ("admin", "finance", "sales"):
+            return json.dumps({"error": "当前角色无权创建客户"}, ensure_ascii=False)
+
+        name = kwargs.get("name", "").strip()
+        if not name:
+            return json.dumps({"error": "客户姓名不能为空"}, ensure_ascii=False)
+
+        phone = kwargs.get("phone", "").strip() or None
+        email = kwargs.get("email", "").strip() or None
+
+        if not phone and not email:
+            return json.dumps({"error": "电话和邮箱至少填写一项"}, ensure_ascii=False)
+
+        try:
+            customer, created = CustomerService.create_or_get(
+                db=self.db,
+                name=name,
+                phone=phone,
+                email=email,
+                contact_person=kwargs.get("contact_person"),
+                id_card_number=kwargs.get("id_card_number"),
+                business_license=kwargs.get("business_license"),
+                address=kwargs.get("address"),
+                wechat_group_name=kwargs.get("wechat_group_name"),
+                remarks=kwargs.get("remarks"),
+                created_by=self.user.id,
+            )
+            return json.dumps({
+                "success": True,
+                "customer": {
+                    "id": customer.id,
+                    "name": customer.name,
+                    "phone": customer.phone,
+                    "email": customer.email,
+                    "wechat_group_name": customer.wechat_group_name,
+                },
+                "created": created,
+                "message": "客户创建成功" if created else f"客户已存在（ID: {customer.id}）",
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("create_customer failed")
+            return json.dumps({"error": f"创建客户失败: {str(e)}"}, ensure_ascii=False)
+
+    @staticmethod
+    def _guess_extension(content: bytes) -> str:
+        """通过文件头判断扩展名"""
+        if content[:4] == b"%PDF":
+            return ".pdf"
+        if content[:3] == b"\xff\xd8\xff":
+            return ".jpg"
+        if content[:4] == b"\x89PNG":
+            return ".png"
+        if content[:4] == b"GIF8":
+            return ".gif"
+        if content[:4] == b"RIFF" and len(content) > 11 and content[8:12] == b"WEBP":
+            return ".webp"
+        return ".bin"
+
+    def create_contract(self, **kwargs) -> str:
+        """为客户创建合同记录。合同编号自动生成。"""
+        if self.user.role not in ("admin", "finance", "sales"):
+            return json.dumps({"error": "当前角色无权创建合同"}, ensure_ascii=False)
+
+        customer_id = kwargs.get("customer_id")
+        file_id = kwargs.get("file_id")
+        contract_data_raw = kwargs.get("contract_data", {})
+
+        if not customer_id:
+            return json.dumps({"error": "缺少 customer_id，请先创建或查找客户"}, ensure_ascii=False)
+        if not file_id:
+            return json.dumps({"error": "缺少 file_id，无法关联原始文件"}, ensure_ascii=False)
+
+        # 验证客户存在
+        customer = self.db.query(Customer).filter(
+            Customer.id == customer_id, Customer.is_deleted == False
+        ).first()
+        if not customer:
+            return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
+
+        # 处理文件
+        temp_file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
+        file_hash = None
+        original_file_path = f"agent_upload/{file_id}"
+
+        if os.path.exists(temp_file_path):
+            with open(temp_file_path, "rb") as f:
+                content = f.read()
+            file_hash = calculate_file_hash(content)
+
+            # 基于文件 hash 检测重复
+            existing = self.db.query(Contract).filter(
+                Contract.file_hash == file_hash,
+                Contract.is_deleted == False,
+            ).first()
+            if existing:
+                return json.dumps({
+                    "success": False,
+                    "error": f"该文件已创建过合同（编号: {existing.contract_number}, ID: {existing.id}）",
+                    "existing_contract_id": existing.id,
+                }, ensure_ascii=False)
+
+            # 复制到正式合同目录
+            contract_number = ContractService.generate_contract_number()
+            year_month = datetime.now().strftime("%Y/%m")
+            target_dir = Path(settings.CONTRACT_UPLOAD_DIR) / year_month
+            target_dir.mkdir(parents=True, exist_ok=True)
+
+            ext = self._guess_extension(content)
+            target_filename = f"{contract_number}{ext}"
+            target_path = target_dir / target_filename
+            shutil.copy2(temp_file_path, str(target_path))
+
+            original_file_path = str(Path(year_month) / target_filename)
+        else:
+            contract_number = ContractService.generate_contract_number()
+
+        # 解析日期
+        signed_date = None
+        if kwargs.get("signed_date"):
+            try:
+                signed_date = date.fromisoformat(kwargs["signed_date"])
+            except ValueError:
+                pass
+
+        # 构建 schema 并创建
+        try:
+            from app.schemas.contract import ContractCreate
+
+            contract_create = ContractCreate(
+                contract_number=contract_number,
+                title=kwargs.get("title"),
+                customer_id=customer_id,
+                currency=kwargs.get("currency", "CNY"),
+                total_amount=Decimal(str(kwargs.get("total_amount", 0))),
+                original_file_path=original_file_path,
+                file_hash=file_hash,
+                signed_date=signed_date,
+            )
+
+            contract = ContractService.create_contract(
+                db=self.db,
+                contract_data=contract_create,
+                sales_person_id=self.user.id,
+            )
+
+            # 写入 contract_data JSON
+            contract.contract_data = {
+                "source": "agent",
+                "file_id": file_id,
+                "business_type": kwargs.get("business_type"),
+                **(contract_data_raw if isinstance(contract_data_raw, dict) else {}),
+            }
+            self.db.commit()
+            self.db.refresh(contract)
+
+            return json.dumps({
+                "success": True,
+                "contract": {
+                    "id": contract.id,
+                    "contract_number": contract.contract_number,
+                    "customer_name": customer.name,
+                    "customer_id": customer_id,
+                    "title": contract.title,
+                    "currency": contract.currency,
+                    "total_amount": float(contract.total_amount),
+                    "status": contract.status,
+                    "signed_date": str(contract.signed_date) if contract.signed_date else None,
+                },
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("create_contract failed")
+            return json.dumps({"error": f"创建合同失败: {str(e)}"}, ensure_ascii=False)
 
     def create_payment(self, **kwargs) -> str:
         if self.user.role not in ("admin", "finance", "sales"):
@@ -581,6 +760,27 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "create_customer",
+            "description": "创建客户记录。如果同名+同电话/邮箱的客户已存在，会返回已有客户（不会重复创建）。从合同文件提取到客户信息后应调用此工具。返回包含 customer.id 用于后续创建合同。",
+            "parameters": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "description": "客户姓名（必填）"},
+                    "phone": {"type": "string", "description": "联系电话（phone和email至少填一个）"},
+                    "email": {"type": "string", "description": "联系邮箱（phone和email至少填一个）"},
+                    "contact_person": {"type": "string", "description": "联系人"},
+                    "id_card_number": {"type": "string", "description": "身份证号或证件号"},
+                    "wechat_group_name": {"type": "string", "description": "微信群名称"},
+                    "address": {"type": "string", "description": "地址"},
+                    "remarks": {"type": "string", "description": "备注"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_contracts",
             "description": "按合同编号、客户名、状态或关键词搜索合同。返回合同列表含金额和付款进度。",
             "parameters": {
@@ -647,6 +847,27 @@ TOOL_DEFINITIONS = [
                     "overdue_only": {"type": "boolean", "description": "只返回逾期付款", "default": False},
                     "page": {"type": "integer", "default": 1},
                     "per_page": {"type": "integer", "default": 20},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_contract",
+            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。",
+            "parameters": {
+                "type": "object",
+                "required": ["customer_id", "file_id", "contract_data"],
+                "properties": {
+                    "customer_id": {"type": "integer", "description": "客户ID（通过 create_customer 或 search_customers 获取）"},
+                    "file_id": {"type": "string", "description": "上传文件的ID（聊天上传时返回的 file_id）"},
+                    "contract_data": {"type": "object", "description": "从合同文件提取的全部信息（JSON对象，包含甲方乙方、金额、服务内容等）"},
+                    "title": {"type": "string", "description": "合同标题（如：购车合同、两地牌办理合同）"},
+                    "total_amount": {"type": "number", "description": "合同总金额"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "币种，默认CNY"},
+                    "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
+                    "business_type": {"type": "string", "description": "业务类型，如：买港车、办两地牌"},
                 },
             },
         },

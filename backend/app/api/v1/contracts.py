@@ -102,10 +102,8 @@ async def upload_and_parse_contract(
         sub_dir=""
     )
 
-    # 生成合同编号（加入随机后缀防并发冲突）
-    from datetime import datetime
-    import uuid
-    contract_number = f"HT{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:4].upper()}"
+    # 生成合同编号
+    contract_number = ContractService.generate_contract_number()
 
     # 创建合同记录（草稿状态）
     contract_data = ContractCreate(

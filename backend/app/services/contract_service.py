@@ -1,11 +1,13 @@
 """
 合同服务层
 """
-from typing import Optional, List, Dict, Any
+import uuid
+from datetime import date, datetime
 from decimal import Decimal
-from datetime import date
-from sqlalchemy.orm import Session, contains_eager
+from typing import Optional, List, Dict, Any
+
 from sqlalchemy import or_, func, String
+from sqlalchemy.orm import Session, contains_eager
 
 from app.models.contract import Contract
 from app.models.customer import Customer
@@ -13,6 +15,11 @@ from app.schemas.contract import ContractCreate, ContractUpdate
 
 
 class ContractService:
+
+    @staticmethod
+    def generate_contract_number() -> str:
+        """自动生成唯一合同编号: HT + 时间戳 + 4位随机"""
+        return f"HT{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:4].upper()}"
     """合同服务类"""
     
     @staticmethod

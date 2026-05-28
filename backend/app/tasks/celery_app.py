@@ -4,6 +4,7 @@ Celery 应用配置
 Broker: Redis (通过 .env 配置 REDIS_HOST / REDIS_PORT)
 """
 from celery import Celery
+from celery.schedules import crontab
 from app.config import settings
 
 celery_app = Celery(
@@ -13,6 +14,7 @@ celery_app = Celery(
     include=[
         "app.tasks.contract_tasks",
         "app.tasks.receipt_ocr_tasks",
+        "app.tasks.cleanup_tasks",
     ],
 )
 
@@ -29,3 +31,11 @@ celery_app.conf.update(
     task_soft_time_limit=300,  # 5 minutes
     task_time_limit=600,  # 10 minutes
 )
+
+celery_app.conf.beat_schedule = {
+    "cleanup-temp-files": {
+        "task": "app.tasks.cleanup_tasks.cleanup_temp_files",
+        "schedule": crontab(minute=0, hour=3),  # 每天凌晨3点
+        "args": (24,),
+    },
+}
