@@ -105,15 +105,19 @@ def _run_migrations():
     from alembic import command
 
     try:
-        alembic_cfg_path = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            "migrations", "alembic.ini"
-        )
+        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        migrations_dir = os.path.join(backend_dir, "migrations")
+        alembic_cfg_path = os.path.join(migrations_dir, "alembic.ini")
+
         alembic_cfg = Config(alembic_cfg_path)
+        # 显式设置绝对路径，避免相对路径解析错误
+        alembic_cfg.set_main_option("script_location", migrations_dir)
+
+        logger.info("running_database_migrations", migrations_dir=migrations_dir)
         command.upgrade(alembic_cfg, "head")
         logger.info("database_migrations_applied")
     except Exception as e:
-        logger.error("database_migration_failed", error=str(e))
+        logger.error("database_migration_failed", error=str(e), exc_info=True)
         raise
 
 
