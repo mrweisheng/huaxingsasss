@@ -140,6 +140,12 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 ORM 基类 `BaseModel` 使用 `DeclarativeBase`（非已弃用的 `declarative_base()`）。
 
+## Git 远程仓库
+
+当前仅配置 GitHub 一个远程仓库，remote 名为 `github`：
+- 推送：`git push github master`
+- 已移除 Gitee remote，避免混淆。
+
 ## API Docs
 
 启动后端后访问：

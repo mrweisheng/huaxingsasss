@@ -68,8 +68,8 @@ class Settings(BaseSettings):
 
     # Agent配置
     AGENT_MAX_ITERATIONS: int = 8
-    AGENT_HISTORY_WINDOW: int = 20
-    AGENT_MAX_SUMMARY_MESSAGES: int = 10
+    AGENT_HISTORY_WINDOW: int = 100  # 历史加载上限（条数）
+    AGENT_MAX_SUMMARY_MESSAGES: int = 10  # 摘要后保留的最近消息条数
     
     # 文件存储配置
     UPLOAD_DIR: str = "/data/contract-system"

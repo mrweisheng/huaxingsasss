@@ -2,6 +2,7 @@
 ContractAgent — 基于 ReAct 模式的智能业务助手
 使用 DeepSeek API 进行函数调用，SiliconFlow VL 模型处理图片
 """
+import asyncio
 import json
 import logging
 import os
@@ -54,22 +55,28 @@ class ContractAgent:
         if not session_id:
             session_id = str(uuid.uuid4())
 
-        # 先处理附件，再保存消息（确保 file_context 写入数据库）
+        # 1. 处理附件
         file_context = ""
         if attachments:
             file_context = await self._process_attachments(attachments)
             yield {"event": "thinking", "data": {"message": "文件分析完成"}}
 
+        # 2. 加载历史（当前消息还未保存，不会出现在历史中）
+        history = self._load_history(session_id)
+
+        # 3. 历史摘要（超过阈值时压缩早期消息）
+        summary = await self._summarize_history(history)
+        if summary:
+            history = history[-settings.AGENT_MAX_SUMMARY_MESSAGES:]
+
+        # 4. 构建消息
+        messages = self._build_messages(history, user_message, file_context, summary=summary)
+
+        # 5. 保存当前用户消息到数据库
         self._save_message(session_id, "user", user_message, metadata={
             "attachments": attachments,
             "file_context": file_context,
         })
-
-        # 加载对话历史（当前用户消息已含 file_context）
-        history = self._load_history(session_id)
-
-        # 构建消息
-        messages = self._build_messages(history, user_message, file_context)
 
         # ReAct 循环
         total_tokens = 0
@@ -113,9 +120,8 @@ class ContractAgent:
                 return
 
             # 执行工具调用
-            # 先把助手的工具调用消息加入上下文
-            assistant_msg = {"role": "assistant", "content": full_text or None}
-            assistant_msg["tool_calls"] = [
+            # 把助手的工具调用消息加入上下文
+            tool_calls_serialized = [
                 {
                     "id": tc["id"],
                     "type": "function",
@@ -126,7 +132,12 @@ class ContractAgent:
                 }
                 for tc in tool_calls
             ]
+            assistant_msg = {"role": "assistant", "content": full_text or None}
+            assistant_msg["tool_calls"] = tool_calls_serialized
             messages.append(assistant_msg)
+
+            # 持久化 assistant 的 tool_call 消息
+            self._save_message(session_id, "assistant", full_text or "", tool_calls=tool_calls_serialized)
 
             for tc in tool_calls:
                 yield {
@@ -143,7 +154,7 @@ class ContractAgent:
                 except json.JSONDecodeError:
                     args = {}
 
-                result = self.executor.execute(tc["name"], args)
+                result = await asyncio.to_thread(self.executor.execute, tc["name"], args)
 
                 yield {
                     "event": "tool_result",
@@ -156,6 +167,9 @@ class ContractAgent:
                     "tool_call_id": tc["id"],
                     "content": result,
                 })
+
+                # 持久化 tool result 消息
+                self.save_tool_message(session_id, tc["id"], tc["name"], result[:5000])
 
             # 继续循环，让 LLM 根据工具结果生成回复
 
@@ -200,14 +214,14 @@ class ContractAgent:
             # 统一使用 ToolExecutor.analyze_image 处理所有文件类型
             try:
                 logger.info("[PROCESS_ATTACHMENTS]   调用 analyze_image(file_id=%s, analysis_type=general)", file_id)
-                analysis_result = self.executor.analyze_image(file_id, analysis_type="general")
+                analysis_result = await asyncio.to_thread(self.executor.analyze_image, file_id, analysis_type="general")
                 logger.info("[PROCESS_ATTACHMENTS]   analyze_image 返回长度: %d", len(analysis_result))
                 parsed = json.loads(analysis_result)
                 logger.info("[PROCESS_ATTACHMENTS]   解析结果: success=%s, keys=%s", parsed.get("success"), list(parsed.keys()))
                 if parsed.get("success"):
                     data = parsed.get("data", {})
                     file_type_label = parsed.get("file_type", file_type)
-                    results.append(f"[{file_type_label} 文件分析结果] {json.dumps(data, ensure_ascii=False)}")
+                    results.append(f"[{file_type_label} 文件分析结果] file_id={file_id}\n{json.dumps(data, ensure_ascii=False)}")
                 else:
                     results.append(f"文件分析失败: {parsed.get('error', '未知错误')}")
             except json.JSONDecodeError:
@@ -221,7 +235,7 @@ class ContractAgent:
         return "\n".join(results)
 
     def _load_history(self, session_id: str) -> List[dict]:
-        """从数据库加载对话历史"""
+        """从数据库加载对话历史（上限 100 条，用于摘要和上下文构建）"""
         records = (
             self.db.query(ChatHistory)
             .filter(
@@ -229,7 +243,7 @@ class ContractAgent:
                 ChatHistory.user_id == self.user.id,
             )
             .order_by(ChatHistory.created_at.desc())
-            .limit(settings.AGENT_HISTORY_WINDOW)
+            .limit(100)
             .all()
         )
         records.reverse()
@@ -261,6 +275,7 @@ class ContractAgent:
         history: List[dict],
         user_message: str,
         file_context: str = "",
+        summary: Optional[str] = None,
     ) -> List[dict]:
         """构建完整的消息数组"""
         system = {
@@ -274,23 +289,78 @@ class ContractAgent:
 
         messages = [system]
 
-        # 历史（不包含当前用户消息，因为用户消息已经在最后一条）
+        # 摘要注入（如有）
+        if summary:
+            messages.append({
+                "role": "system",
+                "content": f"[对话历史摘要]\n{summary}",
+            })
+
+        # 历史消息
         messages.extend(history)
 
-        # 如果历史为空或最后一条不是当前消息，添加当前消息
+        # 当前用户消息
         if file_context:
             full_content = f"{user_message}\n\n[文件分析上下文]\n{file_context}"
         else:
             full_content = user_message
-
-        if not history or history[-1].get("role") != "user":
-            messages.append({"role": "user", "content": full_content})
-        elif file_context:
-            # 当前用户消息已在历史中（_save_message 先于 _process_attachments），
-            # 但不含 file_context，需要追加
-            messages[-1]["content"] += f"\n\n[文件分析上下文]\n{file_context}"
+        messages.append({"role": "user", "content": full_content})
 
         return messages
+
+    async def _summarize_history(self, messages: List[dict]) -> Optional[str]:
+        """当历史超过阈值时，将早期消息压缩为摘要保留关键业务信息"""
+        keep_recent = settings.AGENT_MAX_SUMMARY_MESSAGES
+        if len(messages) <= keep_recent + 4:
+            return None
+
+        older = messages[:-keep_recent]
+        if len(older) < 4:
+            return None
+
+        history_text = self._serialize_messages(older)
+        prompt = SUMMARY_PROMPT.format(history=history_text)
+
+        try:
+            summary_parts = []
+            async for event in self.llm.chat_completion_stream(
+                messages=[{"role": "user", "content": prompt}],
+                tools=None,
+                temperature=0.1,
+                max_tokens=500,
+            ):
+                if event["type"] == "text":
+                    summary_parts.append(event["content"])
+
+            summary = "".join(summary_parts).strip()
+            if summary:
+                logger.info("历史摘要生成成功，%d 条早期消息压缩为 %d 字", len(older), len(summary))
+            return summary or None
+        except Exception as e:
+            logger.warning("历史摘要生成失败，降级为完整历史: %s", e)
+            return None
+
+    @staticmethod
+    def _serialize_messages(messages: List[dict]) -> str:
+        """将消息列表序列化为纯文本，供摘要模型使用"""
+        lines = []
+        for m in messages:
+            role = m.get("role", "")
+            content = m.get("content", "") or ""
+            if role == "user":
+                lines.append(f"用户: {content[:500]}")
+            elif role == "assistant":
+                tool_calls = m.get("tool_calls")
+                if tool_calls:
+                    tools_desc = ", ".join(
+                        tc.get("function", {}).get("name", "") for tc in tool_calls
+                    )
+                    lines.append(f"助手(调用工具: {tools_desc}): {content[:500]}")
+                else:
+                    lines.append(f"助手: {content[:500]}")
+            elif role == "tool":
+                lines.append(f"工具结果: {content[:300]}")
+        return "\n".join(lines)
 
     def _save_message(
         self,
