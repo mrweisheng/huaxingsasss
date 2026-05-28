@@ -7,7 +7,6 @@ import {
   Avatar,
   Tag,
   Upload,
-  Badge,
   message,
   Empty,
   Spin,
@@ -108,21 +107,20 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
               })}
             </div>
           )}
-          {/* 文字内容 */}
-          {msg.content ? (
-            <div
-              style={{
-                background: '#1677ff',
-                color: '#fff',
-                padding: '10px 16px',
-                borderRadius: '12px 12px 2px 12px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-word',
-              }}
-            >
-              {msg.content}
-            </div>
-          ) : null}
+          {/* 文字内容 — 如果只有附件没有文字，显示占位提示 */}
+          <div
+            style={{
+              background: '#1677ff',
+              color: '#fff',
+              padding: msg.content ? '10px 16px' : '6px 16px',
+              borderRadius: msg.attachments?.length ? '12px 12px 2px 12px' : '12px 12px 2px 12px',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-word',
+              lineHeight: msg.content ? undefined : '32px',
+            }}
+          >
+            {msg.content || (msg.attachments?.length ? `已上传 ${msg.attachments.length} 个文件` : '')}
+          </div>
         </div>
         <Avatar
           icon={<UserOutlined />}
@@ -311,124 +309,167 @@ export default function AgentChat() {
         )}
       </div>
 
-      {/* 待上传文件预览 */}
-      {pendingFiles.length > 0 && (
-        <div
-          style={{
-            padding: '8px 24px',
-            background: '#fffbf0',
-            borderTop: '1px solid #ffe58f',
-            display: 'flex',
-            gap: 8,
-            flexWrap: 'wrap',
-            alignItems: 'center',
-          }}
-        >
-          <span style={{ fontSize: 12, color: '#d48806', marginRight: 4, whiteSpace: 'nowrap' }}>
-            待发送 ({pendingFiles.length})
-          </span>
-          {pendingFiles.map((f, i) => {
-            const name = f.name.toLowerCase()
-            let icon: React.ReactNode
-            let color: string
-            if (f.type.startsWith('image/')) {
-              return (
-                <span
-                  key={i}
-                  style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
-                  onClick={() => removePendingFile(i)}
-                >
-                  <img
-                    src={URL.createObjectURL(f)}
-                    alt={f.name}
-                    style={{
-                      height: 48, width: 48, borderRadius: 6,
-                      objectFit: 'cover', border: '1px solid #d9d9d9',
-                    }}
-                  />
-                  <span style={{
-                    position: 'absolute', top: -6, right: -6,
-                    background: '#ff4d4f', color: '#fff',
-                    borderRadius: '50%', width: 16, height: 16,
-                    fontSize: 10, lineHeight: '16px', textAlign: 'center',
-                  }}>×</span>
-                </span>
-              )
-            } else if (name.endsWith('.pdf')) {
-              icon = <FilePdfOutlined />
-              color = '#f5222d'
-            } else if (name.endsWith('.docx') || name.endsWith('.doc')) {
-              icon = <FileWordOutlined />
-              color = '#1677ff'
-            } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-              icon = <FileExcelOutlined />
-              color = '#52c41a'
-            } else {
-              icon = <FileTextOutlined />
-              color = '#faad14'
-            }
-            return (
-              <Tag
-                key={i}
-                closable
-                onClose={() => removePendingFile(i)}
-                color="orange"
-                style={{ margin: 0 }}
-              >
-                <span style={{ color }}>{icon}</span> {f.name}
-              </Tag>
-            )
-          })}
-        </div>
-      )}
-
       {/* 输入区域 */}
       <div
         style={{
-          padding: '12px 24px',
+          padding: '12px 24px 16px',
           background: '#fff',
           borderTop: '1px solid #f0f0f0',
-          display: 'flex',
-          gap: 8,
-          alignItems: 'flex-end',
         }}
       >
-        <Badge count={pendingFiles.length} size="small" offset={[-8, 8]}>
+        {/* 待发送文件预览 — 在输入框内部上方 */}
+        {pendingFiles.length > 0 && (
+          <div
+            style={{
+              background: '#fafafa',
+              border: '1px solid #e8e8e8',
+              borderBottom: 'none',
+              borderRadius: '12px 12px 0 0',
+              padding: '8px 12px',
+              display: 'flex',
+              gap: 8,
+              flexWrap: 'wrap',
+              alignItems: 'center',
+            }}
+          >
+            <span style={{ fontSize: 12, color: '#999', marginRight: 4, whiteSpace: 'nowrap' }}>
+              附件
+            </span>
+            {pendingFiles.map((f, i) => {
+              const name = f.name.toLowerCase()
+              if (f.type.startsWith('image/')) {
+                return (
+                  <span
+                    key={i}
+                    style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                    onClick={() => removePendingFile(i)}
+                  >
+                    <img
+                      src={URL.createObjectURL(f)}
+                      alt={f.name}
+                      style={{
+                        height: 40, width: 40, borderRadius: 6,
+                        objectFit: 'cover', border: '1px solid #d9d9d9',
+                      }}
+                    />
+                    <span style={{
+                      position: 'absolute', top: -4, right: -4,
+                      background: '#ff4d4f', color: '#fff',
+                      borderRadius: '50%', width: 14, height: 14,
+                      fontSize: 10, lineHeight: '14px', textAlign: 'center',
+                    }}>×</span>
+                  </span>
+                )
+              }
+              const icon = name.endsWith('.pdf') ? <FilePdfOutlined style={{ color: '#f5222d' }} />
+                : name.endsWith('.docx') || name.endsWith('.doc') ? <FileWordOutlined style={{ color: '#1677ff' }} />
+                : name.endsWith('.xlsx') || name.endsWith('.xls') ? <FileExcelOutlined style={{ color: '#52c41a' }} />
+                : <FileTextOutlined style={{ color: '#faad14' }} />
+              return (
+                <Tag
+                  key={i}
+                  closable
+                  onClose={() => removePendingFile(i)}
+                  color="default"
+                  style={{ margin: 0, fontSize: 12 }}
+                >
+                  {icon} {f.name.length > 20 ? f.name.slice(0, 18) + '…' : f.name}
+                </Tag>
+              )
+            })}
+          </div>
+        )}
+
+        {/* 输入框 + 按钮 */}
+        <div
+          style={{
+            display: 'flex',
+            gap: 10,
+            alignItems: 'flex-end',
+            background: '#fff',
+            border: '1px solid #e8e8e8',
+            borderRadius: pendingFiles.length > 0 ? '0 0 12px 12px' : 12,
+            padding: '8px 8px 8px 12px',
+            boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
+          }}
+        >
           <Upload
             beforeUpload={handleFileSelect}
             showUploadList={false}
             accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
           >
-            <Button icon={<PaperClipOutlined />} disabled={isStreaming} />
+            <Button
+              type="text"
+              icon={<PaperClipOutlined style={{ fontSize: 18 }} />}
+              disabled={isStreaming}
+              style={{
+                padding: '8px',
+                borderRadius: 8,
+                color: pendingFiles.length > 0 ? '#1677ff' : '#666',
+                flexShrink: 0,
+              }}
+            />
           </Upload>
-        </Badge>
-        <Input.TextArea
-          value={inputText}
-          onChange={(e) => setInputText(e.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder="输入消息... (Enter 发送，Shift+Enter 换行)"
-          autoSize={{ minRows: 1, maxRows: 4 }}
-          disabled={isStreaming}
-          style={{ flex: 1 }}
-        />
-        {isStreaming ? (
-          <Button
-            danger
-            icon={<StopOutlined />}
-            onClick={stopGeneration}
-          >
-            停止
-          </Button>
-        ) : (
-          <Button
-            type="primary"
-            icon={<SendOutlined />}
-            onClick={handleSend}
-            disabled={!inputText.trim() && pendingFiles.length === 0}
-          >
-            发送
-          </Button>
-        )}
+          <Input.TextArea
+            value={inputText}
+            onChange={(e) => setInputText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder={pendingFiles.length > 0 ? '添加说明（可选）...' : '输入你的问题...'}
+            autoSize={{ minRows: 1, maxRows: 5 }}
+            disabled={isStreaming}
+            bordered={false}
+            style={{
+              flex: 1,
+              fontSize: 14,
+              lineHeight: '22px',
+              padding: '6px 0',
+              resize: 'none',
+            }}
+          />
+          {isStreaming ? (
+            <Button
+              danger
+              size="large"
+              icon={<StopOutlined />}
+              onClick={stopGeneration}
+              style={{
+                borderRadius: 8,
+                height: 40,
+                padding: '0 16px',
+                flexShrink: 0,
+              }}
+            >
+              停止
+            </Button>
+          ) : (
+            <Button
+              type="primary"
+              size="large"
+              icon={<SendOutlined />}
+              onClick={handleSend}
+              disabled={!inputText.trim() && pendingFiles.length === 0}
+              style={{
+                borderRadius: 8,
+                height: 40,
+                padding: '0 20px',
+                flexShrink: 0,
+              }}
+            >
+              发送
+            </Button>
+          )}
+        </div>
+        {/* 底部提示 */}
+        <div
+          style={{
+            textAlign: 'center',
+            fontSize: 11,
+            color: '#bbb',
+            marginTop: 8,
+          }}
+        >
+          AI 可能产生错误信息，请核实重要数据
+        </div>
       </div>
 
       {/* 会话历史抽屉 */}
