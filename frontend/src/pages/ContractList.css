@@ -90,16 +90,16 @@
 
 .contract-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 16px;
 }
 
 .contract-card {
   position: relative;
   background: var(--card-bg);
   border: 1px solid var(--card-border);
-  border-radius: var(--border-radius);
-  padding: 16px;
+  border-radius: 10px;
+  padding: 14px 16px;
   cursor: pointer;
   transition: all 0.25s ease;
   box-shadow: var(--card-shadow);
@@ -206,75 +206,99 @@
 }
 
 .amount-section {
-  background: #fafafa;
-  border-radius: 6px;
-  padding: 10px;
-  margin-bottom: 12px;
+  background: #f8f9fb;
+  border-radius: 10px;
+  padding: 14px 16px 12px;
+  margin-bottom: 10px;
+  border: 1px solid #ebedf2;
 }
 
-.amount-row {
+.amount-total-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 4px 0;
-}
-
-.amount-row:not(:last-child) {
-  border-bottom: 1px dashed #eee;
-}
-
-.amount-label {
-  font-size: 11px;
-  color: var(--text-secondary);
-}
-
-.amount-value {
-  font-size: 13px;
-  font-weight: 600;
-  font-family: 'JetBrains Mono', monospace;
-}
-
-.amount-value.total {
-  color: var(--text-primary);
-}
-
-.amount-value.paid {
-  color: var(--success-color);
-}
-
-.amount-value.remaining {
-  font-size: 14px;
-}
-
-.amount-value.remaining.unpaid {
-  color: var(--danger-color);
-}
-
-.amount-value.remaining.paid {
-  color: var(--success-color);
-}
-
-.progress-section {
-  display: flex;
-  align-items: center;
-  gap: 8px;
   margin-bottom: 12px;
 }
 
-.progress-section .ant-progress {
-  flex: 1;
+.amount-total-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
-.progress-section .ant-progress-inner {
-  border-radius: 3px;
-}
-
-.progress-text {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--primary-color);
-  min-width: 32px;
+.amount-total-value {
+  font-size: 20px;
+  font-weight: 800;
+  color: #1a1a2e;
+  font-family: 'JetBrains Mono', monospace;
+  max-width: 55%;
   text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: -0.5px;
+}
+
+.amount-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.amount-col {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.amount-col-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.amount-col-bar {
+  height: 6px;
+  background: #e8e8e8;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.amount-col-fill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+  min-width: 0;
+}
+
+.amount-col-fill.paid {
+  background: linear-gradient(90deg, #52c41a, #73d13d);
+}
+
+.amount-col-fill.remaining {
+  background: linear-gradient(90deg, #ffa940, #ffc53d);
+  margin-left: auto;
+}
+
+.amount-col-value {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+  letter-spacing: -0.3px;
+}
+
+.amount-col-value.paid {
+  color: #3cb371;
+}
+
+.amount-col-value.unpaid {
+  color: #ff8c00;
+  font-weight: 800;
 }
 
 .payment-summary {
@@ -427,12 +451,12 @@
 
 @media (min-width: 1400px) {
   .contract-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 
 @media (min-width: 1600px) {
   .contract-grid {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 }

@@ -34,7 +34,8 @@ def list_payments(
     db: Session = Depends(get_db)
 ):
     """获取付款记录列表"""
-    query = db.query(Payment).outerjoin(Contract, Payment.contract_id == Contract.id)\
+    query = db.query(Payment).filter(Payment.is_deleted == False)\
+        .outerjoin(Contract, Payment.contract_id == Contract.id)\
         .outerjoin(Customer, Contract.customer_id == Customer.id)
 
     if contract_id:
@@ -168,3 +169,27 @@ def get_receipt_image(
         media_type = "image/png"
 
     return FileResponse(path=str(file_path), media_type=media_type)
+
+
+@router.delete("/{payment_id}")
+def delete_payment(
+    payment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """删除付款记录"""
+    if current_user.role != "admin":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅管理员可删除付款记录"
+        )
+
+    success = PaymentService.delete_payment(db, payment_id, user_id=current_user.id)
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="付款记录不存在"
+        )
+
+    return {"message": "删除成功"}

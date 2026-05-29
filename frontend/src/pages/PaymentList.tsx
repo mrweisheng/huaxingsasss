@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Table, Button, Select, Empty } from 'antd'
-import { PlusOutlined, FilterOutlined, DollarOutlined } from '@ant-design/icons'
+import { Table, Button, Select, Empty, Popconfirm, message } from 'antd'
+import { PlusOutlined, FilterOutlined, DollarOutlined, DeleteOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import type { Payment } from '@/types'
 import './PaymentList.css'
@@ -69,6 +69,16 @@ export default function PaymentList() {
   const handleStatusChange = (value: string | undefined) => {
     setStatusFilter(value)
     setPage(1)
+  }
+
+  const handleDelete = async (id: number) => {
+    try {
+      await paymentApi.delete(id)
+      message.success('删除成功')
+      loadPayments()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '删除失败')
+    }
   }
 
   const columns = [
@@ -167,6 +177,25 @@ export default function PaymentList() {
       minWidth: 100,
       ellipsis: true,
       render: (v: string) => v || '-',
+    },
+    {
+      title: '操作',
+      key: 'action',
+      width: 70,
+      minWidth: 60,
+      align: 'center' as const,
+      render: (_: unknown, record: Payment) => (
+        <Popconfirm
+          title="确定删除此付款记录？"
+          description="删除后将无法恢复，合同已付金额将同步扣减"
+          onConfirm={() => handleDelete(record.id)}
+          okText="删除"
+          cancelText="取消"
+          okButtonProps={{ danger: true }}
+        >
+          <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+        </Popconfirm>
+      ),
     },
   ]
 

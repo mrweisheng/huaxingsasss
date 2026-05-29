@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Select, DatePicker, Button, Popconfirm, message, Progress, Empty } from 'antd'
+import { Input, Select, DatePicker, Button, Popconfirm, message, Empty } from 'antd'
 import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import type { Contract } from '@/types'
@@ -205,31 +205,28 @@ export default function ContractList() {
                   )}
 
                   <div className="amount-section">
-                    <div className="amount-row">
-                      <span className="amount-label">合同总额</span>
-                      <span className="amount-value total">{formatAmount(contract.total_amount, contract.currency)}</span>
+                    <div className="amount-total-row">
+                      <span className="amount-total-label">合同总额</span>
+                      <span className="amount-total-value">{formatAmount(contract.total_amount, contract.currency)}</span>
                     </div>
-                    <div className="amount-row">
-                      <span className="amount-label">已付金额</span>
-                      <span className="amount-value paid">{formatAmount(contract.paid_amount, contract.currency)}</span>
+                    <div className="amount-grid">
+                      <div className="amount-col">
+                        <span className="amount-col-label">已付</span>
+                        <div className="amount-col-bar">
+                          <div className="amount-col-fill paid" style={{ width: `${progress}%` }} />
+                        </div>
+                        <span className="amount-col-value paid">{formatAmount(contract.paid_amount, contract.currency)}</span>
+                      </div>
+                      <div className="amount-col">
+                        <span className="amount-col-label">尾款</span>
+                        <div className="amount-col-bar">
+                          <div className="amount-col-fill remaining" style={{ width: `${100 - progress}%` }} />
+                        </div>
+                        <span className={`amount-col-value ${contract.remaining_amount > 0 ? 'unpaid' : 'paid'}`}>
+                          {formatAmount(contract.remaining_amount, contract.currency)}
+                        </span>
+                      </div>
                     </div>
-                    <div className="amount-row">
-                      <span className="amount-label">剩余尾款</span>
-                      <span className={`amount-value remaining ${contract.remaining_amount > 0 ? 'unpaid' : 'paid'}`}>
-                        {formatAmount(contract.remaining_amount, contract.currency)}
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="progress-section">
-                    <Progress
-                      percent={progress}
-                      size="small"
-                      strokeColor={progress === 100 ? '#52c41a' : '#1890ff'}
-                      trailColor="#f0f0f0"
-                      showInfo={false}
-                    />
-                    <span className="progress-text">{progress}%</span>
                   </div>
 
                   {contract.payment_total_count > 0 && (

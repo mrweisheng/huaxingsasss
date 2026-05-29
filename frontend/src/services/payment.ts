@@ -39,4 +39,7 @@ export const paymentApi = {
 
   getContractPayments: (contractId: number, signal?: AbortSignal): Promise<any> =>
     api.get(`/payments/contract/${contractId}`, { signal }),
+
+  delete: (id: number): Promise<void> =>
+    api.delete(`/payments/${id}`),
 }

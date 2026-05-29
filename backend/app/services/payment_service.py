@@ -1,14 +1,20 @@
 """
 付款服务
 """
+import logging
 from decimal import Decimal
 from datetime import date
+from pathlib import Path
 from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.payment import Payment
 from app.models.contract import Contract
 from app.services.exchange_rate_service import ExchangeRateService
+from app.services.audit_service import AuditService
+from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class PaymentService:
@@ -162,3 +168,51 @@ class PaymentService:
             "remaining_amount_in_cny": contract.remaining_amount_in_cny,
             "payments": [PaymentResponse.model_validate(p).model_dump() for p in payments]
         }
+
+    @staticmethod
+    def delete_payment(db: Session, payment_id: int, user_id: int = None) -> bool:
+        """硬删除付款记录，反写合同已付金额，清理凭证文件"""
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            return False
+
+        contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+
+        deleted_file = None
+        if payment.receipt_image_path:
+            receipt_path = Path(settings.RECEIPT_UPLOAD_DIR) / payment.receipt_image_path
+            if receipt_path.exists():
+                receipt_path.unlink()
+                deleted_file = str(receipt_path)
+
+        # 反写合同已付金额（仅已确认的付款才需要扣减）
+        if contract and payment.status == 'paid' and payment.paid_amount:
+            if payment.currency == contract.currency:
+                contract.paid_amount -= payment.paid_amount
+            contract.paid_amount_in_cny = (contract.paid_amount_in_cny or 0) - (payment.paid_amount_in_cny or 0)
+            contract.remaining_amount = contract.total_amount - contract.paid_amount
+            contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
+            if contract.status == 'completed' and contract.paid_amount_in_cny < contract.total_amount_in_cny:
+                contract.status = 'active'
+
+        db.delete(payment)
+        db.commit()
+
+        if user_id:
+            AuditService.log(
+                db,
+                user_id=user_id,
+                action="delete",
+                entity_type="payment",
+                entity_id=payment_id,
+                old_values={
+                    "contract_id": payment.contract_id,
+                    "amount": float(payment.amount) if payment.amount else None,
+                    "currency": payment.currency,
+                    "status": payment.status,
+                    "deleted_file": deleted_file,
+                },
+            )
+
+        logger.info("付款已删除: id=%d, contract_id=%d", payment_id, payment.contract_id)
+        return True

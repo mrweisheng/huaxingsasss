@@ -18,7 +18,7 @@ class CustomerService:
 
     @staticmethod
     def delete_customer(db: Session, customer_id: int, user_id: int = None) -> bool:
-        """软删除客户（仅允许无活跃合同时）"""
+        """硬删除客户（仅允许无活跃合同时）"""
         customer = db.query(Customer).filter(
             Customer.id == customer_id,
             Customer.is_deleted == False,
@@ -36,7 +36,7 @@ class CustomerService:
         if active_contracts > 0:
             raise ValueError(f"客户有 {active_contracts} 个活跃合同，无法删除")
 
-        customer.soft_delete()
+        db.delete(customer)
         db.commit()
 
         if user_id:

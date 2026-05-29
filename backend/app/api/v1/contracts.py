@@ -300,8 +300,14 @@ def delete_contract(
             detail="仅管理员可删除合同"
         )
     
-    success = ContractService.delete_contract(db, contract_id, user_id=current_user.id)
-    
+    try:
+        success = ContractService.delete_contract(db, contract_id, user_id=current_user.id)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e)
+        )
+
     if success:
         return {"message": "删除成功"}
     else:

@@ -214,36 +214,35 @@ class ContractService:
 
     @staticmethod
     def delete_contract(db: Session, contract_id: int, user_id: int = None) -> bool:
-        """软删除合同，级联软删除付款记录，清理物理文件"""
+        """硬删除合同（仅允许无付款记录时），清理物理文件"""
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
 
         if not contract:
             return False
 
+        # 检查是否有关联付款记录
+        payment_count = db.query(Payment).filter(
+            Payment.contract_id == contract_id,
+            Payment.is_deleted == False,
+        ).count()
+
+        if payment_count > 0:
+            raise ValueError(f"合同有 {payment_count} 条付款记录，请先删除付款记录")
+
         deleted_files = []
 
-        # 1. 软删除关联付款记录，清理凭证文件
-        payments = db.query(Payment).filter(Payment.contract_id == contract_id).all()
-        for payment in payments:
-            if payment.receipt_image_path:
-                receipt_path = Path(settings.RECEIPT_UPLOAD_DIR) / payment.receipt_image_path
-                if receipt_path.exists():
-                    receipt_path.unlink()
-                    deleted_files.append(str(receipt_path))
-            payment.soft_delete()
-
-        # 2. 删除合同物理文件
+        # 删除合同物理文件
         if contract.original_file_path:
             contract_path = Path(settings.CONTRACT_UPLOAD_DIR) / contract.original_file_path
             if contract_path.exists():
                 contract_path.unlink()
                 deleted_files.append(str(contract_path))
 
-        # 3. 软删除合同
-        contract.soft_delete()
+        # 硬删除合同
+        db.delete(contract)
         db.commit()
 
-        # 4. 审计日志
+        # 审计日志
         if user_id:
             AuditService.log(
                 db,
@@ -254,7 +253,6 @@ class ContractService:
                 old_values={
                     "contract_number": contract.contract_number,
                     "status": contract.status,
-                    "payments_count": len(payments),
                     "deleted_files": deleted_files,
                 },
             )
