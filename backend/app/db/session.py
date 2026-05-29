@@ -1,6 +1,7 @@
 """
 数据库会话管理
 """
+from fastapi import HTTPException
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import structlog
@@ -31,6 +32,8 @@ def get_db():
     try:
         yield db
     except Exception as e:
+        if isinstance(e, HTTPException):
+            raise
         logger.error("database_query_error", error=str(e), exc_info=True)
         raise
     finally:
