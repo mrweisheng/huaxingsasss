@@ -142,14 +142,15 @@ class PaymentService:
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
         if not contract:
             raise ValueError(f"合同不存在：{contract_id}")
-        
+
         payments = db.query(Payment).filter(
             Payment.contract_id == contract_id
         ).order_by(Payment.installment_number).all()
-        
+
         total_paid = sum(p.paid_amount for p in payments)
         total_paid_cny = sum(p.paid_amount_in_cny or 0 for p in payments)
-        
+
+        from app.schemas.payment import PaymentResponse
         return {
             "contract_id": contract_id,
             "contract_number": contract.contract_number,
@@ -159,5 +160,5 @@ class PaymentService:
             "total_amount_in_cny": contract.total_amount_in_cny,
             "paid_amount_in_cny": total_paid_cny,
             "remaining_amount_in_cny": contract.remaining_amount_in_cny,
-            "payments": payments
+            "payments": [PaymentResponse.model_validate(p).model_dump() for p in payments]
         }
