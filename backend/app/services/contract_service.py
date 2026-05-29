@@ -40,7 +40,8 @@ class ContractService:
         keyword: Optional[str] = None,
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
-        sales_person_id: Optional[int] = None
+        sales_person_id: Optional[int] = None,
+        contract_number: Optional[str] = None
     ) -> tuple[List[Contract], int]:
         """
         获取合同列表
@@ -54,6 +55,10 @@ class ContractService:
             .options(contains_eager(Contract.customer))
             .filter(Contract.is_deleted == False)
         )
+
+        # 合同编号精确匹配
+        if contract_number:
+            query = query.filter(Contract.contract_number == contract_number)
 
         # 状态过滤
         if status:

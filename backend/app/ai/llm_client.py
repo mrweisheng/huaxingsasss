@@ -159,14 +159,14 @@ class SiliconFlowClient:
     
     def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
         """从文本中提取JSON部分"""
-        match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
+        match = re.search(r'```json\s*(\{.*\})\s*```', text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
-        
+
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             return json.loads(match.group(0))
-        
+
         raise ValueError("无法从响应中提取JSON")
     
     def _calculate_confidence(self, data: Dict[str, Any]) -> float:
@@ -368,13 +368,14 @@ class DeepSeekClient:
                         return
 
                     if finish_reason == "stop":
-                        for tc in current_tool_calls.values():
-                            yield {
-                                "type": "tool_call",
-                                "id": tc["id"],
-                                "name": tc["name"],
-                                "arguments": tc.get("arguments", ""),
-                            }
+                        if current_tool_calls:
+                            for tc in current_tool_calls.values():
+                                yield {
+                                    "type": "tool_call",
+                                    "id": tc["id"],
+                                    "name": tc["name"],
+                                    "arguments": tc.get("arguments", ""),
+                                }
                         yield {"type": "done", "finish_reason": "stop"}
                         return
 

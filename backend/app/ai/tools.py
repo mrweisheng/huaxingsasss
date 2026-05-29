@@ -62,6 +62,11 @@ class ToolExecutor:
             "wechat_group": c.wechat_group,
             "signed_date": str(c.signed_date) if c.signed_date else None,
             "end_date": str(c.end_date) if c.end_date else None,
+            "payment_stats": {
+                "total": getattr(c, 'payment_total_count', 0),
+                "paid": getattr(c, 'paid_count', 0),
+                "pending_voucher": getattr(c, 'pending_voucher_count', 0),
+            },
         }
 
     def _payment_to_dict(self, p: Payment) -> dict:
@@ -139,6 +144,7 @@ class ToolExecutor:
                 date_from=kwargs.get("date_from"),
                 date_to=kwargs.get("date_to"),
                 sales_person_id=sales_person_id,
+                contract_number=kwargs.get("contract_number"),
             )
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -485,6 +491,11 @@ class ToolExecutor:
         if self.user.role not in ("admin", "finance", "sales"):
             return json.dumps({"error": "当前角色无权创建付款记录"}, ensure_ascii=False)
 
+        required = ["contract_id", "installment_number", "amount", "currency", "paid_date"]
+        missing = [r for r in required if not kwargs.get(r)]
+        if missing:
+            return json.dumps({"error": f"缺少必填参数: {', '.join(missing)}"}, ensure_ascii=False)
+
         if self.user.role == "sales":
             contract = self.db.query(Contract).filter(Contract.id == kwargs["contract_id"]).first()
             if not contract or contract.sales_person_id != self.user.id:
@@ -521,13 +532,26 @@ class ToolExecutor:
     def get_payment_summary(self, **kwargs) -> str:
         query = self.db.query(Payment).filter(Payment.is_deleted == False)
 
-        if self.user.role == "sales":
-            query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
+        need_contract_join = self.user.role == "sales" or kwargs.get("customer_name")
+        if need_contract_join:
+            query = query.join(Contract)
+            if self.user.role == "sales":
+                query = query.filter(Contract.sales_person_id == self.user.id)
+            if kwargs.get("customer_name"):
+                query = query.join(Customer).filter(
+                    Customer.name.ilike(f"%{kwargs['customer_name']}%")
+                )
 
-        if kwargs.get("customer_name"):
-            query = query.join(Contract).join(Customer).filter(
-                Customer.name.ilike(f"%{kwargs['customer_name']}%")
-            )
+        if kwargs.get("date_from"):
+            try:
+                query = query.filter(Payment.paid_date >= date.fromisoformat(kwargs["date_from"]))
+            except ValueError:
+                pass
+        if kwargs.get("date_to"):
+            try:
+                query = query.filter(Payment.paid_date <= date.fromisoformat(kwargs["date_to"]))
+            except ValueError:
+                pass
 
         payments = query.all()
 
@@ -538,11 +562,15 @@ class ToolExecutor:
             for p in payments
             if p.status in ("pending", "partial") and p.due_date and p.due_date < date.today()
         )
+        total_pending_voucher = sum(float(p.amount or 0) for p in payments if p.status == "pending_voucher")
+        pending_voucher_count = sum(1 for p in payments if p.status == "pending_voucher")
 
         summary = {
             "total_paid": total_paid,
             "total_pending": total_pending,
             "total_overdue": total_overdue,
+            "total_pending_voucher": total_pending_voucher,
+            "pending_voucher_count": pending_voucher_count,
             "payment_count": len(payments),
         }
 
@@ -552,11 +580,40 @@ class ToolExecutor:
             for p in payments:
                 cid = p.contract_id
                 if cid not in groups:
-                    groups[cid] = {"contract_id": cid, "paid": 0, "pending": 0}
+                    groups[cid] = {
+                        "contract_id": cid,
+                        "contract_number": p.contract.contract_number if p.contract else None,
+                        "paid": 0, "pending": 0, "pending_voucher": 0,
+                    }
                 if p.status == "paid":
                     groups[cid]["paid"] += float(p.paid_amount or 0)
                 elif p.status in ("pending", "partial"):
                     groups[cid]["pending"] += float(p.amount or 0) - float(p.paid_amount or 0)
+                elif p.status == "pending_voucher":
+                    groups[cid]["pending_voucher"] += float(p.amount or 0)
+            summary["groups"] = list(groups.values())
+        elif group_by == "customer":
+            groups = {}
+            for p in payments:
+                customer_name = p.contract.customer.name if p.contract and p.contract.customer else "未知"
+                if customer_name not in groups:
+                    groups[customer_name] = {
+                        "customer_name": customer_name,
+                        "paid": 0, "pending": 0, "pending_voucher": 0, "contract_count": 0,
+                    }
+                if p.status == "paid":
+                    groups[customer_name]["paid"] += float(p.paid_amount or 0)
+                elif p.status in ("pending", "partial"):
+                    groups[customer_name]["pending"] += float(p.amount or 0) - float(p.paid_amount or 0)
+                elif p.status == "pending_voucher":
+                    groups[customer_name]["pending_voucher"] += float(p.amount or 0)
+            for p in payments:
+                customer_name = p.contract.customer.name if p.contract and p.contract.customer else "未知"
+                if customer_name in groups:
+                    groups[customer_name]["contract_count"] = len(set(
+                        pp.contract_id for pp in payments
+                        if pp.contract and pp.contract.customer and pp.contract.customer.name == customer_name
+                    ))
             summary["groups"] = list(groups.values())
 
         return json.dumps(summary, ensure_ascii=False)
@@ -962,7 +1019,7 @@ TOOL_DEFINITIONS = [
                     "contract_id": {"type": "integer", "description": "按合同ID筛选"},
                     "status": {
                         "type": "string",
-                        "enum": ["pending", "partial", "paid", "overdue", "cancelled"],
+                        "enum": ["pending", "partial", "paid", "pending_voucher", "overdue", "cancelled"],
                         "description": "付款状态筛选",
                     },
                     "overdue_only": {"type": "boolean", "description": "只返回逾期付款", "default": False},

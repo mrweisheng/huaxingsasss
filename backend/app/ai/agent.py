@@ -174,6 +174,7 @@ class ContractAgent:
             # 继续循环，让 LLM 根据工具结果生成回复
 
         # 超过最大迭代次数
+        full_text += "\n\n[系统提示：对话轮次已达上限，如果问题尚未解决，请继续提问。]"
         self._save_message(session_id, "assistant", full_text)
         yield {
             "event": "done",
