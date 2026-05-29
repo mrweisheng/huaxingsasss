@@ -3,7 +3,9 @@
 """
 from typing import Optional, List
 from decimal import Decimal
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import date
 
@@ -197,6 +199,36 @@ def get_contract(
         )
     
     return contract
+
+
+@router.get("/{contract_id}/file")
+def download_contract_file(
+    contract_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """下载/预览合同原文件"""
+    contract = ContractService.get_contract(db, contract_id)
+    if not contract:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
+
+    if current_user.role != "admin" and contract.sales_person_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此合同")
+
+    if not contract.original_file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同文件不存在")
+
+    file_path = Path(settings.CONTRACT_UPLOAD_DIR) / contract.original_file_path
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同文件已丢失")
+
+    # PDF 直接内联预览，其他文件下载
+    media_type = "application/pdf" if file_path.suffix.lower() == ".pdf" else "application/octet-stream"
+    return FileResponse(
+        path=str(file_path),
+        media_type=media_type,
+        filename=file_path.name,
+    )
 
 
 @router.put("/{contract_id}", response_model=ContractResponse)

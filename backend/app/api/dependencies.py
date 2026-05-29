@@ -2,7 +2,7 @@
 API依赖注入
 """
 from typing import Optional
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 import structlog
@@ -18,9 +18,11 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=F
 
 def get_current_user(
     token: Optional[str] = Depends(oauth2_scheme),
+    token_query: Optional[str] = Query(None, alias="token"),
     db: Session = Depends(get_db)
 ) -> User:
-    """获取当前用户"""
+    """获取当前用户（支持 header 和 query parameter 两种方式传 token）"""
+    token = token or token_query
     if not token:
         logger.warning("auth_missing_token")
         raise HTTPException(

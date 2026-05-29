@@ -3,7 +3,9 @@
 """
 from typing import Optional
 from decimal import Decimal
+from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import date
 
@@ -133,3 +135,36 @@ def get_contract_payments(
         message="success",
         data=result
     )
+
+
+@router.get("/{payment_id}/receipt")
+def get_receipt_image(
+    payment_id: int,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db)
+):
+    """查看付款凭证图片"""
+    payment = db.query(Payment).filter(Payment.id == payment_id).first()
+    if not payment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="付款记录不存在")
+
+    # 权限检查：通过合同判断
+    contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+    if contract and current_user.role not in ("admin", "finance") and contract.sales_person_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
+
+    if not payment.receipt_image_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="凭证文件不存在")
+
+    file_path = Path(settings.RECEIPT_UPLOAD_DIR) / payment.receipt_image_path
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="凭证文件已丢失")
+
+    media_type = "application/octet-stream"
+    suffix = file_path.suffix.lower()
+    if suffix in (".jpg", ".jpeg"):
+        media_type = "image/jpeg"
+    elif suffix == ".png":
+        media_type = "image/png"
+
+    return FileResponse(path=str(file_path), media_type=media_type)

@@ -42,10 +42,12 @@ export interface Contract {
   confidence?: number
   needs_review?: boolean
   status: string
+  original_file_path?: string
   signed_date?: string
   start_date?: string
   end_date?: string
   remarks?: string
+  wechat_group?: string
   created_at: string
   updated_at: string
 }
