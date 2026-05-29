@@ -1,0 +1,98 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@300;400;500;600;700&display=swap');
+
+.payment-list-container {
+  padding: 16px 20px;
+  min-height: calc(100vh - 120px);
+  background: linear-gradient(180deg, #f8f9fb 0%, #ffffff 100%);
+}
+
+.top-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 16px;
+}
+
+.top-bar-left {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.page-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 18px;
+  font-weight: 600;
+  color: #262626;
+  margin: 0;
+  font-family: 'Noto Sans SC', sans-serif;
+  white-space: nowrap;
+}
+
+.title-icon {
+  font-size: 20px;
+  color: #1890ff;
+}
+
+.title-text {
+  font-weight: 600;
+}
+
+.payment-count {
+  font-size: 12px;
+  font-weight: 500;
+  color: #1890ff;
+  background: #e6f7ff;
+  padding: 2px 8px;
+  border-radius: 10px;
+  white-space: nowrap;
+}
+
+.top-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.top-bar-right .ant-select-selector {
+  border-radius: 6px !important;
+}
+
+.payment-table {
+  background: #fff;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.payment-table .ant-table {
+  font-family: 'Noto Sans SC', sans-serif;
+}
+
+.empty-state {
+  padding: 60px 0;
+}
+
+@media (max-width: 768px) {
+  .payment-list-container {
+    padding: 12px;
+  }
+
+  .top-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .top-bar-left {
+    justify-content: space-between;
+  }
+
+  .top-bar-right {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}

@@ -29,11 +29,14 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 # 启动 Celery Worker（另开终端）
 uv run celery -A app.tasks.celery_app worker --loglevel=info
 
-# 数据库迁移
+# 数据库迁移（生产环境启动时自动执行，无需手动运行）
 uv run alembic -c migrations/alembic.ini upgrade head
 
 # 创建新迁移
 uv run alembic -c migrations/alembic.ini revision --autogenerate -m "description"
+
+# 查看当前迁移版本
+uv run alembic -c migrations/alembic.ini current
 
 # 运行测试
 uv run pytest
@@ -115,7 +118,11 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 ## Database Models
 
-7 张表：`users`, `customers`, `contracts`, `payments`, `exchange_rates`, `files`, `audit_logs`, `chat_history`。
+8 张表：`users`, `customers`, `contracts`, `payments`, `exchange_rates`, `files`, `audit_logs`, `chat_history`。
+
+### 自动迁移
+
+`main.py` 的 `on_startup` 事件中调用 `_run_migrations()`，每次服务启动时自动执行 `alembic upgrade head`。生产部署流程：拉代码 → 重启服务 → 自动迁移 → 正常运行。开发环境同样适用。显式设置 `script_location` 为绝对路径避免相对路径解析问题。
 
 `chat_history` 表存储 Agent 对话消息，每行一条消息（role: user/assistant/tool），通过 `session_id` 分组为会话。包含 `tool_calls`（JSON）和 `metadata`（JSON）列支持函数调用和附件。
 

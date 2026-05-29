@@ -1,20 +1,26 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Button, Input, Space, Tag, Select, DatePicker, Popconfirm, message } from 'antd'
-import { PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Input, Select, DatePicker, Button, Popconfirm, message, Progress, Empty } from 'antd'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
+import './ContractList.css'
 
 const { RangePicker } = DatePicker
 
-const statusMap: Record<string, { color: string; text: string }> = {
-  draft: { color: 'default', text: '草稿' },
-  pending_review: { color: 'warning', text: '待审核' },
-  active: { color: 'processing', text: '执行中' },
-  completed: { color: 'success', text: '已完成' },
-  cancelled: { color: 'error', text: '已取消' },
-  disputed: { color: 'volcano', text: '争议' },
+const statusConfig: Record<string, { color: string; bg: string; text: string }> = {
+  draft: { color: '#8c8c8c', bg: '#f5f5f5', text: '草稿' },
+  pending_review: { color: '#fa8c16', bg: '#fff7e6', text: '待审核' },
+  active: { color: '#1890ff', bg: '#e6f7ff', text: '执行中' },
+  completed: { color: '#52c41a', bg: '#f6ffed', text: '已完成' },
+  cancelled: { color: '#ff4d4f', bg: '#fff1f0', text: '已取消' },
+  disputed: { color: '#722ed1', bg: '#f9f0ff', text: '争议' },
+}
+
+const businessTypeConfig: Record<string, { bg: string; border: string }> = {
+  '车辆业务': { bg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: '#667eea' },
+  '中港牌业务': { bg: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', border: '#11998e' },
 }
 
 const currencySymbol: Record<string, string> = {
@@ -23,15 +29,20 @@ const currencySymbol: Record<string, string> = {
   USD: '$',
 }
 
-const businessTypeColor: Record<string, string> = {
-  '车辆业务': 'blue',
-  '中港牌业务': 'green',
-}
-
 function formatAmount(amount: number | null | undefined, currency: string): string {
   const symbol = currencySymbol[currency] || '¥'
   if (amount == null) return `${symbol}--`
   return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function formatDate(date: string | undefined): string {
+  if (!date) return '--'
+  return dayjs(date).format('YYYY-MM-DD')
+}
+
+function calculateProgress(paid: number, total: number): number {
+  if (total === 0) return 0
+  return Math.round((paid / total) * 100)
 }
 
 export default function ContractList() {
@@ -43,10 +54,10 @@ export default function ContractList() {
   const [keyword, setKeyword] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
+  const [hoveredCard, setHoveredCard] = useState<number | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadContracts = useCallback(async () => {
-    // Cancel previous request
     abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -94,7 +105,8 @@ export default function ContractList() {
     setPage(1)
   }
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = async (id: number, e: React.MouseEvent) => {
+    e.stopPropagation()
     try {
       await contractApi.delete(id)
       message.success('删除成功')
@@ -104,134 +116,170 @@ export default function ContractList() {
     }
   }
 
-  const columns = [
-    { title: '合同编号', dataIndex: 'contract_number', key: 'contract_number', width: 180 },
-    { title: '客户名称', dataIndex: 'customer_name', key: 'customer_name', render: (v: string) => v || '-' },
-    { title: '合同标题', dataIndex: 'title', key: 'title', ellipsis: true },
-    {
-      title: '业务类型',
-      dataIndex: 'business_type',
-      key: 'business_type',
-      width: 100,
-      render: (v: string) => v ? <Tag color={businessTypeColor[v] || 'default'}>{v}</Tag> : '-',
-    },
-    {
-      title: '业务摘要',
-      dataIndex: 'business_description',
-      key: 'business_description',
-      width: 160,
-      ellipsis: true,
-      render: (v: string) => v || '-',
-    },
-    { title: '币种', dataIndex: 'currency', key: 'currency', width: 70 },
-    {
-      title: '总金额',
-      dataIndex: 'total_amount',
-      key: 'total_amount',
-      width: 130,
-      render: (v: number, record: Contract) => formatAmount(v, record.currency),
-    },
-    {
-      title: '已付金额',
-      dataIndex: 'paid_amount',
-      key: 'paid_amount',
-      width: 130,
-      render: (v: number, record: Contract) => formatAmount(v, record.currency),
-    },
-    {
-      title: '剩余尾款',
-      dataIndex: 'remaining_amount',
-      key: 'remaining_amount',
-      width: 130,
-      render: (v: number, record: Contract) => (
-        <span style={{ color: v > 0 ? '#ff4d4f' : '#52c41a' }}>
-          {formatAmount(v, record.currency)}
-        </span>
-      ),
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 90,
-      render: (status: string) => {
-        const { color, text } = statusMap[status] || { color: 'default', text: status }
-        return <Tag color={color}>{text}</Tag>
-      },
-    },
-    {
-      title: '签订日期',
-      dataIndex: 'signed_date',
-      key: 'signed_date',
-      width: 110,
-      render: (v: string) => v || '-',
-    },
-    {
-      title: '操作',
-      key: 'action',
-      width: 130,
-      render: (_: any, record: Contract) => (
-        <Space size="small">
-          <Button type="link" size="small" onClick={() => navigate(`/contracts/${record.id}`)}>
-            详情
-          </Button>
-          <Popconfirm
-            title="确认删除"
-            description={`确定要删除合同 ${record.contract_number} 吗？`}
-            onConfirm={() => handleDelete(record.id)}
-            okText="删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button type="link" danger size="small" icon={<DeleteOutlined />}>
-              删除
-            </Button>
-          </Popconfirm>
-        </Space>
-      ),
-    },
-  ]
+  const totalPages = Math.ceil(total / 20)
 
   return (
-    <div>
-      <Space wrap style={{ marginBottom: 16 }}>
-        <Input.Search
-          placeholder="搜索合同编号/标题..."
-          allowClear
-          onSearch={handleSearch}
-          style={{ width: 260 }}
-        />
-        <Select
-          placeholder="合同状态"
-          allowClear
-          style={{ width: 130 }}
-          value={statusFilter}
-          onChange={handleStatusChange}
-          options={[
-            { label: '草稿', value: 'draft' },
-            { label: '待审核', value: 'pending_review' },
-            { label: '执行中', value: 'active' },
-            { label: '已完成', value: 'completed' },
-            { label: '已取消', value: 'cancelled' },
-          ]}
-        />
-        <RangePicker
-          placeholder={['签订开始', '签订结束']}
-          onChange={handleDateChange}
-          value={dateRange as any}
-        />
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/upload')}>
-          上传合同
-        </Button>
-      </Space>
-      <Table
-        columns={columns}
-        dataSource={contracts}
-        loading={loading}
-        rowKey="id"
-        scroll={{ x: 1500 }}
-        pagination={{ current: page, pageSize: 20, total, onChange: setPage, showTotal: (t) => `共 ${t} 条` }}
-      />
+    <div className="contract-list-container">
+      <div className="top-bar">
+        <div className="top-bar-left">
+          <h2 className="page-title">
+            <FileTextOutlined className="title-icon" />
+            <span className="title-text">合同管理</span>
+            <span className="contract-count">{total} 个合同</span>
+          </h2>
+        </div>
+        <div className="top-bar-right">
+          <Input.Search
+            placeholder="搜索合同编号/标题/客户..."
+            allowClear
+            onSearch={handleSearch}
+            className="search-input"
+            prefix={<SearchOutlined />}
+          />
+          <Select
+            placeholder="状态"
+            allowClear
+            style={{ width: 110 }}
+            value={statusFilter}
+            onChange={handleStatusChange}
+            suffixIcon={<FilterOutlined />}
+            options={[
+              { label: '草稿', value: 'draft' },
+              { label: '待审核', value: 'pending_review' },
+              { label: '执行中', value: 'active' },
+              { label: '已完成', value: 'completed' },
+              { label: '已取消', value: 'cancelled' },
+            ]}
+          />
+          <RangePicker
+            placeholder={['日期范围']}
+            onChange={handleDateChange}
+            value={dateRange as any}
+            className="date-picker"
+          />
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/upload')}>
+            上传
+          </Button>
+        </div>
+      </div>
+
+      {contracts.length === 0 && !loading ? (
+        <Empty description="暂无合同数据" className="empty-state" />
+      ) : (
+        <>
+          <div className="contract-grid">
+            {contracts.map((contract, index) => {
+              const status = statusConfig[contract.status] || statusConfig.draft
+              const businessType = businessTypeConfig[contract.business_type || '']
+              const progress = calculateProgress(contract.paid_amount, contract.total_amount)
+              const isHovered = hoveredCard === contract.id
+
+              return (
+                <div
+                  key={contract.id}
+                  className={`contract-card ${isHovered ? 'hovered' : ''}`}
+                  onClick={() => navigate(`/contracts/${contract.id}`)}
+                  onMouseEnter={() => setHoveredCard(contract.id)}
+                  onMouseLeave={() => setHoveredCard(null)}
+                  style={{ animationDelay: `${index * 50}ms` }}
+                >
+                  <div className="card-header">
+                    <div className="contract-number">{contract.contract_number}</div>
+                    <div className="status-badge" style={{ color: status.color, backgroundColor: status.bg }}>
+                      {status.text}
+                    </div>
+                  </div>
+
+                  {contract.business_type && (
+                    <div
+                      className="business-type-badge"
+                      style={{ background: businessType?.bg || '#667eea', borderColor: businessType?.border || '#667eea' }}
+                    >
+                      {contract.business_type}
+                    </div>
+                  )}
+
+                  <div className="card-title">{contract.title || '无标题'}</div>
+
+                  {contract.customer_name && (
+                    <div className="customer-info">
+                      <span className="label">客户</span>
+                      <span className="value">{contract.customer_name}</span>
+                    </div>
+                  )}
+
+                  {contract.business_description && (
+                    <div className="business-desc">{contract.business_description}</div>
+                  )}
+
+                  <div className="amount-section">
+                    <div className="amount-row">
+                      <span className="amount-label">合同总额</span>
+                      <span className="amount-value total">{formatAmount(contract.total_amount, contract.currency)}</span>
+                    </div>
+                    <div className="amount-row">
+                      <span className="amount-label">已付金额</span>
+                      <span className="amount-value paid">{formatAmount(contract.paid_amount, contract.currency)}</span>
+                    </div>
+                    <div className="amount-row">
+                      <span className="amount-label">剩余尾款</span>
+                      <span className={`amount-value remaining ${contract.remaining_amount > 0 ? 'unpaid' : 'paid'}`}>
+                        {formatAmount(contract.remaining_amount, contract.currency)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="progress-section">
+                    <Progress
+                      percent={progress}
+                      size="small"
+                      strokeColor={progress === 100 ? '#52c41a' : '#1890ff'}
+                      trailColor="#f0f0f0"
+                      showInfo={false}
+                    />
+                    <span className="progress-text">{progress}%</span>
+                  </div>
+
+                  <div className="card-footer">
+                    <div className="footer-item">
+                      <span className="footer-label">签订日期</span>
+                      <span className="footer-value">{formatDate(contract.signed_date)}</span>
+                    </div>
+                    <div className="footer-actions" onClick={(e) => e.stopPropagation()}>
+                      <Popconfirm
+                        title="确认删除"
+                        description={`确定要删除合同 ${contract.contract_number} 吗？`}
+                        onConfirm={(e) => handleDelete(contract.id, e as any)}
+                        okText="删除"
+                        cancelText="取消"
+                        okButtonProps={{ danger: true }}
+                      >
+                        <DeleteOutlined className="action-icon delete" />
+                      </Popconfirm>
+                    </div>
+                  </div>
+
+                  <div className="card-decoration" />
+                </div>
+              )
+            })}
+          </div>
+
+          {totalPages > 1 && (
+            <div className="pagination">
+              <div className="pagination-info">
+                第 {page} / {totalPages} 页，共 {total} 条
+              </div>
+              <div className="pagination-buttons">
+                <Button disabled={page <= 1} onClick={() => setPage(1)}>首页</Button>
+                <Button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>上一页</Button>
+                <Button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>下一页</Button>
+                <Button disabled={page >= totalPages} onClick={() => setPage(totalPages)}>末页</Button>
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

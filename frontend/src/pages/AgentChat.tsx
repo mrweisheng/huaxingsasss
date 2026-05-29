@@ -7,6 +7,7 @@ import {
   Avatar,
   Tag,
   Upload,
+  Tooltip,
   message,
   Empty,
   Spin,
@@ -24,6 +25,7 @@ import {
   DeleteOutlined,
   ToolOutlined,
   CheckCircleOutlined,
+  ExclamationCircleOutlined,
   LoadingOutlined,
   FilePdfOutlined,
   FileWordOutlined,
@@ -55,13 +57,15 @@ function ToolCallView({ toolCall }: { toolCall: ToolCall }) {
   const hasResult = !!toolCall.result
 
   return (
-    <Tag
-      color={hasResult ? 'green' : 'processing'}
-      icon={hasResult ? <CheckCircleOutlined /> : <LoadingOutlined />}
-      style={{ marginBottom: 4 }}
-    >
-      <ToolOutlined /> {label}
-    </Tag>
+    <Tooltip title={!hasResult ? '历史记录中该工具结果未保存，返回查看时请重新对话获取最新信息' : undefined}>
+      <Tag
+        color={hasResult ? 'green' : 'orange'}
+        icon={hasResult ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />}
+        style={{ marginBottom: 4, cursor: hasResult ? 'default' : 'help' }}
+      >
+        <ToolOutlined /> {label}
+      </Tag>
+    </Tooltip>
   )
 }
 
@@ -279,6 +283,7 @@ export default function AgentChat() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const messageListRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const {
     sessions,
@@ -314,6 +319,28 @@ export default function AgentChat() {
       clearError()
     }
   }, [error])
+
+  // 监听粘贴事件，支持图片粘贴上传
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          const file = item.getAsFile()
+          if (file) {
+            setPendingFiles((prev) => [...prev, file])
+          }
+          return
+        }
+      }
+    }
+
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [])
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
@@ -572,7 +599,7 @@ export default function AgentChat() {
             marginTop: 8,
           }}
         >
-          AI 可能产生错误信息，请核实重要数据
+          Ctrl/Cmd + V 粘贴图片 · AI 可能产生错误信息，请核实重要数据
         </div>
       </div>
 

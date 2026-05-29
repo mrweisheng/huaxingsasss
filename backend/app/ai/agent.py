@@ -470,7 +470,7 @@ class ContractAgent:
         return result
 
     def get_history(self, session_id: str) -> List[dict]:
-        """获取会话历史"""
+        """获取会话历史，并合并 tool 结果到 assistant 消息的 toolCalls 中"""
         records = (
             self.db.query(ChatHistory)
             .filter(
@@ -481,17 +481,44 @@ class ContractAgent:
             .all()
         )
 
-        return [
-            {
+        # 构建 tool_call_id -> result 的映射
+        tool_results: dict[str, str] = {}
+        for r in records:
+            if r.role == "tool" and r.extra_metadata:
+                tool_call_id = r.extra_metadata.get("tool_call_id", "")
+                if tool_call_id and r.answer:
+                    tool_results[tool_call_id] = r.answer
+
+        # 过滤掉 role='tool' 的独立记录，将结果合并到 assistant 消息
+        result = []
+        for r in records:
+            if r.role == "tool":
+                continue  # 跳过 tool 记录，结果已合并到 assistant
+
+            msg = {
                 "id": r.id,
                 "role": r.role,
                 "content": r.question if r.role == "user" else r.answer,
-                "tool_calls": r.tool_calls,
                 "intent_type": r.intent_type,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
-            for r in records
-        ]
+
+            # 处理 tool_calls，合并结果
+            if r.role == "assistant" and r.tool_calls:
+                merged_tool_calls = []
+                for tc in r.tool_calls:
+                    tc_copy = dict(tc) if tc else {}
+                    tc_id = tc_copy.get("id", "")
+                    if tc_id and tc_id in tool_results:
+                        tc_copy["result"] = tool_results[tc_id]
+                    merged_tool_calls.append(tc_copy)
+                msg["tool_calls"] = merged_tool_calls
+            else:
+                msg["tool_calls"] = r.tool_calls
+
+            result.append(msg)
+
+        return result
 
     def delete_session(self, session_id: str) -> bool:
         """删除会话及其所有消息"""

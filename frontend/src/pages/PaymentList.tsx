@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Table, Card, Tag, Space, Select } from 'antd'
+import { Table, Button, Input, Select, DatePicker, Space, Tag, Popconfirm, message, Empty } from 'antd'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, DollarOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import type { Payment } from '@/types'
+import './PaymentList.css'
 
 const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
 
@@ -12,11 +14,11 @@ function fmt(amount: number | undefined | null, currency: string): string {
 }
 
 const statusMap: Record<string, { color: string; text: string }> = {
-  pending: { color: 'default', text: '待支付' },
-  partial: { color: 'warning', text: '部分支付' },
-  paid: { color: 'success', text: '已支付' },
-  overdue: { color: 'error', text: '逾期' },
-  cancelled: { color: 'default', text: '已取消' },
+  pending: { color: '#8c8c8c', bg: '#f5f5f5', text: '待支付' },
+  partial: { color: '#fa8c16', bg: '#fff7e6', text: '部分支付' },
+  paid: { color: '#52c41a', bg: '#f6ffed', text: '已支付' },
+  overdue: { color: '#ff4d4f', bg: '#fff1f0', text: '逾期' },
+  cancelled: { color: '#8c8c8c', bg: '#f5f5f5', text: '已取消' },
 }
 
 const methodMap: Record<string, string> = {
@@ -36,7 +38,6 @@ export default function PaymentList() {
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadPayments = useCallback(async () => {
-    // Cancel previous request
     abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
@@ -75,13 +76,17 @@ export default function PaymentList() {
       title: '合同编号',
       dataIndex: 'contract_number',
       key: 'contract_number',
-      width: 170,
+      width: 140,
+      minWidth: 100,
+      ellipsis: true,
       render: (v: string) => v || '-',
     },
     {
       title: '客户名称',
       dataIndex: 'customer_name',
       key: 'customer_name',
+      minWidth: 80,
+      ellipsis: true,
       render: (v: string) => v || '-',
     },
     {
@@ -89,39 +94,51 @@ export default function PaymentList() {
       dataIndex: 'installment_number',
       key: 'installment_number',
       width: 60,
+      minWidth: 50,
+      align: 'center' as const,
     },
     {
       title: '币种',
       dataIndex: 'currency',
       key: 'currency',
       width: 60,
+      minWidth: 50,
+      align: 'center' as const,
     },
     {
       title: '应付金额',
       dataIndex: 'amount',
       key: 'amount',
-      width: 120,
+      width: 100,
+      minWidth: 80,
+      align: 'right' as const,
       render: (v: number, r: Payment) => fmt(v, r.currency),
     },
     {
       title: '实付金额',
       dataIndex: 'paid_amount',
       key: 'paid_amount',
-      width: 120,
+      width: 100,
+      minWidth: 80,
+      align: 'right' as const,
       render: (v: number, r: Payment) => fmt(v, r.currency),
     },
     {
       title: '折算CNY',
       dataIndex: 'paid_amount_in_cny',
       key: 'paid_amount_in_cny',
-      width: 120,
+      width: 100,
+      minWidth: 80,
+      align: 'right' as const,
       render: (v: number) => fmt(v, 'CNY'),
     },
     {
       title: '付款日期',
       dataIndex: 'paid_date',
       key: 'paid_date',
-      width: 110,
+      width: 100,
+      minWidth: 80,
+      ellipsis: true,
       render: (v: string) => v || '-',
     },
     {
@@ -129,6 +146,7 @@ export default function PaymentList() {
       dataIndex: 'payment_method',
       key: 'payment_method',
       width: 80,
+      minWidth: 60,
       render: (v: string) => methodMap[v] || v || '-',
     },
     {
@@ -136,51 +154,72 @@ export default function PaymentList() {
       dataIndex: 'status',
       key: 'status',
       width: 80,
+      minWidth: 70,
       render: (s: string) => {
-        const { color, text } = statusMap[s] || { color: 'default', text: s }
-        return <Tag color={color}>{text}</Tag>
+        const { color, text, bg } = statusMap[s] || { color: '#8c8c8c', bg: '#f5f5f5', text: s }
+        return <span style={{ color, backgroundColor: bg, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>{text}</span>
       },
     },
     {
       title: '备注',
       dataIndex: 'notes',
       key: 'notes',
+      minWidth: 100,
       ellipsis: true,
       render: (v: string) => v || '-',
     },
   ]
 
   return (
-    <Card title="付款管理">
-      <Space style={{ marginBottom: 16 }}>
-        <Select
-          placeholder="付款状态"
-          allowClear
-          style={{ width: 130 }}
-          value={statusFilter}
-          onChange={handleStatusChange}
-          options={[
-            { label: '待支付', value: 'pending' },
-            { label: '部分支付', value: 'partial' },
-            { label: '已支付', value: 'paid' },
-            { label: '逾期', value: 'overdue' },
-          ]}
+    <div className="payment-list-container">
+      <div className="top-bar">
+        <div className="top-bar-left">
+          <h2 className="page-title">
+            <DollarOutlined className="title-icon" />
+            <span className="title-text">付款管理</span>
+            <span className="payment-count">{total} 条记录</span>
+          </h2>
+        </div>
+        <div className="top-bar-right">
+          <Select
+            placeholder="状态"
+            allowClear
+            style={{ width: 110 }}
+            value={statusFilter}
+            onChange={handleStatusChange}
+            suffixIcon={<FilterOutlined />}
+            options={[
+              { label: '待支付', value: 'pending' },
+              { label: '部分支付', value: 'partial' },
+              { label: '已支付', value: 'paid' },
+              { label: '逾期', value: 'overdue' },
+            ]}
+          />
+          <Button type="primary" icon={<PlusOutlined />}>
+            新增
+          </Button>
+        </div>
+      </div>
+
+      {payments.length === 0 && !loading ? (
+        <Empty description="暂无付款记录" className="empty-state" />
+      ) : (
+        <Table
+          columns={columns}
+          dataSource={payments}
+          loading={loading}
+          rowKey="id"
+          scroll={{ x: 'max-content' }}
+          pagination={{
+            current: page,
+            pageSize: 20,
+            total,
+            onChange: setPage,
+            showTotal: (t) => `共 ${t} 条`,
+          }}
+          className="payment-table"
         />
-      </Space>
-      <Table
-        columns={columns}
-        dataSource={payments}
-        loading={loading}
-        rowKey="id"
-        scroll={{ x: 1100 }}
-        pagination={{
-          current: page,
-          pageSize: 20,
-          total,
-          onChange: setPage,
-          showTotal: (t) => `共 ${t} 条`,
-        }}
-      />
-    </Card>
+      )}
+    </div>
   )
 }
