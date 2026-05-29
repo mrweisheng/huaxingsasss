@@ -12,6 +12,7 @@ from sqlalchemy import or_, func, String
 from sqlalchemy.orm import Session, contains_eager
 
 from app.config import settings
+from app.core.chinese import search_variants
 from app.models.contract import Contract
 from app.models.customer import Customer
 from app.models.payment import Payment
@@ -72,9 +73,11 @@ class ContractService:
         if sales_person_id:
             query = query.filter(Contract.sales_person_id == sales_person_id)
 
-        # 客户名称模糊搜索
+        # 客户名称模糊搜索（繁简兼容）
         if customer_name:
-            query = query.filter(Customer.name.ilike(f"%{customer_name}%"))
+            variants = search_variants(customer_name)
+            escaped = [v.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") for v in variants]
+            query = query.filter(or_(*[Customer.name.ilike(f"%{v}%") for v in escaped]))
 
         # 关键词全文搜索
         if keyword:

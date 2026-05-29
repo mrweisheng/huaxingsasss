@@ -965,7 +965,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_customers",
-            "description": "按姓名、电话或微信群名搜索客户。返回匹配的客户列表及其关联合同数量。",
+            "description": "按姓名、电话或微信群名搜索客户（自动兼容繁体/简体）。返回匹配的客户列表及其关联合同数量。",
             "parameters": {
                 "type": "object",
                 "properties": {
