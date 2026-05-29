@@ -43,6 +43,9 @@ class Contract(BaseModel):
     confidence = Column(DECIMAL(5, 4), comment="AI解析置信度")
     needs_review = Column(Boolean, default=False, comment="是否需要人工审核")
 
+    # 业务微信群
+    wechat_group = Column(String(200), comment="业务微信群名称")
+
     # 合同状态
     status = Column(String(20), nullable=False, default="draft", index=True, comment="状态: draft/pending_review/active/completed/cancelled/disputed")
     

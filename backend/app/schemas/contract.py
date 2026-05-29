@@ -20,6 +20,7 @@ class ContractBase(BaseModel):
     start_date: Optional[date] = Field(None, description="生效日期")
     end_date: Optional[date] = Field(None, description="到期日期")
     remarks: Optional[str] = Field(None, description="备注")
+    wechat_group: Optional[str] = Field(None, max_length=200, description="业务微信群名称")
 
 
 class ContractCreate(ContractBase):
@@ -42,6 +43,7 @@ class ContractUpdate(BaseModel):
     start_date: Optional[date] = None
     end_date: Optional[date] = None
     remarks: Optional[str] = None
+    wechat_group: Optional[str] = Field(None, max_length=200, description="业务微信群名称")
     contract_data: Optional[Dict[str, Any]] = Field(None, description="AI解析数据")
 
 

@@ -23,7 +23,7 @@ from app.models.customer import Customer
 from app.models.contract import Contract
 from app.models.payment import Payment
 from app.models.user import User
-from app.ai.prompts import RECEIPT_ANALYSIS_PROMPT, CONTRACT_ANALYSIS_PROMPT
+from app.ai.prompts import RECEIPT_ANALYSIS_PROMPT, CONTRACT_ANALYSIS_PROMPT, GENERAL_ANALYSIS_PROMPT
 from app.services.contract_service import ContractService
 from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
@@ -59,6 +59,7 @@ class ToolExecutor:
             "total_amount_in_cny": float(c.total_amount_in_cny) if c.total_amount_in_cny else None,
             "paid_amount_in_cny": float(c.paid_amount_in_cny) if c.paid_amount_in_cny else 0,
             "status": c.status,
+            "wechat_group": c.wechat_group,
             "signed_date": str(c.signed_date) if c.signed_date else None,
             "end_date": str(c.end_date) if c.end_date else None,
         }
@@ -356,6 +357,7 @@ class ToolExecutor:
                 original_file_path=original_file_path,
                 file_hash=file_hash,
                 signed_date=signed_date,
+                wechat_group=kwargs.get("wechat_group"),
                 status="active",
             )
 
@@ -387,12 +389,52 @@ class ToolExecutor:
                     "currency": contract.currency,
                     "total_amount": float(contract.total_amount),
                     "status": contract.status,
+                    "wechat_group": contract.wechat_group,
                     "signed_date": str(contract.signed_date) if contract.signed_date else None,
                 },
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("create_contract failed")
             return json.dumps({"error": f"创建合同失败: {str(e)}"}, ensure_ascii=False)
+
+    def update_contract(self, **kwargs) -> str:
+        """更新合同信息（如微信群、备注等）"""
+        if self.user.role not in ("admin", "finance", "sales"):
+            return json.dumps({"error": "当前角色无权修改合同"}, ensure_ascii=False)
+
+        contract_id = kwargs.get("contract_id")
+        if not contract_id:
+            return json.dumps({"error": "缺少 contract_id"}, ensure_ascii=False)
+
+        contract = ContractService.get_contract(self.db, contract_id)
+        if not contract:
+            return json.dumps({"error": f"合同不存在：{contract_id}"}, ensure_ascii=False)
+        if not self._can_access_contract(contract):
+            return json.dumps({"error": "无权修改该合同"}, ensure_ascii=False)
+
+        updatable_fields = ["wechat_group", "remarks", "title", "business_description"]
+        updates = {}
+        for field in updatable_fields:
+            if field in kwargs and kwargs[field] is not None:
+                updates[field] = kwargs[field]
+
+        if not updates:
+            return json.dumps({"error": "没有需要更新的字段"}, ensure_ascii=False)
+
+        try:
+            from app.schemas.contract import ContractUpdate
+            contract_update = ContractUpdate(**updates)
+            updated = ContractService.update_contract(self.db, contract_id, contract_update)
+            if not updated:
+                return json.dumps({"error": "更新失败"}, ensure_ascii=False)
+
+            return json.dumps({
+                "success": True,
+                "contract": self._contract_to_dict(updated),
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("update_contract failed")
+            return json.dumps({"error": f"更新合同失败: {str(e)}"}, ensure_ascii=False)
 
     def create_payment(self, **kwargs) -> str:
         if self.user.role not in ("admin", "finance", "sales"):
@@ -619,7 +661,8 @@ class ToolExecutor:
             prompt = {
                 "receipt": RECEIPT_ANALYSIS_PROMPT,
                 "contract": CONTRACT_ANALYSIS_PROMPT,
-            }.get(analysis_type, RECEIPT_ANALYSIS_PROMPT)
+                "general": GENERAL_ANALYSIS_PROMPT,
+            }.get(analysis_type, GENERAL_ANALYSIS_PROMPT)
 
             image_base64 = base64.b64encode(file_bytes).decode()
             payload = {
@@ -688,7 +731,11 @@ class ToolExecutor:
                         pix = page.get_pixmap(dpi=200)
                         img_bytes = pix.tobytes("png")
                         img_b64 = base64.b64encode(img_bytes).decode()
-                        prompt = CONTRACT_ANALYSIS_PROMPT if analysis_type == "contract" else RECEIPT_ANALYSIS_PROMPT
+                        prompt = {
+                            "receipt": RECEIPT_ANALYSIS_PROMPT,
+                            "contract": CONTRACT_ANALYSIS_PROMPT,
+                            "general": GENERAL_ANALYSIS_PROMPT,
+                        }.get(analysis_type, GENERAL_ANALYSIS_PROMPT)
 
                         payload = {
                             "model": settings.SILICONFLOW_VISION_MODEL,
@@ -878,6 +925,25 @@ TOOL_DEFINITIONS = [
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
                     "business_type": {"type": "string", "enum": ["车辆业务", "中港牌业务"], "description": "业务大类：车辆业务（买车卖车）或中港牌业务（办理中港车牌）"},
                     "business_description": {"type": "string", "description": "业务具体描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌"},
+                    "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_contract",
+            "description": "更新合同信息。用于补充微信群名称、备注等信息。当用户发送业务群截图时，提取群名后用此工具关联到合同。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "wechat_group": {"type": "string", "description": "业务微信群名称"},
+                    "remarks": {"type": "string", "description": "备注"},
+                    "title": {"type": "string", "description": "合同标题"},
+                    "business_description": {"type": "string", "description": "业务描述"},
                 },
             },
         },
