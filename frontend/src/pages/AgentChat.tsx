@@ -266,6 +266,22 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
             >
               <MarkdownRenderer content={msg.content} />
             </div>
+          ) : (msg as any)._thinking ? (
+            <div
+              style={{
+                background: '#f5f5f5',
+                padding: '8px 16px',
+                borderRadius: '12px 12px 12px 2px',
+                display: 'flex',
+                alignItems: 'center',
+                gap: 8,
+                color: '#999',
+                fontSize: 13,
+              }}
+            >
+              <Spin size="small" />
+              {(msg as any)._thinking}
+            </div>
           ) : msg.toolCalls?.length ? (
             <Spin size="small" />
           ) : null}

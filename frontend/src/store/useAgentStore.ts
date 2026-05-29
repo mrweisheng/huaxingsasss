@@ -234,6 +234,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
               }
             } else if (event.event === 'error') {
               set({ error: eventData.message })
+            } else if (event.event === 'thinking') {
+              // 显示中间状态（文件分析、数据查询等）
+              const thinkingMsg = eventData.message || '思考中...'
+              set((state) => ({
+                messages: state.messages.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: m.content || '', _thinking: thinkingMsg }
+                    : m,
+                ),
+              }))
             }
           } catch {
             // JSON parse error, skip

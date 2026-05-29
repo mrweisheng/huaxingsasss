@@ -109,7 +109,7 @@ class ContractAgent:
 
             if not tool_calls:
                 # 无工具调用，对话结束
-                self._save_message(session_id, "assistant", full_text)
+                self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
                 yield {
                     "event": "done",
                     "data": {
@@ -158,7 +158,7 @@ class ContractAgent:
 
                 yield {
                     "event": "tool_result",
-                    "data": {"name": tc["name"], "result": result[:2000]},
+                    "data": {"name": tc["name"], "result": result[:6000]},
                 }
 
                 # 工具结果加入上下文
@@ -175,7 +175,7 @@ class ContractAgent:
 
         # 超过最大迭代次数
         full_text += "\n\n[系统提示：对话轮次已达上限，如果问题尚未解决，请继续提问。]"
-        self._save_message(session_id, "assistant", full_text)
+        self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
         yield {
             "event": "done",
             "data": {"session_id": session_id, "tokens_used": total_tokens},
@@ -183,22 +183,22 @@ class ContractAgent:
 
     async def _process_attachments(self, attachments: List[dict]) -> str:
         """处理附件（图片/PDF/Word/Excel/文本），返回分析结果的文本描述"""
-        logger.info("[PROCESS_ATTACHMENTS] 开始处理 %d 个附件", len(attachments))
+        logger.debug("[PROCESS_ATTACHMENTS] 开始处理 %d 个附件", len(attachments))
         results = []
         for i, att in enumerate(attachments):
             file_id = att.get("file_id", "")
             file_type = att.get("file_type", "image")
 
-            logger.info("[PROCESS_ATTACHMENTS] 处理附件[%d]: file_id=%s, file_type=%s", i, file_id, file_type)
+            logger.debug("[PROCESS_ATTACHMENTS] 处理附件[%d]: file_id=%s, file_type=%s", i, file_id, file_type)
 
             file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
-            logger.info("[PROCESS_ATTACHMENTS]   文件路径: %s", file_path)
-            logger.info("[PROCESS_ATTACHMENTS]   文件存在: %s", os.path.exists(file_path))
+            logger.debug("[PROCESS_ATTACHMENTS]   文件路径: %s", file_path)
+            logger.debug("[PROCESS_ATTACHMENTS]   文件存在: %s", os.path.exists(file_path))
 
             if os.path.exists(file_path):
                 try:
                     size = os.path.getsize(file_path)
-                    logger.info("[PROCESS_ATTACHMENTS]   文件大小: %d bytes", size)
+                    logger.debug("[PROCESS_ATTACHMENTS]   文件大小: %d bytes", size)
                 except Exception as e:
                     logger.warning("[PROCESS_ATTACHMENTS]   获取文件大小失败: %s", e)
             else:
@@ -206,7 +206,7 @@ class ContractAgent:
                 # 列出临时目录内容帮助调试
                 try:
                     files = os.listdir(settings.TEMP_UPLOAD_DIR)
-                    logger.info("[PROCESS_ATTACHMENTS]   临时目录内容: %s", files)
+                    logger.debug("[PROCESS_ATTACHMENTS]   临时目录内容: %s", files)
                 except Exception:
                     pass
                 results.append(f"文件 {file_id} 不存在")
@@ -214,11 +214,11 @@ class ContractAgent:
 
             # 统一使用 ToolExecutor.analyze_image 处理所有文件类型
             try:
-                logger.info("[PROCESS_ATTACHMENTS]   调用 analyze_image(file_id=%s, analysis_type=general)", file_id)
+                logger.debug("[PROCESS_ATTACHMENTS]   调用 analyze_image(file_id=%s, analysis_type=general)", file_id)
                 analysis_result = await asyncio.to_thread(self.executor.analyze_image, file_id, analysis_type="general")
-                logger.info("[PROCESS_ATTACHMENTS]   analyze_image 返回长度: %d", len(analysis_result))
+                logger.debug("[PROCESS_ATTACHMENTS]   analyze_image 返回长度: %d", len(analysis_result))
                 parsed = json.loads(analysis_result)
-                logger.info("[PROCESS_ATTACHMENTS]   解析结果: success=%s, keys=%s", parsed.get("success"), list(parsed.keys()))
+                logger.debug("[PROCESS_ATTACHMENTS]   解析结果: success=%s, keys=%s", parsed.get("success"), list(parsed.keys()))
                 if parsed.get("success"):
                     data = parsed.get("data", {})
                     file_type_label = parsed.get("file_type", file_type)
@@ -232,7 +232,7 @@ class ContractAgent:
                 logger.exception("[PROCESS_ATTACHMENTS] 附件分析异常 file_id=%s", file_id)
                 results.append(f"文件分析异常: {str(e)}")
 
-        logger.info("[PROCESS_ATTACHMENTS] 处理完成，返回 %d 条结果", len(results))
+        logger.debug("[PROCESS_ATTACHMENTS] 处理完成，返回 %d 条结果", len(results))
         return "\n".join(results)
 
     def _load_history(self, session_id: str) -> List[dict]:
@@ -370,6 +370,7 @@ class ContractAgent:
         content: str,
         tool_calls: Optional[list] = None,
         metadata: Optional[dict] = None,
+        tokens_used: int = 0,
     ):
         """保存消息到数据库"""
         if role == "user":
@@ -388,6 +389,7 @@ class ContractAgent:
             tool_calls=tool_calls,
             extra_metadata=metadata or {},
             llm_model=settings.DEEPSEEK_AGENT_MODEL,
+            tokens_used=tokens_used or None,
         )
         self.db.add(record)
         self.db.commit()

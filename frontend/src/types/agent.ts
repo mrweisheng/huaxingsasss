@@ -27,6 +27,7 @@ export interface ChatMessage {
   toolCalls?: ToolCall[]
   intentType?: string
   createdAt: string
+  _thinking?: string
 }
 
 export interface ChatSession {
