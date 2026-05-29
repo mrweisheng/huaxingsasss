@@ -80,7 +80,7 @@ npm run build      # TypeScript 检查 + Vite 构建
 - **`store/useAgentStore.ts`** — Agent 会话状态管理（会话列表、消息、SSE 流式处理、文件上传）。
 - **`types/index.ts`** — TypeScript 类型定义，与后端 Pydantic Schema 对应。
 - **`types/agent.ts`** — Agent 相关类型：ChatMessage、ChatSession、SSEEvent、ToolCall。
-- **`pages/`** — Ant Design 页面组件，使用 React Router v6。
+- **`pages/`** — Ant Design 页面组件，使用 React Router v6。客户详情页（`CustomerDetail`）展示完整客户信息 + 关联合同列表及付款汇总统计。
 - **`components/Layout.tsx`** — 侧边栏 + 顶栏布局，Ant Design Sider。
 - Vite 路径别名：`@` → `src/`。开发代理：`/api` → `http://localhost:8000`。
 
@@ -128,14 +128,18 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 ### Agent 工具列表
 
-10 个工具，定义在 `backend/app/ai/tools.py` 的 `TOOL_DEFINITIONS` 中：
+14 个工具，定义在 `backend/app/ai/tools.py` 的 `TOOL_DEFINITIONS` 中：
 
 | 工具 | 类型 | 用途 |
 |------|------|------|
 | `search_customers` | 查询 | 按姓名/电话/微信群名搜索客户 |
+| `create_customer` | 动作 | 创建客户（自动去重：同名+同电话/邮箱） |
+| `update_customer` | 动作 | 更新客户信息（补充电话、证件号等） |
 | `search_contracts` | 查询 | 按编号/客户/状态/关键词搜索合同 |
 | `get_contract_detail` | 查询 | 合同详情含全部付款记录 |
 | `get_customer_contracts` | 查询 | 某客户的所有合同 |
+| `create_contract` | 动作 | 创建合同（需 customer_id + file_id，编号自动生成） |
+| `update_contract` | 动作 | 更新合同信息（补充微信群名、备注等） |
 | `query_payments` | 查询 | 按合同/状态查询付款，可查逾期 |
 | `create_payment` | 动作 | 创建付款记录（自动汇率折算） |
 | `get_payment_summary` | 分析 | 付款汇总（已付/待付/逾期） |
