@@ -7,6 +7,7 @@ import json
 import logging
 import os
 import shutil
+from uuid import uuid4
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -523,6 +524,57 @@ class ToolExecutor:
             result = self._payment_to_dict(payment)
             result["contract_number"] = payment.contract.contract_number if payment.contract else None
             result["customer_name"] = payment.contract.customer.name if payment.contract and payment.contract.customer else None
+            return json.dumps({"success": True, "payment": result}, ensure_ascii=False)
+        except Exception as e:
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    def confirm_payment(self, **kwargs) -> str:
+        """确认待凭证付款记录（pending_voucher → paid），可选关联收据文件"""
+        if self.user.role not in ("admin", "finance", "sales"):
+            return json.dumps({"error": "当前角色无权确认付款"}, ensure_ascii=False)
+
+        payment_id = kwargs.get("payment_id")
+        if not payment_id:
+            return json.dumps({"error": "缺少必填参数: payment_id"}, ensure_ascii=False)
+
+        payment = self.db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            return json.dumps({"error": f"付款记录不存在: {payment_id}"}, ensure_ascii=False)
+        if payment.status != "pending_voucher":
+            return json.dumps({"error": f"当前状态为 {payment.status}，仅待凭证状态可确认"}, ensure_ascii=False)
+
+        # 权限：sales 只能操作自己的合同
+        if self.user.role == "sales":
+            contract = self.db.query(Contract).filter(Contract.id == payment.contract_id).first()
+            if not contract or contract.sales_person_id != self.user.id:
+                return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
+
+        # 处理收据文件：从 Agent 临时目录拷贝到收据目录
+        receipt_image_path = None
+        file_id = kwargs.get("file_id")
+        if file_id:
+            src = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
+            if os.path.exists(src):
+                ext = Path(src).suffix or ".jpg"
+                filename = f"{payment.contract_id}_{payment.installment_number}_{uuid4().hex[:8]}{ext}"
+                dest_dir = Path(settings.RECEIPT_UPLOAD_DIR)
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                dest = dest_dir / filename
+                shutil.copy2(src, str(dest))
+                receipt_image_path = filename
+            else:
+                logger.warning("confirm_payment: 收据文件不存在 file_id=%s", file_id)
+
+        try:
+            updated = PaymentService.confirm_payment(
+                self.db, payment_id, receipt_image_path=receipt_image_path
+            )
+            result = self._payment_to_dict(updated)
+            result["contract_number"] = updated.contract.contract_number if updated.contract else None
+            result["customer_name"] = (
+                updated.contract.customer.name
+                if updated.contract and updated.contract.customer else None
+            )
             return json.dumps({"success": True, "payment": result}, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
@@ -1095,6 +1147,21 @@ TOOL_DEFINITIONS = [
                         "default": False,
                     },
                     "notes": {"type": "string", "description": "备注"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "confirm_payment",
+            "description": "确认一笔待凭证（pending_voucher）的付款记录，将其转为已支付（paid）并更新合同已付金额。通常用于用户上传付款凭证后，匹配到已有的待凭证记录时调用。如果传入了 file_id，会将上传的收据文件关联到该付款记录。",
+            "parameters": {
+                "type": "object",
+                "required": ["payment_id"],
+                "properties": {
+                    "payment_id": {"type": "integer", "description": "待确认的付款记录ID"},
+                    "file_id": {"type": "string", "description": "上传的收据文件ID（来自附件上传），可选"},
                 },
             },
         },

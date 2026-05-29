@@ -58,6 +58,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 更新合同: update_contract（补充微信群名称、备注等信息）
 - 付款查询: query_payments（按合同、状态筛选）
 - 创建付款: create_payment（需要用户确认所有信息后才调用）
+- 确认付款: confirm_payment（将待凭证付款确认入账，可关联收据文件）
 - 付款汇总: get_payment_summary（按客户/合同/月份聚合）
 - 逾期查询: get_overdue_payments（查找逾期未付的款项）
 - 到期合同: get_expiring_contracts（查找即将到期的合同）
@@ -85,7 +86,9 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 不同类型的图片有不同的处理流程，绝不能混淆：
 
 1. **合同/协议文件**（analysis_type="contract"）→ 触发"合同录入标准流程"：分析 → 创建/匹配客户 → create_contract
-2. **付款凭证**（analysis_type="receipt"）→ 查找关联合同 → 确认信息 → create_payment
+2. **付款凭证**（analysis_type="receipt"）→ 查找关联合同和付款记录：
+   - 如果找到匹配的 **待凭证（pending_voucher）** 付款记录 → 调用 confirm_payment（传入 payment_id 和 file_id）确认入账并关联收据
+   - 如果没有匹配的付款记录 → 调用 create_payment（设置 has_receipt=true）创建新记录
 3. **群聊截图、证件、照片等**（analysis_type="general"）→ 查找关联合同 → update_contract 补充信息
 
 **禁止行为：**

@@ -42,4 +42,9 @@ export const paymentApi = {
 
   delete: (id: number): Promise<void> =>
     api.delete(`/payments/${id}`),
+
+  getReceiptUrl: async (id: number): Promise<string> => {
+    const blob = await api.get(`/payments/${id}/receipt`, { responseType: 'blob' })
+    return URL.createObjectURL(blob as unknown as Blob)
+  },
 }

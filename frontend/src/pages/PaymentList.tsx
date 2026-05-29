@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Table, Button, Select, Empty, Popconfirm, message } from 'antd'
-import { PlusOutlined, FilterOutlined, DollarOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Table, Button, Select, Empty, Popconfirm, message, Image } from 'antd'
+import { PlusOutlined, FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import type { Payment } from '@/types'
 import './PaymentList.css'
@@ -36,6 +36,8 @@ export default function PaymentList() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadPayments = useCallback(async () => {
@@ -182,20 +184,45 @@ export default function PaymentList() {
     {
       title: '操作',
       key: 'action',
-      width: 70,
-      minWidth: 60,
+      width: 100,
+      minWidth: 80,
       align: 'center' as const,
       render: (_: unknown, record: Payment) => (
-        <Popconfirm
-          title="确定删除此付款记录？"
-          description="删除后将无法恢复，合同已付金额将同步扣减"
-          onConfirm={() => handleDelete(record.id)}
-          okText="删除"
-          cancelText="取消"
-          okButtonProps={{ danger: true }}
-        >
-          <Button type="text" danger size="small" icon={<DeleteOutlined />} />
-        </Popconfirm>
+        <>
+          {record.receipt_image_path ? (
+            <Button
+              type="link"
+              size="small"
+              icon={<EyeOutlined />}
+              loading={previewLoading}
+              onClick={async () => {
+                setPreviewLoading(true)
+                try {
+                  const url = await paymentApi.getReceiptUrl(record.id)
+                  setPreviewUrl(url)
+                } catch {
+                  message.error('加载凭证失败')
+                } finally {
+                  setPreviewLoading(false)
+                }
+              }}
+            >
+              凭证
+            </Button>
+          ) : (
+            <span style={{ color: '#bbb', fontSize: 12 }}>无凭证</span>
+          )}
+          <Popconfirm
+            title="确定删除此付款记录？"
+            description="删除后将无法恢复，合同已付金额将同步扣减"
+            onConfirm={() => handleDelete(record.id)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+          </Popconfirm>
+        </>
       ),
     },
   ]
@@ -251,6 +278,20 @@ export default function PaymentList() {
           className="payment-table"
         />
       )}
+
+      <Image
+        style={{ display: 'none' }}
+        preview={{
+          visible: !!previewUrl,
+          src: previewUrl || undefined,
+          onVisibleChange: (vis) => {
+            if (!vis) {
+              if (previewUrl) URL.revokeObjectURL(previewUrl)
+              setPreviewUrl(null)
+            }
+          },
+        }}
+      />
     </div>
   )
 }

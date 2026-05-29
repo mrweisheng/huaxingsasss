@@ -58,6 +58,7 @@ class ContractAgent:
         # 1. 处理附件
         file_context = ""
         if attachments:
+            yield {"event": "thinking", "data": {"message": f"正在分析 {len(attachments)} 个文件..."}}
             file_context = await self._process_attachments(attachments)
             yield {"event": "thinking", "data": {"message": "文件分析完成"}}
 
