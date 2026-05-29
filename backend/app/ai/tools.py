@@ -1074,7 +1074,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建付款记录。如果从合同中提取到已付定金/首付款但没有上传凭证，应设置 has_receipt=false，付款将标记为待凭证状态（不计入已付金额）。有凭证时 has_receipt=true 会立即确认付款并计入合同已付金额。调用前必须与用户确认所有信息。会自动按付款日期查找汇率并折算为人民币。",
+            "description": "为合同创建付款记录。仅用于已实际发生的付款（已到账的定金、首付款等），不可用于未来应付但尚未支付的款项。已付但无凭证时设 has_receipt=false（标记为待凭证，不计入已付金额），有凭证时 has_receipt=true 会立即确认并计入合同已付金额。调用前必须与用户确认所有信息。会自动按付款日期查找汇率并折算为人民币。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "installment_number", "amount", "currency", "paid_date"],

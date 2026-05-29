@@ -17,6 +17,7 @@ const statusMap: Record<string, { color: string; text: string }> = {
   pending: { color: '#8c8c8c', text: '待支付' },
   partial: { color: '#fa8c16', text: '部分支付' },
   paid: { color: '#52c41a', text: '已支付' },
+  pending_voucher: { color: '#1890ff', text: '待凭证' },
   overdue: { color: '#ff4d4f', text: '逾期' },
   cancelled: { color: '#8c8c8c', text: '已取消' },
 }
@@ -221,6 +222,7 @@ export default function PaymentList() {
               { label: '待支付', value: 'pending' },
               { label: '部分支付', value: 'partial' },
               { label: '已支付', value: 'paid' },
+              { label: '待凭证', value: 'pending_voucher' },
               { label: '逾期', value: 'overdue' },
             ]}
           />

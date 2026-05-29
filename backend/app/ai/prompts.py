@@ -30,7 +30,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 2. **展示并确认**：向用户展示提取的关键信息（客户姓名、金额、业务类型等），让用户确认或修正
 3. **创建/匹配客户**：先用 search_customers 查找，找不到则调用 create_customer 创建。如果找到已有客户但缺少电话/证件号，用 update_customer 补充。记住返回的 customer_id
 4. **创建合同**：调用 create_contract，传入 customer_id、file_id 和提取的所有信息
-5. **创建付款记录**：如果合同中提取到付款条款（payment_terms），为每一期调用 create_payment（设置 has_receipt=false）。这些记录标记为"待凭证"状态，不参与金额结算，等用户后续上传凭证时才确认入账
+5. **创建付款记录**：仅为合同中**已实际发生**的付款（如已付定金、已付首期）创建付款记录，设置 has_receipt=false（标记为"待凭证"，不参与结算）。**未来应付但尚未支付的款项（如"尾款待过户后支付"）不要创建付款记录**，这些付款计划已保存在合同数据中即可。
 6. **告知结果**：显示合同编号、关键信息、已创建的付款期数，提醒用户可在后台管理
 
 整个流程应尽量在一次对话中完成。
@@ -38,7 +38,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 ## 业务规则
 - 币种: CNY（人民币）、HKD（港币）、USD（美元）
 - 合同状态: active（执行中）→ completed（已完成，管理员手动标记）
-- 付款状态: pending（待付）→ partial（部分支付）→ paid（已支付，参与结算）/ pending_voucher（待凭证，合同条款提取的付款预期，不参与结算）/ overdue（逾期）/ cancelled（已取消）
+- 付款状态: paid（已支付，参与结算）/ pending_voucher（待凭证，已付款但尚未上传凭证，不参与结算）/ overdue（逾期）/ cancelled（已取消）
 - 付款方式: bank_transfer（银行转账）、wechat（微信）、alipay（支付宝）、cash（现金）、check（支票）
 - 汇率会自动按付款日期查找并折算为人民币
 - 合同编号由系统自动生成，无需用户手动输入
