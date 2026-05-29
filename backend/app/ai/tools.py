@@ -356,6 +356,7 @@ class ToolExecutor:
                 original_file_path=original_file_path,
                 file_hash=file_hash,
                 signed_date=signed_date,
+                status="active",
             )
 
             contract = ContractService.create_contract(
@@ -402,6 +403,8 @@ class ToolExecutor:
             if not contract or contract.sales_person_id != self.user.id:
                 return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
 
+        has_receipt = kwargs.get("has_receipt", False)
+
         try:
             payment = PaymentService.create_payment_with_exchange_rate(
                 db=self.db,
@@ -410,10 +413,11 @@ class ToolExecutor:
                 currency=kwargs["currency"],
                 amount=Decimal(str(kwargs["amount"])),
                 paid_date=date.fromisoformat(kwargs["paid_date"]),
-                payment_method=kwargs["payment_method"],
+                payment_method=kwargs.get("payment_method", "unknown"),
                 receipt_image_path=kwargs.get("receipt_image_path"),
                 notes=kwargs.get("notes"),
                 created_by=self.user.id,
+                auto_confirm=has_receipt,
             )
             self.db.refresh(payment)
             if payment.contract and payment.contract.customer:
@@ -882,10 +886,10 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建付款记录。调用前必须与用户确认所有信息。会自动按付款日期查找汇率并折算为人民币。",
+            "description": "为合同创建付款记录。如果从合同中提取到已付定金/首付款但没有上传凭证，应设置 has_receipt=false，付款将标记为待凭证状态（不计入已付金额）。有凭证时 has_receipt=true 会立即确认付款并计入合同已付金额。调用前必须与用户确认所有信息。会自动按付款日期查找汇率并折算为人民币。",
             "parameters": {
                 "type": "object",
-                "required": ["contract_id", "installment_number", "amount", "currency", "paid_date", "payment_method"],
+                "required": ["contract_id", "installment_number", "amount", "currency", "paid_date"],
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "installment_number": {"type": "integer", "description": "第几期（1, 2, 3...）"},
@@ -894,8 +898,13 @@ TOOL_DEFINITIONS = [
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
                     "payment_method": {
                         "type": "string",
-                        "enum": ["bank_transfer", "wechat", "alipay", "cash", "check"],
+                        "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
+                    },
+                    "has_receipt": {
+                        "type": "boolean",
+                        "description": "是否已上传付款凭证。从合同提取的定金/首付款通常无凭证，设为 false",
+                        "default": False,
                     },
                     "notes": {"type": "string", "description": "备注"},
                 },

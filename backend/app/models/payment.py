@@ -41,7 +41,7 @@ class Payment(BaseModel):
     payment_method = Column(String(20), comment="付款方式: bank_transfer/wechat/alipay/cash/check")
     
     # 状态
-    status = Column(String(20), nullable=False, default="pending", index=True, comment="状态: pending/partial/paid/overdue/cancelled")
+    status = Column(String(20), nullable=False, default="pending", index=True, comment="状态: pending/partial/paid/overdue/cancelled/pending_voucher")
     
     # 来源标记
     source = Column(String(20), default="manual", index=True, comment="来源: manual/screenshot/upload")

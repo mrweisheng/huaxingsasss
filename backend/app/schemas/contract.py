@@ -28,6 +28,7 @@ class ContractCreate(ContractBase):
     customer_id: Optional[int] = Field(None, description="客户ID（可选，解析后可关联）")
     original_file_path: str = Field(..., description="合同文件路径")
     file_hash: Optional[str] = Field(None, description="文件哈希")
+    status: Optional[str] = Field("draft", description="初始状态: draft/active")
 
 
 class ContractUpdate(BaseModel):

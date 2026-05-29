@@ -144,7 +144,7 @@ class ContractService:
             start_date=contract_data.start_date,
             end_date=contract_data.end_date,
             remarks=contract_data.remarks,
-            status='draft',
+            status=contract_data.status or 'draft',
             created_by=sales_person_id
         )
         

@@ -25,10 +25,14 @@ class PaymentService:
         payment_method: str,
         receipt_image_path: str = None,
         notes: str = None,
-        created_by: int = None
+        created_by: int = None,
+        auto_confirm: bool = True
     ) -> Payment:
         """
         创建付款记录并自动计算汇率
+
+        Args:
+            auto_confirm: True 时立即确认为已付（有凭证），False 时标记为待凭证（pending_voucher）
 
         Returns:
             创建的付款记录
@@ -41,30 +45,84 @@ class PaymentService:
             db, amount, currency, paid_date
         )
 
+        if auto_confirm:
+            status = 'paid'
+            paid_amount = amount
+            paid_amount_in_cny = amount_in_cny
+        else:
+            status = 'pending_voucher'
+            paid_amount = Decimal('0')
+            paid_amount_in_cny = Decimal('0')
+
         payment = Payment(
             contract_id=contract_id,
             installment_number=installment_number,
             currency=currency,
             amount=amount,
-            paid_amount=amount,
+            paid_amount=paid_amount,
             exchange_rate=exchange_rate,
             amount_in_cny=amount_in_cny,
-            paid_amount_in_cny=amount_in_cny,
+            paid_amount_in_cny=paid_amount_in_cny,
             paid_date=paid_date,
             payment_method=payment_method,
             receipt_image_path=receipt_image_path,
             notes=notes,
-            status='paid',
+            status=status,
             created_by=created_by
         )
 
         db.add(payment)
 
+        if auto_confirm:
+            PaymentService._add_to_contract_paid(db, contract, amount, currency, amount_in_cny, paid_date)
+
+        db.commit()
+        db.refresh(payment)
+
+        return payment
+
+    @staticmethod
+    def confirm_payment(
+        db: Session,
+        payment_id: int,
+        receipt_image_path: str = None
+    ) -> Payment:
+        """将待凭证付款确认为已付，更新合同已付金额"""
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            raise ValueError(f"付款记录不存在：{payment_id}")
+        if payment.status != 'pending_voucher':
+            raise ValueError(f"当前状态为 {payment.status}，无法确认")
+
+        contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+        if not contract:
+            raise ValueError("关联合同不存在")
+
+        payment.status = 'paid'
+        payment.paid_amount = payment.amount
+        payment.paid_amount_in_cny = payment.amount_in_cny
+
+        if receipt_image_path:
+            payment.receipt_image_path = receipt_image_path
+
+        PaymentService._add_to_contract_paid(
+            db, contract, payment.amount, payment.currency,
+            payment.amount_in_cny, payment.paid_date
+        )
+
+        db.commit()
+        db.refresh(payment)
+        return payment
+
+    @staticmethod
+    def _add_to_contract_paid(
+        db: Session, contract: Contract, amount: Decimal,
+        currency: str, amount_in_cny: Decimal, paid_date: date
+    ):
+        """将一笔付款加入合同的已付金额"""
         if currency == contract.currency:
-            # 同币种直接累加原始币种口径
             contract.paid_amount += amount
         else:
-            # 不同币种：将付款折算为合同币种后累加
             contract_rate, _ = ExchangeRateService.convert_to_cny(
                 db, Decimal('1'), contract.currency, paid_date
             )
@@ -77,11 +135,6 @@ class PaymentService:
 
         if contract.paid_amount_in_cny and contract.total_amount_in_cny and contract.paid_amount_in_cny >= contract.total_amount_in_cny:
             contract.status = 'completed'
-
-        db.commit()
-        db.refresh(payment)
-
-        return payment
     
     @staticmethod
     def get_contract_payments(db: Session, contract_id: int):
