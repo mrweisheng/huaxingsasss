@@ -261,6 +261,51 @@ class ToolExecutor:
             logger.exception("create_customer failed")
             return json.dumps({"error": f"创建客户失败: {str(e)}"}, ensure_ascii=False)
 
+    def update_customer(self, **kwargs) -> str:
+        """更新已有客户信息（电话、证件号等）"""
+        if self.user.role not in ("admin", "finance", "sales"):
+            return json.dumps({"error": "当前角色无权修改客户"}, ensure_ascii=False)
+
+        customer_id = kwargs.get("customer_id")
+        if not customer_id:
+            return json.dumps({"error": "缺少 customer_id"}, ensure_ascii=False)
+
+        customer = self.db.query(Customer).filter(
+            Customer.id == customer_id, Customer.is_deleted == False
+        ).first()
+        if not customer:
+            return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
+
+        updatable = ["phone", "email", "id_card_number", "wechat_group_name", "address", "remarks"]
+        updated = {}
+        for field in updatable:
+            val = kwargs.get(field)
+            if val is not None:
+                target_field = "id_card_number_encrypted" if field == "id_card_number" else field
+                setattr(customer, target_field, val)
+                updated[field] = val
+
+        if not updated:
+            return json.dumps({"error": "没有需要更新的字段"}, ensure_ascii=False)
+
+        try:
+            self.db.commit()
+            self.db.refresh(customer)
+            return json.dumps({
+                "success": True,
+                "customer": {
+                    "id": customer.id,
+                    "name": customer.name,
+                    "phone": customer.phone,
+                    "email": customer.email,
+                    "wechat_group_name": customer.wechat_group_name,
+                },
+                "message": f"客户信息已更新: {list(updated.keys())}",
+            }, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("update_customer failed")
+            return json.dumps({"error": f"更新客户失败: {str(e)}"}, ensure_ascii=False)
+
     @staticmethod
     def _guess_extension(content: bytes) -> str:
         """通过文件头判断扩展名"""
@@ -837,6 +882,26 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "update_customer",
+            "description": "更新已有客户信息。当从合同文件中提取到客户电话、证件号等新信息时，用此工具补充到已有客户记录中。",
+            "parameters": {
+                "type": "object",
+                "required": ["customer_id"],
+                "properties": {
+                    "customer_id": {"type": "integer", "description": "客户ID"},
+                    "phone": {"type": "string", "description": "联系电话"},
+                    "email": {"type": "string", "description": "联系邮箱"},
+                    "id_card_number": {"type": "string", "description": "身份证号或证件号"},
+                    "wechat_group_name": {"type": "string", "description": "微信群名称"},
+                    "address": {"type": "string", "description": "地址"},
+                    "remarks": {"type": "string", "description": "备注"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_contracts",
             "description": "按合同编号、客户名、状态或关键词搜索合同。返回合同列表含金额和付款进度。",
             "parameters": {
@@ -846,7 +911,7 @@ TOOL_DEFINITIONS = [
                     "customer_name": {"type": "string", "description": "客户姓名（模糊匹配）"},
                     "status": {
                         "type": "string",
-                        "enum": ["draft", "pending_review", "active", "completed", "cancelled", "disputed"],
+                        "enum": ["active", "completed"],
                         "description": "合同状态筛选",
                     },
                     "keyword": {"type": "string", "description": "全文搜索关键词"},

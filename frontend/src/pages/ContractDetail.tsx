@@ -33,6 +33,7 @@ function calcProgress(paid: number, total: number): number {
 
 const paymentStatusMap: Record<string, { color: string; text: string }> = {
   pending: { color: 'default', text: '待支付' },
+  pending_voucher: { color: 'warning', text: '待凭证' },
   partial: { color: 'warning', text: '部分支付' },
   paid: { color: 'success', text: '已支付' },
   overdue: { color: 'error', text: '逾期' },
@@ -220,6 +221,47 @@ export default function ContractDetail() {
           )}
 
           <Descriptions.Item label="备注" span={2}>{contract.remarks || '-'}</Descriptions.Item>
+
+          {contract.contract_data && (() => {
+            const cd = contract.contract_data
+            const items: React.ReactNode[] = []
+            // 车牌号（中港牌业务）
+            const plateNumber = cd.vehicle_info?.plate_number || cd.plate_number
+            if (plateNumber) items.push(<Descriptions.Item key="plate" label="车牌号">{plateNumber}</Descriptions.Item>)
+            // 车型（车辆业务）
+            if (cd.vehicle_info?.vehicle_model) items.push(<Descriptions.Item key="model" label="车型">{cd.vehicle_info.vehicle_model}</Descriptions.Item>)
+            // 通行口岸（中港牌业务）
+            if (cd.port) items.push(<Descriptions.Item key="port" label="通行口岸">{cd.port}</Descriptions.Item>)
+            // 乙方证件号
+            if (cd.party_b?.id_number) items.push(<Descriptions.Item key="id" label="证件号码">{cd.party_b.id_number}</Descriptions.Item>)
+            // 乙方电话
+            if (cd.party_b?.phone) items.push(<Descriptions.Item key="bphone" label="客户电话">{cd.party_b.phone}</Descriptions.Item>)
+            return items.length > 0 ? <>{items}</> : null
+          })()}
+
+          {contract.contract_data?.payment_terms && contract.contract_data.payment_terms.length > 0 && (
+            <Descriptions.Item label="付款条款" span={2}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {contract.contract_data.payment_terms.map((term: any, i: number) => (
+                  <div key={i}>
+                    <Tag color="blue">{term.name}</Tag>
+                    {fmt(term.amount, contract.currency)}
+                    {term.condition && <span style={{ color: '#999', marginLeft: 8 }}>{term.condition}</span>}
+                  </div>
+                ))}
+              </div>
+            </Descriptions.Item>
+          )}
+
+          {contract.contract_data?.special_terms && contract.contract_data.special_terms.length > 0 && (
+            <Descriptions.Item label="特殊条款" span={2}>
+              <ul style={{ margin: 0, paddingLeft: 16 }}>
+                {contract.contract_data.special_terms.map((t: string, i: number) => (
+                  <li key={i}>{t}</li>
+                ))}
+              </ul>
+            </Descriptions.Item>
+          )}
 
           <Descriptions.Item label="合同文件" span={2}>
             {contractFileUrl ? (

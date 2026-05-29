@@ -26,7 +26,6 @@ import {
   ToolOutlined,
   CheckCircleOutlined,
   ExclamationCircleOutlined,
-  LoadingOutlined,
   FilePdfOutlined,
   FileWordOutlined,
   FileExcelOutlined,
@@ -283,7 +282,6 @@ export default function AgentChat() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const messageListRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const {
     sessions,

@@ -48,6 +48,7 @@ export interface Contract {
   end_date?: string
   remarks?: string
   wechat_group?: string
+  contract_data?: Record<string, any>
   created_at: string
   updated_at: string
 }

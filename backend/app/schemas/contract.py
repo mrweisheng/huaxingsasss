@@ -63,6 +63,7 @@ class ContractResponse(ContractBase):
     needs_review: Optional[bool] = False
     status: str
     original_file_path: Optional[str] = None
+    contract_data: Optional[Dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
 

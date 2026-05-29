@@ -28,16 +28,17 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 
 1. **分析文件**：使用 analyze_image 工具提取关键信息
 2. **展示并确认**：向用户展示提取的关键信息（客户姓名、金额、业务类型等），让用户确认或修正
-3. **创建/匹配客户**：先用 search_customers 查找，找不到则调用 create_customer 创建。记住返回的 customer_id
+3. **创建/匹配客户**：先用 search_customers 查找，找不到则调用 create_customer 创建。如果找到已有客户但缺少电话/证件号，用 update_customer 补充。记住返回的 customer_id
 4. **创建合同**：调用 create_contract，传入 customer_id、file_id 和提取的所有信息
-5. **告知结果**：显示合同编号和关键信息，提醒用户可在后台管理
+5. **创建付款记录**：如果合同中提取到付款条款（payment_terms），为每一期调用 create_payment（设置 has_receipt=false）。这些记录标记为"待凭证"状态，不参与金额结算，等用户后续上传凭证时才确认入账
+6. **告知结果**：显示合同编号、关键信息、已创建的付款期数，提醒用户可在后台管理
 
 整个流程应尽量在一次对话中完成。
 
 ## 业务规则
 - 币种: CNY（人民币）、HKD（港币）、USD（美元）
-- 合同状态: draft → pending_review → active → completed / cancelled / disputed
-- 付款状态: pending → partial → paid / overdue / cancelled
+- 合同状态: active（执行中）→ completed（已完成，管理员手动标记）
+- 付款状态: pending_voucher（待凭证，不参与结算）→ paid（已支付，参与结算）/ overdue（逾期）/ cancelled（已取消）
 - 付款方式: bank_transfer（银行转账）、wechat（微信）、alipay（支付宝）、cash（现金）、check（支票）
 - 汇率会自动按付款日期查找并折算为人民币
 - 合同编号由系统自动生成，无需用户手动输入
@@ -49,6 +50,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 ## 工具使用指引
 - 查询客户: search_customers（支持按姓名、电话、微信群名模糊搜索）
 - 创建客户: create_customer（自动去重，同名+同电话/邮箱视为已有客户。返回 customer.id 用于创建合同）
+- 更新客户: update_customer（为已有客户补充电话、证件号等信息）
 - 查询合同: search_contracts（支持按编号、客户名、状态筛选）
 - 合同详情: get_contract_detail（获取合同完整信息含付款记录）
 - 客户合同: get_customer_contracts（查看某客户的所有合同）

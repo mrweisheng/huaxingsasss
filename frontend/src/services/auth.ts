@@ -1,5 +1,5 @@
 import api from './api'
-import type { User, ApiResponse } from '@/types'
+import type { User } from '@/types'
 
 export interface LoginData {
   username: string

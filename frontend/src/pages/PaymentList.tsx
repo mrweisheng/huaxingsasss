@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Table, Button, Input, Select, DatePicker, Space, Tag, Popconfirm, message, Empty } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, DollarOutlined } from '@ant-design/icons'
+import { Table, Button, Select, Empty } from 'antd'
+import { PlusOutlined, FilterOutlined, DollarOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import type { Payment } from '@/types'
 import './PaymentList.css'
@@ -14,11 +14,11 @@ function fmt(amount: number | undefined | null, currency: string): string {
 }
 
 const statusMap: Record<string, { color: string; text: string }> = {
-  pending: { color: '#8c8c8c', bg: '#f5f5f5', text: '待支付' },
-  partial: { color: '#fa8c16', bg: '#fff7e6', text: '部分支付' },
-  paid: { color: '#52c41a', bg: '#f6ffed', text: '已支付' },
-  overdue: { color: '#ff4d4f', bg: '#fff1f0', text: '逾期' },
-  cancelled: { color: '#8c8c8c', bg: '#f5f5f5', text: '已取消' },
+  pending: { color: '#8c8c8c', text: '待支付' },
+  partial: { color: '#fa8c16', text: '部分支付' },
+  paid: { color: '#52c41a', text: '已支付' },
+  overdue: { color: '#ff4d4f', text: '逾期' },
+  cancelled: { color: '#8c8c8c', text: '已取消' },
 }
 
 const methodMap: Record<string, string> = {
@@ -156,8 +156,8 @@ export default function PaymentList() {
       width: 80,
       minWidth: 70,
       render: (s: string) => {
-        const { color, text, bg } = statusMap[s] || { color: '#8c8c8c', bg: '#f5f5f5', text: s }
-        return <span style={{ color, backgroundColor: bg, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>{text}</span>
+        const { color, text } = statusMap[s] || { color: '#8c8c8c', text: s }
+        return <span style={{ color, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>{text}</span>
       },
     },
     {

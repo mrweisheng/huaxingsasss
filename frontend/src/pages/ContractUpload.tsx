@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, Button, message, Card, Alert, Steps, Result, Progress } from 'antd'
-import { UploadOutlined, InboxOutlined } from '@ant-design/icons'
+import { Upload, Button, message, Card, Steps, Progress } from 'antd'
+import { InboxOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 
 const { Dragger } = Upload
