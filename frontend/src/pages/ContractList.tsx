@@ -10,12 +10,8 @@ import './ContractList.css'
 const { RangePicker } = DatePicker
 
 const statusConfig: Record<string, { color: string; bg: string; text: string }> = {
-  draft: { color: '#8c8c8c', bg: '#f5f5f5', text: '草稿' },
-  pending_review: { color: '#fa8c16', bg: '#fff7e6', text: '待审核' },
   active: { color: '#1890ff', bg: '#e6f7ff', text: '执行中' },
   completed: { color: '#52c41a', bg: '#f6ffed', text: '已完成' },
-  cancelled: { color: '#ff4d4f', bg: '#fff1f0', text: '已取消' },
-  disputed: { color: '#722ed1', bg: '#f9f0ff', text: '争议' },
 }
 
 const businessTypeConfig: Record<string, { bg: string; border: string }> = {
@@ -144,17 +140,13 @@ export default function ContractList() {
             onChange={handleStatusChange}
             suffixIcon={<FilterOutlined />}
             options={[
-              { label: '草稿', value: 'draft' },
-              { label: '待审核', value: 'pending_review' },
               { label: '执行中', value: 'active' },
               { label: '已完成', value: 'completed' },
-              { label: '已取消', value: 'cancelled' },
             ]}
           />
           <RangePicker
-            placeholder={['日期范围']}
             onChange={handleDateChange}
-            value={dateRange as any}
+            value={dateRange}
             className="date-picker"
           />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/upload')}>
@@ -169,7 +161,7 @@ export default function ContractList() {
         <>
           <div className="contract-grid">
             {contracts.map((contract, index) => {
-              const status = statusConfig[contract.status] || statusConfig.draft
+              const status = statusConfig[contract.status] || statusConfig.active
               const businessType = businessTypeConfig[contract.business_type || '']
               const progress = calculateProgress(contract.paid_amount, contract.total_amount)
               const isHovered = hoveredCard === contract.id

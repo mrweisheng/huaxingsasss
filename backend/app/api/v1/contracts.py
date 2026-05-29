@@ -259,6 +259,25 @@ def update_contract(
     return updated_contract
 
 
+@router.post("/{contract_id}/complete", response_model=ContractResponse)
+def complete_contract(
+    contract_id: int,
+    current_user: User = Depends(require_role("admin")),
+    db: Session = Depends(get_db)
+):
+    """管理员标记合同为已完成"""
+    contract = ContractService.get_contract(db, contract_id)
+    if not contract:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
+    if contract.status == 'completed':
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="合同已是完成状态")
+
+    contract.status = 'completed'
+    db.commit()
+    db.refresh(contract)
+    return contract
+
+
 @router.delete("/{contract_id}")
 def delete_contract(
     contract_id: int,

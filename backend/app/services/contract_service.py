@@ -281,11 +281,8 @@ class ContractService:
                 except (ValueError, TypeError):
                     pass
         
-        # 根据置信度设置状态
-        if confidence >= 0.85:
-            contract.status = 'active'
-        else:
-            contract.status = 'pending_review'
+        # 解析完成直接设为执行中
+        contract.status = 'active'
         
         db.commit()
         db.refresh(contract)

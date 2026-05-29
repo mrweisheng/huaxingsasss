@@ -1,18 +1,16 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Descriptions, Card, Button, Spin, Table, Tag, Alert, Progress, Image } from 'antd'
-import { ArrowLeftOutlined, DownloadOutlined, EyeOutlined, FileOutlined } from '@ant-design/icons'
+import { Descriptions, Card, Button, Spin, Table, Tag, Alert, Progress, Image, message, Popconfirm } from 'antd'
+import { ArrowLeftOutlined, EyeOutlined, FileOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { paymentApi } from '@/services/payment'
+import { useAuthStore } from '@/store/useAuthStore'
+import { API_BASE_URL } from '@/services/api'
 import type { Contract, Payment } from '@/types'
 
 const statusMap: Record<string, { color: string; text: string }> = {
-  draft: { color: 'default', text: '草稿' },
-  pending_review: { color: 'warning', text: '待审核' },
   active: { color: 'processing', text: '执行中' },
   completed: { color: 'success', text: '已完成' },
-  cancelled: { color: 'error', text: '已取消' },
-  disputed: { color: 'volcano', text: '争议' },
 }
 
 const businessTypeMap: Record<string, { color: string; text: string }> = {
@@ -44,12 +42,28 @@ const paymentStatusMap: Record<string, { color: string; text: string }> = {
 export default function ContractDetail() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const user = useAuthStore(s => s.user)
   const [contract, setContract] = useState<Contract | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
   const [summary, setSummary] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const [completing, setCompleting] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+
+  const handleComplete = async () => {
+    if (!contract) return
+    setCompleting(true)
+    try {
+      const updated = await contractApi.complete(contract.id)
+      setContract(updated)
+      message.success('合同已标记为完成')
+    } catch (e: any) {
+      message.error(e.response?.data?.detail || '操作失败')
+    } finally {
+      setCompleting(false)
+    }
+  }
 
   useEffect(() => {
     if (!id) return
@@ -94,7 +108,7 @@ export default function ContractDetail() {
   const progress = calcProgress(contract.paid_amount, contract.total_amount)
   const authToken = localStorage.getItem('access_token')
   const contractFileUrl = contract.original_file_path
-    ? `/api/v1/contracts/${contract.id}/file?token=${authToken}`
+    ? `${API_BASE_URL}/contracts/${contract.id}/file?token=${authToken}`
     : null
 
   const paymentColumns = [
@@ -119,7 +133,7 @@ export default function ContractDetail() {
       render: (path: string, record: Payment) => {
         if (!path) return '-'
         const token = localStorage.getItem('access_token')
-        const url = `/api/v1/payments/${record.id}/receipt?token=${token}`
+        const url = `${API_BASE_URL}/payments/${record.id}/receipt?token=${token}`
         return (
           <Image
             src={url}
@@ -136,9 +150,24 @@ export default function ContractDetail() {
 
   return (
     <div>
-      <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/contracts')} style={{ marginBottom: 16 }}>
-        返回列表
-      </Button>
+      <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
+        <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/contracts')}>
+          返回列表
+        </Button>
+        {user?.role === 'admin' && contract?.status === 'active' && (
+          <Popconfirm
+            title="确认完成"
+            description="确定要将此合同标记为已完成吗？"
+            onConfirm={handleComplete}
+            okText="确认"
+            cancelText="取消"
+          >
+            <Button type="primary" icon={<CheckCircleOutlined />} loading={completing}>
+              标记完成
+            </Button>
+          </Popconfirm>
+        )}
+      </div>
 
       <Card title="合同详情">
         <Descriptions column={2} bordered size="small">

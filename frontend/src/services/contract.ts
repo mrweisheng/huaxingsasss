@@ -34,6 +34,9 @@ export const contractApi = {
   confirmParsedData: (id: number, parsedData: any): Promise<Contract> =>
     api.post(`/contracts/${id}/confirm-parsed-data`, parsedData),
 
+  complete: (id: number): Promise<Contract> =>
+    api.post(`/contracts/${id}/complete`),
+
   getParseStatus: (contractId: number, signal?: AbortSignal): Promise<any> =>
     api.get(`/contracts/parse-status/${contractId}`, { signal }),
 }
