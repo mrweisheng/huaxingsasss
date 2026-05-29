@@ -160,7 +160,7 @@ class ToolExecutor:
 
         try:
             payment_data = PaymentService.get_contract_payments(self.db, contract_id)
-            result["payments"] = [self._payment_to_dict(p) for p in payment_data["payments"]]
+            result["payments"] = payment_data["payments"]
         except Exception:
             result["payments"] = []
 
