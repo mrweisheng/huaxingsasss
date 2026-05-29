@@ -97,11 +97,33 @@ class ContractService:
             .all()
 
         # 填充 customer_name（从已加载的 customer 关系获取，无额外查询）
+        # 同时统计每份合同的付款状态分布
+        if items:
+            contract_ids = [item.id for item in items]
+            payment_stats = (
+                db.query(
+                    Payment.contract_id,
+                    func.count().filter(Payment.status == 'paid').label('paid_count'),
+                    func.count().filter(Payment.status == 'pending_voucher').label('pending_voucher_count'),
+                    func.count().filter(Payment.is_deleted == False).label('total_count'),
+                )
+                .filter(Payment.contract_id.in_(contract_ids), Payment.is_deleted == False)
+                .group_by(Payment.contract_id)
+                .all()
+            )
+            stats_map = {s.contract_id: s for s in payment_stats}
+        else:
+            stats_map = {}
+
         for item in items:
             if item.customer:
                 item.customer_name = item.customer.name
             else:
                 item.customer_name = None
+            stats = stats_map.get(item.id)
+            item.paid_count = stats.paid_count if stats else 0
+            item.pending_voucher_count = stats.pending_voucher_count if stats else 0
+            item.payment_total_count = stats.total_count if stats else 0
 
         return items, total
     

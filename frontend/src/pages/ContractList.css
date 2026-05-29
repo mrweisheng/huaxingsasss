@@ -277,6 +277,28 @@
   text-align: right;
 }
 
+.payment-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+  font-size: 11px;
+}
+
+.payment-summary-total {
+  color: var(--text-secondary);
+}
+
+.payment-summary-paid {
+  color: var(--success-color);
+  font-weight: 500;
+}
+
+.payment-summary-pending {
+  color: #fa8c16;
+  font-weight: 500;
+}
+
 .card-footer {
   display: flex;
   justify-content: space-between;

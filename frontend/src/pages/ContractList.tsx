@@ -232,6 +232,18 @@ export default function ContractList() {
                     <span className="progress-text">{progress}%</span>
                   </div>
 
+                  {contract.payment_total_count > 0 && (
+                    <div className="payment-summary">
+                      <span className="payment-summary-total">{contract.payment_total_count}笔付款</span>
+                      {contract.paid_count > 0 && (
+                        <span className="payment-summary-paid">{contract.paid_count}笔已付</span>
+                      )}
+                      {contract.pending_voucher_count > 0 && (
+                        <span className="payment-summary-pending">{contract.pending_voucher_count}笔待凭证</span>
+                      )}
+                    </div>
+                  )}
+
                   <div className="card-footer">
                     <div className="footer-item">
                       <span className="footer-label">签订日期</span>

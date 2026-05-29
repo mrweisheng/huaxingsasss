@@ -49,6 +49,9 @@ export interface Contract {
   remarks?: string
   wechat_group?: string
   contract_data?: Record<string, any>
+  paid_count: number
+  pending_voucher_count: number
+  payment_total_count: number
   created_at: string
   updated_at: string
 }

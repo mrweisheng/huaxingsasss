@@ -64,6 +64,9 @@ class ContractResponse(ContractBase):
     status: str
     original_file_path: Optional[str] = None
     contract_data: Optional[Dict[str, Any]] = None
+    paid_count: int = 0
+    pending_voucher_count: int = 0
+    payment_total_count: int = 0
     created_at: datetime
     updated_at: datetime
 
