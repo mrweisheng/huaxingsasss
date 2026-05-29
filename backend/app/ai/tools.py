@@ -20,6 +20,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.config import settings
+from app.core.chinese import search_variants
 from app.models.customer import Customer
 from app.models.contract import Contract
 from app.models.payment import Payment
@@ -31,6 +32,11 @@ from app.services.payment_service import PaymentService
 from app.utils.file_utils import calculate_file_hash
 
 logger = logging.getLogger(__name__)
+
+
+def _escape_ilike(keyword: str) -> str:
+    """转义 ILIKE 通配符，防止 SQL 注入"""
+    return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 class ToolExecutor:
@@ -98,17 +104,21 @@ class ToolExecutor:
         wechat_group: Optional[str] = None,
         limit: int = 10,
     ) -> str:
+        if not (name or phone or wechat_group):
+            return json.dumps({"error": "请至少提供一个搜索条件（name/phone/wechat_group）"}, ensure_ascii=False)
+
         query = self.db.query(Customer).filter(Customer.is_deleted == False)
 
         if name:
-            query = query.filter(Customer.name.ilike(f"%{name}%"))
+            variants = search_variants(name)
+            escaped = [_escape_ilike(v) for v in variants]
+            query = query.filter(or_(*[Customer.name.ilike(f"%{v}%") for v in escaped]))
         if phone:
-            query = query.filter(Customer.phone.ilike(f"%{phone}%"))
+            query = query.filter(Customer.phone.ilike(f"%{_escape_ilike(phone)}%"))
         if wechat_group:
-            query = query.filter(Customer.wechat_group_name.ilike(f"%{wechat_group}%"))
-
-        if not (name or phone or wechat_group):
-            return json.dumps({"error": "请至少提供一个搜索条件（name/phone/wechat_group）"}, ensure_ascii=False)
+            variants = search_variants(wechat_group)
+            escaped = [_escape_ilike(v) for v in variants]
+            query = query.filter(or_(*[Customer.wechat_group_name.ilike(f"%{v}%") for v in escaped]))
 
         customers = query.limit(limit).all()
         results = []

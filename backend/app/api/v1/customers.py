@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import or_
 
 from app.db.session import get_db
+from app.core.chinese import search_variants
 from app.models.customer import Customer
 from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerResponse
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
@@ -40,12 +41,16 @@ def list_customers(
     
     # 关键词搜索
     if keyword:
+        variants = search_variants(keyword)
+        escaped = [escape_ilike(v) for v in variants]
+        name_filters = [Customer.name.ilike(f"%{v}%") for v in escaped]
+        wechat_filters = [Customer.wechat_group_name.ilike(f"%{v}%") for v in escaped]
         query = query.filter(
             or_(
-                Customer.name.ilike(f"%{escape_ilike(keyword)}%"),
+                *name_filters,
                 Customer.phone.ilike(f"%{escape_ilike(keyword)}%"),
                 Customer.email.ilike(f"%{escape_ilike(keyword)}%"),
-                Customer.wechat_group_name.ilike(f"%{escape_ilike(keyword)}%")
+                *wechat_filters,
             )
         )
     
