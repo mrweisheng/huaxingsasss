@@ -249,7 +249,7 @@ def delete_contract(
             detail="仅管理员可删除合同"
         )
     
-    success = ContractService.delete_contract(db, contract_id)
+    success = ContractService.delete_contract(db, contract_id, user_id=current_user.id)
     
     if success:
         return {"message": "删除成功"}

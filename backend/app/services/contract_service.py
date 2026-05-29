@@ -1,17 +1,24 @@
 """
 合同服务层
 """
+import logging
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy import or_, func, String
 from sqlalchemy.orm import Session, contains_eager
 
+from app.config import settings
 from app.models.contract import Contract
 from app.models.customer import Customer
+from app.models.payment import Payment
 from app.schemas.contract import ContractCreate, ContractUpdate
+from app.services.audit_service import AuditService
+
+logger = logging.getLogger(__name__)
 
 
 class ContractService:
@@ -178,16 +185,53 @@ class ContractService:
         return contract
 
     @staticmethod
-    def delete_contract(db: Session, contract_id: int) -> bool:
-        """软删除合同"""
+    def delete_contract(db: Session, contract_id: int, user_id: int = None) -> bool:
+        """软删除合同，级联软删除付款记录，清理物理文件"""
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
 
         if not contract:
             return False
 
+        deleted_files = []
+
+        # 1. 软删除关联付款记录，清理凭证文件
+        payments = db.query(Payment).filter(Payment.contract_id == contract_id).all()
+        for payment in payments:
+            if payment.receipt_image_path:
+                receipt_path = Path(settings.RECEIPT_UPLOAD_DIR) / payment.receipt_image_path
+                if receipt_path.exists():
+                    receipt_path.unlink()
+                    deleted_files.append(str(receipt_path))
+            payment.soft_delete()
+
+        # 2. 删除合同物理文件
+        if contract.original_file_path:
+            contract_path = Path(settings.CONTRACT_UPLOAD_DIR) / contract.original_file_path
+            if contract_path.exists():
+                contract_path.unlink()
+                deleted_files.append(str(contract_path))
+
+        # 3. 软删除合同
         contract.soft_delete()
         db.commit()
 
+        # 4. 审计日志
+        if user_id:
+            AuditService.log(
+                db,
+                user_id=user_id,
+                action="delete",
+                entity_type="contract",
+                entity_id=contract_id,
+                old_values={
+                    "contract_number": contract.contract_number,
+                    "status": contract.status,
+                    "payments_count": len(payments),
+                    "deleted_files": deleted_files,
+                },
+            )
+
+        logger.info("合同已删除: id=%d, number=%s, 清理文件=%d", contract_id, contract.contract_number, len(deleted_files))
         return True
     
     @staticmethod

@@ -13,6 +13,7 @@ from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerRespons
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
 from app.models.user import User
+from app.services.customer_service import CustomerService
 
 router = APIRouter()
 
@@ -31,8 +32,8 @@ def list_customers(
     db: Session = Depends(get_db)
 ):
     """获取客户列表"""
-    query = db.query(Customer)
-    
+    query = db.query(Customer).filter(Customer.is_deleted == False)
+
     # 管理员和财务可查看全部，其他角色只看自己创建的
     if current_user.role not in ("admin", "finance"):
         query = query.filter(Customer.created_by == current_user.id)
@@ -82,17 +83,19 @@ def create_customer(
             detail="电话和邮箱至少填写一项"
         )
 
-    # 检查是否已存在（同名+同电话 或 同名+同邮箱）
+    # 检查是否已存在（同名+同电话 或 同名+同邮箱，排除已删除）
     existing = None
     if customer_data.phone:
         existing = db.query(Customer).filter(
             Customer.name == customer_data.name,
-            Customer.phone == customer_data.phone
+            Customer.phone == customer_data.phone,
+            Customer.is_deleted == False,
         ).first()
     if not existing and customer_data.email:
         existing = db.query(Customer).filter(
             Customer.name == customer_data.name,
-            Customer.email == customer_data.email
+            Customer.email == customer_data.email,
+            Customer.is_deleted == False,
         ).first()
 
     if existing:
@@ -129,7 +132,10 @@ def get_customer(
     db: Session = Depends(get_db)
 ):
     """获取客户详情"""
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.is_deleted == False,
+    ).first()
     
     if not customer:
         raise HTTPException(
@@ -155,7 +161,10 @@ def update_customer(
     db: Session = Depends(get_db)
 ):
     """更新客户"""
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
+    customer = db.query(Customer).filter(
+        Customer.id == customer_id,
+        Customer.is_deleted == False,
+    ).first()
     
     if not customer:
         raise HTTPException(
@@ -194,30 +203,26 @@ def delete_customer(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """删除客户"""
-    customer = db.query(Customer).filter(Customer.id == customer_id).first()
-    
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="客户不存在"
-        )
-    
+    """删除客户（软删除）"""
     # 权限检查（仅管理员可删除）
     if current_user.role != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="仅管理员可删除客户"
         )
-    
-    # 检查是否有关联合同
-    if customer.contracts:
+
+    try:
+        success = CustomerService.delete_customer(db, customer_id, user_id=current_user.id)
+    except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
-            detail="客户有关联合同，无法删除"
+            detail=str(e)
         )
-    
-    db.delete(customer)
-    db.commit()
-    
+
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="客户不存在"
+        )
+
     return {"message": "删除成功"}
