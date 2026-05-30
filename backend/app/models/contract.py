@@ -31,6 +31,10 @@ class Contract(BaseModel):
     total_amount_in_cny = Column(DECIMAL(15, 2), comment="合同总额折算CNY")
     paid_amount_in_cny = Column(DECIMAL(15, 2), default=0, comment="已付金额折算CNY")
     remaining_amount_in_cny = Column(DECIMAL(15, 2), comment="剩余尾款折算CNY")
+
+    # 支出汇总
+    total_expense = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出金额")
+    total_expense_in_cny = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出折算CNY")
     
     # 合同文件
     original_file_path = Column(String(500), nullable=False, comment="原始合同文件路径")

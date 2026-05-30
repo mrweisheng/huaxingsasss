@@ -39,6 +39,8 @@ export interface Contract {
   total_amount_in_cny?: number
   paid_amount_in_cny?: number
   remaining_amount_in_cny?: number
+  total_expense?: number
+  total_expense_in_cny?: number
   confidence?: number
   needs_review?: boolean
   status: string
@@ -50,7 +52,7 @@ export interface Contract {
   wechat_group?: string
   contract_data?: Record<string, any>
   paid_count: number
-  pending_voucher_count: number
+  expense_count: number
   payment_total_count: number
   created_at: string
   updated_at: string
@@ -63,6 +65,8 @@ export interface Payment {
   customer_name?: string
   installment_number: number
   installment_name?: string
+  type: string
+  payee_name?: string
   currency: string
   amount: number
   paid_amount: number

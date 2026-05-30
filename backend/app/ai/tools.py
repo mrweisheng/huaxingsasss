@@ -47,9 +47,23 @@ class ToolExecutor:
         self.user = user
 
     def _can_access_contract(self, contract: Contract) -> bool:
-        if self.user.role in ("admin", "finance"):
+        if self.user.role == "admin":
             return True
+        if self.user.role == "expense":
+            return True  # expense 可查看所有合同（用于关联支出）
         return contract.sales_person_id == self.user.id
+
+    def _is_admin(self) -> bool:
+        return self.user.role == "admin"
+
+    def _can_view_income(self) -> bool:
+        return self.user.role in ("admin", "income")
+
+    def _can_view_expense(self) -> bool:
+        return self.user.role in ("admin", "expense")
+
+    def _can_create_contract(self) -> bool:
+        return self.user.role in ("admin", "income")
 
     def _contract_to_dict(self, c: Contract) -> dict:
         return {
@@ -65,6 +79,8 @@ class ToolExecutor:
             "remaining_amount": float(c.remaining_amount) if c.remaining_amount else 0,
             "total_amount_in_cny": float(c.total_amount_in_cny) if c.total_amount_in_cny else None,
             "paid_amount_in_cny": float(c.paid_amount_in_cny) if c.paid_amount_in_cny else 0,
+            "total_expense": float(c.total_expense) if c.total_expense else 0,
+            "total_expense_in_cny": float(c.total_expense_in_cny) if c.total_expense_in_cny else 0,
             "status": c.status,
             "wechat_group": c.wechat_group,
             "signed_date": str(c.signed_date) if c.signed_date else None,
@@ -72,7 +88,7 @@ class ToolExecutor:
             "payment_stats": {
                 "total": getattr(c, 'payment_total_count', 0),
                 "paid": getattr(c, 'paid_count', 0),
-                "pending_voucher": getattr(c, 'pending_voucher_count', 0),
+                "expense_count": getattr(c, 'expense_count', 0),
             },
         }
 
@@ -82,6 +98,8 @@ class ToolExecutor:
             "contract_id": p.contract_id,
             "installment_number": p.installment_number,
             "installment_name": p.installment_name,
+            "type": p.type,
+            "payee_name": p.payee_name,
             "currency": p.currency,
             "amount": float(p.amount) if p.amount else 0,
             "paid_amount": float(p.paid_amount) if p.paid_amount else 0,
@@ -140,7 +158,7 @@ class ToolExecutor:
 
     def search_contracts(self, **kwargs) -> str:
         sales_person_id = None
-        if self.user.role == "sales":
+        if self.user.role == "income":
             sales_person_id = self.user.id
 
         try:
@@ -176,16 +194,32 @@ class ToolExecutor:
         result["remarks"] = contract.remarks
 
         try:
-            payment_data = PaymentService.get_contract_payments(self.db, contract_id)
-            result["payments"] = payment_data["payments"]
+            # 按角色过滤：income 只看收入，expense 只看支出，admin 看全部
+            if self.user.role == "income":
+                type_filter = "income"
+            elif self.user.role == "expense":
+                type_filter = "expense"
+            else:
+                type_filter = None
+
+            payment_data = PaymentService.get_contract_payments(self.db, contract_id, type_filter=type_filter)
+
+            if type_filter != "expense":
+                result["income"] = payment_data["income"]
+            if type_filter != "income":
+                result["expense"] = payment_data["expense"]
+            # 利润只有 admin 能看
+            if self._is_admin():
+                result["profit_in_cny"] = payment_data["profit_in_cny"]
         except Exception:
-            result["payments"] = []
+            result["income"] = {"payments": []}
+            result["expense"] = {"payments": []}
 
         return json.dumps(result, ensure_ascii=False)
 
     def get_customer_contracts(self, customer_id: int) -> str:
         sales_person_id = None
-        if self.user.role == "sales":
+        if self.user.role == "income":
             sales_person_id = self.user.id
 
         items, total = ContractService.get_contracts(
@@ -212,8 +246,16 @@ class ToolExecutor:
                 Payment.status.in_(["pending", "partial"]),
             )
 
-        if self.user.role == "sales":
+        if kwargs.get("type"):
+            query = query.filter(Payment.type == kwargs["type"])
+
+        # 角色权限：income 只看收入+自己合同，expense 只看支出+自己创建的
+        if self.user.role == "income":
+            query = query.filter(Payment.type == "income")
             query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
+        elif self.user.role == "expense":
+            query = query.filter(Payment.type == "expense")
+            query = query.filter(Payment.created_by == self.user.id)
 
         page = kwargs.get("page", 1)
         per_page = kwargs.get("per_page", 20)
@@ -235,7 +277,7 @@ class ToolExecutor:
 
     def create_customer(self, **kwargs) -> str:
         """创建客户。如果同名+同电话/邮箱的客户已存在，返回已有客户。"""
-        if self.user.role not in ("admin", "finance", "sales"):
+        if not self._can_create_contract():
             return json.dumps({"error": "当前角色无权创建客户"}, ensure_ascii=False)
 
         name = kwargs.get("name", "").strip()
@@ -280,7 +322,7 @@ class ToolExecutor:
 
     def update_customer(self, **kwargs) -> str:
         """更新已有客户信息（电话、证件号等）"""
-        if self.user.role not in ("admin", "finance", "sales"):
+        if not self._can_create_contract():
             return json.dumps({"error": "当前角色无权修改客户"}, ensure_ascii=False)
 
         customer_id = kwargs.get("customer_id")
@@ -340,7 +382,7 @@ class ToolExecutor:
 
     def create_contract(self, **kwargs) -> str:
         """为客户创建合同记录。合同编号自动生成。"""
-        if self.user.role not in ("admin", "finance", "sales"):
+        if not self._can_create_contract():
             return json.dumps({"error": "当前角色无权创建合同"}, ensure_ascii=False)
 
         customer_id = kwargs.get("customer_id")
@@ -461,7 +503,7 @@ class ToolExecutor:
 
     def update_contract(self, **kwargs) -> str:
         """更新合同信息（如微信群、备注等）"""
-        if self.user.role not in ("admin", "finance", "sales"):
+        if not self._can_create_contract():
             return json.dumps({"error": "当前角色无权修改合同"}, ensure_ascii=False)
 
         contract_id = kwargs.get("contract_id")
@@ -499,20 +541,19 @@ class ToolExecutor:
             return json.dumps({"error": f"更新合同失败: {str(e)}"}, ensure_ascii=False)
 
     def create_payment(self, **kwargs) -> str:
-        if self.user.role not in ("admin", "finance", "sales"):
-            return json.dumps({"error": "当前角色无权创建付款记录"}, ensure_ascii=False)
+        """创建付款记录（收入类型）。始终创建为已支付状态。"""
+        if not self._can_view_income():
+            return json.dumps({"error": "当前角色无权创建收入记录"}, ensure_ascii=False)
 
         required = ["contract_id", "installment_number", "amount", "currency", "paid_date"]
         missing = [r for r in required if not kwargs.get(r)]
         if missing:
             return json.dumps({"error": f"缺少必填参数: {', '.join(missing)}"}, ensure_ascii=False)
 
-        if self.user.role == "sales":
+        if self.user.role == "income":
             contract = self.db.query(Contract).filter(Contract.id == kwargs["contract_id"]).first()
             if not contract or contract.sales_person_id != self.user.id:
                 return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
-
-        has_receipt = kwargs.get("has_receipt", False)
 
         try:
             payment = PaymentService.create_payment_with_exchange_rate(
@@ -526,7 +567,7 @@ class ToolExecutor:
                 receipt_image_path=kwargs.get("receipt_image_path"),
                 notes=kwargs.get("notes"),
                 created_by=self.user.id,
-                auto_confirm=has_receipt,
+                type="income",
             )
             self.db.refresh(payment)
             if payment.contract and payment.contract.customer:
@@ -538,66 +579,110 @@ class ToolExecutor:
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
-    def confirm_payment(self, **kwargs) -> str:
-        """确认待凭证付款记录（pending_voucher → paid），可选关联收据文件"""
-        if self.user.role not in ("admin", "finance", "sales"):
-            return json.dumps({"error": "当前角色无权确认付款"}, ensure_ascii=False)
+    def create_expense(self, **kwargs) -> str:
+        """为合同创建支出记录（向第三方付款）。"""
+        if not self._can_view_expense():
+            return json.dumps({"error": "当前角色无权创建支出记录"}, ensure_ascii=False)
 
-        payment_id = kwargs.get("payment_id")
-        if not payment_id:
-            return json.dumps({"error": "缺少必填参数: payment_id"}, ensure_ascii=False)
-
-        payment = self.db.query(Payment).filter(Payment.id == payment_id).first()
-        if not payment:
-            return json.dumps({"error": f"付款记录不存在: {payment_id}"}, ensure_ascii=False)
-        if payment.status != "pending_voucher":
-            return json.dumps({"error": f"当前状态为 {payment.status}，仅待凭证状态可确认"}, ensure_ascii=False)
-
-        # 权限：sales 只能操作自己的合同
-        if self.user.role == "sales":
-            contract = self.db.query(Contract).filter(Contract.id == payment.contract_id).first()
-            if not contract or contract.sales_person_id != self.user.id:
-                return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
-
-        # 处理收据文件：从 Agent 临时目录拷贝到收据目录
-        receipt_image_path = None
-        file_id = kwargs.get("file_id")
-        if file_id:
-            src = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
-            if os.path.exists(src):
-                ext = Path(src).suffix or ".jpg"
-                filename = f"{payment.contract_id}_{payment.installment_number}_{uuid4().hex[:8]}{ext}"
-                dest_dir = Path(settings.RECEIPT_UPLOAD_DIR)
-                dest_dir.mkdir(parents=True, exist_ok=True)
-                dest = dest_dir / filename
-                shutil.copy2(src, str(dest))
-                receipt_image_path = filename
-            else:
-                logger.warning("confirm_payment: 收据文件不存在 file_id=%s", file_id)
+        required = ["contract_id", "amount", "currency", "paid_date", "payee_name"]
+        missing = [r for r in required if not kwargs.get(r)]
+        if missing:
+            return json.dumps({"error": f"缺少必填参数: {', '.join(missing)}"}, ensure_ascii=False)
 
         try:
-            updated = PaymentService.confirm_payment(
-                self.db, payment_id, receipt_image_path=receipt_image_path
+            # 自动计算 installment_number
+            installment_number = PaymentService.get_next_installment_number(
+                self.db, kwargs["contract_id"], "expense"
             )
-            result = self._payment_to_dict(updated)
-            result["contract_number"] = updated.contract.contract_number if updated.contract else None
-            result["customer_name"] = (
-                updated.contract.customer.name
-                if updated.contract and updated.contract.customer else None
+
+            payment = PaymentService.create_payment_with_exchange_rate(
+                db=self.db,
+                contract_id=kwargs["contract_id"],
+                installment_number=installment_number,
+                currency=kwargs["currency"],
+                amount=Decimal(str(kwargs["amount"])),
+                paid_date=date.fromisoformat(kwargs["paid_date"]),
+                payment_method=kwargs.get("payment_method", "unknown"),
+                receipt_image_path=kwargs.get("receipt_image_path"),
+                notes=kwargs.get("notes"),
+                created_by=self.user.id,
+                type="expense",
+                payee_name=kwargs["payee_name"],
             )
+            self.db.refresh(payment)
+            result = self._payment_to_dict(payment)
+            result["contract_number"] = payment.contract.contract_number if payment.contract else None
             return json.dumps({"success": True, "payment": result}, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    def get_expense_summary(self, **kwargs) -> str:
+        """查看支出汇总，按合同或收款方维度聚合"""
+        if not self._can_view_expense():
+            return json.dumps({"error": "当前角色无权查看支出汇总"}, ensure_ascii=False)
+
+        query = self.db.query(Payment).filter(
+            Payment.is_deleted == False,
+            Payment.type == "expense",
+        )
+
+        if self.user.role == "expense":
+            query = query.filter(Payment.created_by == self.user.id)
+
+        if kwargs.get("contract_id"):
+            query = query.filter(Payment.contract_id == kwargs["contract_id"])
+
+        if kwargs.get("payee_name"):
+            query = query.filter(Payment.payee_name.ilike(f"%{kwargs['payee_name']}%"))
+
+        payments = query.all()
+        total_expense = sum(float(p.paid_amount_in_cny or 0) for p in payments)
+
+        group_by = kwargs.get("group_by", "contract")
+        groups = {}
+        for p in payments:
+            if group_by == "payee":
+                key = p.payee_name or "未知"
+            else:
+                key = str(p.contract_id)
+
+            if key not in groups:
+                groups[key] = {
+                    "total": 0,
+                    "count": 0,
+                }
+                if group_by == "payee":
+                    groups[key]["payee_name"] = p.payee_name or "未知"
+                else:
+                    groups[key]["contract_id"] = p.contract_id
+                    groups[key]["contract_number"] = p.contract.contract_number if p.contract else None
+
+            groups[key]["total"] += float(p.paid_amount_in_cny or 0)
+            groups[key]["count"] += 1
+
+        return json.dumps({
+            "total_expense_in_cny": total_expense,
+            "expense_count": len(payments),
+            "groups": list(groups.values()),
+        }, ensure_ascii=False)
 
     # ── 分析工具 ──
 
     def get_payment_summary(self, **kwargs) -> str:
         query = self.db.query(Payment).filter(Payment.is_deleted == False)
 
-        need_contract_join = self.user.role == "sales" or kwargs.get("customer_name")
+        # 角色权限：income 只看收入，expense 只看支出
+        if self.user.role == "income":
+            query = query.filter(Payment.type == "income")
+        elif self.user.role == "expense":
+            query = query.filter(Payment.type == "expense")
+        elif kwargs.get("type"):
+            query = query.filter(Payment.type == kwargs["type"])
+
+        need_contract_join = self.user.role == "income" or kwargs.get("customer_name")
         if need_contract_join:
             query = query.join(Contract)
-            if self.user.role == "sales":
+            if self.user.role == "income":
                 query = query.filter(Contract.sales_person_id == self.user.id)
             if kwargs.get("customer_name"):
                 query = query.join(Customer).filter(
@@ -624,15 +709,11 @@ class ToolExecutor:
             for p in payments
             if p.status in ("pending", "partial") and p.due_date and p.due_date < date.today()
         )
-        total_pending_voucher = sum(float(p.amount or 0) for p in payments if p.status == "pending_voucher")
-        pending_voucher_count = sum(1 for p in payments if p.status == "pending_voucher")
 
         summary = {
             "total_paid": total_paid,
             "total_pending": total_pending,
             "total_overdue": total_overdue,
-            "total_pending_voucher": total_pending_voucher,
-            "pending_voucher_count": pending_voucher_count,
             "payment_count": len(payments),
         }
 
@@ -645,14 +726,12 @@ class ToolExecutor:
                     groups[cid] = {
                         "contract_id": cid,
                         "contract_number": p.contract.contract_number if p.contract else None,
-                        "paid": 0, "pending": 0, "pending_voucher": 0,
+                        "paid": 0, "pending": 0,
                     }
                 if p.status == "paid":
                     groups[cid]["paid"] += float(p.paid_amount or 0)
                 elif p.status in ("pending", "partial"):
                     groups[cid]["pending"] += float(p.amount or 0) - float(p.paid_amount or 0)
-                elif p.status == "pending_voucher":
-                    groups[cid]["pending_voucher"] += float(p.amount or 0)
             summary["groups"] = list(groups.values())
         elif group_by == "customer":
             groups = {}
@@ -661,14 +740,12 @@ class ToolExecutor:
                 if customer_name not in groups:
                     groups[customer_name] = {
                         "customer_name": customer_name,
-                        "paid": 0, "pending": 0, "pending_voucher": 0, "contract_count": 0,
+                        "paid": 0, "pending": 0, "contract_count": 0,
                     }
                 if p.status == "paid":
                     groups[customer_name]["paid"] += float(p.paid_amount or 0)
                 elif p.status in ("pending", "partial"):
                     groups[customer_name]["pending"] += float(p.amount or 0) - float(p.paid_amount or 0)
-                elif p.status == "pending_voucher":
-                    groups[customer_name]["pending_voucher"] += float(p.amount or 0)
             for p in payments:
                 customer_name = p.contract.customer.name if p.contract and p.contract.customer else "未知"
                 if customer_name in groups:
@@ -687,8 +764,11 @@ class ToolExecutor:
             Payment.status.in_(["pending", "partial"]),
         )
 
-        if self.user.role == "sales":
+        if self.user.role == "income":
+            query = query.filter(Payment.type == "income")
             query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
+        elif self.user.role == "expense":
+            query = query.filter(Payment.type == "expense")
 
         if kwargs.get("customer_name"):
             query = query.join(Contract).join(Customer).filter(
@@ -726,7 +806,7 @@ class ToolExecutor:
         if status:
             query = query.filter(Contract.status == status)
 
-        if self.user.role == "sales":
+        if self.user.role == "income":
             query = query.filter(Contract.sales_person_id == self.user.id)
 
         contracts = query.order_by(Contract.end_date).all()
@@ -1074,14 +1154,19 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "query_payments",
-            "description": "按合同ID或状态查询付款记录。可查找逾期付款。",
+            "description": "按合同ID、类型或状态查询付款记录。可查找逾期付款。income角色只能查看收入，expense角色只能查看支出。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "contract_id": {"type": "integer", "description": "按合同ID筛选"},
+                    "type": {
+                        "type": "string",
+                        "enum": ["income", "expense"],
+                        "description": "付款类型筛选：income（收入）或 expense（支出）",
+                    },
                     "status": {
                         "type": "string",
-                        "enum": ["pending", "partial", "paid", "pending_voucher", "overdue", "cancelled"],
+                        "enum": ["pending", "partial", "paid", "overdue", "cancelled"],
                         "description": "付款状态筛选",
                     },
                     "overdue_only": {"type": "boolean", "description": "只返回逾期付款", "default": False},
@@ -1136,7 +1221,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建付款记录。仅用于已实际发生的付款（已到账的定金、首付款等），不可用于未来应付但尚未支付的款项。已付但无凭证时设 has_receipt=false（标记为待凭证，不计入已付金额），有凭证时 has_receipt=true 会立即确认并计入合同已付金额。调用前必须与用户确认所有信息。会自动按付款日期查找汇率并折算为人民币。",
+            "description": "为合同创建收入付款记录（客户向公司付款）。仅用于已实际发生的付款，不可用于未来应付但尚未支付的款项。创建后立即确认为已支付状态，自动按付款日期查找汇率并折算为人民币。调用前必须与用户确认所有信息。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "installment_number", "amount", "currency", "paid_date"],
@@ -1151,10 +1236,29 @@ TOOL_DEFINITIONS = [
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
                     },
-                    "has_receipt": {
-                        "type": "boolean",
-                        "description": "是否已上传付款凭证。从合同提取的定金/首付款通常无凭证，设为 false",
-                        "default": False,
+                    "notes": {"type": "string", "description": "备注"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_expense",
+            "description": "为合同创建支出记录（公司向第三方付款，如渠道费、办证费等）。需要指定收款方名称。期数自动生成。创建后立即确认为已支付状态，自动按付款日期查找汇率并折算为人民币。仅admin和expense角色可用。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id", "amount", "currency", "paid_date", "payee_name"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "amount": {"type": "number", "description": "支出金额"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "default": "CNY"},
+                    "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
+                    "payee_name": {"type": "string", "description": "收款方名称（如：某某代办公司）"},
+                    "payment_method": {
+                        "type": "string",
+                        "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
+                        "description": "付款方式",
                     },
                     "notes": {"type": "string", "description": "备注"},
                 },
@@ -1164,14 +1268,19 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
-            "name": "confirm_payment",
-            "description": "确认一笔待凭证（pending_voucher）的付款记录，将其转为已支付（paid）并更新合同已付金额。通常用于用户上传付款凭证后，匹配到已有的待凭证记录时调用。如果传入了 file_id，会将上传的收据文件关联到该付款记录。",
+            "name": "get_expense_summary",
+            "description": "查看支出汇总，可按合同或收款方维度聚合。仅admin和expense角色可用。",
             "parameters": {
                 "type": "object",
-                "required": ["payment_id"],
                 "properties": {
-                    "payment_id": {"type": "integer", "description": "待确认的付款记录ID"},
-                    "file_id": {"type": "string", "description": "上传的收据文件ID（来自附件上传），可选"},
+                    "contract_id": {"type": "integer", "description": "按合同ID筛选"},
+                    "payee_name": {"type": "string", "description": "按收款方名称筛选（模糊匹配）"},
+                    "group_by": {
+                        "type": "string",
+                        "enum": ["contract", "payee"],
+                        "description": "分组方式：按合同或按收款方",
+                        "default": "contract",
+                    },
                 },
             },
         },

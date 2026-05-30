@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Table, Button, Select, Empty, Popconfirm, message, Image } from 'antd'
-import { PlusOutlined, FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
+import { Table, Button, Select, Empty, Popconfirm, message, Image, Tabs, Tag } from 'antd'
+import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
+import { useAuthStore } from '@/store/useAuthStore'
 import type { Payment } from '@/types'
 import './PaymentList.css'
 
@@ -17,7 +18,6 @@ const statusMap: Record<string, { color: string; text: string }> = {
   pending: { color: '#8c8c8c', text: '待支付' },
   partial: { color: '#fa8c16', text: '部分支付' },
   paid: { color: '#52c41a', text: '已支付' },
-  pending_voucher: { color: '#1890ff', text: '待凭证' },
   overdue: { color: '#ff4d4f', text: '逾期' },
   cancelled: { color: '#8c8c8c', text: '已取消' },
 }
@@ -36,9 +36,16 @@ export default function PaymentList() {
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
+  const [typeFilter, setTypeFilter] = useState<string | undefined>(undefined)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const user = useAuthStore((s) => s.user)
+  const role = user?.role || ''
+
+  // 根据角色设定默认 tab
+  const defaultTab = role === 'expense' ? 'expense' : role === 'income' ? 'income' : 'all'
+  const [activeTab, setActiveTab] = useState(defaultTab)
 
   const loadPayments = useCallback(async () => {
     abortControllerRef.current?.abort()
@@ -49,6 +56,7 @@ export default function PaymentList() {
     try {
       const params: PaymentListParams = { page, per_page: 20 }
       if (statusFilter) params.status = statusFilter
+      if (typeFilter) params.type = typeFilter
       const response = await paymentApi.getList(params, controller.signal)
       setPayments(response.items)
       setTotal(response.pagination.total)
@@ -60,7 +68,7 @@ export default function PaymentList() {
         setLoading(false)
       }
     }
-  }, [page, statusFilter])
+  }, [page, statusFilter, typeFilter])
 
   useEffect(() => {
     loadPayments()
@@ -71,6 +79,12 @@ export default function PaymentList() {
 
   const handleStatusChange = (value: string | undefined) => {
     setStatusFilter(value)
+    setPage(1)
+  }
+
+  const handleTabChange = (key: string) => {
+    setActiveTab(key)
+    setTypeFilter(key === 'all' ? undefined : key)
     setPage(1)
   }
 
@@ -86,6 +100,18 @@ export default function PaymentList() {
 
   const columns = [
     {
+      title: '类型',
+      dataIndex: 'type',
+      key: 'type',
+      width: 70,
+      align: 'center' as const,
+      render: (v: string) => (
+        <Tag color={v === 'income' ? 'green' : 'red'}>
+          {v === 'income' ? '收入' : '支出'}
+        </Tag>
+      ),
+    },
+    {
       title: '合同编号',
       dataIndex: 'contract_number',
       key: 'contract_number',
@@ -99,6 +125,14 @@ export default function PaymentList() {
       dataIndex: 'customer_name',
       key: 'customer_name',
       minWidth: 80,
+      ellipsis: true,
+      render: (v: string) => v || '-',
+    },
+    {
+      title: '收款方',
+      dataIndex: 'payee_name',
+      key: 'payee_name',
+      width: 120,
       ellipsis: true,
       render: (v: string) => v || '-',
     },
@@ -119,16 +153,7 @@ export default function PaymentList() {
       align: 'center' as const,
     },
     {
-      title: '应付金额',
-      dataIndex: 'amount',
-      key: 'amount',
-      width: 100,
-      minWidth: 80,
-      align: 'right' as const,
-      render: (v: number, r: Payment) => fmt(v, r.currency),
-    },
-    {
-      title: '实付金额',
+      title: '金额',
       dataIndex: 'paid_amount',
       key: 'paid_amount',
       width: 100,
@@ -212,20 +237,35 @@ export default function PaymentList() {
           ) : (
             <span style={{ color: '#bbb', fontSize: 12 }}>无凭证</span>
           )}
-          <Popconfirm
-            title="确定删除此付款记录？"
-            description="删除后将无法恢复，合同已付金额将同步扣减"
-            onConfirm={() => handleDelete(record.id)}
-            okText="删除"
-            cancelText="取消"
-            okButtonProps={{ danger: true }}
-          >
-            <Button type="text" danger size="small" icon={<DeleteOutlined />} />
-          </Popconfirm>
+          {role === 'admin' && (
+            <Popconfirm
+              title="确定删除此付款记录？"
+              description="删除后将无法恢复，合同金额将同步扣减"
+              onConfirm={() => handleDelete(record.id)}
+              okText="删除"
+              cancelText="取消"
+              okButtonProps={{ danger: true }}
+            >
+              <Button type="text" danger size="small" icon={<DeleteOutlined />} />
+            </Popconfirm>
+          )}
         </>
       ),
     },
   ]
+
+  const tabItems = [
+    { key: 'all', label: '全部' },
+    { key: 'income', label: '收入' },
+    { key: 'expense', label: '支出' },
+  ]
+
+  // 根据角色过滤 tab 选项
+  const visibleTabs = role === 'income'
+    ? tabItems.filter(t => t.key === 'income')
+    : role === 'expense'
+      ? tabItems.filter(t => t.key === 'expense')
+      : tabItems
 
   return (
     <div className="payment-list-container">
@@ -233,7 +273,9 @@ export default function PaymentList() {
         <div className="top-bar-left">
           <h2 className="page-title">
             <DollarOutlined className="title-icon" />
-            <span className="title-text">付款管理</span>
+            <span className="title-text">
+              {role === 'expense' ? '支出管理' : role === 'income' ? '收入管理' : '收付管理'}
+            </span>
             <span className="payment-count">{total} 条记录</span>
           </h2>
         </div>
@@ -249,15 +291,15 @@ export default function PaymentList() {
               { label: '待支付', value: 'pending' },
               { label: '部分支付', value: 'partial' },
               { label: '已支付', value: 'paid' },
-              { label: '待凭证', value: 'pending_voucher' },
               { label: '逾期', value: 'overdue' },
             ]}
           />
-          <Button type="primary" icon={<PlusOutlined />}>
-            新增
-          </Button>
         </div>
       </div>
+
+      {visibleTabs.length > 1 && (
+        <Tabs activeKey={activeTab} onChange={handleTabChange} items={visibleTabs} style={{ marginBottom: 16 }} />
+      )}
 
       {payments.length === 0 && !loading ? (
         <Empty description="暂无付款记录" className="empty-state" />

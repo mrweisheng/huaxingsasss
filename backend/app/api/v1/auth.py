@@ -33,13 +33,13 @@ def register(
 ):
     """
     用户注册
-    - 不传 admin_token: 默认注册为 sales 角色（普通业务员）
+    - 不传 admin_token: 默认注册为 income 角色（收入专员）
     - 传 admin_token: 管理员可为用户指定任意角色
     """
     from app.core.security import decode_access_token
 
-    # 确定角色：非管理员只能创建 sales 用户
-    role = "sales"
+    # 确定角色：非管理员只能创建 income 用户
+    role = "income"
     if admin_token:
         payload = decode_access_token(admin_token)
         if payload:

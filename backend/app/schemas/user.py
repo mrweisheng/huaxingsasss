@@ -17,7 +17,7 @@ class UserCreate(UserBase):
     """创建用户"""
     
     password: str = Field(..., min_length=8, description="密码")
-    role: str = Field(default="sales", description="角色")
+    role: str = Field(default="income", description="角色")
     department: Optional[str] = Field(None, max_length=50, description="部门")
 
 

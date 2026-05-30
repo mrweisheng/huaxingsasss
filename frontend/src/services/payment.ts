@@ -6,6 +6,7 @@ export interface PaymentListParams {
   per_page?: number
   contract_id?: number
   status?: string
+  type?: string
 }
 
 export const paymentApi = {
@@ -19,6 +20,8 @@ export const paymentApi = {
     paid_amount: number
     paid_date: string
     payment_method: string
+    type?: string
+    payee_name?: string
     notes?: string
     file?: File
   }): Promise<Payment> => {
@@ -29,6 +32,8 @@ export const paymentApi = {
     formData.append('paid_amount', String(data.paid_amount))
     formData.append('paid_date', data.paid_date)
     formData.append('payment_method', data.payment_method)
+    if (data.type) formData.append('payment_type', data.type)
+    if (data.payee_name) formData.append('payee_name', data.payee_name)
     if (data.notes) formData.append('notes', data.notes)
     if (data.file) formData.append('file', data.file)
 

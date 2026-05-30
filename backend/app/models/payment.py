@@ -17,6 +17,9 @@ class Payment(BaseModel):
     # 付款期数信息
     installment_number = Column(Integer, nullable=False, comment="第几期")
     installment_name = Column(String(50), comment="期数名称")
+
+    # 收入/支出类型
+    type = Column(String(20), nullable=False, default="income", index=True, comment="类型: income/expense")
     
     # 金额与币种（支持多币种）
     currency = Column(String(3), nullable=False, default="CNY", index=True, comment="付款币种: CNY/HKD/USD")
@@ -39,9 +42,12 @@ class Payment(BaseModel):
     
     # 付款方式
     payment_method = Column(String(20), comment="付款方式: bank_transfer/wechat/alipay/cash/check")
+
+    # 收款方（仅支出使用）
+    payee_name = Column(String(200), comment="收款方名称（仅expense使用）")
     
     # 状态
-    status = Column(String(20), nullable=False, default="pending", index=True, comment="状态: pending/partial/paid/overdue/cancelled/pending_voucher")
+    status = Column(String(20), nullable=False, default="pending", index=True, comment="状态: pending/partial/paid/overdue/cancelled")
     
     # 来源标记
     source = Column(String(20), default="manual", index=True, comment="来源: manual/screenshot/upload")
@@ -63,5 +69,6 @@ class Payment(BaseModel):
         Index("idx_payments_installment", "contract_id", "installment_number"),
         Index("idx_payments_source", "source"),
         Index("idx_payments_currency", "currency"),
-        UniqueConstraint("contract_id", "installment_number", name="uq_contract_installment"),
+        Index("idx_payments_type", "type"),
+        UniqueConstraint("contract_id", "installment_number", "type", name="uq_contract_installment_type"),
     )

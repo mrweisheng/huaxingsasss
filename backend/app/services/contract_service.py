@@ -111,8 +111,8 @@ class ContractService:
             payment_stats = (
                 db.query(
                     Payment.contract_id,
-                    func.count().filter(Payment.status == 'paid').label('paid_count'),
-                    func.count().filter(Payment.status == 'pending_voucher').label('pending_voucher_count'),
+                    func.count().filter(Payment.status == 'paid', Payment.type == 'income').label('paid_count'),
+                    func.count().filter(Payment.type == 'expense').label('expense_count'),
                     func.count().filter(Payment.is_deleted == False).label('total_count'),
                 )
                 .filter(Payment.contract_id.in_(contract_ids), Payment.is_deleted == False)
@@ -130,7 +130,7 @@ class ContractService:
                 item.customer_name = None
             stats = stats_map.get(item.id)
             item.paid_count = stats.paid_count if stats else 0
-            item.pending_voucher_count = stats.pending_voucher_count if stats else 0
+            item.expense_count = stats.expense_count if stats else 0
             item.payment_total_count = stats.total_count if stats else 0
 
         return items, total

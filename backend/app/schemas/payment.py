@@ -9,14 +9,16 @@ from decimal import Decimal
 
 class PaymentBase(BaseModel):
     """付款基础模型"""
-    
+
     installment_number: int = Field(..., ge=1, description="期数")
     installment_name: Optional[str] = Field(None, max_length=50, description="期数名称")
+    type: str = Field(default="income", description="类型: income/expense")
     currency: str = Field(default="CNY", description="付款币种")
     amount: Decimal = Field(..., gt=0, description="金额")
     due_date: Optional[date] = Field(None, description="应付款日期")
     paid_date: Optional[date] = Field(None, description="实际付款日期")
     payment_method: Optional[str] = Field(None, description="付款方式")
+    payee_name: Optional[str] = Field(None, max_length=200, description="收款方（仅expense）")
     notes: Optional[str] = Field(None, description="备注")
 
 

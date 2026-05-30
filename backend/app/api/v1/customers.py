@@ -35,8 +35,10 @@ def list_customers(
     """获取客户列表"""
     query = db.query(Customer).filter(Customer.is_deleted == False)
 
-    # 管理员和财务可查看全部，其他角色只看自己创建的
-    if current_user.role not in ("admin", "finance"):
+    # admin/income 可查看全部，expense 不可查看客户
+    if current_user.role == "expense":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权查看客户")
+    if current_user.role == "income":
         query = query.filter(Customer.created_by == current_user.id)
     
     # 关键词搜索
@@ -81,6 +83,9 @@ def create_customer(
     db: Session = Depends(get_db)
 ):
     """创建客户"""
+    # expense 角色不可创建客户
+    if current_user.role == "expense":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权创建客户")
     # 校验：至少提供电话或邮箱
     if not customer_data.phone and not customer_data.email:
         raise HTTPException(
@@ -149,12 +154,14 @@ def get_customer(
         )
     
     # 权限检查
-    if current_user.role != "admin" and customer.created_by != current_user.id:
+    if current_user.role == "expense":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权查看客户")
+    if current_user.role == "income" and customer.created_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权访问此客户"
         )
-    
+
     return customer
 
 
@@ -170,15 +177,17 @@ def update_customer(
         Customer.id == customer_id,
         Customer.is_deleted == False,
     ).first()
-    
+
     if not customer:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="客户不存在"
         )
-    
+
     # 权限检查
-    if current_user.role != "admin" and customer.created_by != current_user.id:
+    if current_user.role == "expense":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改客户")
+    if current_user.role == "income" and customer.created_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权修改此客户"

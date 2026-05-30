@@ -30,6 +30,7 @@ def list_payments(
     per_page: int = Query(20, ge=1, le=100, description="每页数量"),
     contract_id: Optional[int] = Query(None, description="合同ID"),
     status: Optional[str] = Query(None, description="付款状态"),
+    payment_type: Optional[str] = Query(None, alias="type", description="类型: income/expense"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -42,10 +43,16 @@ def list_payments(
         query = query.filter(Payment.contract_id == contract_id)
     if status:
         query = query.filter(Payment.status == status)
+    if payment_type:
+        query = query.filter(Payment.type == payment_type)
 
-    # 非管理员/财务只能看自己合同的付款
-    if current_user.role not in ("admin", "finance"):
+    # 角色权限：income 只看收入+自己合同，expense 只看支出+自己创建的，admin 全量
+    if current_user.role == "income":
+        query = query.filter(Payment.type == "income")
         query = query.filter(Contract.sales_person_id == current_user.id)
+    elif current_user.role == "expense":
+        query = query.filter(Payment.type == "expense")
+        query = query.filter(Payment.created_by == current_user.id)
 
     total = query.count()
     items = query.order_by(Payment.paid_date.desc().nullsfirst(), Payment.created_at.desc())\
@@ -81,12 +88,20 @@ async def upload_receipt(
     paid_amount: Decimal = Form(...),
     paid_date: date = Form(...),
     payment_method: str = Form(...),
+    payment_type: str = Form("income"),
+    payee_name: Optional[str] = Form(None),
     notes: Optional[str] = Form(None),
     file: Optional[UploadFile] = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
     """上传付款凭证并登记"""
+    # 角色强制 type 一致
+    if current_user.role == "income" and payment_type != "income":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="income角色只能创建收入记录")
+    if current_user.role == "expense" and payment_type != "expense":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色只能创建支出记录")
+
     receipt_path = None
 
     if file:
@@ -105,7 +120,7 @@ async def upload_receipt(
             sub_dir=""
         )
         receipt_path = relative_path
-    
+
     payment = PaymentService.create_payment_with_exchange_rate(
         db=db,
         contract_id=contract_id,
@@ -116,9 +131,11 @@ async def upload_receipt(
         payment_method=payment_method,
         receipt_image_path=receipt_path,
         notes=notes,
-        created_by=current_user.id
+        created_by=current_user.id,
+        type=payment_type,
+        payee_name=payee_name,
     )
-    
+
     return payment
 
 
@@ -128,9 +145,16 @@ def get_contract_payments(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取合同的付款记录"""
-    result = PaymentService.get_contract_payments(db, contract_id)
-    
+    """获取合同的付款记录（按角色过滤类型）"""
+    if current_user.role == "income":
+        type_filter = "income"
+    elif current_user.role == "expense":
+        type_filter = "expense"
+    else:
+        type_filter = None
+
+    result = PaymentService.get_contract_payments(db, contract_id, type_filter=type_filter)
+
     return ResponseModel(
         code=200,
         message="success",
@@ -149,9 +173,11 @@ def get_receipt_image(
     if not payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="付款记录不存在")
 
-    # 权限检查：通过合同判断
+    # 权限检查：admin 全量，income 只看自己合同，expense 只看自己创建的
     contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
-    if contract and current_user.role not in ("admin", "finance") and contract.sales_person_id != current_user.id:
+    if current_user.role == "income" and contract and contract.sales_person_id != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
+    if current_user.role == "expense" and payment.created_by != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
 
     if not payment.receipt_image_path:

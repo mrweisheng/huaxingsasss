@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Input, Select, DatePicker, Button, Popconfirm, message, Empty } from 'antd'
 import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
+import { useAuthStore } from '@/store/useAuthStore'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
 import './ContractList.css'
@@ -43,6 +44,8 @@ function calculateProgress(paid: number, total: number): number {
 
 export default function ContractList() {
   const navigate = useNavigate()
+  const user = useAuthStore(s => s.user)
+  const role = user?.role || ''
   const [contracts, setContracts] = useState<Contract[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
@@ -149,9 +152,11 @@ export default function ContractList() {
             value={dateRange}
             className="date-picker"
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/upload')}>
-            上传
-          </Button>
+          {(role === 'admin' || role === 'income') && (
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/upload')}>
+              上传
+            </Button>
+          )}
         </div>
       </div>
 
@@ -235,8 +240,10 @@ export default function ContractList() {
                       {contract.paid_count > 0 && (
                         <span className="payment-summary-paid">{contract.paid_count}笔已付</span>
                       )}
-                      {contract.pending_voucher_count > 0 && (
-                        <span className="payment-summary-pending">{contract.pending_voucher_count}笔待凭证</span>
+                      {(contract as any).expense_count > 0 && (
+                        <span className="payment-summary-paid" style={{ backgroundColor: '#fff1f0', color: '#ff4d4f' }}>
+                          {(contract as any).expense_count}笔支出
+                        </span>
                       )}
                     </div>
                   )}

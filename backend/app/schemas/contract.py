@@ -59,13 +59,15 @@ class ContractResponse(ContractBase):
     total_amount_in_cny: Optional[Decimal] = None
     paid_amount_in_cny: Optional[Decimal] = None
     remaining_amount_in_cny: Optional[Decimal] = None
+    total_expense: Decimal = Decimal("0")
+    total_expense_in_cny: Optional[Decimal] = Decimal("0")
     confidence: Optional[float] = None
     needs_review: Optional[bool] = False
     status: str
     original_file_path: Optional[str] = None
     contract_data: Optional[Dict[str, Any]] = None
     paid_count: int = 0
-    pending_voucher_count: int = 0
+    expense_count: int = 0
     payment_total_count: int = 0
     created_at: datetime
     updated_at: datetime
