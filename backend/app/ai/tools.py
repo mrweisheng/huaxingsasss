@@ -4,7 +4,6 @@ Agent 工具执行器
 """
 import base64
 import json
-import logging
 import os
 import shutil
 from uuid import uuid4
@@ -16,6 +15,7 @@ from typing import Optional
 from datetime import timedelta
 
 import httpx
+import structlog
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
 from app.utils.file_utils import calculate_file_hash
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 def _escape_ilike(keyword: str) -> str:

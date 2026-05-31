@@ -4,7 +4,7 @@ ContractAgent — 基于 ReAct 模式的智能业务助手
 """
 import asyncio
 import json
-import logging
+import structlog
 import os
 import uuid
 from datetime import datetime, date
@@ -25,7 +25,7 @@ from app.config import settings
 from app.models.chat_history import ChatHistory
 from app.models.user import User
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger()
 
 
 class ContractAgent:
