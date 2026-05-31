@@ -86,6 +86,8 @@ def _run_migrations():
 
         alembic_cfg = Config(alembic_cfg_path)
         alembic_cfg.set_main_option("script_location", migrations_dir)
+        # 阻止 alembic env.py 调用 fileConfig() 覆盖我们的 root logger
+        alembic_cfg.config_file_name = None
 
         logger.info("running_database_migrations: dir=%s", migrations_dir)
         command.upgrade(alembic_cfg, "head")
