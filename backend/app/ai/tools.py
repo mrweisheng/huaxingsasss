@@ -1413,86 +1413,103 @@ class ToolExecutor:
                 import fitz
                 doc = fitz.open(file_path)
                 total_pages = len(doc)
-                logger.info("PDF分析开始: file_id=%s, analysis_type=%s, 页数=%d", file_id, analysis_type, total_pages)
+                logger.info("PDF分析开始", file_id=file_id, analysis_type=analysis_type, pages=total_pages)
 
                 if analysis_type in ("contract", "receipt"):
-                    # 合同/凭证 PDF → 渲染为图片 + VL 结构化提取
                     prompt = {
                         "receipt": RECEIPT_ANALYSIS_PROMPT,
                         "contract": CONTRACT_ANALYSIS_PROMPT,
                     }[analysis_type]
 
-                    # 提取所有页面文本（多页合同时提供完整内容给 VL）
+                    # 提取所有页面文本
                     all_page_texts = []
                     for page_num in range(total_pages):
                         text = doc[page_num].get_text()
                         if text.strip():
                             all_page_texts.append(text.strip())
-
-                    # 渲染首页为图片（视觉参考）
-                    pix = doc[0].get_pixmap(dpi=200)
-                    img_bytes = pix.tobytes("png")
-                    img_b64 = base64.b64encode(img_bytes).decode()
                     doc.close()
 
-                    # 多页 PDF：将提取文本附加到 prompt
                     full_text = "\n\n".join(all_page_texts)
+
                     if full_text.strip():
-                        enhanced_prompt = (
-                            f"{prompt}\n\n"
-                            f"以下是PDF提取的文字内容（共{total_pages}页），请结合图片和文本进行完整分析：\n\n"
-                            f"{full_text[:6000]}"
-                        )
-                    else:
-                        enhanced_prompt = prompt
-
-                    payload = {
-                        "model": settings.SILICONFLOW_VISION_MODEL,
-                        "messages": [{
-                            "role": "user",
-                            "content": [
-                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                                {"type": "text", "text": enhanced_prompt},
-                            ],
-                        }],
-                        "temperature": 0.1,
-                        "max_tokens": 4096,
-                    }
-                    headers = {
-                        "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
-                        "Content-Type": "application/json",
-                    }
-
-                    try:
-                        with httpx.Client(timeout=60.0) as client:
-                            response = client.post(
-                                f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
-                                json=payload, headers=headers,
-                            )
-                        if response.status_code != 200:
-                            logger.error("PDF VL分析API错误: %d %s", response.status_code, response.text[:200])
-                            return json.dumps({"error": f"VL API 错误: {response.text}"}, ensure_ascii=False)
-
-                        content = response.json()["choices"][0]["message"]["content"]
+                        # ✅ 有文本 → 用 DeepSeek 文本模型解析（快、稳）
+                        logger.info("PDF文本提取成功，使用DeepSeek文本模型解析", text_len=len(full_text))
                         try:
-                            structured = json.loads(content)
-                        except json.JSONDecodeError:
-                            structured = {"raw": content}
+                            payload = {
+                                "model": settings.DEEPSEEK_AGENT_MODEL,
+                                "messages": [{"role": "user", "content": f"{prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
+                                "temperature": 0.1,
+                                "max_tokens": 4096,
+                            }
+                            headers = {
+                                "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
+                                "Content-Type": "application/json",
+                            }
+                            with httpx.Client(timeout=30.0) as client:
+                                response = client.post(
+                                    f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
+                                    json=payload, headers=headers,
+                                )
+                            if response.status_code != 200:
+                                logger.error("DeepSeek API错误", status=response.status_code, body=response.text[:200])
+                                return json.dumps({"error": f"DeepSeek API 错误: {response.text}"}, ensure_ascii=False)
 
-                        logger.info(
-                            "PDF结构化分析完成: type=%s, keys=%s",
-                            analysis_type,
-                            list(structured.keys()) if isinstance(structured, dict) else "非dict",
-                        )
-                        return json.dumps({
-                            "success": True,
-                            "data": structured,
-                            "file_type": "pdf",
-                            "analysis_type": analysis_type,
-                        }, ensure_ascii=False)
-                    except Exception as e:
-                        logger.exception("PDF VL分析失败")
-                        return json.dumps({"error": f"PDF分析失败: {str(e)}"}, ensure_ascii=False)
+                            content = response.json()["choices"][0]["message"]["content"]
+                            try:
+                                structured = json.loads(content)
+                            except json.JSONDecodeError:
+                                structured = {"raw": content}
+
+                            logger.info("PDF文本模型解析完成", analysis_type=analysis_type, keys=list(structured.keys()) if isinstance(structured, dict) else "非dict")
+                            return json.dumps({
+                                "success": True,
+                                "data": structured,
+                                "file_type": "pdf",
+                                "analysis_type": analysis_type,
+                            }, ensure_ascii=False)
+                        except Exception as e:
+                            logger.exception("DeepSeek解析PDF失败")
+                            return json.dumps({"error": f"PDF文本解析失败: {str(e)}"}, ensure_ascii=False)
+                    else:
+                        # ❌ 无文本（扫描件）→ 渲染为图片走 VL
+                        logger.info("PDF无文本（扫描件），使用VL视觉模型分析")
+                        try:
+                            import fitz as _fitz
+                            doc2 = _fitz.open(file_path)
+                            pix = doc2[0].get_pixmap(dpi=200)
+                            img_bytes = pix.tobytes("png")
+                            img_b64 = base64.b64encode(img_bytes).decode()
+                            doc2.close()
+
+                            payload = {
+                                "model": settings.SILICONFLOW_VISION_MODEL,
+                                "messages": [{
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                                        {"type": "text", "text": prompt},
+                                    ],
+                                }],
+                                "temperature": 0.1,
+                                "max_tokens": 4096,
+                            }
+                            headers = {
+                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                                "Content-Type": "application/json",
+                            }
+                            with httpx.Client(timeout=60.0) as client:
+                                resp = client.post(f"{settings.SILICONFLOW_BASE_URL}/chat/completions", json=payload, headers=headers)
+                            if resp.status_code != 200:
+                                return json.dumps({"error": f"VL API 错误: {resp.text}"}, ensure_ascii=False)
+                            content = resp.json()["choices"][0]["message"]["content"]
+                            try:
+                                structured = json.loads(content)
+                            except json.JSONDecodeError:
+                                structured = {"raw": content}
+                            return json.dumps({"success": True, "data": structured, "file_type": "pdf", "analysis_type": analysis_type}, ensure_ascii=False)
+                        except Exception as e:
+                            logger.exception("PDF扫描件VL分析失败")
+                            return json.dumps({"error": f"PDF扫描件分析失败: {str(e)}"}, ensure_ascii=False)
 
                 else:
                     # general 类型：提取文本内容
