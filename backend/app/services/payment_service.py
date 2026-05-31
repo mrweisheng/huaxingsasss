@@ -43,6 +43,9 @@ class PaymentService:
             type: income（收入）或 expense（支出）
             payee_name: 收款方名称（仅 expense 使用）
         """
+        if type not in ("income", "expense"):
+            raise ValueError(f"无效的付款类型: {type}，必须是 income 或 expense")
+
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
         if not contract:
             raise ValueError(f"合同不存在：{contract_id}")
@@ -121,7 +124,16 @@ class PaymentService:
         currency: str, amount_in_cny: Decimal, paid_date: date
     ):
         """将一笔支出加入合同的支出汇总（不影响合同完成状态）"""
-        contract.total_expense = (contract.total_expense or 0) + amount
+        if currency == contract.currency:
+            contract.total_expense = (contract.total_expense or 0) + amount
+        else:
+            contract_rate, _ = ExchangeRateService.convert_to_cny(
+                db, Decimal('1'), contract.currency, paid_date
+            )
+            if contract_rate:
+                contract.total_expense = (contract.total_expense or 0) + (amount_in_cny / contract_rate).quantize(Decimal('0.01'))
+            else:
+                contract.total_expense = (contract.total_expense or 0) + amount_in_cny
         contract.total_expense_in_cny = (contract.total_expense_in_cny or 0) + amount_in_cny
 
     @staticmethod
