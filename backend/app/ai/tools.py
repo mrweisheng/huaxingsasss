@@ -15,7 +15,7 @@ from typing import Optional
 from datetime import timedelta
 
 import httpx
-import structlog
+import logging
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -31,7 +31,7 @@ from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
 from app.utils.file_utils import calculate_file_hash
 
-logger = structlog.get_logger()
+logger = logging.getLogger(__name__)
 
 
 def _escape_ilike(keyword: str) -> str:

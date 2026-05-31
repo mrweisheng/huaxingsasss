@@ -49,15 +49,9 @@ def setup_logging():
         cache_logger_on_first_use=True,
     )
 
-    # 强制设置 root logger 级别（不能依赖 basicConfig，uvicorn 会抢先配置导致它变成空操作）
+    # 将标准 logging 重定向到 structlog
     import logging
-    root = logging.getLogger()
-    root.setLevel(settings.LOG_LEVEL)
-    if not root.handlers:
-        # 仅当 root logger 还没有 handler 时才添加（首次启动场景）
-        handler = logging.StreamHandler(sys.stdout)
-        handler.setFormatter(logging.Formatter("%(message)s"))
-        root.addHandler(handler)
+    logging.basicConfig(format="%(message)s", stream=sys.stdout, level=settings.LOG_LEVEL)
 
     # 屏蔽第三方 HTTP 库的连接细节日志
     for name in ("httpx", "openai", "httpcore", "urllib3", "asyncio"):
