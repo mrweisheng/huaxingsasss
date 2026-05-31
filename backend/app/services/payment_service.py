@@ -11,6 +11,7 @@ from sqlalchemy import func
 
 from app.models.payment import Payment
 from app.models.contract import Contract
+from app.schemas.payment import PaymentUpdate
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.audit_service import AuditService
 from app.config import settings
@@ -189,6 +190,19 @@ class PaymentService:
             },
             "profit_in_cny": float(total_paid_cny - total_expense_cny),
         }
+
+    @staticmethod
+    def update_payment(db: Session, payment_id: int, payment_data: PaymentUpdate) -> Optional[Payment]:
+        """更新付款记录"""
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            return None
+        update_data = payment_data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            setattr(payment, field, value)
+        db.commit()
+        db.refresh(payment)
+        return payment
 
     @staticmethod
     def delete_payment(db: Session, payment_id: int, user_id: int = None) -> bool:

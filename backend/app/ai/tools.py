@@ -111,6 +111,8 @@ class ToolExecutor:
             "payment_method": p.payment_method,
             "status": p.status,
             "notes": p.notes,
+            "receipt_image_path": p.receipt_image_path,
+            "receipt_data": p.receipt_data,
         }
 
     # ── 查询工具 ──
@@ -570,6 +572,11 @@ class ToolExecutor:
                 type="income",
             )
             self.db.refresh(payment)
+            # 存储凭证分析结构化数据
+            if kwargs.get("receipt_data"):
+                payment.receipt_data = kwargs["receipt_data"]
+                self.db.commit()
+                self.db.refresh(payment)
             if payment.contract and payment.contract.customer:
                 payment.contract.customer  # ensure loaded
             result = self._payment_to_dict(payment)
@@ -610,11 +617,58 @@ class ToolExecutor:
                 payee_name=kwargs["payee_name"],
             )
             self.db.refresh(payment)
+            # 存储凭证分析结构化数据
+            if kwargs.get("receipt_data"):
+                payment.receipt_data = kwargs["receipt_data"]
+                self.db.commit()
+                self.db.refresh(payment)
             result = self._payment_to_dict(payment)
             result["contract_number"] = payment.contract.contract_number if payment.contract else None
             return json.dumps({"success": True, "payment": result}, ensure_ascii=False)
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
+
+    def update_payment(self, **kwargs) -> str:
+        """更新付款记录的备注、凭证、付款方式等信息"""
+        payment_id = kwargs.get("payment_id")
+        if not payment_id:
+            return json.dumps({"error": "缺少 payment_id"}, ensure_ascii=False)
+
+        payment = self.db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            return json.dumps({"error": f"付款记录不存在：{payment_id}"}, ensure_ascii=False)
+
+        # 按 type 权限检查
+        if payment.type == "expense":
+            if not self._can_view_expense():
+                return json.dumps({"error": "当前角色无权更新支出记录"}, ensure_ascii=False)
+        else:
+            if not self._can_view_income():
+                return json.dumps({"error": "当前角色无权更新收入记录"}, ensure_ascii=False)
+
+        # income 角色校验合同所有权
+        if self.user.role == "income" and payment.contract and payment.contract.sales_person_id != self.user.id:
+            return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
+
+        # 可更新字段白名单
+        updatable_fields = ["notes", "payment_method", "receipt_image_path", "receipt_data", "installment_name", "paid_date"]
+        updates = {f: kwargs[f] for f in updatable_fields if kwargs.get(f) is not None}
+
+        if not updates:
+            return json.dumps({"error": "没有需要更新的字段"}, ensure_ascii=False)
+
+        try:
+            from app.schemas.payment import PaymentUpdate
+            payment_update = PaymentUpdate(**updates)
+            updated = PaymentService.update_payment(self.db, payment_id, payment_update)
+            if not updated:
+                return json.dumps({"error": "更新失败"}, ensure_ascii=False)
+
+            result = self._payment_to_dict(updated)
+            return json.dumps({"success": True, "payment": result}, ensure_ascii=False)
+        except Exception as e:
+            logger.exception("update_payment failed")
+            return json.dumps({"error": f"更新付款失败: {str(e)}"}, ensure_ascii=False)
 
     def get_expense_summary(self, **kwargs) -> str:
         """查看支出汇总，按合同或收款方维度聚合"""
@@ -1237,6 +1291,7 @@ TOOL_DEFINITIONS = [
                         "description": "付款方式",
                     },
                     "notes": {"type": "string", "description": "备注"},
+                    "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象，包含document_type/amount/payer_name/transaction_id等）"},
                 },
             },
         },
@@ -1261,6 +1316,27 @@ TOOL_DEFINITIONS = [
                         "description": "付款方式",
                     },
                     "notes": {"type": "string", "description": "备注"},
+                    "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_payment",
+            "description": "更新已有付款记录的备注、凭证、付款方式等信息。当用户为已有付款补充凭证时使用此工具（而不是创建新记录）。也可用于根据凭证分析结果更新备注内容。",
+            "parameters": {
+                "type": "object",
+                "required": ["payment_id"],
+                "properties": {
+                    "payment_id": {"type": "integer", "description": "付款记录ID"},
+                    "notes": {"type": "string", "description": "备注信息（根据凭证内容自动生成描述性备注）"},
+                    "payment_method": {"type": "string", "description": "付款方式"},
+                    "receipt_image_path": {"type": "string", "description": "凭证图片路径"},
+                    "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
+                    "installment_name": {"type": "string", "description": "期数名称"},
+                    "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
                 },
             },
         },

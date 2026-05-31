@@ -71,6 +71,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 付款查询: query_payments（按合同、类型、状态筛选，支持 type=income/expense）
 - 创建收入: create_payment（为客户付款创建收入记录，需要用户确认所有信息后才调用）
 - 创建支出: create_expense（为公司对外付款创建支出记录，需要收款方名称）
+- 更新付款: update_payment（更新已有付款记录的备注、凭证、付款方式等。当用户为已有付款补充凭证时使用此工具）
 - 支出汇总: get_expense_summary（按合同或收款方维度查看支出汇总）
 - 付款汇总: get_payment_summary（按客户/合同/月份聚合，按角色自动过滤类型）
 - 逾期查询: get_overdue_payments（查找逾期未付的款项）
@@ -102,7 +103,9 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 1. **合同/协议文件**（analysis_type="contract"）→ 触发"合同录入标准流程"：分析 → 创建/匹配客户 → create_contract
 2. **付款凭证/收据**（analysis_type="receipt"）→ **仅处理付款相关操作，绝不创建合同**：
    - 用凭证中的客户名/合同信息搜索已有合同
-   - 如果找到已有合同 → 调用 create_payment 创建新付款记录
+   - **重要：先查询该合同是否已有对应期数的付款记录**（用 get_contract_detail 或 query_payments）
+   - 如果已有对应付款记录 → 调用 **update_payment** 更新该记录的备注、凭证路径、付款方式，并将凭证分析结果存入 receipt_data。备注应根据凭证内容智能生成（如"已提供银行转账凭证，付款人张三，流水号xxx"）
+   - 如果没有对应付款记录 → 调用 create_payment 创建新付款记录，同时将凭证分析结果存入 receipt_data
    - **如果找不到匹配的客户或合同** → 向用户展示凭证中提取的信息（客户名、金额、日期等），请用户确认应关联到哪个已有客户/合同。绝不能因为没有找到客户就创建新合同——收据不是合同！
 3. **群聊截图、证件、照片等**（analysis_type="general"）→ 查找关联合同 → update_contract 补充信息
 

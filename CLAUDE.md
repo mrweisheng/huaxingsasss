@@ -49,14 +49,9 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
 # 启动 Celery Worker（另开终端）
 uv run celery -A app.tasks.celery_app worker --loglevel=info
 
-# 数据库迁移（生产环境启动时自动执行，无需手动运行）
-uv run alembic -c migrations/alembic.ini upgrade head
-
-# 创建新迁移
-uv run alembic -c migrations/alembic.ini revision --autogenerate -m "description"
-
-# 查看当前迁移版本
-uv run alembic -c migrations/alembic.ini current
+# ⚠️ 数据库变更规则：不要创建 alembic 迁移脚本！
+# 当 ORM 模型变更涉及表结构改动时，只提供纯 SQL（ALTER TABLE 等）给用户手动执行。
+# 不要运行 alembic revision / alembic upgrade，不要生成迁移文件。
 
 # 运行测试
 uv run pytest
@@ -163,9 +158,11 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 利润 = `paid_amount_in_cny - total_expense_in_cny`
 
-### 自动迁移
+### 数据库变更规则
 
-`main.py` 的 `on_startup` 事件中调用 `_run_migrations()`，每次服务启动时自动执行 `alembic upgrade head`。生产部署流程：拉代码 → 重启服务 → 自动迁移 → 正常运行。开发环境同样适用。显式设置 `script_location` 为绝对路径避免相对路径解析问题。
+**禁止创建 alembic 迁移脚本。** 当 ORM 模型变更涉及表结构改动（新增列、修改列类型、新增表等）时，只提供纯 SQL DDL/DML 语句给用户手动执行，不要生成 `migrations/versions/` 下的迁移文件。
+
+`main.py` 的 `on_startup` 中有 `_run_migrations()` 调用（执行 `alembic upgrade head`），这是历史遗留逻辑。新增的表结构变更应通过提供 SQL 语句由用户手动执行。
 
 `chat_history` 表存储 Agent 对话消息，每行一条消息（role: user/assistant/tool），通过 `session_id` 分组为会话。包含 `tool_calls`（JSON）和 `metadata`（JSON）列支持函数调用和附件。
 

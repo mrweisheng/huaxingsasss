@@ -1,7 +1,7 @@
 """
 付款模型
 """
-from sqlalchemy import Column, String, Text, Integer, ForeignKey, DECIMAL, Date, Index, UniqueConstraint, text
+from sqlalchemy import Column, String, Text, Integer, ForeignKey, DECIMAL, Date, Index, UniqueConstraint, text, JSON
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
@@ -39,7 +39,8 @@ class Payment(BaseModel):
     receipt_image_path = Column(String(500), comment="付款凭证图片路径")
     receipt_file_hash = Column(String(64), comment="凭证文件哈希")
     receipt_ocr_text = Column(Text, comment="OCR识别的文本内容")
-    
+    receipt_data = Column(JSON, comment="凭证分析结构化数据（银行转账/微信/支付宝/收据等）")
+
     # 付款方式
     payment_method = Column(String(20), comment="付款方式: bank_transfer/wechat/alipay/cash/check")
 

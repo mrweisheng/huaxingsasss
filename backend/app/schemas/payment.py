@@ -31,11 +31,15 @@ class PaymentCreate(PaymentBase):
 
 class PaymentUpdate(BaseModel):
     """更新付款"""
-    
+
     paid_amount: Optional[Decimal] = Field(None, ge=0)
     paid_date: Optional[date] = None
     status: Optional[str] = None
     notes: Optional[str] = None
+    payment_method: Optional[str] = None
+    receipt_image_path: Optional[str] = None
+    receipt_data: Optional[dict] = None
+    installment_name: Optional[str] = None
 
 
 class PaymentResponse(PaymentBase):
@@ -50,6 +54,7 @@ class PaymentResponse(PaymentBase):
     amount_in_cny: Optional[Decimal]
     paid_amount_in_cny: Optional[Decimal]
     receipt_image_path: Optional[str]
+    receipt_data: Optional[dict] = None
     status: str
     source: str
     created_at: datetime
