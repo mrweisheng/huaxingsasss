@@ -31,6 +31,7 @@ celery_app.conf.update(
     result_expires=3600,
     task_soft_time_limit=300,  # 5 minutes
     task_time_limit=600,  # 10 minutes
+    worker_hijack_root_logger=False,  # 禁止 Celery 劫持 root logger
 )
 
 celery_app.conf.beat_schedule = {
@@ -44,3 +45,10 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=30, hour=0),  # 每天凌晨0:30
     },
 }
+
+
+# Worker 启动时初始化日志配置，确保 task 中的 logger 输出到 stdout
+@celery_app.on_after_configure.connect
+def setup_celery_logging(sender, **kwargs):
+    from app.core.logging import setup_logging
+    setup_logging()

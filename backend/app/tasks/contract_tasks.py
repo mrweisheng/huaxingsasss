@@ -2,6 +2,7 @@
 合同解析异步任务
 """
 import asyncio
+import logging
 from celery import current_task
 from app.tasks.celery_app import celery_app
 from app.ai.llm_client import SiliconFlowClient
@@ -9,6 +10,8 @@ from app.db.session import SessionLocal
 from app.models.contract import Contract
 from decimal import Decimal
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
@@ -22,10 +25,12 @@ def parse_contract_task(self, contract_id: int, file_path: str):
     """
     db = SessionLocal()
     try:
+        logger.info("合同解析开始: contract_id=%d, file=%s", contract_id, file_path)
         current_task.update_state(state="PROCESSING", meta={"progress": 30})
 
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
         if not contract:
+            logger.warning("合同不存在: contract_id=%d", contract_id)
             return {"error": "Contract not found"}
 
         current_task.update_state(state="PROCESSING", meta={"progress": 60})
@@ -35,9 +40,14 @@ def parse_contract_task(self, contract_id: int, file_path: str):
 
         parsed_data = result["data"]
         confidence = result["confidence"]
+        logger.info("AI解析完成: contract_id=%d, confidence=%.2f", contract_id, confidence)
 
         # 更新结构化数据
         contract.contract_data = parsed_data
+
+        # 保存合同全文（用于知识库问答）
+        if parsed_data.get("full_text"):
+            contract.contract_text = parsed_data["full_text"]
 
         # 提取关键字段
         if "total_amount" in parsed_data:
@@ -84,6 +94,7 @@ def parse_contract_task(self, contract_id: int, file_path: str):
         db.commit()
 
         current_task.update_state(state="PROCESSING", meta={"progress": 100})
+        logger.info("合同解析成功: contract_id=%d, status=%s", contract_id, contract.status)
 
         return {
             "contract_id": contract_id,
@@ -93,6 +104,7 @@ def parse_contract_task(self, contract_id: int, file_path: str):
         }
 
     except Exception as exc:
+        logger.error("合同解析失败: contract_id=%d, error=%s", contract_id, exc, exc_info=True)
         try:
             contract = db.query(Contract).filter(Contract.id == contract_id).first()
             if contract:

@@ -2,6 +2,7 @@
 付款凭证 OCR 异步任务
 """
 import asyncio
+import logging
 from celery import current_task
 from app.tasks.celery_app import celery_app
 from app.ai.llm_client import SiliconFlowClient
@@ -10,6 +11,8 @@ from app.models.payment import Payment
 from app.services.exchange_rate_service import ExchangeRateService
 from decimal import Decimal
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 
 @celery_app.task(bind=True, max_retries=3, default_retry_delay=60)
@@ -23,10 +26,12 @@ def ocr_receipt_task(self, payment_id: int, file_path: str):
     """
     db = SessionLocal()
     try:
+        logger.info("凭证OCR开始: payment_id=%d, file=%s", payment_id, file_path)
         current_task.update_state(state="PROCESSING", meta={"progress": 30})
 
         payment = db.query(Payment).filter(Payment.id == payment_id).first()
         if not payment:
+            logger.warning("付款记录不存在: payment_id=%d", payment_id)
             return {"error": "Payment not found"}
 
         current_task.update_state(state="PROCESSING", meta={"progress": 60})
@@ -60,6 +65,7 @@ def ocr_receipt_task(self, payment_id: int, file_path: str):
 
         db.commit()
 
+        logger.info("凭证OCR完成: payment_id=%d, status=%s", payment_id, payment.status)
         return {
             "payment_id": payment_id,
             "status": "completed",
@@ -67,6 +73,7 @@ def ocr_receipt_task(self, payment_id: int, file_path: str):
         }
 
     except Exception as exc:
+        logger.error("凭证OCR失败: payment_id=%d, error=%s", payment_id, exc, exc_info=True)
         raise self.retry(exc=exc)
 
     finally:
