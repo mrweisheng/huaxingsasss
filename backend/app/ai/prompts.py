@@ -50,7 +50,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 ## 业务规则
 - 币种: CNY（人民币）、HKD（港币）、USD（美元）
 - 合同状态: active（执行中）→ completed（已完成，管理员手动标记）
-- 付款状态: paid（已支付，参与结算）/ overdue（逾期）/ cancelled（已取消）
+- 付款状态: pending（待确认，未参与结算，等凭证上传后自动转paid）/ paid（已支付，参与结算）/ overdue（逾期）/ cancelled（已取消）
 - 付款方式: bank_transfer（银行转账）、wechat（微信）、alipay（支付宝）、cash（现金）、check（支票）
 - 汇率会自动按付款日期查找并折算为人民币
 - 合同编号由系统自动生成，无需用户手动输入

@@ -543,7 +543,7 @@ class ToolExecutor:
             return json.dumps({"error": f"更新合同失败: {str(e)}"}, ensure_ascii=False)
 
     def create_payment(self, **kwargs) -> str:
-        """创建付款记录（收入类型）。始终创建为已支付状态。"""
+        """创建付款记录（收入类型）。"""
         if not self._can_view_income():
             return json.dumps({"error": "当前角色无权创建收入记录"}, ensure_ascii=False)
 
@@ -558,6 +558,14 @@ class ToolExecutor:
                 return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
 
         try:
+            receipt_path = kwargs.get("receipt_image_path")
+            logger.info(
+                "Agent创建付款: contract_id=%s, installment=%s, amount=%s %s, receipt=%s, notes=%s",
+                kwargs["contract_id"], kwargs["installment_number"],
+                kwargs["amount"], kwargs.get("currency"),
+                receipt_path or "无",
+                kwargs.get("notes", "无"),
+            )
             payment = PaymentService.create_payment_with_exchange_rate(
                 db=self.db,
                 contract_id=kwargs["contract_id"],
@@ -1275,7 +1283,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建收入付款记录（客户向公司付款）。仅用于已实际发生的付款，不可用于未来应付但尚未支付的款项。创建后立即确认为已支付状态，自动按付款日期查找汇率并折算为人民币。调用前必须与用户确认所有信息。",
+            "description": "为合同创建收入付款记录（客户向公司付款）。仅用于已实际发生的付款。无凭证时创建为待确认状态不参与结算，有凭证时创建为已支付状态自动参与结算。自动按付款日期查找汇率并折算为人民币。调用前必须与用户确认所有信息。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "installment_number", "amount", "currency", "paid_date"],
@@ -1290,6 +1298,7 @@ TOOL_DEFINITIONS = [
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
                     },
+                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径（有凭证时传入）"},
                     "notes": {"type": "string", "description": "备注"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象，包含document_type/amount/payer_name/transaction_id等）"},
                 },
@@ -1300,7 +1309,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_expense",
-            "description": "为合同创建支出记录（公司向第三方付款，如渠道费、办证费等）。需要指定收款方名称。期数自动生成。创建后立即确认为已支付状态，自动按付款日期查找汇率并折算为人民币。仅admin和expense角色可用。",
+            "description": "为合同创建支出记录（公司向第三方付款，如渠道费、办证费等）。需要指定收款方名称。期数自动生成。无凭证时创建为待确认状态不参与结算，有凭证时创建为已支付状态自动参与结算。自动按付款日期查找汇率并折算为人民币。仅admin和expense角色可用。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "amount", "currency", "paid_date", "payee_name"],
@@ -1315,6 +1324,7 @@ TOOL_DEFINITIONS = [
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
                     },
+                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径（有凭证时传入）"},
                     "notes": {"type": "string", "description": "备注"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
                 },

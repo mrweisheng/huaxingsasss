@@ -58,6 +58,14 @@ class PaymentService:
 
         has_receipt = bool(receipt_image_path)
 
+        logger.info(
+            "创建付款: contract_id=%d, type=%s, amount=%s %s, receipt=%s → status=%s, 参与结算=%s",
+            contract_id, type, amount, currency,
+            receipt_image_path or "无",
+            'paid' if has_receipt else 'pending',
+            "是" if has_receipt else "否",
+        )
+
         payment = Payment(
             contract_id=contract_id,
             installment_number=installment_number,
@@ -212,6 +220,10 @@ class PaymentService:
         # 补充凭证时：pending → paid，累加合同金额参与结算
         now_has_receipt = bool(payment.receipt_image_path)
         if was_pending and not had_receipt and now_has_receipt:
+            logger.info(
+                "补充凭证触发结算: payment_id=%d, contract_id=%d, type=%s, amount=%s, status pending→paid",
+                payment_id, payment.contract_id, payment.type, payment.paid_amount,
+            )
             payment.status = 'paid'
             contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
             if contract:
