@@ -124,9 +124,6 @@ class ToolExecutor:
         wechat_group: Optional[str] = None,
         limit: int = 10,
     ) -> str:
-        if not (name or phone or wechat_group):
-            return json.dumps({"error": "请至少提供一个搜索条件（name/phone/wechat_group）"}, ensure_ascii=False)
-
         query = self.db.query(Customer).filter(Customer.is_deleted == False)
 
         if name:
@@ -1595,7 +1592,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_customers",
-            "description": "按姓名、电话或微信群名搜索客户（自动兼容繁体/简体）。返回匹配的客户列表及其关联合同数量。",
+            "description": "搜索客户。不传任何参数时列出全部客户；传 name/phone/wechat_group 则按条件模糊匹配（自动兼容繁简体）。返回客户列表含关联合同数量。",
             "parameters": {
                 "type": "object",
                 "properties": {
