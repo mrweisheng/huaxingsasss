@@ -306,6 +306,7 @@ class ToolExecutor:
                 remarks=kwargs.get("remarks"),
                 created_by=self.user.id,
             )
+            logger.info("create_customer: name=%s, id=%d, created=%s", name, customer.id, created)
             return json.dumps({
                 "success": True,
                 "customer": {
@@ -389,11 +390,22 @@ class ToolExecutor:
         receipt_data: dict = None,
         receipt_file_path: str = None,
     ) -> list:
+        logger.info(
+            "自动付款创建开始: contract_id=%d, contract_data类型=%s",
+            contract.id, type(contract_data_raw).__name__,
+        )
         if not isinstance(contract_data_raw, dict):
+            logger.warning("自动付款创建跳过: contract_data不是dict（%s）", type(contract_data_raw).__name__)
             return []
 
         payment_terms = contract_data_raw.get("payment_terms", [])
+        logger.info(
+            "payment_terms数量=%d, 内容=%s",
+            len(payment_terms),
+            json.dumps(payment_terms, ensure_ascii=False)[:500],
+        )
         if not payment_terms:
+            logger.info("自动付款创建跳过: 无payment_terms")
             return []
 
         paid_keywords = ["已付", "已缴纳", "付清", "已到账", "已收", "已支付"]
@@ -413,6 +425,12 @@ class ToolExecutor:
             condition = (term.get("condition") or "").lower()
             is_paid_by_keywords = any(kw in condition for kw in paid_keywords)
             is_paid_term = (is_paid_field is True) or (is_paid_field is None and is_paid_by_keywords)
+
+            logger.info(
+                "条款[%d]: name=%s, amount=%s, is_paid字段=%s, condition=%s, 关键词匹配=%s → is_paid=%s",
+                idx, term.get("name"), term.get("amount"), is_paid_field,
+                condition[:50], is_paid_by_keywords, is_paid_term,
+            )
 
             if not is_paid_term:
                 continue
@@ -490,8 +508,14 @@ class ToolExecutor:
             return json.dumps({"error": "当前角色无权创建合同"}, ensure_ascii=False)
 
         customer_id = kwargs.get("customer_id")
-        file_id = kwargs.get("file_id")
         contract_data_raw = kwargs.get("contract_data", {})
+        logger.info(
+            "create_contract: customer_id=%s, file_id=%s, contract_data类型=%s, keys=%s",
+            customer_id, kwargs.get("file_id"),
+            type(contract_data_raw).__name__,
+            list(contract_data_raw.keys()) if isinstance(contract_data_raw, dict) else "N/A",
+        )
+        file_id = kwargs.get("file_id")
 
         if not customer_id:
             return json.dumps({"error": "缺少 customer_id，请先创建或查找客户"}, ensure_ascii=False)
@@ -591,6 +615,10 @@ class ToolExecutor:
 
             auto_payments = self._auto_create_payments_from_terms(
                 contract, contract_data_raw, kwargs.get("receipt_data"), kwargs.get("receipt_file_path")
+            )
+            logger.info(
+                "create_contract完成: contract_id=%d, auto_payments=%s",
+                contract.id, json.dumps(auto_payments, ensure_ascii=False)[:500],
             )
 
             return json.dumps({
@@ -1379,59 +1407,138 @@ class ToolExecutor:
                 logger.exception("analyze_image VL call failed")
                 return json.dumps({"error": f"图片分析失败: {str(e)}"}, ensure_ascii=False)
 
-        # 2) 不是图片 → 尝试 PDF 解析
+        # 2) PDF 解析
         if header[:4] == b"%PDF":
             try:
                 import fitz
                 doc = fitz.open(file_path)
-                pages_text = []
-                for page_num in range(len(doc)):
-                    page = doc[page_num]
-                    text = page.get_text()
-                    if text.strip():
-                        pages_text.append(f"第{page_num + 1}页:\n{text.strip()}")
-                    else:
-                        # 扫描页 → 渲染为图片并用 VL 分析
-                        pix = page.get_pixmap(dpi=200)
-                        img_bytes = pix.tobytes("png")
-                        img_b64 = base64.b64encode(img_bytes).decode()
-                        prompt = {
-                            "receipt": RECEIPT_ANALYSIS_PROMPT,
-                            "contract": CONTRACT_ANALYSIS_PROMPT,
-                            "general": GENERAL_ANALYSIS_PROMPT,
-                        }.get(analysis_type, GENERAL_ANALYSIS_PROMPT)
+                total_pages = len(doc)
+                logger.info("PDF分析开始: file_id=%s, analysis_type=%s, 页数=%d", file_id, analysis_type, total_pages)
 
-                        payload = {
-                            "model": settings.SILICONFLOW_VISION_MODEL,
-                            "messages": [
-                                {
+                if analysis_type in ("contract", "receipt"):
+                    # 合同/凭证 PDF → 渲染为图片 + VL 结构化提取
+                    prompt = {
+                        "receipt": RECEIPT_ANALYSIS_PROMPT,
+                        "contract": CONTRACT_ANALYSIS_PROMPT,
+                    }[analysis_type]
+
+                    # 提取所有页面文本（多页合同时提供完整内容给 VL）
+                    all_page_texts = []
+                    for page_num in range(total_pages):
+                        text = doc[page_num].get_text()
+                        if text.strip():
+                            all_page_texts.append(text.strip())
+
+                    # 渲染首页为图片（视觉参考）
+                    pix = doc[0].get_pixmap(dpi=200)
+                    img_bytes = pix.tobytes("png")
+                    img_b64 = base64.b64encode(img_bytes).decode()
+                    doc.close()
+
+                    # 多页 PDF：将提取文本附加到 prompt
+                    full_text = "\n\n".join(all_page_texts)
+                    if full_text.strip():
+                        enhanced_prompt = (
+                            f"{prompt}\n\n"
+                            f"以下是PDF提取的文字内容（共{total_pages}页），请结合图片和文本进行完整分析：\n\n"
+                            f"{full_text[:6000]}"
+                        )
+                    else:
+                        enhanced_prompt = prompt
+
+                    payload = {
+                        "model": settings.SILICONFLOW_VISION_MODEL,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                                {"type": "text", "text": enhanced_prompt},
+                            ],
+                        }],
+                        "temperature": 0.1,
+                        "max_tokens": 4096,
+                    }
+                    headers = {
+                        "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                        "Content-Type": "application/json",
+                    }
+
+                    try:
+                        with httpx.Client(timeout=60.0) as client:
+                            response = client.post(
+                                f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
+                                json=payload, headers=headers,
+                            )
+                        if response.status_code != 200:
+                            logger.error("PDF VL分析API错误: %d %s", response.status_code, response.text[:200])
+                            return json.dumps({"error": f"VL API 错误: {response.text}"}, ensure_ascii=False)
+
+                        content = response.json()["choices"][0]["message"]["content"]
+                        try:
+                            structured = json.loads(content)
+                        except json.JSONDecodeError:
+                            structured = {"raw": content}
+
+                        logger.info(
+                            "PDF结构化分析完成: type=%s, keys=%s",
+                            analysis_type,
+                            list(structured.keys()) if isinstance(structured, dict) else "非dict",
+                        )
+                        return json.dumps({
+                            "success": True,
+                            "data": structured,
+                            "file_type": "pdf",
+                            "analysis_type": analysis_type,
+                        }, ensure_ascii=False)
+                    except Exception as e:
+                        logger.exception("PDF VL分析失败")
+                        return json.dumps({"error": f"PDF分析失败: {str(e)}"}, ensure_ascii=False)
+
+                else:
+                    # general 类型：提取文本内容
+                    pages_text = []
+                    for page_num in range(total_pages):
+                        page = doc[page_num]
+                        text = page.get_text()
+                        if text.strip():
+                            pages_text.append(f"第{page_num + 1}页:\n{text.strip()}")
+                        else:
+                            pix = page.get_pixmap(dpi=200)
+                            img_bytes = pix.tobytes("png")
+                            img_b64 = base64.b64encode(img_bytes).decode()
+                            payload = {
+                                "model": settings.SILICONFLOW_VISION_MODEL,
+                                "messages": [{
                                     "role": "user",
                                     "content": [
                                         {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                                        {"type": "text", "text": prompt},
+                                        {"type": "text", "text": GENERAL_ANALYSIS_PROMPT},
                                     ],
-                                }
-                            ],
-                            "temperature": 0.1,
-                            "max_tokens": 4096,
-                        }
-                        headers = {
-                            "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
-                            "Content-Type": "application/json",
-                        }
-                        with httpx.Client(timeout=60.0) as client:
-                            resp = client.post(f"{settings.SILICONFLOW_BASE_URL}/chat/completions", json=payload, headers=headers)
-                        if resp.status_code == 200:
-                            content = resp.json()["choices"][0]["message"]["content"]
-                            pages_text.append(f"第{page_num + 1}页(扫描): {content[:500]}")
-                        else:
-                            pages_text.append(f"第{page_num + 1}页分析失败")
-                doc.close()
-                result = "\n".join(pages_text)
-                return json.dumps({"success": True, "data": {"content": result[:5000]}, "file_type": "pdf"}, ensure_ascii=False)
+                                }],
+                                "temperature": 0.1,
+                                "max_tokens": 4096,
+                            }
+                            headers = {
+                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                                "Content-Type": "application/json",
+                            }
+                            with httpx.Client(timeout=60.0) as client:
+                                resp = client.post(
+                                    f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
+                                    json=payload, headers=headers,
+                                )
+                            if resp.status_code == 200:
+                                content = resp.json()["choices"][0]["message"]["content"]
+                                pages_text.append(f"第{page_num + 1}页(扫描): {content[:500]}")
+                            else:
+                                pages_text.append(f"第{page_num + 1}页分析失败")
+                    doc.close()
+                    result = "\n".join(pages_text)
+                    return json.dumps({"success": True, "data": {"content": result[:5000]}, "file_type": "pdf"}, ensure_ascii=False)
             except ImportError:
                 return json.dumps({"error": "PDF 分析不可用（缺少 PyMuPDF）"}, ensure_ascii=False)
             except Exception as e:
+                logger.exception("PDF分析异常")
                 return json.dumps({"error": f"PDF 分析失败: {str(e)}"}, ensure_ascii=False)
 
         # 3) 尝试 Word / 文本
@@ -1450,12 +1557,18 @@ class ToolExecutor:
         """统一执行入口"""
         handler = getattr(self, tool_name, None)
         if not handler:
+            logger.warning("未知工具调用: %s", tool_name)
             return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
 
+        args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
+        logger.info("🔧 工具调用: %s | 参数: %s", tool_name, args_preview)
+
         try:
-            return handler(**arguments)
+            result = handler(**arguments)
+            logger.info("✅ 工具结果: %s → %s", tool_name, result[:200] if result else "empty")
+            return result
         except Exception as e:
-            logger.exception(f"Tool execution failed: {tool_name}")
+            logger.exception("❌ 工具执行失败: %s", tool_name)
             return json.dumps({"error": f"工具执行失败: {str(e)}"}, ensure_ascii=False)
 
 

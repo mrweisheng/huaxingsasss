@@ -55,6 +55,13 @@ class ContractAgent:
         if not session_id:
             session_id = str(uuid.uuid4())
 
+        logger.info(
+            "Agent会话: session=%s, user=%s(%s), 附件=%d, 消息=%s",
+            session_id[:8], self.user.username, self.user.role,
+            len(attachments) if attachments else 0,
+            user_message[:100],
+        )
+
         # 1. 处理附件
         file_context = ""
         if attachments:
@@ -156,6 +163,11 @@ class ContractAgent:
                     args = {}
 
                 result = await asyncio.to_thread(self.executor.execute, tc["name"], args)
+
+                logger.info(
+                    "Agent工具结果: %s → %s", tc["name"],
+                    result[:200] if result else "empty",
+                )
 
                 yield {
                     "event": "tool_result",
