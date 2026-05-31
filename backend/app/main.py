@@ -1,19 +1,23 @@
 """
 FastAPI应用主入口
 """
+# ⚠️ setup_logging 必须在所有业务模块导入之前执行，
+# 否则 tools.py / agent.py 的 structlog.get_logger() 拿到空配置
+from app.core.logging import setup_logging
+setup_logging()
+
+import structlog
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-import structlog
 
 from app.config import settings
-from app.api.v1 import auth, customers, contracts, payments, agent, files, exchange_rates
 from app.core.exceptions import AppException
 from app.core.middleware import RequestLoggingMiddleware, AuditLogMiddleware
-from app.core.logging import setup_logging
 
-# 初始化结构化日志
-setup_logging()
+from app.api.v1 import auth, customers, contracts, payments, agent, files, exchange_rates
+
 logger = structlog.get_logger()
 
 # 创建FastAPI应用
