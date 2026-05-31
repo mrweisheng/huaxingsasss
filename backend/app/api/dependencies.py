@@ -1,17 +1,17 @@
 """
 API依赖注入
 """
+import logging
 from typing import Optional
 from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-import structlog
 
 from app.core.security import decode_access_token
 from app.models.user import User
 from app.db.session import get_db
 
-logger = structlog.get_logger()
+logger = logging.getLogger(__name__)
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
 
@@ -21,7 +21,6 @@ def get_current_user(
     token_query: Optional[str] = Query(None, alias="token"),
     db: Session = Depends(get_db)
 ) -> User:
-    """获取当前用户（支持 header 和 query parameter 两种方式传 token）"""
     token = token or token_query
     if not token:
         logger.warning("auth_missing_token")
@@ -52,14 +51,14 @@ def get_current_user(
     try:
         user = db.query(User).filter(User.id == int(user_id)).first()
     except Exception as e:
-        logger.error("auth_db_query_error", error=str(e), user_id=user_id, exc_info=True)
+        logger.error("auth_db_query_error: user_id=%s, error=%s", user_id, str(e), exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="数据库查询失败"
         )
 
     if not user:
-        logger.warning("auth_user_not_found", user_id=user_id)
+        logger.warning("auth_user_not_found: user_id=%s", user_id)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在或已禁用",
@@ -67,7 +66,7 @@ def get_current_user(
         )
 
     if not user.is_active:
-        logger.warning("auth_user_disabled", user_id=user_id, username=user.username)
+        logger.warning("auth_user_disabled: user_id=%s, username=%s", user_id, user.username)
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="用户不存在或已禁用",
@@ -78,16 +77,6 @@ def get_current_user(
 
 
 def require_role(*allowed_roles: str):
-    """
-    角色校验依赖（FastAPI Depends 模式）
-
-    用法：
-        @router.delete("/contracts/{id}")
-        def delete_contract(
-            current_user: User = Depends(require_role("admin")),
-            ...
-        ):
-    """
     def _validator(current_user: User = Depends(get_current_user)) -> User:
         if current_user.role not in allowed_roles:
             raise HTTPException(

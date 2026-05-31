@@ -1,26 +1,23 @@
 """
 基于 Redis 的速率限制器
 """
+import logging
 import time
-import structlog
 from typing import Optional
 from fastapi import HTTPException, Request
 from app.config import settings
 
-logger = structlog.get_logger()
+logger = logging.getLogger(__name__)
 
 
 class RateLimiter:
-    """简单的滑动窗口速率限制器"""
-
     def __init__(self, max_attempts: int = 5, window_seconds: int = 60):
         self.max_attempts = max_attempts
         self.window_seconds = window_seconds
-        self._memory_store: dict[str, list[float]] = {}  # fallback when Redis unavailable
+        self._memory_store: dict[str, list[float]] = {}
         self._redis_client = None
 
     def _init_redis(self):
-        """延迟初始化 Redis 连接"""
         if self._redis_client is None:
             try:
                 import redis
@@ -32,19 +29,10 @@ class RateLimiter:
                 )
                 self._redis_client.ping()
             except Exception as e:
-                logger.warning("rate_limiter_redis_unavailable", error=str(e))
-                self._redis_client = None  # Redis 不可用时回退到内存存储
+                logger.warning("rate_limiter_redis_unavailable: %s", str(e))
+                self._redis_client = None
 
     async def check(self, key: str) -> None:
-        """
-        检查是否超出速率限制
-
-        Args:
-            key: 限流键（如 IP 地址）
-
-        Raises:
-            HTTPException 429: 超出限制
-        """
         now = time.time()
         window_start = now - self.window_seconds
 
@@ -66,9 +54,8 @@ class RateLimiter:
                     )
                 return
             except Exception:
-                pass  # Redis 出错，回退到内存存储
+                pass
 
-        # 内存 fallback
         records = self._memory_store.get(key, [])
         records = [t for t in records if t > window_start]
 
@@ -82,5 +69,4 @@ class RateLimiter:
         self._memory_store[key] = records
 
 
-# 登录速率限制器：每分钟最多 5 次尝试
 login_rate_limiter = RateLimiter(max_attempts=5, window_seconds=60)
