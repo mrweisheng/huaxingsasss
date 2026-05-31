@@ -245,7 +245,7 @@ class ToolExecutor:
         if kwargs.get("overdue_only"):
             query = query.filter(
                 Payment.due_date < date.today(),
-                Payment.status.in_(["pending", "partial"]),
+                Payment.status == "pending",
             )
 
         if kwargs.get("type"):
@@ -382,6 +382,105 @@ class ToolExecutor:
             return ".webp"
         return ".bin"
 
+    def _auto_create_payments_from_terms(
+        self,
+        contract: Contract,
+        contract_data_raw: dict,
+        receipt_data: dict = None,
+        receipt_file_path: str = None,
+    ) -> list:
+        if not isinstance(contract_data_raw, dict):
+            return []
+
+        payment_terms = contract_data_raw.get("payment_terms", [])
+        if not payment_terms:
+            return []
+
+        paid_keywords = ["已付", "已缴纳", "付清", "已到账", "已收", "已支付"]
+
+        receipt_amount = None
+        if receipt_data and isinstance(receipt_data, dict):
+            try:
+                receipt_amount = float(receipt_data.get("amount", 0))
+            except (TypeError, ValueError):
+                pass
+
+        receipt_matched = False
+        auto_payments = []
+        for idx, term in enumerate(payment_terms, 1):
+            condition = (term.get("condition") or "").lower()
+            is_paid_term = any(kw in condition for kw in paid_keywords)
+
+            if not is_paid_term:
+                continue
+
+            try:
+                term_amount = float(term.get("amount", 0))
+            except (TypeError, ValueError):
+                continue
+
+            if term_amount <= 0:
+                continue
+
+            matched_receipt = None
+            if (
+                not receipt_matched
+                and receipt_file_path
+                and receipt_amount
+                and abs(term_amount - receipt_amount) < 1
+            ):
+                matched_receipt = receipt_file_path
+                receipt_matched = True
+
+            try:
+                installment_number = PaymentService.get_next_installment_number(
+                    self.db, contract.id, "income"
+                )
+                payment = PaymentService.create_payment_with_exchange_rate(
+                    db=self.db,
+                    contract_id=contract.id,
+                    installment_number=installment_number,
+                    currency=contract.currency,
+                    amount=Decimal(str(term_amount)),
+                    paid_date=contract.signed_date or date.today(),
+                    payment_method="unknown",
+                    receipt_image_path=matched_receipt,
+                    notes="合同标注已付，待补充凭证" if not matched_receipt else "合同标注已付，已关联凭证",
+                    created_by=self.user.id,
+                    type="income",
+                )
+                if term.get("name"):
+                    payment.installment_name = term["name"]
+                if matched_receipt and receipt_data:
+                    payment.receipt_data = receipt_data
+                if term.get("name") or (matched_receipt and receipt_data):
+                    self.db.commit()
+                    self.db.refresh(payment)
+
+                auto_payments.append({
+                    "payment_id": payment.id,
+                    "installment_number": idx,
+                    "installment_name": term.get("name"),
+                    "amount": term_amount,
+                    "currency": contract.currency,
+                    "status": payment.status,
+                })
+                logger.info(
+                    "自动创建付款: contract_id=%d, term=%s, amount=%s, receipt=%s → status=%s",
+                    contract.id, term.get("name"), term_amount,
+                    "有" if matched_receipt else "无",
+                    payment.status,
+                )
+            except Exception as e:
+                logger.warning("自动创建付款失败: term=%s, error=%s", term, e)
+                auto_payments.append({
+                    "error": str(e),
+                    "installment_name": term.get("name"),
+                    "amount": term.get("amount"),
+                })
+
+        return auto_payments
+
     def create_contract(self, **kwargs) -> str:
         """为客户创建合同记录。合同编号自动生成。"""
         if not self._can_create_contract():
@@ -481,8 +580,15 @@ class ToolExecutor:
                 "business_description": kwargs.get("business_description"),
                 **(contract_data_raw if isinstance(contract_data_raw, dict) else {}),
             }
+            # 存储合同全文（用于知识库问答）
+            if isinstance(contract_data_raw, dict) and contract_data_raw.get("full_text"):
+                contract.contract_text = contract_data_raw["full_text"]
             self.db.commit()
             self.db.refresh(contract)
+
+            auto_payments = self._auto_create_payments_from_terms(
+                contract, contract_data_raw, kwargs.get("receipt_data"), kwargs.get("receipt_file_path")
+            )
 
             return json.dumps({
                 "success": True,
@@ -498,6 +604,7 @@ class ToolExecutor:
                     "wechat_group": contract.wechat_group,
                     "signed_date": str(contract.signed_date) if contract.signed_date else None,
                 },
+                "auto_payments": auto_payments,
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("create_contract failed")
@@ -580,9 +687,11 @@ class ToolExecutor:
                 type="income",
             )
             self.db.refresh(payment)
-            # 存储凭证分析结构化数据
+            if kwargs.get("installment_name"):
+                payment.installment_name = kwargs["installment_name"]
             if kwargs.get("receipt_data"):
                 payment.receipt_data = kwargs["receipt_data"]
+            if kwargs.get("installment_name") or kwargs.get("receipt_data"):
                 self.db.commit()
                 self.db.refresh(payment)
             if payment.contract and payment.contract.customer:
@@ -625,9 +734,11 @@ class ToolExecutor:
                 payee_name=kwargs["payee_name"],
             )
             self.db.refresh(payment)
-            # 存储凭证分析结构化数据
+            if kwargs.get("installment_name"):
+                payment.installment_name = kwargs["installment_name"]
             if kwargs.get("receipt_data"):
                 payment.receipt_data = kwargs["receipt_data"]
+            if kwargs.get("installment_name") or kwargs.get("receipt_data"):
                 self.db.commit()
                 self.db.refresh(payment)
             result = self._payment_to_dict(payment)
@@ -677,6 +788,250 @@ class ToolExecutor:
         except Exception as e:
             logger.exception("update_payment failed")
             return json.dumps({"error": f"更新付款失败: {str(e)}"}, ensure_ascii=False)
+
+    def match_receipt(self, **kwargs) -> str:
+        receipt_data = kwargs.get("receipt_data", {})
+        if not isinstance(receipt_data, dict):
+            return json.dumps({"error": "receipt_data 必须是JSON对象"}, ensure_ascii=False)
+
+        payer_name = receipt_data.get("payer_name", "")
+        receipt_amount = None
+        try:
+            receipt_amount = float(receipt_data.get("amount", 0))
+        except (TypeError, ValueError):
+            pass
+        receipt_currency = receipt_data.get("currency", "")
+
+        customer_name_hint = kwargs.get("customer_name", "").strip()
+
+        candidates = []
+
+        if payer_name or customer_name_hint:
+            search_name = customer_name_hint or payer_name
+            variants = search_variants(search_name)
+            escaped = [_escape_ilike(v) for v in variants]
+            customers = self.db.query(Customer).filter(
+                Customer.is_deleted == False,
+                or_(*[Customer.name.ilike(f"%{v}%") for v in escaped]),
+            ).limit(5).all()
+
+            for customer in customers:
+                contracts = self.db.query(Contract).filter(
+                    Contract.customer_id == customer.id,
+                    Contract.is_deleted == False,
+                ).all()
+                for contract in contracts:
+                    if not self._can_access_contract(contract):
+                        continue
+                    pending_payments = self.db.query(Payment).filter(
+                        Payment.contract_id == contract.id,
+                        Payment.type == "income",
+                        Payment.status == "pending",
+                        Payment.is_deleted == False,
+                    ).order_by(Payment.installment_number).all()
+
+                    for p in pending_payments:
+                        score = 0
+                        match_reasons = []
+                        if customer_name_hint:
+                            score += 30
+                            match_reasons.append("客户名指定")
+                        else:
+                            score += 20
+                            match_reasons.append("客户名匹配")
+                        if receipt_amount and p.amount:
+                            diff = abs(float(p.amount) - receipt_amount)
+                            if diff < 1:
+                                score += 50
+                                match_reasons.append("金额完全匹配")
+                            elif diff / max(float(p.amount), receipt_amount) < 0.05:
+                                score += 30
+                                match_reasons.append("金额近似匹配")
+                        if receipt_currency and p.currency == receipt_currency:
+                            score += 10
+                            match_reasons.append("币种匹配")
+
+                        candidates.append({
+                            "payment_id": p.id,
+                            "contract_id": contract.id,
+                            "contract_number": contract.contract_number,
+                            "customer_name": customer.name,
+                            "business_type": contract.business_type,
+                            "business_description": contract.business_description,
+                            "installment_number": p.installment_number,
+                            "installment_name": p.installment_name,
+                            "amount": float(p.amount) if p.amount else 0,
+                            "currency": p.currency,
+                            "status": p.status,
+                            "paid_date": str(p.paid_date) if p.paid_date else None,
+                            "score": score,
+                            "match_reason": "、".join(match_reasons),
+                        })
+
+        if not candidates and receipt_amount:
+            pending_query = self.db.query(Payment).filter(
+                Payment.status == "pending",
+                Payment.type == "income",
+                Payment.is_deleted == False,
+            )
+            if self.user.role == "income":
+                pending_query = pending_query.join(Contract).filter(
+                    Contract.sales_person_id == self.user.id
+                )
+            pending_payments = pending_query.all()
+
+            for p in pending_payments:
+                if not p.amount:
+                    continue
+                diff = abs(float(p.amount) - receipt_amount)
+                if diff < 1 or diff / max(float(p.amount), receipt_amount) < 0.05:
+                    contract = p.contract
+                    if not contract:
+                        continue
+                    if not self._can_access_contract(contract):
+                        continue
+                    customer = contract.customer
+                    score = 40
+                    match_reasons = ["金额匹配"]
+                    if receipt_currency and p.currency == receipt_currency:
+                        score += 10
+                        match_reasons.append("币种匹配")
+
+                    candidates.append({
+                        "payment_id": p.id,
+                        "contract_id": contract.id,
+                        "contract_number": contract.contract_number,
+                        "customer_name": customer.name if customer else "未知",
+                        "business_type": contract.business_type,
+                        "business_description": contract.business_description,
+                        "installment_number": p.installment_number,
+                        "installment_name": p.installment_name,
+                        "amount": float(p.amount) if p.amount else 0,
+                        "currency": p.currency,
+                        "status": p.status,
+                        "paid_date": str(p.paid_date) if p.paid_date else None,
+                        "score": score,
+                        "match_reason": "、".join(match_reasons),
+                    })
+
+        candidates.sort(key=lambda x: x["score"], reverse=True)
+        candidates = candidates[:5]
+
+        if not candidates:
+            return json.dumps({
+                "matches": [],
+                "message": "未找到匹配的付款记录。请提供客户姓名以便搜索。",
+            }, ensure_ascii=False)
+
+        return json.dumps({
+            "matches": candidates,
+            "message": f"找到 {len(candidates)} 条可能匹配的付款记录，请确认正确的关联。",
+        }, ensure_ascii=False)
+
+    def search_contract_text(self, **kwargs) -> str:
+        """按关键词搜索所有合同的全文内容，返回匹配片段"""
+        keyword = kwargs.get("keyword", "").strip()
+        if not keyword:
+            return json.dumps({"error": "缺少 keyword 参数"}, ensure_ascii=False)
+
+        contract_id = kwargs.get("contract_id")
+
+        query = self.db.query(Contract).filter(
+            Contract.is_deleted == False,
+            Contract.contract_text.isnot(None),
+            Contract.contract_text != "",
+        )
+
+        if contract_id:
+            query = query.filter(Contract.id == contract_id)
+
+        # 角色权限：income 只看自己合同的全文
+        if self.user.role == "income":
+            query = query.filter(Contract.sales_person_id == self.user.id)
+
+        # ILIKE 模糊搜索
+        query = query.filter(Contract.contract_text.ilike(f"%{self._escape_ilike(keyword)}%"))
+        contracts = query.limit(10).all()
+
+        if not contracts:
+            return json.dumps({
+                "matches": [],
+                "message": f"未找到包含「{keyword}」的合同内容。",
+            }, ensure_ascii=False)
+
+        results = []
+        for c in contracts:
+            # 提取匹配片段（关键词前后各 80 字）
+            text = c.contract_text or ""
+            idx = text.lower().find(keyword.lower())
+            if idx == -1:
+                # fallback：可能是数据库 ILIKE 匹配了但 Python find 大小写不一致
+                idx = 0
+            start = max(0, idx - 80)
+            end = min(len(text), idx + len(keyword) + 80)
+            snippet = text[start:end]
+            if start > 0:
+                snippet = "…" + snippet
+            if end < len(text):
+                snippet = snippet + "…"
+
+            results.append({
+                "contract_id": c.id,
+                "contract_number": c.contract_number,
+                "customer_name": c.customer.name if c.customer else "未知",
+                "business_type": c.business_type,
+                "business_description": c.business_description,
+                "snippet": snippet,
+            })
+
+        return json.dumps({
+            "matches": results,
+            "message": f"在 {len(results)} 份合同中找到「{keyword}」的匹配内容。",
+        }, ensure_ascii=False)
+
+    def ask_contract(self, **kwargs) -> str:
+        """检索合同全文内容，返回给 AI 用于回答用户关于合同条款的问题"""
+        contract_id = kwargs.get("contract_id")
+        question = kwargs.get("question", "").strip()
+
+        if not contract_id:
+            return json.dumps({"error": "缺少 contract_id 参数"}, ensure_ascii=False)
+        if not question:
+            return json.dumps({"error": "缺少 question 参数"}, ensure_ascii=False)
+
+        contract = self.db.query(Contract).filter(
+            Contract.id == contract_id,
+            Contract.is_deleted == False,
+        ).first()
+
+        if not contract:
+            return json.dumps({"error": f"合同不存在：{contract_id}"}, ensure_ascii=False)
+
+        if not self._can_access_contract(contract):
+            return json.dumps({"error": "无权访问该合同"}, ensure_ascii=False)
+
+        if not contract.contract_text:
+            return json.dumps({
+                "error": "该合同尚未提取全文内容。请重新上传合同文件以触发全文提取。",
+                "contract_number": contract.contract_number,
+                "customer_name": contract.customer.name if contract.customer else "未知",
+            }, ensure_ascii=False)
+
+        text = contract.contract_text
+        if len(text) > 20000:
+            text = text[:20000] + "\n…[合同文本过长，已截断]"
+
+        return json.dumps({
+            "success": True,
+            "contract_id": contract.id,
+            "contract_number": contract.contract_number,
+            "customer_name": contract.customer.name if contract.customer else "未知",
+            "business_type": contract.business_type,
+            "signed_date": str(contract.signed_date) if contract.signed_date else None,
+            "contract_text": text,
+            "user_question": question,
+            "_instruction": "请基于以上 contract_text 中的合同全文内容，回答 user_question。只基于原文回答，不要编造任何合同中没有的信息。引用具体条款作为依据。如果合同中没有相关信息，明确告知用户。",
+        }, ensure_ascii=False)
 
     def get_expense_summary(self, **kwargs) -> str:
         """查看支出汇总，按合同或收款方维度聚合"""
@@ -765,11 +1120,11 @@ class ToolExecutor:
         payments = query.all()
 
         total_paid = sum(float(p.paid_amount or 0) for p in payments if p.status == "paid")
-        total_pending = sum(float(p.amount or 0) - float(p.paid_amount or 0) for p in payments if p.status in ("pending", "partial"))
+        total_pending = sum(float(p.amount or 0) for p in payments if p.status == "pending")
         total_overdue = sum(
-            float(p.amount or 0) - float(p.paid_amount or 0)
+            float(p.amount or 0)
             for p in payments
-            if p.status in ("pending", "partial") and p.due_date and p.due_date < date.today()
+            if p.status == "pending" and p.due_date and p.due_date < date.today()
         )
 
         summary = {
@@ -792,8 +1147,8 @@ class ToolExecutor:
                     }
                 if p.status == "paid":
                     groups[cid]["paid"] += float(p.paid_amount or 0)
-                elif p.status in ("pending", "partial"):
-                    groups[cid]["pending"] += float(p.amount or 0) - float(p.paid_amount or 0)
+                elif p.status == "pending":
+                    groups[cid]["pending"] += float(p.amount or 0)
             summary["groups"] = list(groups.values())
         elif group_by == "customer":
             groups = {}
@@ -806,8 +1161,8 @@ class ToolExecutor:
                     }
                 if p.status == "paid":
                     groups[customer_name]["paid"] += float(p.paid_amount or 0)
-                elif p.status in ("pending", "partial"):
-                    groups[customer_name]["pending"] += float(p.amount or 0) - float(p.paid_amount or 0)
+                elif p.status == "pending":
+                    groups[customer_name]["pending"] += float(p.amount or 0)
             for p in payments:
                 customer_name = p.contract.customer.name if p.contract and p.contract.customer else "未知"
                 if customer_name in groups:
@@ -823,7 +1178,7 @@ class ToolExecutor:
         query = self.db.query(Payment).filter(
             Payment.is_deleted == False,
             Payment.due_date < date.today(),
-            Payment.status.in_(["pending", "partial"]),
+            Payment.status == "pending",
         )
 
         if self.user.role == "income":
@@ -1228,7 +1583,7 @@ TOOL_DEFINITIONS = [
                     },
                     "status": {
                         "type": "string",
-                        "enum": ["pending", "partial", "paid", "overdue", "cancelled"],
+                        "enum": ["pending", "paid"],
                         "description": "付款状态筛选",
                     },
                     "overdue_only": {"type": "boolean", "description": "只返回逾期付款", "default": False},
@@ -1242,14 +1597,14 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_contract",
-            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。",
+            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。创建后系统会自动根据合同中的付款条款创建对应的付款记录（已付款项自动记录为 pending，如同时上传了凭证且金额匹配则直接记录为 paid）。",
             "parameters": {
                 "type": "object",
                 "required": ["customer_id", "file_id", "contract_data"],
                 "properties": {
                     "customer_id": {"type": "integer", "description": "客户ID（通过 create_customer 或 search_customers 获取）"},
                     "file_id": {"type": "string", "description": "上传文件的ID（聊天上传时返回的 file_id）"},
-                    "contract_data": {"type": "object", "description": "从合同文件提取的全部信息（JSON对象，包含甲方乙方、金额、服务内容等）"},
+                    "contract_data": {"type": "object", "description": "从合同文件提取的全部信息（JSON对象，包含甲方乙方、金额、payment_terms等）"},
                     "title": {"type": "string", "description": "合同标题（如：购车合同、两地牌办理合同）"},
                     "total_amount": {"type": "number", "description": "合同总金额"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "币种，默认CNY"},
@@ -1257,6 +1612,8 @@ TOOL_DEFINITIONS = [
                     "business_type": {"type": "string", "enum": ["车辆业务", "中港牌业务"], "description": "业务大类：车辆业务（买车卖车）或中港牌业务（办理中港车牌）"},
                     "business_description": {"type": "string", "description": "业务具体描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
+                    "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},
+                    "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入凭证文件路径"},
                 },
             },
         },
@@ -1283,13 +1640,14 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建收入付款记录（客户向公司付款）。仅用于已实际发生的付款。无凭证时创建为待确认状态不参与结算，有凭证时创建为已支付状态自动参与结算。自动按付款日期查找汇率并折算为人民币。调用前必须与用户确认所有信息。",
+            "description": "为合同创建收入付款记录（客户向公司付款）。无凭证时创建为 pending 状态（不参与结算），有凭证时创建为 paid 状态（自动参与结算）。自动按付款日期查找汇率并折算为人民币。仅用于手动录入或凭证上传场景——合同录入时系统会自动创建已付款项的记录，不需要手动调用。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "installment_number", "amount", "currency", "paid_date"],
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "installment_number": {"type": "integer", "description": "第几期（1, 2, 3...）"},
+                    "installment_name": {"type": "string", "description": "期数名称（如「定金」、「首期」、「尾款」），从合同原文提取"},
                     "amount": {"type": "number", "description": "付款金额"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "default": "CNY"},
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
@@ -1309,7 +1667,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_expense",
-            "description": "为合同创建支出记录（公司向第三方付款，如渠道费、办证费等）。需要指定收款方名称。期数自动生成。无凭证时创建为待确认状态不参与结算，有凭证时创建为已支付状态自动参与结算。自动按付款日期查找汇率并折算为人民币。仅admin和expense角色可用。",
+            "description": "为合同创建支出记录（公司向第三方付款，如渠道费、办证费等）。需要指定收款方名称。期数自动生成。无凭证时创建为 pending 状态（不参与结算），有凭证时创建为 paid 状态（自动参与结算）。自动按付款日期查找汇率并折算为人民币。仅admin和expense角色可用。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "amount", "currency", "paid_date", "payee_name"],
@@ -1319,6 +1677,7 @@ TOOL_DEFINITIONS = [
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "default": "CNY"},
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
                     "payee_name": {"type": "string", "description": "收款方名称（如：某某代办公司）"},
+                    "installment_name": {"type": "string", "description": "期数名称（如「渠道费」、「办证费」）"},
                     "payment_method": {
                         "type": "string",
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
@@ -1335,7 +1694,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_payment",
-            "description": "更新已有付款记录的备注、凭证、付款方式等信息。当用户为已有付款补充凭证时使用此工具（而不是创建新记录）。也可用于根据凭证分析结果更新备注内容。",
+            "description": "更新已有付款记录的备注、凭证、付款方式等信息。当用户为已有付款补充凭证时使用此工具（而不是创建新记录）。补充凭证后系统自动将 pending 转为 paid 并参与结算。",
             "parameters": {
                 "type": "object",
                 "required": ["payment_id"],
@@ -1347,6 +1706,21 @@ TOOL_DEFINITIONS = [
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
                     "installment_name": {"type": "string", "description": "期数名称"},
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "match_receipt",
+            "description": "根据凭证分析结果智能匹配到合同付款记录。优先按客户名匹配，其次按金额匹配。返回候选列表供用户确认，确认后用 update_payment 补充凭证。用户上传付款凭证时必须先调用此工具查找匹配。",
+            "parameters": {
+                "type": "object",
+                "required": ["receipt_data"],
+                "properties": {
+                    "receipt_data": {"type": "object", "description": "凭证分析结果（JSON对象，包含 payer_name/amount/currency/transaction_date 等）"},
+                    "customer_name": {"type": "string", "description": "客户姓名（当凭证中无法识别客户时，由用户提供）"},
                 },
             },
         },
@@ -1395,7 +1769,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_overdue_payments",
-            "description": "查找所有逾期未付的款项（已过应付款日期且状态为pending或partial）。",
+            "description": "查找所有逾期未付的款项（已过应付款日期且状态为pending）。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1415,6 +1789,36 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "within_days": {"type": "integer", "description": "从今天起的天数", "default": 30},
                     "status": {"type": "string", "default": "active"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_contract_text",
+            "description": "按关键词搜索所有合同的全文内容，返回匹配的合同列表和文本片段。用于查找包含特定条款、约定的合同（如搜索'违约金'、'仲裁'、'交车日期'等）。",
+            "parameters": {
+                "type": "object",
+                "required": ["keyword"],
+                "properties": {
+                    "keyword": {"type": "string", "description": "搜索关键词，如'违约金'、'仲裁'、'交车日期'等"},
+                    "contract_id": {"type": "integer", "description": "限定在某份合同中搜索（可选）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "ask_contract",
+            "description": "检索某份合同的全文内容，用于回答关于合同具体条款的问题（如违约责任、付款条件、交车时间、双方权利义务等）。调用后系统会基于合同原文回答用户问题。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id", "question"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "question": {"type": "string", "description": "用户关于合同条款的具体问题，如'违约金怎么约定'、'交车截止日期是什么'、'甲方有什么义务'"},
                 },
             },
         },

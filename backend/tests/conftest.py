@@ -13,13 +13,15 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-for-testing-only-32chars!")
 os.environ.setdefault("SILICONFLOW_API_KEY", "test-api-key")
 os.environ.setdefault("APP_ENV", "test")
 os.environ.setdefault("LOG_LEVEL", "ERROR")
+# 测试使用独立的 PostgreSQL 数据库，避免污染开发/生产数据
+os.environ.setdefault("POSTGRES_DB", "contract_db_test")
 
 from typing import Generator, Any
 from decimal import Decimal
 from datetime import date, datetime, timezone
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, event
+from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 
 from app.db.session import Base, get_db
@@ -31,18 +33,9 @@ from app.models.customer import Customer
 from app.models.payment import Payment
 from app.models.exchange_rate import ExchangeRate
 from app.core.security import get_password_hash, create_access_token
+from app.config import settings
 
-# 使用 SQLite 内存数据库（测试用）
-TEST_DATABASE_URL = "sqlite://"
-engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
-
-# 启用 SQLite 外键支持
-@event.listens_for(engine, "connect")
-def set_sqlite_pragma(dbapi_connection, connection_record):
-    cursor = dbapi_connection.cursor()
-    cursor.execute("PRAGMA foreign_keys=ON")
-    cursor.close()
-
+engine = create_engine(settings.DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

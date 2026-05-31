@@ -144,7 +144,8 @@ class SiliconFlowClient:
     "end_date": "到期日期（YYYY-MM-DD格式，如无则为null）"
   },
   "special_terms": ["特殊条款列表"],
-  "confidence": 置信度（0-1之间的数字）
+  "confidence": 置信度（0-1之间的数字）,
+  "full_text": "合同的完整文本内容。将图片/PDF中所有可见的文字逐字转录，包括全部条款、双方信息、金额、日期、签名栏等。保持原文段落结构，不要总结或省略。繁体中文原样保留。"
 }
 
 严格要求：
@@ -154,7 +155,8 @@ class SiliconFlowClient:
 4. 日期统一为YYYY-MM-DD格式
 5. business_type判断规则：涉及购车/卖车为"车辆业务"，涉及车牌办理/过户/新办为"中港牌业务"
 6. business_description要具体，提取车型、口岸等关键信息
-7. 确保JSON格式合法
+7. full_text 必须完整转录合同中的所有文字，不得省略条款、不得改写内容。繁体中文原样保留，不得转为简体。
+8. 确保JSON格式合法
         """.strip()
     
     def _extract_json_from_text(self, text: str) -> Dict[str, Any]:

@@ -57,8 +57,6 @@ def ocr_receipt_task(self, payment_id: int, file_path: str):
         # 更新状态
         if payment.paid_amount and payment.paid_amount >= payment.amount:
             payment.status = "paid"
-        elif payment.paid_amount and payment.paid_amount > 0:
-            payment.status = "partial"
 
         db.commit()
 

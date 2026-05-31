@@ -48,7 +48,7 @@ class Payment(BaseModel):
     payee_name = Column(String(200), comment="收款方名称（仅expense使用）")
     
     # 状态
-    status = Column(String(20), nullable=False, default="pending", index=True, comment="状态: pending/partial/paid/overdue/cancelled")
+    status = Column(String(20), nullable=False, default="pending", index=True, comment="状态: pending(待确认)/paid(已确认)")
     
     # 来源标记
     source = Column(String(20), default="manual", index=True, comment="来源: manual/screenshot/upload")

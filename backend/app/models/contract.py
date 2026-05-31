@@ -42,6 +42,9 @@ class Contract(BaseModel):
     
     # AI解析的结构化数据
     contract_data = Column(JSON, nullable=False, server_default=text("'{}'::json"), comment="AI解析的结构化数据")
+
+    # 合同全文内容（AI从图片/PDF提取的完整文本，用于知识库问答）
+    contract_text = Column(Text, comment="合同全文内容")
     
     # AI解析元数据
     confidence = Column(DECIMAL(5, 4), comment="AI解析置信度")
