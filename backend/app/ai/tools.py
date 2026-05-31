@@ -1578,13 +1578,11 @@ class ToolExecutor:
             return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
 
         args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
-        print(f"[TOOL] {tool_name} | {args_preview}", flush=True)
-        logger.info("🔧 工具调用: %s | 参数: %s", tool_name, args_preview)
+        logger.info("工具调用: %s | 参数: %s", tool_name, args_preview)
 
         try:
             result = handler(**arguments)
-            print(f"[TOOL] {tool_name} 完成 | {result[:200] if result else 'empty'}", flush=True)
-            logger.info("✅ 工具结果: %s → %s", tool_name, result[:200] if result else "empty")
+            logger.info("工具结果: %s → %s", tool_name, result[:200] if result else "empty")
             return result
         except Exception as e:
             logger.exception("❌ 工具执行失败: %s", tool_name)

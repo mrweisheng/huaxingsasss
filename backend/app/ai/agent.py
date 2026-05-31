@@ -55,7 +55,6 @@ class ContractAgent:
         if not session_id:
             session_id = str(uuid.uuid4())
 
-        print(f"[AGENT] 会话开始: user={self.user.username}, msg={user_message[:80]}", flush=True)
         logger.info(
             "Agent会话: session=%s, user=%s(%s), 附件=%d, 消息=%s",
             session_id[:8], self.user.username, self.user.role,
