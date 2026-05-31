@@ -126,6 +126,8 @@ class ToolExecutor:
     ) -> str:
         query = self.db.query(Customer).filter(Customer.is_deleted == False)
 
+        has_filter = bool(name or phone or wechat_group)
+
         if name:
             variants = search_variants(name)
             escaped = [_escape_ilike(v) for v in variants]
@@ -137,7 +139,9 @@ class ToolExecutor:
             escaped = [_escape_ilike(v) for v in variants]
             query = query.filter(or_(*[Customer.wechat_group_name.ilike(f"%{v}%") for v in escaped]))
 
-        customers = query.limit(limit).all()
+        total_count = query.count()
+        customers = query.order_by(Customer.created_at.desc()).limit(limit).all()
+
         results = []
         for c in customers:
             contract_count = self.db.query(Contract).filter(
@@ -153,12 +157,26 @@ class ToolExecutor:
                 "contract_count": contract_count,
             })
 
+        # 无筛选条件时：返回统计 + 少量样例，引导用户精确查找
+        if not has_filter:
+            return json.dumps({
+                "summary": {"total_customers": total_count, "returned": len(results)},
+                "customers": results,
+                "hint": "以上为最近创建的客户。如需查找特定客户，请提供姓名、电话或微信群名。如需查看更多，可指定 limit 参数。",
+            }, ensure_ascii=False)
+
         return json.dumps({"customers": results, "total": len(results)}, ensure_ascii=False)
 
     def search_contracts(self, **kwargs) -> str:
         sales_person_id = None
         if self.user.role == "income":
             sales_person_id = self.user.id
+
+        # 判断是否无筛选条件
+        has_filter = any(kwargs.get(k) for k in (
+            "status", "customer_id", "customer_name", "keyword",
+            "date_from", "date_to", "contract_number",
+        ))
 
         try:
             items, total = ContractService.get_contracts(
@@ -178,6 +196,29 @@ class ToolExecutor:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
         contracts = [self._contract_to_dict(c) for c in items]
+
+        # 无筛选条件时：返回统计 + 少量样例，引导用户精确查找
+        if not has_filter:
+            # 统计各状态数量
+            from sqlalchemy import func
+            status_counts = (
+                self.db.query(Contract.status, func.count(Contract.id))
+                .filter(Contract.is_deleted == False)
+                .group_by(Contract.status)
+                .all()
+            )
+            by_status = {s: c for s, c in status_counts}
+
+            return json.dumps({
+                "summary": {
+                    "total_contracts": total,
+                    "by_status": by_status,
+                    "returned": len(contracts),
+                },
+                "contracts": contracts,
+                "hint": "以上为最近创建的合同。如需查找特定合同，请提供客户名、合同号或状态筛选。",
+            }, ensure_ascii=False)
+
         return json.dumps({"contracts": contracts, "total": total}, ensure_ascii=False)
 
     def get_contract_detail(self, contract_id: int) -> str:
@@ -1264,6 +1305,98 @@ class ToolExecutor:
 
         return json.dumps({"contracts": results, "total": len(results)}, ensure_ascii=False)
 
+    # ── 统计概览工具 ──
+
+    def get_overview(self) -> str:
+        """全局统计概览，用于回答'现在什么情况''有哪些数据'等开放式问题。"""
+        from sqlalchemy import func
+
+        # 客户总数
+        customers_total = self.db.query(Customer).filter(Customer.is_deleted == False).count()
+
+        # 合同统计
+        contracts_total = self.db.query(Contract).filter(Contract.is_deleted == False).count()
+        status_counts = (
+            self.db.query(Contract.status, func.count(Contract.id))
+            .filter(Contract.is_deleted == False)
+            .group_by(Contract.status)
+            .all()
+        )
+        by_status = {s: c for s, c in status_counts}
+
+        # 最近客户
+        latest_customers = (
+            self.db.query(Customer)
+            .filter(Customer.is_deleted == False)
+            .order_by(Customer.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        recent_customers = [{"id": c.id, "name": c.name, "contract_count": (
+            self.db.query(Contract).filter(Contract.customer_id == c.id, Contract.is_deleted == False).count()
+        )} for c in latest_customers]
+
+        # 最近合同
+        latest_contracts = (
+            self.db.query(Contract)
+            .filter(Contract.is_deleted == False)
+            .order_by(Contract.created_at.desc())
+            .limit(5)
+            .all()
+        )
+        recent_contracts = [
+            {
+                "id": c.id,
+                "contract_number": c.contract_number,
+                "customer_name": c.customer.name if c.customer else None,
+                "status": c.status,
+                "total_amount": float(c.total_amount) if c.total_amount else None,
+            }
+            for c in latest_contracts
+        ]
+
+        # 逾期统计
+        overdue_count = self.db.query(Payment).filter(
+            Payment.is_deleted == False,
+            Payment.due_date < date.today(),
+            Payment.status == "pending",
+        ).count()
+
+        # 30天内到期合同
+        from datetime import timedelta
+        target_date = date.today() + timedelta(days=30)
+        expiring_count = self.db.query(Contract).filter(
+            Contract.is_deleted == False,
+            Contract.status == "active",
+            Contract.end_date <= target_date,
+            Contract.end_date >= date.today(),
+        ).count()
+
+        # 收入/支出汇总（CNY）
+        income_total = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
+            Payment.is_deleted == False,
+            Payment.type == "income",
+            Payment.status == "paid",
+        ).scalar()
+        expense_total = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
+            Payment.is_deleted == False,
+            Payment.type == "expense",
+            Payment.status == "paid",
+        ).scalar()
+
+        return json.dumps({
+            "customers_total": customers_total,
+            "contracts_total": contracts_total,
+            "contracts_by_status": by_status,
+            "overdue_payments": overdue_count,
+            "expiring_contracts_30days": expiring_count,
+            "income_total_cny": float(income_total),
+            "expense_total_cny": float(expense_total),
+            "recent_customers": recent_customers,
+            "recent_contracts": recent_contracts,
+            "hint": "这是一个全局统计概览。如需查看具体客户或合同的详细信息，可用 search_customers / search_contracts 精确查找。",
+        }, ensure_ascii=False)
+
     # ── 文件分析工具 ──
 
     @staticmethod
@@ -1591,8 +1724,16 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "get_overview",
+            "description": "获取系统全局统计概览：客户总数、合同总数（按状态分布）、逾期付款数、即将到期合同数、收支汇总，以及最近客户和合同样例。用于回答'现在什么情况''有哪些数据''系统里有什么'等开放式问题。不要传任何参数。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "search_customers",
-            "description": "搜索客户。不传任何参数时列出全部客户；传 name/phone/wechat_group 则按条件模糊匹配（自动兼容繁简体）。返回客户列表含关联合同数量。",
+            "description": "搜索客户。不传任何参数时返回全局统计+最近10个客户样例（不是全量），引导用户精确查找；传 name/phone/wechat_group 则按条件模糊匹配（自动兼容繁简体）。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -1649,7 +1790,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "search_contracts",
-            "description": "按合同编号、客户名、状态或关键词搜索合同。返回合同列表含金额和付款进度。",
+            "description": "搜索合同。不传任何参数时返回全局统计+最近10个合同样例（不是全量），引导用户精确查找；传 contract_number/customer_name/status/keyword 则按条件搜索。",
             "parameters": {
                 "type": "object",
                 "properties": {
