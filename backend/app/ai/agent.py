@@ -183,57 +183,13 @@ class ContractAgent:
         }
 
     async def _process_attachments(self, attachments: List[dict]) -> str:
-        """处理附件（图片/PDF/Word/Excel/文本），返回分析结果的文本描述"""
-        logger.debug("[PROCESS_ATTACHMENTS] 开始处理 %d 个附件", len(attachments))
+        """处理附件：只返回文件标识信息，不预分析。
+        LLM 会根据 system prompt 指引自已调用 analyze_image 工具，
+        选择正确的 analysis_type（contract/receipt/general）。"""
         results = []
-        for i, att in enumerate(attachments):
+        for att in attachments:
             file_id = att.get("file_id", "")
-            file_type = att.get("file_type", "image")
-
-            logger.debug("[PROCESS_ATTACHMENTS] 处理附件[%d]: file_id=%s, file_type=%s", i, file_id, file_type)
-
-            file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
-            logger.debug("[PROCESS_ATTACHMENTS]   文件路径: %s", file_path)
-            logger.debug("[PROCESS_ATTACHMENTS]   文件存在: %s", os.path.exists(file_path))
-
-            if os.path.exists(file_path):
-                try:
-                    size = os.path.getsize(file_path)
-                    logger.debug("[PROCESS_ATTACHMENTS]   文件大小: %d bytes", size)
-                except Exception as e:
-                    logger.warning("[PROCESS_ATTACHMENTS]   获取文件大小失败: %s", e)
-            else:
-                logger.warning("[PROCESS_ATTACHMENTS]   文件不存在! TEMP_UPLOAD_DIR=%s", settings.TEMP_UPLOAD_DIR)
-                # 列出临时目录内容帮助调试
-                try:
-                    files = os.listdir(settings.TEMP_UPLOAD_DIR)
-                    logger.debug("[PROCESS_ATTACHMENTS]   临时目录内容: %s", files)
-                except Exception:
-                    pass
-                results.append(f"文件 {file_id} 不存在")
-                continue
-
-            # 统一使用 ToolExecutor.analyze_image 处理所有文件类型
-            try:
-                logger.debug("[PROCESS_ATTACHMENTS]   调用 analyze_image(file_id=%s, analysis_type=general)", file_id)
-                analysis_result = await asyncio.to_thread(self.executor.analyze_image, file_id, analysis_type="general")
-                logger.debug("[PROCESS_ATTACHMENTS]   analyze_image 返回长度: %d", len(analysis_result))
-                parsed = json.loads(analysis_result)
-                logger.debug("[PROCESS_ATTACHMENTS]   解析结果: success=%s, keys=%s", parsed.get("success"), list(parsed.keys()))
-                if parsed.get("success"):
-                    data = parsed.get("data", {})
-                    file_type_label = parsed.get("file_type", file_type)
-                    results.append(f"[{file_type_label} 文件分析结果] file_id={file_id}\n{json.dumps(data, ensure_ascii=False)}")
-                else:
-                    results.append(f"文件分析失败: {parsed.get('error', '未知错误')}")
-            except json.JSONDecodeError:
-                logger.warning("[PROCESS_ATTACHMENTS]   JSON 解析失败: %s", analysis_result[:200])
-                results.append(f"文件分析结果解析失败: {analysis_result[:200]}")
-            except Exception as e:
-                logger.exception("[PROCESS_ATTACHMENTS] 附件分析异常 file_id=%s", file_id)
-                results.append(f"文件分析异常: {str(e)}")
-
-        logger.debug("[PROCESS_ATTACHMENTS] 处理完成，返回 %d 条结果", len(results))
+            results.append(f"用户上传了文件（file_id: {file_id}）")
         return "\n".join(results)
 
     def _load_history(self, session_id: str) -> List[dict]:
