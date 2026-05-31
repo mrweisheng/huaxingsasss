@@ -134,7 +134,8 @@ class SiliconFlowClient:
       "name": "款项名称（如定金/尾款/第一期）",
       "amount": 金额（数字类型）,
       "due_date": "应付款日期（YYYY-MM-DD格式，如无则为null）",
-      "condition": "支付条件"
+      "condition": "支付条件",
+      "is_paid": 是否已支付（布尔值）。根据合同原文判断：合同明确标注已付/已缴纳/付清/已收则为true，否则为false
     }
   ],
   "total_amount": 合同总金额（数字类型）,

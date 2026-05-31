@@ -408,8 +408,11 @@ class ToolExecutor:
         receipt_matched = False
         auto_payments = []
         for idx, term in enumerate(payment_terms, 1):
+            # 优先使用结构化 is_paid 字段，回退到关键词匹配（兼容旧数据）
+            is_paid_field = term.get("is_paid")
             condition = (term.get("condition") or "").lower()
-            is_paid_term = any(kw in condition for kw in paid_keywords)
+            is_paid_by_keywords = any(kw in condition for kw in paid_keywords)
+            is_paid_term = (is_paid_field is True) or (is_paid_field is None and is_paid_by_keywords)
 
             if not is_paid_term:
                 continue
@@ -1604,7 +1607,7 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "customer_id": {"type": "integer", "description": "客户ID（通过 create_customer 或 search_customers 获取）"},
                     "file_id": {"type": "string", "description": "上传文件的ID（聊天上传时返回的 file_id）"},
-                    "contract_data": {"type": "object", "description": "从合同文件提取的全部信息（JSON对象，包含甲方乙方、金额、payment_terms等）"},
+                    "contract_data": {"type": "object", "description": "从合同文件提取的全部信息（JSON对象，包含甲方乙方、金额、payment_terms等）。payment_terms中每个款项必须包含is_paid布尔字段，表示该款项是否已付"},
                     "title": {"type": "string", "description": "合同标题（如：购车合同、两地牌办理合同）"},
                     "total_amount": {"type": "number", "description": "合同总金额"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "币种，默认CNY"},
