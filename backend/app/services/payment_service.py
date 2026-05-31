@@ -38,7 +38,8 @@ class PaymentService:
         payee_name: str = None,
     ) -> Payment:
         """
-        创建付款记录并自动计算汇率，始终创建为 paid 状态。
+        创建付款记录并自动计算汇率。
+        无凭证时 status='pending' 不参与结算，有凭证时 status='paid' 自动累加合同金额。
 
         Args:
             type: income（收入）或 expense（支出）
@@ -55,6 +56,8 @@ class PaymentService:
             db, amount, currency, paid_date
         )
 
+        has_receipt = bool(receipt_image_path)
+
         payment = Payment(
             contract_id=contract_id,
             installment_number=installment_number,
@@ -70,17 +73,18 @@ class PaymentService:
             payee_name=payee_name if type == "expense" else None,
             receipt_image_path=receipt_image_path,
             notes=notes,
-            status='paid',
+            status='paid' if has_receipt else 'pending',
             created_by=created_by,
         )
 
         db.add(payment)
 
-        # 按 type 分支更新合同汇总
-        if type == "expense":
-            PaymentService._add_to_contract_expense(db, contract, amount, currency, amount_in_cny, paid_date)
-        else:
-            PaymentService._add_to_contract_paid(db, contract, amount, currency, amount_in_cny, paid_date)
+        # 有凭证才参与结算：累加合同金额
+        if has_receipt:
+            if type == "expense":
+                PaymentService._add_to_contract_expense(db, contract, amount, currency, amount_in_cny, paid_date)
+            else:
+                PaymentService._add_to_contract_paid(db, contract, amount, currency, amount_in_cny, paid_date)
 
         db.commit()
         db.refresh(payment)
@@ -166,8 +170,8 @@ class PaymentService:
         income_payments = [p for p in all_payments if p.type == "income"]
         expense_payments = [p for p in all_payments if p.type == "expense"]
 
-        total_paid_cny = sum(p.paid_amount_in_cny or 0 for p in income_payments)
-        total_expense_cny = sum(p.paid_amount_in_cny or 0 for p in expense_payments)
+        total_paid_cny = sum(p.paid_amount_in_cny or 0 for p in income_payments if p.status == 'paid')
+        total_expense_cny = sum(p.paid_amount_in_cny or 0 for p in expense_payments if p.status == 'paid')
 
         from app.schemas.payment import PaymentResponse
         income_data = [PaymentResponse.model_validate(p).model_dump() for p in income_payments]
@@ -193,13 +197,36 @@ class PaymentService:
 
     @staticmethod
     def update_payment(db: Session, payment_id: int, payment_data: PaymentUpdate) -> Optional[Payment]:
-        """更新付款记录"""
+        """更新付款记录。补充凭证时自动从 pending 转为 paid 并参与结算。"""
         payment = db.query(Payment).filter(Payment.id == payment_id).first()
         if not payment:
             return None
+
+        was_pending = payment.status == 'pending'
+        had_receipt = bool(payment.receipt_image_path)
+
         update_data = payment_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(payment, field, value)
+
+        # 补充凭证时：pending → paid，累加合同金额参与结算
+        now_has_receipt = bool(payment.receipt_image_path)
+        if was_pending and not had_receipt and now_has_receipt:
+            payment.status = 'paid'
+            contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+            if contract:
+                amount_in_cny = payment.paid_amount_in_cny or Decimal('0')
+                if payment.type == "expense":
+                    PaymentService._add_to_contract_expense(
+                        db, contract, payment.paid_amount, payment.currency,
+                        amount_in_cny, payment.paid_date
+                    )
+                else:
+                    PaymentService._add_to_contract_paid(
+                        db, contract, payment.paid_amount, payment.currency,
+                        amount_in_cny, payment.paid_date
+                    )
+
         db.commit()
         db.refresh(payment)
         return payment
