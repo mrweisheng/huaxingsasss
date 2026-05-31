@@ -104,10 +104,4 @@ async def on_shutdown():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        app,
-        host="0.0.0.0",
-        port=8000,
-        log_config=None,  # 禁止 uvicorn 劫持日志配置
-        access_log=False,  # 访问日志由 RequestLoggingMiddleware 处理
-    )
+    uvicorn.run(app, host="0.0.0.0", port=8000)

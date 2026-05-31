@@ -31,7 +31,6 @@ celery_app.conf.update(
     result_expires=3600,
     task_soft_time_limit=300,  # 5 minutes
     task_time_limit=600,  # 10 minutes
-    worker_hijack_root_logger=False,  # 禁止 Celery 劫持 root logger
 )
 
 celery_app.conf.beat_schedule = {
