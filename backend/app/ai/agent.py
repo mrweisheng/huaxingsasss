@@ -61,6 +61,7 @@ class ContractAgent:
             len(attachments) if attachments else 0,
             user_message[:100],
         )
+        print(f"[AGENT] 会话开始: user={self.user.username}, msg={user_message[:80]}", flush=True)
 
         # 1. 处理附件
         file_context = ""
