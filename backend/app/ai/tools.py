@@ -458,6 +458,34 @@ class ToolExecutor:
             return ".webp"
         return ".bin"
 
+    def _ensure_file_in_receipt_dir(self, file_path: str) -> str:
+        """如果 file_path 是 agent_upload/{file_id} 格式，
+        把文件从临时目录复制到凭证目录，返回新路径。
+        否则原样返回。"""
+        if not file_path or not file_path.startswith("agent_upload/"):
+            return file_path
+        file_id = file_path[len("agent_upload/"):]
+        temp_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
+        if not os.path.exists(temp_path):
+            logger.warning("凭证文件复制跳过: 临时文件不存在 path=%s", temp_path)
+            return file_path
+        try:
+            with open(temp_path, "rb") as f:
+                content = f.read()
+            ext = self._guess_extension(content)
+            year_month = datetime.now().strftime("%Y/%m")
+            target_dir = Path(settings.RECEIPT_UPLOAD_DIR) / year_month
+            target_dir.mkdir(parents=True, exist_ok=True)
+            target_filename = f"{file_id}{ext}"
+            target_path = target_dir / target_filename
+            shutil.copy2(temp_path, str(target_path))
+            new_path = str(Path(year_month) / target_filename)
+            logger.info("凭证文件已复制到凭证目录: %s → %s", file_path, new_path)
+            return new_path
+        except Exception:
+            logger.exception("凭证文件复制失败 file_path=%s", file_path)
+            return file_path
+
     def _auto_create_payments_from_terms(
         self,
         contract: Contract,
@@ -688,8 +716,9 @@ class ToolExecutor:
             self.db.commit()
             self.db.refresh(contract)
 
+            receipt_file_path = self._ensure_file_in_receipt_dir(kwargs.get("receipt_file_path"))
             auto_payments = self._auto_create_payments_from_terms(
-                contract, contract_data_raw, kwargs.get("receipt_data"), kwargs.get("receipt_file_path")
+                contract, contract_data_raw, kwargs.get("receipt_data"), receipt_file_path
             )
             logger.info(
                 "create_contract完成: contract_id=%d, auto_payments=%s",
@@ -771,7 +800,7 @@ class ToolExecutor:
                 return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
 
         try:
-            receipt_path = kwargs.get("receipt_image_path")
+            receipt_path = self._ensure_file_in_receipt_dir(kwargs.get("receipt_image_path"))
             logger.info(
                 "Agent创建付款: contract_id=%s, installment=%s, amount=%s %s, receipt=%s, notes=%s",
                 kwargs["contract_id"], kwargs["installment_number"],
@@ -787,7 +816,7 @@ class ToolExecutor:
                 amount=Decimal(str(kwargs["amount"])),
                 paid_date=date.fromisoformat(kwargs["paid_date"]),
                 payment_method=kwargs.get("payment_method", "unknown"),
-                receipt_image_path=kwargs.get("receipt_image_path"),
+                receipt_image_path=receipt_path,
                 notes=kwargs.get("notes"),
                 created_by=self.user.id,
                 type="income",
@@ -824,6 +853,7 @@ class ToolExecutor:
             installment_number = PaymentService.get_next_installment_number(
                 self.db, kwargs["contract_id"], "expense"
             )
+            expense_receipt_path = self._ensure_file_in_receipt_dir(kwargs.get("receipt_image_path"))
 
             payment = PaymentService.create_payment_with_exchange_rate(
                 db=self.db,
@@ -833,7 +863,7 @@ class ToolExecutor:
                 amount=Decimal(str(kwargs["amount"])),
                 paid_date=date.fromisoformat(kwargs["paid_date"]),
                 payment_method=kwargs.get("payment_method", "unknown"),
-                receipt_image_path=kwargs.get("receipt_image_path"),
+                receipt_image_path=expense_receipt_path,
                 notes=kwargs.get("notes"),
                 created_by=self.user.id,
                 type="expense",
@@ -878,6 +908,10 @@ class ToolExecutor:
         # 可更新字段白名单
         updatable_fields = ["notes", "payment_method", "receipt_image_path", "receipt_data", "installment_name", "paid_date"]
         updates = {f: kwargs[f] for f in updatable_fields if kwargs.get(f) is not None}
+
+        # 凭证路径：从 TEMP 复制到凭证目录
+        if "receipt_image_path" in updates:
+            updates["receipt_image_path"] = self._ensure_file_in_receipt_dir(updates["receipt_image_path"])
 
         if not updates:
             return json.dumps({"error": "没有需要更新的字段"}, ensure_ascii=False)
@@ -1569,6 +1603,8 @@ class ToolExecutor:
                 return json.dumps({
                     "success": True,
                     "data": structured,
+                    "file_id": file_id,
+                    "file_path": f"agent_upload/{file_id}",
                     "file_type": "image",
                     "analysis_type": analysis_type,
                 }, ensure_ascii=False)
@@ -1634,6 +1670,8 @@ class ToolExecutor:
                             return json.dumps({
                                 "success": True,
                                 "data": structured,
+                                "file_id": file_id,
+                                "file_path": f"agent_upload/{file_id}",
                                 "file_type": "pdf",
                                 "analysis_type": analysis_type,
                             }, ensure_ascii=False)
@@ -1679,7 +1717,11 @@ class ToolExecutor:
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
                             self._document_context = analysis_type
-                            return json.dumps({"success": True, "data": structured, "file_type": "pdf", "analysis_type": analysis_type}, ensure_ascii=False)
+                            return json.dumps({
+                                "success": True, "data": structured,
+                                "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                                "file_type": "pdf", "analysis_type": analysis_type,
+                            }, ensure_ascii=False)
                         except Exception as e:
                             logger.exception("PDF扫描件VL分析失败")
                             return json.dumps({"error": f"PDF扫描件分析失败: {str(e)}"}, ensure_ascii=False)
@@ -1726,7 +1768,11 @@ class ToolExecutor:
                     finally:
                         doc.close()
                     result = "\n".join(pages_text)
-                    return json.dumps({"success": True, "data": {"content": result[:5000]}, "file_type": "pdf"}, ensure_ascii=False)
+                    return json.dumps({
+                        "success": True, "data": {"content": result[:5000]},
+                        "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                        "file_type": "pdf",
+                    }, ensure_ascii=False)
             except ImportError:
                 return json.dumps({"error": "PDF 分析不可用（缺少 PyMuPDF）"}, ensure_ascii=False)
             except Exception as e:
@@ -1736,12 +1782,20 @@ class ToolExecutor:
         # 3) 尝试 Word / 文本
         text_result = self._extract_text_sync(file_path)
         if text_result:
-            return json.dumps({"success": True, "data": {"content": text_result}, "file_type": "document"}, ensure_ascii=False)
+            return json.dumps({
+                "success": True, "data": {"content": text_result},
+                "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                "file_type": "document",
+            }, ensure_ascii=False)
 
         # 4) 尝试 Excel
         excel_result = self._extract_excel_sync(file_path)
         if excel_result:
-            return json.dumps({"success": True, "data": {"content": excel_result}, "file_type": "excel"}, ensure_ascii=False)
+            return json.dumps({
+                "success": True, "data": {"content": excel_result},
+                "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                "file_type": "excel",
+            }, ensure_ascii=False)
 
         return json.dumps({"error": "无法识别的文件类型，支持：图片、PDF、Word、Excel、文本"}, ensure_ascii=False)
 
@@ -1961,7 +2015,7 @@ TOOL_DEFINITIONS = [
                     "business_description": {"type": "string", "description": "业务具体描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
                     "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},
-                    "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入凭证文件路径"},
+                    "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入 analyze_image 返回的 file_path。系统会自动保存到凭证目录。"},
                 },
             },
         },
@@ -2004,7 +2058,7 @@ TOOL_DEFINITIONS = [
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
                     },
-                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径（有凭证时传入）"},
+                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
                     "notes": {"type": "string", "description": "备注"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象，包含document_type/amount/payer_name/transaction_id等）"},
                 },
@@ -2031,7 +2085,7 @@ TOOL_DEFINITIONS = [
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
                     },
-                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径（有凭证时传入）"},
+                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
                     "notes": {"type": "string", "description": "备注"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
                 },
@@ -2050,7 +2104,7 @@ TOOL_DEFINITIONS = [
                     "payment_id": {"type": "integer", "description": "付款记录ID"},
                     "notes": {"type": "string", "description": "备注信息（根据凭证内容自动生成描述性备注）"},
                     "payment_method": {"type": "string", "description": "付款方式"},
-                    "receipt_image_path": {"type": "string", "description": "凭证图片路径"},
+                    "receipt_image_path": {"type": "string", "description": "凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
                     "installment_name": {"type": "string", "description": "期数名称"},
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
