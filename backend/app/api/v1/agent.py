@@ -7,7 +7,7 @@ import uuid
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
@@ -70,6 +70,7 @@ async def chat(
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
+    http_request: Request,
 ):
     """SSE 流式对话"""
     # ===== 调试日志 =====
@@ -122,7 +123,7 @@ async def chat(
             ):
                 # 客户端断开时 yield 会抛 CancelledError，中断整轮 ReAct 循环，
                 # 避免 LLM 继续跑完整轮浪费 token
-                if await request.is_disconnected():
+                if http_request and await http_request.is_disconnected():
                     logger.info("SSE客户端断开，中断Agent生成 session=%s", request.session_id)
                     return
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
