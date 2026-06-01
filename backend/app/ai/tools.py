@@ -520,8 +520,15 @@ class ToolExecutor:
         1. TEMP_UPLOAD_DIR/{self.user.id}/{file_id}（新格式）
         2. TEMP_UPLOAD_DIR/{file_id}（旧格式，兼容历史数据）
         """
-        if not file_path or not file_path.startswith("agent_upload/"):
-            return file_path
+        if not file_path:
+            return None
+        # 兼容 LLM 传裸 file_id（UUID）的情况：自动补全为 agent_upload/ 格式
+        if not file_path.startswith("agent_upload/"):
+            if "/" not in file_path and "." not in file_path and len(file_path) >= 20:
+                logger.info("检测到裸file_id，自动补全为agent_upload/格式: %s", file_path)
+                file_path = f"agent_upload/{file_path}"
+            else:
+                return file_path
         file_id = file_path[len("agent_upload/"):]
         candidates = [
             os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id),
