@@ -77,6 +77,8 @@ class ContractAgent:
         summary = await self._summarize_history(history)
         if summary:
             history = history[-settings.AGENT_MAX_SUMMARY_MESSAGES:]
+            # 截断可能拆散 tool_call 配对，需重新验证
+            history = self._validate_message_chain(history, session_id)
 
         # 4. 构建消息
         messages = self._build_messages(history, user_message, file_context, summary=summary)
@@ -99,6 +101,9 @@ class ContractAgent:
             full_text = ""
             tool_calls: List[dict] = []
             llm_event_count = 0
+
+            # 调用前消毒消息链：移除可能存在的孤立 tool 消息
+            messages = self._sanitize_messages_for_api(messages, session_id)
 
             try:
                 logger.info("ReAct迭代 #%d: 开始调用 DeepSeek API...", iteration)
@@ -338,6 +343,54 @@ class ContractAgent:
 
         return cleaned
 
+    @staticmethod
+    def _sanitize_messages_for_api(messages: List[dict], session_id: str) -> List[dict]:
+        """最终消毒：确保发送给 LLM 的消息链没有孤立 tool 消息。
+
+        规则：每个 tool 消息必须跟在带匹配 tool_calls 的 assistant 后面，
+        否则移除。同时也会移除 tool_calls 后缺失 tool 回复的 assistant。
+        """
+        if not messages:
+            return messages
+
+        sanitized: List[dict] = []
+        expected_tool_ids: set = set()  # 当前期待的 tool_call_id 集合
+
+        for msg in messages:
+            if msg.get("role") == "assistant":
+                sanitized.append(msg)
+                if msg.get("tool_calls"):
+                    expected_tool_ids = {tc["id"] for tc in msg["tool_calls"] if tc.get("id")}
+                else:
+                    expected_tool_ids = set()
+
+            elif msg.get("role") == "tool":
+                tc_id = msg.get("tool_call_id", "")
+                if tc_id and tc_id in expected_tool_ids:
+                    sanitized.append(msg)
+                    expected_tool_ids.discard(tc_id)
+                else:
+                    logger.warning(
+                        "API消毒: 跳过孤立 tool 消息: session=%s, tool_call_id=%s",
+                        session_id[:8], tc_id,
+                    )
+
+            else:
+                sanitized.append(msg)
+
+        # 如果 sanitized 后最后一个消息是带 tool_calls 的 assistant（缺少 tool 回复），
+        # 剥离 tool_calls 避免 API 拒绝
+        if sanitized:
+            last = sanitized[-1]
+            if last.get("role") == "assistant" and last.get("tool_calls"):
+                logger.warning(
+                    "API消毒: 剥离末尾不完整 tool_calls: session=%s, tool_calls=%s",
+                    session_id[:8], [tc.get("id", "") for tc in last["tool_calls"]],
+                )
+                sanitized[-1] = {"role": "assistant", "content": last.get("content") or ""}
+
+        return sanitized
+
     def _build_messages(
         self,
         history: List[dict],
@@ -454,9 +507,28 @@ class ContractAgent:
                                 cur = d.get("currency", "")
                                 parts.append(f"总金额: {d['total_amount']} {cur}".strip())
                             return "\n".join(parts)
+                    # 无 success 字段的结果（如 match_receipt）
+                    if isinstance(data, dict) and "matches" in data:
+                        parts = ["已找到可能的匹配项："]
+                        message = data.get("message", "")
+                        if message:
+                            parts.append(message)
+                        for m in data["matches"][:3]:
+                            customer = m.get("customer_name", "未知")
+                            contract_no = m.get("contract_number", "")
+                            installment = m.get("installment_name", "")
+                            amount = m.get("amount", "")
+                            currency = m.get("currency", "")
+                            parts.append(
+                                f"• {customer} — {contract_no} "
+                                f"({installment}): {amount} {currency}"
+                            )
+                        if len(data["matches"]) > 3:
+                            parts.append(f"  ...及其他 {len(data['matches'])-3} 条匹配")
+                        return "\n".join(parts)
                 except (json.JSONDecodeError, TypeError):
                     pass
-                # 纯文本工具结果
+                # 纯文本工具结果（兜底）
                 preview = content[:500]
                 if len(content) > 500:
                     preview += "..."
