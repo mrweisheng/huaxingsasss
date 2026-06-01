@@ -83,70 +83,56 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       sessionId = await get().createSession()
     }
 
-    // 上传附件并生成预览
-    const uploadedAttachments: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
+    // 立即生成附件本地预览（不等上传，让用户消息秒出）
+    const localAttachments: { file: File; fileType: FileType; preview?: string }[] = []
     if (attachments && attachments.length > 0) {
       for (const file of attachments) {
-        try {
-          const res = await agentApi.uploadFile(file)
-          // 根据文件名后缀判断类型（比 MIME 更可靠）
-          const name = file.name.toLowerCase()
-          let fileType: FileType
-          if (file.type.startsWith('image/')) {
-            fileType = 'image'
-          } else if (name.endsWith('.pdf')) {
-            fileType = 'pdf'
-          } else if (name.endsWith('.docx') || name.endsWith('.doc')) {
-            fileType = 'word'
-          } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
-            fileType = 'excel'
-          } else if (name.endsWith('.txt') || name.endsWith('.csv') || name.endsWith('.text')) {
-            fileType = 'text'
-          } else {
-            fileType = 'image' // 未知类型默认尝试图片分析
-          }
-          const item: typeof uploadedAttachments[number] = {
-            file_id: res.data.fileId,
-            file_type: fileType,
-            fileName: file.name,
-          }
-          // 生成图片预览
-          if (file.type.startsWith('image/')) {
-            item.preview = await new Promise<string>((resolve) => {
-              const reader = new FileReader()
-              reader.onloadend = () => resolve(reader.result as string)
-              reader.readAsDataURL(file)
-            })
-          }
-          uploadedAttachments.push(item)
-        } catch {
-          set({ error: `文件上传失败: ${file.name}` })
-          return
+        const name = file.name.toLowerCase()
+        let fileType: FileType
+        if (file.type.startsWith('image/')) {
+          fileType = 'image'
+        } else if (name.endsWith('.pdf')) {
+          fileType = 'pdf'
+        } else if (name.endsWith('.docx') || name.endsWith('.doc')) {
+          fileType = 'word'
+        } else if (name.endsWith('.xlsx') || name.endsWith('.xls')) {
+          fileType = 'excel'
+        } else if (name.endsWith('.txt') || name.endsWith('.csv') || name.endsWith('.text')) {
+          fileType = 'text'
+        } else {
+          fileType = 'image'
         }
+        let preview: string | undefined
+        if (file.type.startsWith('image/')) {
+          preview = await new Promise<string>((resolve) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result as string)
+            reader.readAsDataURL(file)
+          })
+        }
+        localAttachments.push({ file, fileType, preview })
       }
     }
 
-    // 添加用户消息到列表（含附件预览）
+    // 立即显示用户消息（用本地预览，无需等上传）
     const userMessage: ChatMessage = {
       id: Date.now(),
       sessionId: sessionId,
       role: 'user',
       content: content,
-      attachments: uploadedAttachments.map(a => ({
-        fileId: a.file_id,
-        fileType: a.file_type,
-        fileName: a.fileName,
+      attachments: localAttachments.map(a => ({
+        fileId: `pending_${Date.now()}`,
+        fileType: a.fileType,
+        fileName: a.file.name,
         preview: a.preview,
       })),
       createdAt: new Date().toISOString(),
     }
     set((state) => ({
       messages: [...state.messages, userMessage],
-      isStreaming: true,
-      error: null,
     }))
 
-    // 创建助手消息占位
+    // 立即显示助手占位消息（显示"思考中"状态）
     const assistantId = Date.now() + 1
     const assistantMessage: ChatMessage = {
       id: assistantId,
@@ -155,10 +141,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       content: '',
       toolCalls: [],
       createdAt: new Date().toISOString(),
+      _thinking: '准备中...',
     }
     set((state) => ({
       messages: [...state.messages, assistantMessage],
     }))
+
+    // 后台上传附件，获取服务端 file_id（用户已看到消息，不会感知等待）
+    const uploadedAttachments: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
+    if (localAttachments.length > 0) {
+      for (const local of localAttachments) {
+        try {
+          const res = await agentApi.uploadFile(local.file)
+          uploadedAttachments.push({
+            file_id: res.data.fileId,
+            file_type: local.fileType,
+            fileName: local.file.name,
+            preview: local.preview,
+          })
+        } catch {
+          set({ error: `文件上传失败: ${local.file.name}` })
+          return
+        }
+      }
+    }
 
     // SSE 流式读取
     abortController = new AbortController()
