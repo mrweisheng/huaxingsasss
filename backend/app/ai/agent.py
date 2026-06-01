@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import time
 import uuid
 from datetime import datetime, date
 from typing import AsyncGenerator, Optional, List, Dict, Any
@@ -89,34 +90,71 @@ class ContractAgent:
         # ReAct 循环
         total_tokens = 0
         for iteration in range(settings.AGENT_MAX_ITERATIONS):
+            logger.info(
+                "===== ReAct迭代 #%d 开始 | messages=%d 条 | session=%s =====",
+                iteration, len(messages), session_id[:8],
+            )
+
             # 调用 LLM
             full_text = ""
             tool_calls: List[dict] = []
+            llm_event_count = 0
 
-            async for event in self.llm.chat_completion_stream(
-                messages=messages,
-                tools=TOOL_DEFINITIONS,
-            ):
-                if event["type"] == "text":
-                    full_text += event["content"]
-                    yield {"event": "text", "data": {"content": event["content"]}}
+            try:
+                logger.info("ReAct迭代 #%d: 开始调用 DeepSeek API...", iteration)
+                async for event in self.llm.chat_completion_stream(
+                    messages=messages,
+                    tools=TOOL_DEFINITIONS,
+                ):
+                    llm_event_count += 1
+                    if event["type"] == "text":
+                        full_text += event["content"]
+                        yield {"event": "text", "data": {"content": event["content"]}}
 
-                elif event["type"] == "tool_call":
-                    tool_calls.append({
-                        "id": event["id"],
-                        "name": event["name"],
-                        "arguments": event["arguments"],
-                    })
+                    elif event["type"] == "tool_call":
+                        tool_calls.append({
+                            "id": event["id"],
+                            "name": event["name"],
+                            "arguments": event["arguments"],
+                        })
 
-                elif event["type"] == "usage":
-                    total_tokens += event.get("total_tokens", 0)
+                    elif event["type"] == "usage":
+                        total_tokens += event.get("total_tokens", 0)
 
-                elif event["type"] == "done":
-                    if event.get("finish_reason") == "tool_calls":
-                        pass
+                    elif event["type"] == "done":
+                        logger.info(
+                            "ReAct迭代 #%d: LLM流结束 | reason=%s | text_len=%d | tool_calls=%d | events=%d",
+                            iteration, event.get("finish_reason"), len(full_text), len(tool_calls), llm_event_count,
+                        )
+                        if event.get("finish_reason") == "tool_calls":
+                            pass
+                logger.info(
+                    "ReAct迭代 #%d: LLM调用完成 | text_len=%d | tool_calls=%d | total_events=%d",
+                    iteration, len(full_text), len(tool_calls), llm_event_count,
+                )
+            except Exception as e:
+                logger.exception("ReAct迭代 #%d LLM调用异常", iteration)
+                # 如果之前有工具结果，用工具结果生成兜底回复
+                fallback = self._build_tool_result_fallback(messages)
+                full_text = fallback or f"抱歉，我在处理时遇到了技术问题: {str(e)}"
+                yield {"event": "text", "data": {"content": full_text}}
+                tool_calls = []
+
+            logger.info(
+                "===== ReAct迭代 #%d 结束 | text_len=%d | tool_calls=%d =====",
+                iteration, len(full_text), len(tool_calls),
+            )
 
             if not tool_calls:
                 # 无工具调用，对话结束
+                if not full_text.strip() and iteration > 0:
+                    # 第二轮及以上返回空文本 → 尝试从最近的工具结果生成兜底回复
+                    fallback = self._build_tool_result_fallback(messages)
+                    if fallback:
+                        full_text = fallback
+                        logger.info("使用兜底回复: %s", full_text[:100])
+                        yield {"event": "text", "data": {"content": full_text}}
+
                 self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
                 yield {
                     "event": "done",
@@ -162,7 +200,12 @@ class ContractAgent:
                 except json.JSONDecodeError:
                     args = {}
 
+                _tool_start = time.monotonic()
                 result = await asyncio.to_thread(self.executor.execute, tc["name"], args)
+                _tool_elapsed = time.monotonic() - _tool_start
+                logger.info(
+                    "工具执行耗时: %s → %.1fs", tc["name"], _tool_elapsed,
+                )
 
                 logger.info(
                     "Agent工具结果: %s → %s", tc["name"],
@@ -364,6 +407,62 @@ class ContractAgent:
         except Exception as e:
             logger.warning("历史摘要生成失败，降级为完整历史: %s", e)
             return None
+
+    @staticmethod
+    def _build_tool_result_fallback(messages: List[dict]) -> str:
+        """当 LLM 在工具调用后未生成回复时，从最近的 tool 结果构建兜底回复"""
+        # 查找最后一个 tool 消息
+        for msg in reversed(messages):
+            if msg.get("role") == "tool":
+                content = msg.get("content", "")
+                if not content:
+                    continue
+                try:
+                    data = json.loads(content)
+                    if isinstance(data, dict) and data.get("success"):
+                        d = data.get("data", {})
+                        if "document_type" in d:
+                            # 凭证分析结果
+                            parts = ["文件分析完成，以下是提取的关键信息："]
+                            if d.get("document_type"):
+                                parts.append(f"凭证类型: {d['document_type']}")
+                            if d.get("amount"):
+                                cur = d.get("currency", "")
+                                parts.append(f"金额: {d['amount']} {cur}".strip())
+                            if d.get("transaction_date"):
+                                parts.append(f"日期: {d['transaction_date']}")
+                            if d.get("payer_name"):
+                                parts.append(f"付款人: {d['payer_name']}")
+                            if d.get("payee_name"):
+                                parts.append(f"收款人: {d['payee_name']}")
+                            if d.get("transaction_id"):
+                                parts.append(f"流水号: {d['transaction_id']}")
+                            return "\n".join(parts)
+                        if "content" in d and isinstance(d["content"], str):
+                            # 文档内容
+                            return f"文件分析完成，内容摘要：\n{d['content'][:1000]}"
+                        if "contract_number" in d or "title" in d:
+                            # 合同分析结果
+                            parts = ["合同分析完成，以下是提取的关键信息："]
+                            if d.get("title"):
+                                parts.append(f"合同标题: {d['title']}")
+                            if d.get("contract_number"):
+                                parts.append(f"合同编号: {d['contract_number']}")
+                            if d.get("party_b", {}).get("name"):
+                                parts.append(f"客户: {d['party_b']['name']}")
+                            if d.get("total_amount"):
+                                cur = d.get("currency", "")
+                                parts.append(f"总金额: {d['total_amount']} {cur}".strip())
+                            return "\n".join(parts)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+                # 纯文本工具结果
+                preview = content[:500]
+                if len(content) > 500:
+                    preview += "..."
+                return f"工具执行完成，返回结果：\n{preview}"
+
+        return ""
 
     @staticmethod
     def _serialize_messages(messages: List[dict]) -> str:
