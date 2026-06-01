@@ -56,6 +56,9 @@ class ContractAgent:
         if not session_id:
             session_id = str(uuid.uuid4())
 
+        # 将 session_id 注入 executor，供 DB 兜底查询使用
+        self.executor.session_id = session_id
+
         logger.info(
             "Agent会话: session=%s, user=%s(%s), 附件=%d, 消息=%s",
             session_id[:8], self.user.username, self.user.role,
