@@ -49,6 +49,7 @@ class PaymentResponse(PaymentBase):
     contract_id: int
     contract_number: Optional[str] = None
     customer_name: Optional[str] = None
+    description: Optional[str] = None
     paid_amount: Decimal
     exchange_rate: Optional[Decimal]
     amount_in_cny: Optional[Decimal]

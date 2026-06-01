@@ -150,6 +150,7 @@ class ToolExecutor:
             "payment_method": p.payment_method,
             "status": p.status,
             "notes": p.notes,
+            "description": p.description,
             "receipt_image_path": p.receipt_image_path,
             "receipt_data": p.receipt_data,
         }

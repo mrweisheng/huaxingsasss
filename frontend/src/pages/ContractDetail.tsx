@@ -149,6 +149,7 @@ export default function ContractDetail() {
 
   const paymentColumns = [
     { title: '期数', dataIndex: 'installment_number', key: 'installment_number', width: 60 },
+    { title: '描述', dataIndex: 'description', key: 'description', width: 200, ellipsis: true as const, render: (v: string) => v || '-' },
     { title: '期数名称', dataIndex: 'installment_name', key: 'installment_name', render: (v: string) => v || '-' },
     { title: '币种', dataIndex: 'currency', key: 'currency', width: 60 },
     { title: '金额', dataIndex: 'paid_amount', key: 'paid_amount', render: (v: number, r: Payment) => fmt(v, r.currency) },
@@ -199,6 +200,7 @@ export default function ContractDetail() {
 
   const expenseColumns = [
     { title: '期数', dataIndex: 'installment_number', key: 'installment_number', width: 60 },
+    { title: '描述', dataIndex: 'description', key: 'description', width: 200, ellipsis: true as const, render: (v: string) => v || '-' },
     { title: '收款方', dataIndex: 'payee_name', key: 'payee_name', render: (v: string) => v || '-' },
     { title: '币种', dataIndex: 'currency', key: 'currency', width: 60 },
     { title: '金额', dataIndex: 'paid_amount', key: 'paid_amount', render: (v: number, r: Payment) => fmt(v, r.currency) },

@@ -55,7 +55,10 @@ class Payment(BaseModel):
     
     # 备注
     notes = Column(Text, comment="备注")
-    
+
+    # 自动生成的可读描述
+    description = Column(String(500), comment="自动生成的可读描述")
+
     # 审计
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建者ID")
     

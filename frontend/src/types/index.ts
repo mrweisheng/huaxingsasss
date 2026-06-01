@@ -81,6 +81,7 @@ export interface Payment {
   status: string
   source: string
   notes?: string
+  description?: string
   created_at: string
   updated_at: string
 }

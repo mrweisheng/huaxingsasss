@@ -23,6 +23,19 @@ class PaymentService:
     """付款服务类"""
 
     @staticmethod
+    def _generate_description(contract, payment_type, installment_number, payee_name=None):
+        """根据合同信息自动生成付款的可读描述"""
+        parts = [
+            contract.contract_number or "",
+            getattr(contract.customer, 'name', None) or "未知客户",
+            contract.business_description or "",
+        ]
+        prefix = " ".join(p for p in parts if p)
+        if payment_type == "income":
+            return f"{prefix} 第{installment_number}期收款"
+        return f"{prefix} 第{installment_number}期支出→{payee_name or '未知'}"
+
+    @staticmethod
     def create_payment_with_exchange_rate(
         db: Session,
         contract_id: int,
@@ -96,6 +109,11 @@ class PaymentService:
             notes=notes,
             status='paid' if has_receipt else 'pending',
             created_by=created_by,
+        )
+
+        # 自动生成可读描述
+        payment.description = PaymentService._generate_description(
+            contract, type, installment_number, payee_name
         )
 
         db.add(payment)
