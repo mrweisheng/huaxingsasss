@@ -1,6 +1,8 @@
 """
 客户模型
 """
+import base64
+from typing import Optional
 from sqlalchemy import Column, String, Text, Integer, ForeignKey, CheckConstraint
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
@@ -27,6 +29,13 @@ class Customer(BaseModel):
     # 关系
     contracts = relationship("Contract", back_populates="customer")
     
+    @property
+    def id_card_number(self) -> Optional[str]:
+        """Pydantic schema 字段映射：从加密列解码返回明文证件号"""
+        if self.id_card_number_encrypted:
+            return base64.b64decode(self.id_card_number_encrypted).decode()
+        return None
+
     # 约束
     __table_args__ = (
         CheckConstraint("phone IS NOT NULL OR email IS NOT NULL", name="chk_phone_or_email"),

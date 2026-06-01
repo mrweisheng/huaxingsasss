@@ -431,8 +431,10 @@ class ToolExecutor:
             val = kwargs.get(field)
             if val is not None:
                 target_field = "id_card_number_encrypted" if field == "id_card_number" else field
+                if field == "id_card_number" and val:
+                    val = base64.b64encode(val.encode()).decode()
                 setattr(customer, target_field, val)
-                updated[field] = val
+                updated[field] = kwargs.get(field)
 
         if not updated:
             return json.dumps({"error": "没有需要更新的字段"}, ensure_ascii=False)

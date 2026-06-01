@@ -97,7 +97,32 @@ class CustomerService:
             )
 
         if existing:
-            logger.info("客户已存在，复用: id=%d, name=%s", existing.id, existing.name)
+            # 合并新传入的非空信息到已有客户（仅补写空字段，不覆盖已有值）
+            updated = False
+            if id_card_number and not existing.id_card_number_encrypted:
+                existing.id_card_number_encrypted = base64.b64encode(id_card_number.encode()).decode()
+                updated = True
+            if email and not existing.email:
+                existing.email = email
+                updated = True
+            if address and not existing.address:
+                existing.address = address
+                updated = True
+            if wechat_group_name and not existing.wechat_group_name:
+                existing.wechat_group_name = wechat_group_name
+                updated = True
+            if business_license and not existing.business_license:
+                existing.business_license = business_license
+                updated = True
+            if contact_person and not existing.contact_person:
+                existing.contact_person = contact_person
+                updated = True
+            if updated:
+                db.commit()
+                db.refresh(existing)
+                logger.info("客户已存在，补充了新信息: id=%d, fields updated", existing.id)
+            else:
+                logger.info("客户已存在，复用: id=%d, name=%s", existing.id, existing.name)
             return existing, False
 
         customer = Customer(
