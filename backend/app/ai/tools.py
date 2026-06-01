@@ -1543,7 +1543,7 @@ class ToolExecutor:
                 import fitz
                 doc = fitz.open(file_path)
                 total_pages = len(doc)
-                logger.info("PDF分析开始", file_id=file_id, analysis_type=analysis_type, pages=total_pages)
+                logger.info("PDF分析开始: file_id=%s, analysis_type=%s, pages=%d", file_id, analysis_type, total_pages)
 
                 if analysis_type in ("contract", "receipt"):
                     prompt = {
@@ -1563,7 +1563,7 @@ class ToolExecutor:
 
                     if full_text.strip():
                         # ✅ 有文本 → 用 DeepSeek 文本模型解析（快、稳）
-                        logger.info("PDF文本提取成功，使用DeepSeek文本模型解析", text_len=len(full_text))
+                        logger.info("PDF文本提取成功，使用DeepSeek文本模型解析: text_len=%d", len(full_text))
                         try:
                             payload = {
                                 "model": settings.DEEPSEEK_AGENT_MODEL,
@@ -1581,7 +1581,7 @@ class ToolExecutor:
                                     json=payload, headers=headers,
                                 )
                             if response.status_code != 200:
-                                logger.error("DeepSeek API错误", status=response.status_code, body=response.text[:200])
+                                logger.error("DeepSeek API错误: status=%d, body=%s", response.status_code, response.text[:200])
                                 return json.dumps({"error": f"DeepSeek API 错误: {response.text}"}, ensure_ascii=False)
 
                             content = response.json()["choices"][0]["message"]["content"]
@@ -1590,7 +1590,7 @@ class ToolExecutor:
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
 
-                            logger.info("PDF文本模型解析完成", analysis_type=analysis_type, keys=list(structured.keys()) if isinstance(structured, dict) else "非dict")
+                            logger.info("PDF文本模型解析完成: analysis_type=%s, keys=%s", analysis_type, list(structured.keys()) if isinstance(structured, dict) else "非dict")
                             return json.dumps({
                                 "success": True,
                                 "data": structured,
