@@ -67,10 +67,10 @@ def delete_session(
 
 @router.post("/chat")
 async def chat(
+    http_request: Request,
     request: ChatRequest,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-    http_request: Request,
 ):
     """SSE 流式对话"""
     # ===== 调试日志 =====
