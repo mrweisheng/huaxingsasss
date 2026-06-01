@@ -232,13 +232,68 @@ class ContractAgent:
                     msg["tool_calls"] = r.tool_calls
                 messages.append(msg)
             elif r.role == "tool":
+                tool_call_id = r.extra_metadata.get("tool_call_id", "") if r.extra_metadata else ""
                 messages.append({
                     "role": "tool",
-                    "tool_call_id": r.extra_metadata.get("tool_call_id", "") if r.extra_metadata else "",
+                    "tool_call_id": tool_call_id,
                     "content": r.answer or "",
                 })
 
-        return messages
+        # 校验并修复消息链：确保每个 tool 消息前有对应的 assistant(tool_calls)，
+        # 且每个 assistant(tool_calls) 后有完整的 tool 回复
+        return self._validate_message_chain(messages, session_id)
+
+    @staticmethod
+    def _validate_message_chain(messages: List[dict], session_id: str) -> List[dict]:
+        """校验并修复消息链，确保 tool_calls/tool 配对完整。
+        规则：
+        1. tool 消息前必须是带 tool_calls 的 assistant
+        2. assistant 带 tool_calls 时，紧跟的 tool 回复必须齐全
+        """
+        if not messages:
+            return messages
+
+        cleaned = []
+        i = 0
+        while i < len(messages):
+            msg = messages[i]
+
+            if msg.get("role") == "assistant" and msg.get("tool_calls"):
+                # 收集紧跟的 tool 回复
+                tc_ids = {tc["id"] for tc in msg["tool_calls"]}
+                tool_replies = []
+                j = i + 1
+                while j < len(messages) and messages[j].get("role") == "tool":
+                    tool_replies.append(messages[j])
+                    j += 1
+
+                provided_ids = {t.get("tool_call_id", "") for t in tool_replies}
+                if tc_ids.issubset(provided_ids):
+                    # 配对完整，保留 assistant + 对应的 tool 回复
+                    cleaned.append(msg)
+                    cleaned.extend(tool_replies)
+                else:
+                    # 配对不完整，去掉 tool_calls，只保留 assistant 文本
+                    logger.warning(
+                        "截断不完整 tool_calls: session=%s, expected=%s, got=%s",
+                        session_id[:8], tc_ids, provided_ids,
+                    )
+                    cleaned.append({"role": "assistant", "content": msg.get("content") or ""})
+                i = j
+
+            elif msg.get("role") == "tool":
+                # 孤立 tool 消息（前面不是带 tool_calls 的 assistant），跳过
+                logger.warning(
+                    "跳过孤立 tool 消息: session=%s, tool_call_id=%s",
+                    session_id[:8], msg.get("tool_call_id", ""),
+                )
+                i += 1
+
+            else:
+                cleaned.append(msg)
+                i += 1
+
+        return cleaned
 
     def _build_messages(
         self,
