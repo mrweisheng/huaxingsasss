@@ -2136,7 +2136,7 @@ TOOL_DEFINITIONS = [
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "合同币种。从合同原文提取，如 HK$/港币=HKD，¥/人民币=CNY。不清楚时询问用户确认。"},
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
                     "business_type": {"type": "string", "enum": ["车辆业务", "中港牌业务"], "description": "业务大类：车辆业务（买车卖车）或中港牌业务（办理中港车牌）"},
-                    "business_description": {"type": "string", "description": "业务具体描述，严格基于合同原文。仅使用合同中明确写出的信息，如合同只写了底盘号则描述为「购买车辆（底盘号XXX）」，不要猜测车型或其他合同未明确提及的信息"},
+                    "business_description": {"type": "string", "description": "业务具体描述，严格基于合同原文。中港牌业务需区分：购买现牌（如「购买现牌 粤Z·XX123港 深圳湾口岸」）或 新申请（如「新申请深圳湾口岸中港车牌」）。车辆业务如没写车型就用底盘号描述，不要猜测"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
                     "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},
                     "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入 analyze_image 返回的 file_path。系统会自动保存到凭证目录。"},
