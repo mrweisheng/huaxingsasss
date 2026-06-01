@@ -1020,7 +1020,7 @@ class ToolExecutor:
             query = query.filter(Contract.sales_person_id == self.user.id)
 
         # ILIKE 模糊搜索
-        query = query.filter(Contract.contract_text.ilike(f"%{self._escape_ilike(keyword)}%"))
+        query = query.filter(Contract.contract_text.ilike(f"%{_escape_ilike(keyword)}%"))
         contracts = query.limit(10).all()
 
         if not contracts:
@@ -1609,10 +1609,12 @@ class ToolExecutor:
                         try:
                             import fitz as _fitz
                             doc2 = _fitz.open(file_path)
-                            pix = doc2[0].get_pixmap(dpi=200)
-                            img_bytes = pix.tobytes("png")
-                            img_b64 = base64.b64encode(img_bytes).decode()
-                            doc2.close()
+                            try:
+                                pix = doc2[0].get_pixmap(dpi=200)
+                                img_bytes = pix.tobytes("png")
+                                img_b64 = base64.b64encode(img_bytes).decode()
+                            finally:
+                                doc2.close()
 
                             payload = {
                                 "model": settings.SILICONFLOW_VISION_MODEL,
@@ -1647,43 +1649,45 @@ class ToolExecutor:
 
                 else:
                     # general 类型：提取文本内容
-                    pages_text = []
-                    for page_num in range(total_pages):
-                        page = doc[page_num]
-                        text = page.get_text()
-                        if text.strip():
-                            pages_text.append(f"第{page_num + 1}页:\n{text.strip()}")
-                        else:
-                            pix = page.get_pixmap(dpi=200)
-                            img_bytes = pix.tobytes("png")
-                            img_b64 = base64.b64encode(img_bytes).decode()
-                            payload = {
-                                "model": settings.SILICONFLOW_VISION_MODEL,
-                                "messages": [{
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                                        {"type": "text", "text": GENERAL_ANALYSIS_PROMPT},
-                                    ],
-                                }],
-                                "temperature": 0.1,
-                                "max_tokens": 4096,
-                            }
-                            headers = {
-                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
-                                "Content-Type": "application/json",
-                            }
-                            with httpx.Client(timeout=60.0) as client:
-                                resp = client.post(
-                                    f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
-                                    json=payload, headers=headers,
-                                )
-                            if resp.status_code == 200:
-                                content = resp.json()["choices"][0]["message"]["content"]
-                                pages_text.append(f"第{page_num + 1}页(扫描): {content[:500]}")
+                    try:
+                        pages_text = []
+                        for page_num in range(total_pages):
+                            page = doc[page_num]
+                            text = page.get_text()
+                            if text.strip():
+                                pages_text.append(f"第{page_num + 1}页:\n{text.strip()}")
                             else:
-                                pages_text.append(f"第{page_num + 1}页分析失败")
-                    doc.close()
+                                pix = page.get_pixmap(dpi=200)
+                                img_bytes = pix.tobytes("png")
+                                img_b64 = base64.b64encode(img_bytes).decode()
+                                payload = {
+                                    "model": settings.SILICONFLOW_VISION_MODEL,
+                                    "messages": [{
+                                        "role": "user",
+                                        "content": [
+                                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
+                                            {"type": "text", "text": GENERAL_ANALYSIS_PROMPT},
+                                        ],
+                                    }],
+                                    "temperature": 0.1,
+                                    "max_tokens": 4096,
+                                }
+                                headers = {
+                                    "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                                    "Content-Type": "application/json",
+                                }
+                                with httpx.Client(timeout=60.0) as client:
+                                    resp = client.post(
+                                        f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
+                                        json=payload, headers=headers,
+                                    )
+                                if resp.status_code == 200:
+                                    content = resp.json()["choices"][0]["message"]["content"]
+                                    pages_text.append(f"第{page_num + 1}页(扫描): {content[:500]}")
+                                else:
+                                    pages_text.append(f"第{page_num + 1}页分析失败")
+                    finally:
+                        doc.close()
                     result = "\n".join(pages_text)
                     return json.dumps({"success": True, "data": {"content": result[:5000]}, "file_type": "pdf"}, ensure_ascii=False)
             except ImportError:
@@ -2065,7 +2069,7 @@ TOOL_DEFINITIONS = [
                     "date_to": {"type": "string", "description": "日期范围截止（YYYY-MM-DD）"},
                     "group_by": {
                         "type": "string",
-                        "enum": ["customer", "contract", "month"],
+                        "enum": ["customer", "contract"],
                         "description": "分组方式",
                     },
                 },

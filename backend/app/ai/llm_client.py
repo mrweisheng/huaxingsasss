@@ -184,68 +184,6 @@ class SiliconFlowClient:
         
         return min(base_confidence, 1.0)
 
-    async def answer_question(self, question: str, context_data: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        基于上下文数据回答问题（异步）
-
-        Args:
-            question: 用户问题
-            context_data: 从数据库查询的真实数据
-
-        Returns:
-            {"answer": "...", "tokens_used": 180, "confidence": 0.9}
-        """
-        # 基本输入清理：截断长度并移除可能的 prompt 注入模式
-        question = question[:2000]
-        question = re.sub(r'(忽略|忽略以上|disregard|ignore).*(指令|instructions?|rules?)', '', question, flags=re.IGNORECASE)
-
-        prompt = f"""你是一个专业的业务助手。请基于以下真实数据回答用户问题，不要编造任何信息。
-
-【可用数据】
-{json.dumps(context_data, ensure_ascii=False, indent=2)}
-
-【用户问题】
-{question}
-
-【回答要求】
-1. 只基于上述数据回答，如果数据中没有相关信息，明确告知用户
-2. 使用自然、友好的语气
-3. 保留关键数字和单位（如金额保留"元"）
-4. 如果涉及多个项目，使用列表清晰展示
-5. 回答长度控制在200字以内
-6. 如果数据不足以回答问题，说明缺少什么信息""".strip()
-
-        payload = {
-            "model": self.text_model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.3,
-            "max_tokens": 512
-        }
-
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
-        }
-
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-            )
-
-        if response.status_code != 200:
-            raise Exception(f"SiliconFlow API error: {response.text}")
-
-        result = response.json()
-        answer = result["choices"][0]["message"]["content"]
-
-        return {
-            "answer": answer,
-            "tokens_used": result.get("usage", {}).get("total_tokens", 0),
-            "confidence": 0.9
-        }
-
 
 class DeepSeekClient:
     """DeepSeek API客户端，支持流式输出和函数调用"""
