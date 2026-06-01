@@ -45,6 +45,7 @@ class ToolExecutor:
     def __init__(self, db: Session, user: User):
         self.db = db
         self.user = user
+        self._document_context: Optional[str] = None  # "receipt"|"contract"|"general"|None
 
     def _can_access_contract(self, contract: Contract) -> bool:
         if self.user.role == "admin":
@@ -1527,6 +1528,7 @@ class ToolExecutor:
                 except json.JSONDecodeError:
                     structured = {"raw": content}
 
+                self._document_context = analysis_type
                 return json.dumps({
                     "success": True,
                     "data": structured,
@@ -1591,6 +1593,7 @@ class ToolExecutor:
                                 structured = {"raw": content}
 
                             logger.info("PDF文本模型解析完成: analysis_type=%s, keys=%s", analysis_type, list(structured.keys()) if isinstance(structured, dict) else "非dict")
+                            self._document_context = analysis_type
                             return json.dumps({
                                 "success": True,
                                 "data": structured,
@@ -1636,6 +1639,7 @@ class ToolExecutor:
                                 structured = json.loads(content)
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
+                            self._document_context = analysis_type
                             return json.dumps({"success": True, "data": structured, "file_type": "pdf", "analysis_type": analysis_type}, ensure_ascii=False)
                         except Exception as e:
                             logger.exception("PDF扫描件VL分析失败")
@@ -1700,6 +1704,32 @@ class ToolExecutor:
 
         return json.dumps({"error": "无法识别的文件类型，支持：图片、PDF、Word、Excel、文本"}, ensure_ascii=False)
 
+    # 文档类型 → 禁止的工具集合
+    _DOCUMENT_BLOCKED_TOOLS = {
+        "receipt": {"create_contract", "create_customer"},
+        "general": {"create_contract", "create_customer"},
+    }
+
+    def _check_document_guard(self, tool_name: str) -> Optional[str]:
+        """文档上下文守卫。返回 None 放行，返回 JSON 字符串拦截。"""
+        if self._document_context is None:
+            return None
+        blocked = self._DOCUMENT_BLOCKED_TOOLS.get(self._document_context)
+        if not blocked or tool_name not in blocked:
+            return None
+        label = {"receipt": "付款凭证", "general": "非合同类文件"}.get(
+            self._document_context, self._document_context
+        )
+        hint = {
+            "receipt": "凭证只能用于付款操作（match_receipt / create_payment / update_payment）。如需创建合同，请让用户上传合同文件。",
+            "general": "此类文件应通过 update_contract 关联已有合同。如需创建新合同，请让用户上传合同文件。",
+        }.get(self._document_context, "")
+        return json.dumps({
+            "error": f"当前文件为「{label}」，不允许执行「{tool_name}」。{hint}",
+            "blocked_tool": tool_name,
+            "document_context": self._document_context,
+        }, ensure_ascii=False)
+
     def execute(self, tool_name: str, arguments: dict) -> str:
         """统一执行入口"""
         handler = getattr(self, tool_name, None)
@@ -1709,6 +1739,12 @@ class ToolExecutor:
 
         args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
         logger.info("工具调用: %s | 参数: %s", tool_name, args_preview)
+
+        # 文档上下文守卫
+        blocked = self._check_document_guard(tool_name)
+        if blocked:
+            logger.warning("文档上下文守卫拦截: tool=%s, context=%s", tool_name, self._document_context)
+            return blocked
 
         try:
             result = handler(**arguments)
