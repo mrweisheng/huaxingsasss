@@ -1489,7 +1489,7 @@ class ToolExecutor:
 
             image_base64 = base64.b64encode(file_bytes).decode()
             payload = {
-                "model": settings.SILICONFLOW_VISION_MODEL,
+                "model": settings.SILICONFLOW_TEXT_MODEL,
                 "messages": [
                     {
                         "role": "user",
@@ -1617,7 +1617,7 @@ class ToolExecutor:
                                 doc2.close()
 
                             payload = {
-                                "model": settings.SILICONFLOW_VISION_MODEL,
+                                "model": settings.SILICONFLOW_TEXT_MODEL,
                                 "messages": [{
                                     "role": "user",
                                     "content": [
@@ -1661,7 +1661,7 @@ class ToolExecutor:
                                 img_bytes = pix.tobytes("png")
                                 img_b64 = base64.b64encode(img_bytes).decode()
                                 payload = {
-                                    "model": settings.SILICONFLOW_VISION_MODEL,
+                                    "model": settings.SILICONFLOW_TEXT_MODEL,
                                     "messages": [{
                                         "role": "user",
                                         "content": [
