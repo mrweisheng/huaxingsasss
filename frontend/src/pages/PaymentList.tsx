@@ -167,7 +167,7 @@ export default function PaymentList() {
       width: 100,
       minWidth: 80,
       align: 'right' as const,
-      render: (v: number) => <span className="num-mono">{fmt(v, 'CNY')}</span>,
+      render: (v: number | null) => v != null ? <span className="num-mono">{fmt(v, 'CNY')}</span> : '-',
     },
     {
       title: '付款日期',

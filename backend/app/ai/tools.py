@@ -471,10 +471,10 @@ class ToolExecutor:
         return ".bin"
 
     def _get_receipt_image_path(self, explicit_path: Optional[str] = None) -> Optional[str]:
-        """获取凭证图片路径，双保险策略：
+        """获取凭证图片路径，三级策略：
         1. LLM 主动传的路径（最佳路径，直接用）
         2. 同请求内 _pending_receipt_path 缓存（analyze_image 刚设置的）
-        3. DB 查询兜底：当前会话最近一次 analyze_image 的 file_path
+        3. DB 查询兜底：当前会话最近一次 analyze_image 的 file_path（已消费的自动跳过）
         """
         # 1. LLM 主动传了
         if explicit_path:
@@ -505,13 +505,22 @@ class ToolExecutor:
         try:
             result = json.loads(record.answer)
             if result.get("success") and result.get("file_path"):
-                logger.info("DB兜底：从会话历史找到 analyze_image file_path=%s", result["file_path"])
+                # 检查是否已被消费过
+                meta = record.extra_metadata or {}
+                if meta.get("receipt_consumed"):
+                    logger.info("DB兜底跳过：analyze_image 记录已消费 record_id=%s", record.id)
+                    return None
+                # 标记为已消费，防止同一会话重复使用
+                meta["receipt_consumed"] = True
+                record.extra_metadata = meta
+                self.db.commit()
+                logger.info("DB兜底：从会话历史找到 analyze_image file_path=%s（已标记消费）", result["file_path"])
                 return result["file_path"]
         except (json.JSONDecodeError, TypeError):
             pass
         return None
 
-    def _ensure_file_in_receipt_dir(self, file_path: str) -> str:
+    def _ensure_file_in_receipt_dir(self, file_path: str) -> Optional[str]:
         """如果 file_path 是 agent_upload/{file_id} 格式，
         把文件从临时目录复制到凭证目录，返回新路径。
         否则原样返回。
@@ -530,7 +539,7 @@ class ToolExecutor:
         temp_path = next((p for p in candidates if os.path.exists(p)), None)
         if not temp_path:
             logger.warning("凭证文件复制跳过: 临时文件不存在 file_id=%s, user=%s", file_id, self.user.id)
-            return file_path
+            return None
         try:
             with open(temp_path, "rb") as f:
                 content = f.read()
@@ -546,7 +555,7 @@ class ToolExecutor:
             return new_path
         except Exception:
             logger.exception("凭证文件复制失败 file_path=%s", file_path)
-            return file_path
+            return None
 
     def _auto_create_payments_from_terms(
         self,
@@ -748,7 +757,7 @@ class ToolExecutor:
                 business_type=kwargs.get("business_type"),
                 business_description=kwargs.get("business_description"),
                 customer_id=customer_id,
-                currency=kwargs.get("currency", "CNY"),
+                currency=kwargs.get("currency") or contract_data_raw.get("currency", "CNY"),
                 total_amount=Decimal(str(kwargs.get("total_amount", 0))),
                 original_file_path=original_file_path,
                 file_hash=file_hash,
@@ -979,7 +988,13 @@ class ToolExecutor:
 
         # 凭证路径：从 TEMP 复制到凭证目录
         if "receipt_image_path" in updates:
-            updates["receipt_image_path"] = self._ensure_file_in_receipt_dir(updates["receipt_image_path"])
+            resolved = self._ensure_file_in_receipt_dir(updates["receipt_image_path"])
+            if resolved is not None:
+                updates["receipt_image_path"] = resolved
+            else:
+                # 文件不存在，移除这个 key，避免用 None 覆盖已有路径
+                del updates["receipt_image_path"]
+                logger.warning("update_payment: 凭证文件不存在，跳过 receipt_image_path 更新")
 
         if not updates:
             return json.dumps({"error": "没有需要更新的字段"}, ensure_ascii=False)
@@ -2099,7 +2114,7 @@ TOOL_DEFINITIONS = [
                     "contract_data": {"type": "object", "description": "从合同文件提取的全部信息（JSON对象，包含甲方乙方、金额、payment_terms等）。payment_terms中每个款项必须包含is_paid布尔字段，表示该款项是否已付"},
                     "title": {"type": "string", "description": "合同标题（如：购车合同、两地牌办理合同）"},
                     "total_amount": {"type": "number", "description": "合同总金额"},
-                    "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "币种，默认CNY"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "合同币种。从合同原文提取，如 HK$/港币=HKD，¥/人民币=CNY。不清楚时询问用户确认。"},
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
                     "business_type": {"type": "string", "enum": ["车辆业务", "中港牌业务"], "description": "业务大类：车辆业务（买车卖车）或中港牌业务（办理中港车牌）"},
                     "business_description": {"type": "string", "description": "业务具体描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌"},
@@ -2132,7 +2147,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建收入付款记录（客户向公司付款）。无凭证时创建为 pending 状态（不参与结算），有凭证时创建为 paid 状态（自动参与结算）。自动按付款日期查找汇率并折算为人民币。仅用于手动录入或凭证上传场景——合同录入时系统会自动创建已付款项的记录，不需要手动调用。",
+            "description": "为合同创建收入付款记录（客户向公司付款）。无凭证时创建为 pending 状态（不参与结算），有凭证时创建为 paid 状态（自动参与结算）。同币种不折算，混币种按付款日实时汇率自动结算。仅用于手动录入或凭证上传场景——合同录入时系统会自动创建已付款项的记录，不需要手动调用。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "installment_number", "amount", "currency", "paid_date"],
@@ -2141,7 +2156,10 @@ TOOL_DEFINITIONS = [
                     "installment_number": {"type": "integer", "description": "第几期（1, 2, 3...）"},
                     "installment_name": {"type": "string", "description": "期数名称（如「定金」、「首期」、「尾款」），从合同原文提取"},
                     "amount": {"type": "number", "description": "付款金额"},
-                    "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "default": "CNY"},
+                    "currency": {
+                        "type": "string", "enum": ["CNY", "HKD", "USD"],
+                        "description": "付款币种。优先从凭证分析结果中提取；如果凭证上没有明确标注币种符号（如 HK$/¥/$/港币/人民币），必须询问用户确认，不可猜测默认。",
+                    },
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
                     "payment_method": {
                         "type": "string",
@@ -2166,7 +2184,10 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "amount": {"type": "number", "description": "支出金额"},
-                    "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "default": "CNY"},
+                    "currency": {
+                        "type": "string", "enum": ["CNY", "HKD", "USD"],
+                        "description": "支出币种。如果凭证上没有明确标注币种符号，必须询问用户确认，不可猜测默认。",
+                    },
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
                     "payee_name": {"type": "string", "description": "收款方名称（如：某某代办公司）"},
                     "installment_name": {"type": "string", "description": "期数名称（如「渠道费」、「办证费」）"},

@@ -136,7 +136,7 @@ export default function ContractDetail() {
     { title: '期数名称', dataIndex: 'installment_name', key: 'installment_name', render: (v: string) => v || '-' },
     { title: '币种', dataIndex: 'currency', key: 'currency', width: 60 },
     { title: '金额', dataIndex: 'paid_amount', key: 'paid_amount', render: (v: number, r: Payment) => fmt(v, r.currency) },
-    { title: '折CNY', dataIndex: 'paid_amount_in_cny', key: 'paid_amount_in_cny', width: 100, render: (v: number) => fmt(v, 'CNY') },
+    { title: '折CNY', dataIndex: 'paid_amount_in_cny', key: 'paid_amount_in_cny', width: 100, render: (v: number | null) => v != null ? fmt(v, 'CNY') : '-' },
     { title: '付款日期', dataIndex: 'paid_date', key: 'paid_date', width: 110, render: (v: string) => v || '-' },
     { title: '方式', dataIndex: 'payment_method', key: 'payment_method', width: 80, render: (v: string) => v || '-' },
     {
@@ -155,7 +155,7 @@ export default function ContractDetail() {
     { title: '收款方', dataIndex: 'payee_name', key: 'payee_name', render: (v: string) => v || '-' },
     { title: '币种', dataIndex: 'currency', key: 'currency', width: 60 },
     { title: '金额', dataIndex: 'paid_amount', key: 'paid_amount', render: (v: number, r: Payment) => fmt(v, r.currency) },
-    { title: '折CNY', dataIndex: 'paid_amount_in_cny', key: 'paid_amount_in_cny', width: 100, render: (v: number) => fmt(v, 'CNY') },
+    { title: '折CNY', dataIndex: 'paid_amount_in_cny', key: 'paid_amount_in_cny', width: 100, render: (v: number | null) => v != null ? fmt(v, 'CNY') : '-' },
     { title: '付款日期', dataIndex: 'paid_date', key: 'paid_date', width: 110, render: (v: string) => v || '-' },
     { title: '方式', dataIndex: 'payment_method', key: 'payment_method', width: 80, render: (v: string) => v || '-' },
   ]
