@@ -75,6 +75,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const { currentSessionId } = get()
     let sessionId = currentSessionId
 
+    // 立即标记流式状态，防止前端重复提交（发送按钮变为停止按钮）
+    set({ isStreaming: true, error: null })
+
     // 如果没有会话，自动创建
     if (!sessionId) {
       sessionId = await get().createSession()

@@ -304,9 +304,11 @@ export default function AgentChat() {
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
     if (!text && pendingFiles.length === 0) return
-    await sendMessage(text, pendingFiles.length > 0 ? pendingFiles : undefined)
+    // 立即清空输入框和待发文件，防止重复提交
+    const filesToSend = pendingFiles.length > 0 ? [...pendingFiles] : undefined
     setInputText('')
     setPendingFiles([])
+    await sendMessage(text, filesToSend)
   }, [inputText, pendingFiles, sendMessage])
 
   const handleKeyDown = useCallback(
