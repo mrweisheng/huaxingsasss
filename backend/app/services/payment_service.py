@@ -230,15 +230,29 @@ class PaymentService:
             return None
 
         was_pending = payment.status == 'pending'
-        had_receipt = bool(payment.receipt_image_path)
+        had_receipt = bool(payment.receipt_image_path) or bool(payment.receipt_data)
 
         update_data = payment_data.model_dump(exclude_unset=True)
         for field, value in update_data.items():
             setattr(payment, field, value)
 
         # 补充凭证时：pending → paid，累加合同金额参与结算
-        now_has_receipt = bool(payment.receipt_image_path)
+        # receipt_data（OCR 凭证数据）与 receipt_image_path（图片文件路径）都是凭证证据。
+        # AI 分析收据后可能只传了 receipt_data 而没传 receipt_image_path（temp 文件已清理），
+        # 此时仅凭 receipt_data 即可触发状态转换。
+        now_has_receipt = bool(payment.receipt_image_path) or bool(payment.receipt_data)
+        should_settle = False
         if was_pending and not had_receipt and now_has_receipt:
+            should_settle = True
+        elif payment.status == 'pending' and now_has_receipt:
+            # 兜底：历史遗留——之前更新时 receipt_data 已写入但 status 未转换
+            logger.warning(
+                "payment stuck fix: payment_id=%d receipt_data/ receipt_image_path exists but status still pending",
+                payment_id,
+            )
+            should_settle = True
+
+        if should_settle:
             logger.info(
                 "补充凭证触发结算: payment_id=%d, contract_id=%d, type=%s, amount=%s, status pending→paid",
                 payment_id, payment.contract_id, payment.type, payment.paid_amount,

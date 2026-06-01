@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Table, Button, Select, Empty, Popconfirm, message, Image, Tabs, Tag } from 'antd'
-import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
+import { Table, Button, Select, Empty, Popconfirm, message, Image, Tabs, Tag, Tooltip } from 'antd'
+import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import { useAuthStore } from '@/store/useAuthStore'
 import type { Payment } from '@/types'
@@ -12,6 +12,19 @@ function fmt(amount: number | undefined | null, currency: string): string {
   if (amount === undefined || amount === null) return '-'
   const symbol = currencySymbol[currency] || '¥'
   return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+/** 从 receipt_data 中提取摘要信息用于展示 */
+function receiptDataSummary(data: Record<string, any> | undefined): string | null {
+  if (!data || typeof data !== 'object') return null
+  const parts: string[] = []
+  if (data.payer_name) parts.push(`付款人: ${data.payer_name}`)
+  if (data.amount) {
+    const sym = currencySymbol[data.currency] || ''
+    parts.push(`金额: ${sym}${data.amount}`)
+  }
+  if (data.transaction_date) parts.push(`日期: ${data.transaction_date}`)
+  return parts.length > 0 ? parts.join(' | ') : null
 }
 
 const statusMap: Record<string, { color: string; text: string }> = {
@@ -246,6 +259,13 @@ export default function PaymentList() {
             >
               凭证
             </Button>
+          ) : record.receipt_data ? (
+            <Tooltip title={receiptDataSummary(record.receipt_data)}>
+              <span style={{ color: '#0d9488', fontSize: 12, cursor: 'default' }}>
+                <FileTextOutlined style={{ marginRight: 4 }} />
+                凭证数据
+              </span>
+            </Tooltip>
           ) : (
             <span style={{ color: '#bbb', fontSize: 12 }}>无凭证</span>
           )}

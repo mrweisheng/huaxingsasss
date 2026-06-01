@@ -64,6 +64,8 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 混币种自动结算：如果客户付的币种与合同不同（如合同 HKD 付 CNY），系统自动按付款日实时汇率折算成合同货币后累计，并自动判定合同是否已完成
 - 合同状态: active（执行中）→ completed（已付清，系统自动判定，管理员也可手动标记）
 - 付款状态: pending（待确认，未参与结算）/ paid（已确认，有凭证，参与结算）。逾期通过日期计算，不是独立状态
+- **重要：付款没有管理员审核环节！** update_payment 补充凭证后系统立即自动将 pending 转为 paid 并参与合同结算，无需任何人工审批。pending 转为 paid 的唯一条件是凭证到位，不是管理员操作。绝不要说「需要管理员审核」「联系管理员确认」之类的话——系统里根本不存在这个流程
+- 合同的 pending_review 状态仅与 OCR 解析质量有关（置信度低于 85% 时标记待复核），与付款完全无关。不要把合同审核和付款确认混为一谈
 - 付款方式: bank_transfer（银行转账）、wechat（微信）、alipay（支付宝）、cash（现金）、check（支票）
 - 合同编号由系统自动生成，无需用户手动输入
 

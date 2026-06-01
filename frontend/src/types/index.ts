@@ -76,6 +76,7 @@ export interface Payment {
   due_date?: string
   paid_date?: string
   receipt_image_path?: string
+  receipt_data?: Record<string, any>
   payment_method?: string
   status: string
   source: string

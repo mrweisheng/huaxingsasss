@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Spin, Table, Tag, Alert, Popconfirm, message, Tabs } from 'antd'
+import { Button, Spin, Table, Tag, Alert, Popconfirm, message, Tabs, Tooltip } from 'antd'
 import {
   ArrowLeftOutlined,
   FileOutlined,
@@ -9,6 +9,8 @@ import {
   UserOutlined,
   ExclamationCircleOutlined,
   CalendarOutlined,
+  FileTextOutlined,
+  EyeOutlined,
 } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { paymentApi } from '@/services/payment'
@@ -51,6 +53,20 @@ const paymentStatusMap: Record<string, { text: string }> = {
   paid:      { text: '已支付' },
   overdue:   { text: '逾期' },
   cancelled: { text: '已取消' },
+}
+
+/** 从 receipt_data 中提取摘要信息 */
+function receiptSummary(data: Record<string, any> | undefined): string | null {
+  if (!data || typeof data !== 'object') return null
+  const parts: string[] = []
+  if (data.payer_name) parts.push(`付款人: ${data.payer_name}`)
+  if (data.amount) {
+    const sym = currencySymbol[data.currency] || ''
+    parts.push(`金额: ${sym}${data.amount}`)
+  }
+  if (data.transaction_date) parts.push(`日期: ${data.transaction_date}`)
+  if (data.payee_name) parts.push(`收款人: ${data.payee_name}`)
+  return parts.length > 0 ? parts.join(' | ') : null
 }
 
 export default function ContractDetail() {
@@ -140,6 +156,37 @@ export default function ContractDetail() {
     { title: '付款日期', dataIndex: 'paid_date', key: 'paid_date', width: 110, render: (v: string) => v || '-' },
     { title: '方式', dataIndex: 'payment_method', key: 'payment_method', width: 80, render: (v: string) => v || '-' },
     {
+      title: '凭证',
+      dataIndex: 'receipt_data',
+      key: 'receipt_data',
+      width: 120,
+      render: (_v: any, r: Payment) => {
+        if (r.receipt_image_path) {
+          return (
+            <Button type="link" size="small" icon={<EyeOutlined />}
+              onClick={async () => {
+                try {
+                  const url = await paymentApi.getReceiptUrl(r.id)
+                  window.open(url, '_blank')
+                } catch {
+                  message.error('加载凭证失败')
+                }
+              }}
+            >查看</Button>
+          )
+        }
+        const summary = receiptSummary(r.receipt_data)
+        if (summary) {
+          return (
+            <Tooltip title={summary}>
+              <span style={{ color: '#0d9488', fontSize: 12 }}><FileTextOutlined /> 有记录</span>
+            </Tooltip>
+          )
+        }
+        return <span style={{ color: '#bbb', fontSize: 12 }}>-</span>
+      },
+    },
+    {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
@@ -158,6 +205,37 @@ export default function ContractDetail() {
     { title: '折CNY', dataIndex: 'paid_amount_in_cny', key: 'paid_amount_in_cny', width: 100, render: (v: number | null) => v != null ? fmt(v, 'CNY') : '-' },
     { title: '付款日期', dataIndex: 'paid_date', key: 'paid_date', width: 110, render: (v: string) => v || '-' },
     { title: '方式', dataIndex: 'payment_method', key: 'payment_method', width: 80, render: (v: string) => v || '-' },
+    {
+      title: '凭证',
+      dataIndex: 'receipt_data',
+      key: 'receipt_data',
+      width: 120,
+      render: (_v: any, r: Payment) => {
+        if (r.receipt_image_path) {
+          return (
+            <Button type="link" size="small" icon={<EyeOutlined />}
+              onClick={async () => {
+                try {
+                  const url = await paymentApi.getReceiptUrl(r.id)
+                  window.open(url, '_blank')
+                } catch {
+                  message.error('加载凭证失败')
+                }
+              }}
+            >查看</Button>
+          )
+        }
+        const summary = receiptSummary(r.receipt_data)
+        if (summary) {
+          return (
+            <Tooltip title={summary}>
+              <span style={{ color: '#0d9488', fontSize: 12 }}><FileTextOutlined /> 有记录</span>
+            </Tooltip>
+          )
+        }
+        return <span style={{ color: '#bbb', fontSize: 12 }}>-</span>
+      },
+    },
   ]
 
   const paymentTabItems = []

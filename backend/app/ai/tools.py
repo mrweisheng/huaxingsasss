@@ -474,7 +474,7 @@ class ToolExecutor:
         """获取凭证图片路径，三级策略：
         1. LLM 主动传的路径（最佳路径，直接用）
         2. 同请求内 _pending_receipt_path 缓存（analyze_image 刚设置的）
-        3. DB 查询兜底：当前会话最近一次 analyze_image 的 file_path（已消费的自动跳过）
+        3. DB 查询兜底：当前会话最近一次 analyze_image 的 file_path
         """
         # 1. LLM 主动传了
         if explicit_path:
@@ -505,16 +505,7 @@ class ToolExecutor:
         try:
             result = json.loads(record.answer)
             if result.get("success") and result.get("file_path"):
-                # 检查是否已被消费过
-                meta = record.extra_metadata or {}
-                if meta.get("receipt_consumed"):
-                    logger.info("DB兜底跳过：analyze_image 记录已消费 record_id=%s", record.id)
-                    return None
-                # 标记为已消费，防止同一会话重复使用
-                meta["receipt_consumed"] = True
-                record.extra_metadata = meta
-                self.db.commit()
-                logger.info("DB兜底：从会话历史找到 analyze_image file_path=%s（已标记消费）", result["file_path"])
+                logger.info("DB兜底：从会话历史找到 analyze_image file_path=%s", result["file_path"])
                 return result["file_path"]
         except (json.JSONDecodeError, TypeError):
             pass
@@ -1695,12 +1686,17 @@ class ToolExecutor:
                     structured = {"raw": content}
 
                 self._document_context = analysis_type
-                self._pending_receipt_path = f"agent_upload/{file_id}"
+                # 分析成功后立即将文件从 temp 复制到凭证永久目录，避免跨回合 temp 清理导致凭证丢失
+                permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+                receipt_path = permanent_path or f"agent_upload/{file_id}"
+                if not permanent_path:
+                    logger.warning("analyze_image: 凭证文件持久化失败 file_id=%s", file_id)
+                self._pending_receipt_path = receipt_path
                 return json.dumps({
                     "success": True,
                     "data": structured,
                     "file_id": file_id,
-                    "file_path": f"agent_upload/{file_id}",
+                    "file_path": receipt_path,
                     "file_type": "image",
                     "analysis_type": analysis_type,
                 }, ensure_ascii=False)
@@ -1763,12 +1759,16 @@ class ToolExecutor:
 
                             logger.info("PDF文本模型解析完成: analysis_type=%s, keys=%s", analysis_type, list(structured.keys()) if isinstance(structured, dict) else "非dict")
                             self._document_context = analysis_type
-                            self._pending_receipt_path = f"agent_upload/{file_id}"
+                            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+                            receipt_path = permanent_path or f"agent_upload/{file_id}"
+                            if not permanent_path:
+                                logger.warning("analyze_image PDF: 文件持久化失败 file_id=%s", file_id)
+                            self._pending_receipt_path = receipt_path
                             return json.dumps({
                                 "success": True,
                                 "data": structured,
                                 "file_id": file_id,
-                                "file_path": f"agent_upload/{file_id}",
+                                "file_path": receipt_path,
                                 "file_type": "pdf",
                                 "analysis_type": analysis_type,
                             }, ensure_ascii=False)
@@ -1814,10 +1814,14 @@ class ToolExecutor:
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
                             self._document_context = analysis_type
-                            self._pending_receipt_path = f"agent_upload/{file_id}"
+                            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+                            receipt_path = permanent_path or f"agent_upload/{file_id}"
+                            if not permanent_path:
+                                logger.warning("analyze_image PDF VL: 文件持久化失败 file_id=%s", file_id)
+                            self._pending_receipt_path = receipt_path
                             return json.dumps({
                                 "success": True, "data": structured,
-                                "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                                "file_id": file_id, "file_path": receipt_path,
                                 "file_type": "pdf", "analysis_type": analysis_type,
                             }, ensure_ascii=False)
                         except Exception as e:
@@ -1866,9 +1870,11 @@ class ToolExecutor:
                     finally:
                         doc.close()
                     result = "\n".join(pages_text)
+                    permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+                    file_out = permanent_path or f"agent_upload/{file_id}"
                     return json.dumps({
                         "success": True, "data": {"content": result[:5000]},
-                        "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                        "file_id": file_id, "file_path": file_out,
                         "file_type": "pdf",
                     }, ensure_ascii=False)
             except ImportError:
@@ -1880,18 +1886,22 @@ class ToolExecutor:
         # 3) 尝试 Word / 文本
         text_result = self._extract_text_sync(file_path)
         if text_result:
+            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+            file_out = permanent_path or f"agent_upload/{file_id}"
             return json.dumps({
                 "success": True, "data": {"content": text_result},
-                "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                "file_id": file_id, "file_path": file_out,
                 "file_type": "document",
             }, ensure_ascii=False)
 
         # 4) 尝试 Excel
         excel_result = self._extract_excel_sync(file_path)
         if excel_result:
+            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+            file_out = permanent_path or f"agent_upload/{file_id}"
             return json.dumps({
                 "success": True, "data": {"content": excel_result},
-                "file_id": file_id, "file_path": f"agent_upload/{file_id}",
+                "file_id": file_id, "file_path": file_out,
                 "file_type": "excel",
             }, ensure_ascii=False)
 
