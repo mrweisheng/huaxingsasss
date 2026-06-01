@@ -1512,7 +1512,7 @@ class ToolExecutor:
             }
 
             try:
-                with httpx.Client(timeout=60.0) as client:
+                with httpx.Client(timeout=120.0) as client:
                     response = client.post(
                         f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
                         json=payload,
@@ -1632,7 +1632,7 @@ class ToolExecutor:
                                 "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
                                 "Content-Type": "application/json",
                             }
-                            with httpx.Client(timeout=60.0) as client:
+                            with httpx.Client(timeout=120.0) as client:
                                 resp = client.post(f"{settings.SILICONFLOW_BASE_URL}/chat/completions", json=payload, headers=headers)
                             if resp.status_code != 200:
                                 return json.dumps({"error": f"VL API 错误: {resp.text}"}, ensure_ascii=False)
@@ -1676,7 +1676,7 @@ class ToolExecutor:
                                     "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
                                     "Content-Type": "application/json",
                                 }
-                                with httpx.Client(timeout=60.0) as client:
+                                with httpx.Client(timeout=120.0) as client:
                                     resp = client.post(
                                         f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
                                         json=payload, headers=headers,
