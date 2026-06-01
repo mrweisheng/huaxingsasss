@@ -82,6 +82,7 @@ class ToolExecutor:
         self.db = db
         self.user = user
         self._document_context: Optional[str] = None  # "receipt"|"contract"|"general"|None
+        self._pending_receipt_path: Optional[str] = None  # analyze_image 缓存，供后续 update_payment 自动使用
 
     def _can_access_contract(self, contract: Contract) -> bool:
         if self.user.role == "admin":
@@ -818,7 +819,10 @@ class ToolExecutor:
                 return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
 
         try:
-            receipt_path = self._ensure_file_in_receipt_dir(kwargs.get("receipt_image_path"))
+            raw_receipt_path = kwargs.get("receipt_image_path") or self._pending_receipt_path
+            if self._pending_receipt_path and raw_receipt_path == self._pending_receipt_path:
+                self._pending_receipt_path = None
+            receipt_path = self._ensure_file_in_receipt_dir(raw_receipt_path)
             logger.info(
                 "Agent创建付款: contract_id=%s, installment=%s, amount=%s %s, receipt=%s, notes=%s",
                 kwargs["contract_id"], kwargs["installment_number"],
@@ -865,7 +869,10 @@ class ToolExecutor:
             installment_number = PaymentService.get_next_installment_number(
                 self.db, kwargs["contract_id"], "expense"
             )
-            expense_receipt_path = self._ensure_file_in_receipt_dir(kwargs.get("receipt_image_path"))
+            raw_expense_receipt = kwargs.get("receipt_image_path") or self._pending_receipt_path
+            if self._pending_receipt_path and raw_expense_receipt == self._pending_receipt_path:
+                self._pending_receipt_path = None
+            expense_receipt_path = self._ensure_file_in_receipt_dir(raw_expense_receipt)
 
             payment = PaymentService.create_payment_with_exchange_rate(
                 db=self.db,
@@ -914,6 +921,11 @@ class ToolExecutor:
         # 可更新字段白名单
         updatable_fields = ["notes", "payment_method", "receipt_image_path", "receipt_data", "installment_name", "paid_date"]
         updates = {f: kwargs[f] for f in updatable_fields if kwargs.get(f) is not None}
+
+        # 如果 LLM 没传 receipt_image_path，但有 analyze_image 缓存的路径，自动补上
+        if "receipt_image_path" not in updates and self._pending_receipt_path:
+            updates["receipt_image_path"] = self._pending_receipt_path
+            self._pending_receipt_path = None  # 一次性消费
 
         # paid_date 合理性校验：拒绝晚于今天的日期，避免 LLM 误传未来日期
         if "paid_date" in updates:
@@ -1627,6 +1639,7 @@ class ToolExecutor:
                     structured = {"raw": content}
 
                 self._document_context = analysis_type
+                self._pending_receipt_path = f"agent_upload/{file_id}"
                 return json.dumps({
                     "success": True,
                     "data": structured,
@@ -1694,6 +1707,7 @@ class ToolExecutor:
 
                             logger.info("PDF文本模型解析完成: analysis_type=%s, keys=%s", analysis_type, list(structured.keys()) if isinstance(structured, dict) else "非dict")
                             self._document_context = analysis_type
+                            self._pending_receipt_path = f"agent_upload/{file_id}"
                             return json.dumps({
                                 "success": True,
                                 "data": structured,
@@ -1744,6 +1758,7 @@ class ToolExecutor:
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
                             self._document_context = analysis_type
+                            self._pending_receipt_path = f"agent_upload/{file_id}"
                             return json.dumps({
                                 "success": True, "data": structured,
                                 "file_id": file_id, "file_path": f"agent_upload/{file_id}",
