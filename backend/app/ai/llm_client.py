@@ -10,13 +10,12 @@ from app.config import settings
 
 
 class SiliconFlowClient:
-    """SiliconFlow Qwen-VL API客户端（异步）"""
+    """VL 视觉模型客户端（阿里云百炼 qwen3-vl-flash）"""
 
     def __init__(self):
-        self.api_key = settings.SILICONFLOW_API_KEY
-        self.base_url = settings.SILICONFLOW_BASE_URL
-        self.vision_model = settings.SILICONFLOW_VISION_MODEL
-        self.text_model = settings.SILICONFLOW_TEXT_MODEL
+        self.api_key = settings.DASHSCOPE_API_KEY
+        self.base_url = settings.DASHSCOPE_BASE_URL
+        self.vision_model = settings.DASHSCOPE_VISION_MODEL
 
     async def parse_contract_image(self, image_path: str) -> Dict[str, Any]:
         """

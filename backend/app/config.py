@@ -54,11 +54,16 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
     
-    # AI服务配置（SiliconFlow）
+    # AI服务配置（SiliconFlow - 纯文本任务）
     SILICONFLOW_API_KEY: str = ""
     SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
     SILICONFLOW_VISION_MODEL: str = "Qwen/Qwen3-VL-32B-Instruct"
     SILICONFLOW_TEXT_MODEL: str = "Qwen/Qwen3-VL-8B-Instruct"
+
+    # AI服务配置（阿里云百炼 - 视觉模型）
+    DASHSCOPE_API_KEY: str = ""
+    DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"
     
     # DeepSeek配置（Agent智能体模型）
     DEEPSEEK_API_KEY: Optional[str] = None
@@ -98,6 +103,11 @@ class Settings(BaseSettings):
         if not self.SILICONFLOW_API_KEY:
             raise ValueError(
                 "SILICONFLOW_API_KEY 必须设置。"
+                "请检查 .env 文件或环境变量。"
+            )
+        if not self.DASHSCOPE_API_KEY:
+            raise ValueError(
+                "DASHSCOPE_API_KEY 必须设置。"
                 "请检查 .env 文件或环境变量。"
             )
         return self

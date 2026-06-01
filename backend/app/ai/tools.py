@@ -3,6 +3,7 @@ Agent 工具执行器
 调用现有 Service 层实现业务操作
 """
 import base64
+import io
 import json
 import os
 import shutil
@@ -32,6 +33,41 @@ from app.services.payment_service import PaymentService
 from app.utils.file_utils import calculate_file_hash
 
 logger = logging.getLogger(__name__)
+
+# 图片压缩参数
+MAX_IMAGE_DIMENSION = 1600
+JPEG_QUALITY = 85
+
+
+def _compress_image(file_bytes: bytes, mime: str) -> tuple:
+    """压缩图片：缩放到 MAX_IMAGE_DIMENSION 内 + JPEG 质量 85。
+    如果已经足够小则原样返回。"""
+    from PIL import Image
+
+    try:
+        img = Image.open(io.BytesIO(file_bytes))
+    except Exception:
+        return file_bytes, mime
+
+    w, h = img.size
+    # 已足够小且是 JPEG → 不压缩
+    if max(w, h) <= MAX_IMAGE_DIMENSION and mime == "image/jpeg" and len(file_bytes) < 500_000:
+        return file_bytes, mime
+
+    # 等比缩放
+    if max(w, h) > MAX_IMAGE_DIMENSION:
+        ratio = MAX_IMAGE_DIMENSION / max(w, h)
+        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
+
+    # 转 JPEG
+    buf = io.BytesIO()
+    if img.mode in ("RGBA", "P"):
+        img = img.convert("RGB")
+    img.save(buf, format="JPEG", quality=JPEG_QUALITY)
+
+    compressed = buf.getvalue()
+    logger.info("图片压缩: %dx%d %s %.0fKB → %.0fKB", w, h, mime, len(file_bytes)/1024, len(compressed)/1024)
+    return compressed, "image/jpeg"
 
 
 def _escape_ilike(keyword: str) -> str:
@@ -1487,9 +1523,10 @@ class ToolExecutor:
                 "general": GENERAL_ANALYSIS_PROMPT,
             }.get(analysis_type, GENERAL_ANALYSIS_PROMPT)
 
+            file_bytes, mime = _compress_image(file_bytes, mime)
             image_base64 = base64.b64encode(file_bytes).decode()
             payload = {
-                "model": settings.SILICONFLOW_TEXT_MODEL,
+                "model": settings.DASHSCOPE_VISION_MODEL,
                 "messages": [
                     {
                         "role": "user",
@@ -1507,14 +1544,14 @@ class ToolExecutor:
             }
 
             headers = {
-                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
                 "Content-Type": "application/json",
             }
 
             try:
                 with httpx.Client(timeout=120.0) as client:
                     response = client.post(
-                        f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
+                        f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
                         json=payload,
                         headers=headers,
                     )
@@ -1610,14 +1647,14 @@ class ToolExecutor:
                             import fitz as _fitz
                             doc2 = _fitz.open(file_path)
                             try:
-                                pix = doc2[0].get_pixmap(dpi=200)
+                                pix = doc2[0].get_pixmap(dpi=150)
                                 img_bytes = pix.tobytes("png")
                                 img_b64 = base64.b64encode(img_bytes).decode()
                             finally:
                                 doc2.close()
 
                             payload = {
-                                "model": settings.SILICONFLOW_TEXT_MODEL,
+                                "model": settings.DASHSCOPE_VISION_MODEL,
                                 "messages": [{
                                     "role": "user",
                                     "content": [
@@ -1629,11 +1666,11 @@ class ToolExecutor:
                                 "max_tokens": 4096,
                             }
                             headers = {
-                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
                                 "Content-Type": "application/json",
                             }
                             with httpx.Client(timeout=120.0) as client:
-                                resp = client.post(f"{settings.SILICONFLOW_BASE_URL}/chat/completions", json=payload, headers=headers)
+                                resp = client.post(f"{settings.DASHSCOPE_BASE_URL}/chat/completions", json=payload, headers=headers)
                             if resp.status_code != 200:
                                 return json.dumps({"error": f"VL API 错误: {resp.text}"}, ensure_ascii=False)
                             content = resp.json()["choices"][0]["message"]["content"]
@@ -1657,11 +1694,11 @@ class ToolExecutor:
                             if text.strip():
                                 pages_text.append(f"第{page_num + 1}页:\n{text.strip()}")
                             else:
-                                pix = page.get_pixmap(dpi=200)
+                                pix = page.get_pixmap(dpi=150)
                                 img_bytes = pix.tobytes("png")
                                 img_b64 = base64.b64encode(img_bytes).decode()
                                 payload = {
-                                    "model": settings.SILICONFLOW_TEXT_MODEL,
+                                    "model": settings.DASHSCOPE_VISION_MODEL,
                                     "messages": [{
                                         "role": "user",
                                         "content": [
@@ -1673,12 +1710,12 @@ class ToolExecutor:
                                     "max_tokens": 4096,
                                 }
                                 headers = {
-                                    "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+                                    "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
                                     "Content-Type": "application/json",
                                 }
                                 with httpx.Client(timeout=120.0) as client:
                                     resp = client.post(
-                                        f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
+                                        f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
                                         json=payload, headers=headers,
                                     )
                                 if resp.status_code == 200:
