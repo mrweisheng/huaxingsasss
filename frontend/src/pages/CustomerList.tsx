@@ -69,8 +69,7 @@ export default function CustomerList() {
     setPage(1)
   }
 
-  const handleDelete = async (id: number, _name: string, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleDelete = async (id: number, _name: string) => {
     try {
       await customerApi.delete(id)
       message.success('删除成功')
@@ -84,20 +83,22 @@ export default function CustomerList() {
 
   return (
     <div className="customer-list-container">
-      <div className="top-bar">
-        <div className="top-bar-left">
-          <h2 className="page-title">
-            <TeamOutlined className="title-icon" />
-            <span className="title-text">客户管理</span>
-            <span className="customer-count">{total} 个客户</span>
-          </h2>
+      <div className="page-topbar">
+        <div className="page-topbar-left">
+          <div className="page-title-wrap">
+            <div className="page-title-icon">
+              <TeamOutlined />
+            </div>
+            <span className="page-title-text">客户管理</span>
+            <span className="page-title-count">{total} 个客户</span>
+          </div>
         </div>
-        <div className="top-bar-right">
+        <div className="page-topbar-right">
           <Input.Search
             placeholder="搜索客户名称/联系人/电话..."
             allowClear
             onSearch={handleSearch}
-            className="search-input"
+            style={{ width: 220 }}
             prefix={<SearchOutlined />}
           />
           <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/customers/new')}>
@@ -191,7 +192,7 @@ export default function CustomerList() {
                         <Popconfirm
                           title="确认删除"
                           description={`确定要删除客户「${customer.name}」吗？`}
-                          onConfirm={(e) => handleDelete(customer.id, customer.name, e as any)}
+                          onConfirm={() => handleDelete(customer.id, customer.name)}
                           okText="删除"
                           cancelText="取消"
                           okButtonProps={{ danger: true }}

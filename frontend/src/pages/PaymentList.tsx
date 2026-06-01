@@ -16,9 +16,9 @@ function fmt(amount: number | undefined | null, currency: string): string {
 
 const statusMap: Record<string, { color: string; text: string }> = {
   pending: { color: '#8c8c8c', text: '待支付' },
-  partial: { color: '#fa8c16', text: '部分支付' },
-  paid: { color: '#52c41a', text: '已支付' },
-  overdue: { color: '#ff4d4f', text: '逾期' },
+  partial: { color: '#d97706', text: '部分支付' },
+  paid: { color: '#0d9488', text: '已支付' },
+  overdue: { color: '#dc2626', text: '逾期' },
   cancelled: { color: '#8c8c8c', text: '已取消' },
 }
 
@@ -43,7 +43,6 @@ export default function PaymentList() {
   const user = useAuthStore((s) => s.user)
   const role = user?.role || ''
 
-  // 根据角色设定默认 tab
   const defaultTab = role === 'expense' ? 'expense' : role === 'income' ? 'income' : 'all'
   const [activeTab, setActiveTab] = useState(defaultTab)
 
@@ -159,7 +158,7 @@ export default function PaymentList() {
       width: 100,
       minWidth: 80,
       align: 'right' as const,
-      render: (v: number, r: Payment) => fmt(v, r.currency),
+      render: (v: number, r: Payment) => <span className="num-mono">{fmt(v, r.currency)}</span>,
     },
     {
       title: '折算CNY',
@@ -168,7 +167,7 @@ export default function PaymentList() {
       width: 100,
       minWidth: 80,
       align: 'right' as const,
-      render: (v: number) => fmt(v, 'CNY'),
+      render: (v: number) => <span className="num-mono">{fmt(v, 'CNY')}</span>,
     },
     {
       title: '付款日期',
@@ -195,7 +194,20 @@ export default function PaymentList() {
       minWidth: 70,
       render: (s: string) => {
         const { color, text } = statusMap[s] || { color: '#8c8c8c', text: s }
-        return <span style={{ color, padding: '2px 8px', borderRadius: 4, fontSize: 11, fontWeight: 600 }}>{text}</span>
+        return (
+          <span
+            style={{
+              color,
+              padding: '2px 8px',
+              borderRadius: 4,
+              fontSize: 11,
+              fontWeight: 600,
+              background: s === 'paid' ? 'var(--color-success-bg)' : s === 'overdue' ? 'var(--color-danger-bg)' : 'var(--bg-subtle)',
+            }}
+          >
+            {text}
+          </span>
+        )
       },
     },
     {
@@ -260,7 +272,6 @@ export default function PaymentList() {
     { key: 'expense', label: '支出' },
   ]
 
-  // 根据角色过滤 tab 选项
   const visibleTabs = role === 'income'
     ? tabItems.filter(t => t.key === 'income')
     : role === 'expense'
@@ -269,17 +280,20 @@ export default function PaymentList() {
 
   return (
     <div className="payment-list-container">
-      <div className="top-bar">
-        <div className="top-bar-left">
-          <h2 className="page-title">
-            <DollarOutlined className="title-icon" />
-            <span className="title-text">
+      {/* 页面标题栏 */}
+      <div className="page-topbar">
+        <div className="page-topbar-left">
+          <div className="page-title-wrap">
+            <div className="page-title-icon">
+              <DollarOutlined />
+            </div>
+            <span className="page-title-text">
               {role === 'expense' ? '支出管理' : role === 'income' ? '收入管理' : '收付管理'}
             </span>
-            <span className="payment-count">{total} 条记录</span>
-          </h2>
+            <span className="page-title-count">{total} 条记录</span>
+          </div>
         </div>
-        <div className="top-bar-right">
+        <div className="page-topbar-right">
           <Select
             placeholder="状态"
             allowClear

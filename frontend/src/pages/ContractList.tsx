@@ -104,8 +104,7 @@ export default function ContractList() {
     setPage(1)
   }
 
-  const handleDelete = async (id: number, e: React.MouseEvent) => {
-    e.stopPropagation()
+  const handleDelete = async (id: number) => {
     try {
       await contractApi.delete(id)
       message.success('删除成功')
@@ -119,20 +118,22 @@ export default function ContractList() {
 
   return (
     <div className="contract-list-container">
-      <div className="top-bar">
-        <div className="top-bar-left">
-          <h2 className="page-title">
-            <FileTextOutlined className="title-icon" />
-            <span className="title-text">合同管理</span>
-            <span className="contract-count">{total} 个合同</span>
-          </h2>
+      <div className="page-topbar">
+        <div className="page-topbar-left">
+          <div className="page-title-wrap">
+            <div className="page-title-icon">
+              <FileTextOutlined />
+            </div>
+            <span className="page-title-text">合同管理</span>
+            <span className="page-title-count">{total} 个合同</span>
+          </div>
         </div>
-        <div className="top-bar-right">
+        <div className="page-topbar-right">
           <Input.Search
             placeholder="搜索合同编号/标题/客户..."
             allowClear
             onSearch={handleSearch}
-            className="search-input"
+            style={{ width: 220 }}
             prefix={<SearchOutlined />}
           />
           <Select
@@ -150,7 +151,6 @@ export default function ContractList() {
           <RangePicker
             onChange={handleDateChange}
             value={dateRange}
-            className="date-picker"
           />
           {(role === 'admin' || role === 'income') && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/upload')}>
@@ -257,7 +257,7 @@ export default function ContractList() {
                       <Popconfirm
                         title="确认删除"
                         description={`确定要删除合同 ${contract.contract_number} 吗？`}
-                        onConfirm={(e) => handleDelete(contract.id, e as any)}
+                        onConfirm={() => handleDelete(contract.id)}
                         okText="删除"
                         cancelText="取消"
                         okButtonProps={{ danger: true }}

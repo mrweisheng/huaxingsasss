@@ -307,6 +307,28 @@ class DeepSeekClient:
                         yield {"type": "done", "finish_reason": "tool_calls"}
                         return
 
+                    if finish_reason == "length":
+                        # max_tokens 截断：如果已累计了 tool_calls，必须把它们 yield 出去
+                        # 否则上游 ReAct 循环会误判 not tool_calls → 对话结束，工具调用彻底丢失
+                        if current_tool_calls:
+                            logger.warning(
+                                "DeepSeek 流式返回 length 截断且含 tool_calls，"
+                                "已强制 flush %d 个工具调用",
+                                len(current_tool_calls),
+                            )
+                            for tc in current_tool_calls.values():
+                                yield {
+                                    "type": "tool_call",
+                                    "id": tc["id"],
+                                    "name": tc["name"],
+                                    "arguments": tc.get("arguments", ""),
+                                }
+                            current_tool_calls = {}
+                            yield {"type": "done", "finish_reason": "tool_calls"}
+                            return
+                        yield {"type": "done", "finish_reason": "length"}
+                        return
+
                     if finish_reason == "stop":
                         if current_tool_calls:
                             for tc in current_tool_calls.values():

@@ -79,15 +79,19 @@ class ContractAgent:
             history = history[-settings.AGENT_MAX_SUMMARY_MESSAGES:]
             # 截断可能拆散 tool_call 配对，需重新验证
             history = self._validate_message_chain(history, session_id)
+            # 进一步确保最后一轮 assistant+tool 配对完整，避免摘要窗口过短
+            # 导致 LLM 看不到工具结果
+            history = self._ensure_trailing_pair_intact(history)
 
         # 4. 构建消息
         messages = self._build_messages(history, user_message, file_context, summary=summary)
 
-        # 5. 保存当前用户消息到数据库
-        self._save_message(session_id, "user", user_message, metadata={
+        # 5. 用户消息先入 messages（用于本轮 LLM 调用），
+        #    但延迟到助手回复成功后再 commit，避免 LLM 失败时出现"用户问了 AI 没答"的孤儿用户消息。
+        pending_user_metadata = {
             "attachments": attachments,
             "file_context": file_context,
-        })
+        }
 
         # ReAct 循环
         total_tokens = 0
@@ -141,7 +145,10 @@ class ContractAgent:
                 logger.exception("ReAct迭代 #%d LLM调用异常", iteration)
                 # 如果之前有工具结果，用工具结果生成兜底回复
                 fallback = self._build_tool_result_fallback(messages)
-                full_text = fallback or f"抱歉，我在处理时遇到了技术问题: {str(e)}"
+                if fallback is not None:
+                    full_text = fallback
+                else:
+                    full_text = f"抱歉，我在处理时遇到了技术问题: {str(e)}"
                 yield {"event": "text", "data": {"content": full_text}}
                 tool_calls = []
 
@@ -155,12 +162,14 @@ class ContractAgent:
                 if not full_text.strip() and iteration > 0:
                     # 第二轮及以上返回空文本 → 尝试从最近的工具结果生成兜底回复
                     fallback = self._build_tool_result_fallback(messages)
-                    if fallback:
+                    if fallback is not None:
                         full_text = fallback
                         logger.info("使用兜底回复: %s", full_text[:100])
                         yield {"event": "text", "data": {"content": full_text}}
 
                 self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
+                # 助手消息落库成功后才落库用户消息，避免孤儿 user 消息
+                self._save_message(session_id, "user", user_message, metadata=pending_user_metadata)
                 yield {
                     "event": "done",
                     "data": {
@@ -188,7 +197,11 @@ class ContractAgent:
             messages.append(assistant_msg)
 
             # 持久化 assistant 的 tool_call 消息
+            # 注意：首轮写库时同步把用户消息也入库，确保 user/assistant 配对一致
             self._save_message(session_id, "assistant", full_text or "", tool_calls=tool_calls_serialized)
+            if iteration == 0 and not getattr(self, "_user_msg_persisted", False):
+                self._save_message(session_id, "user", user_message, metadata=pending_user_metadata)
+                self._user_msg_persisted = True
 
             for tc in tool_calls:
                 yield {
@@ -229,14 +242,17 @@ class ContractAgent:
                     "content": result,
                 })
 
-                # 持久化 tool result 消息
-                self.save_tool_message(session_id, tc["id"], tc["name"], result[:5000])
+                # 持久化 tool result 消息（截断长度与 LLM 看到的一致，避免 sanitizer 误判）
+                self.save_tool_message(session_id, tc["id"], tc["name"], result[:6000])
 
             # 继续循环，让 LLM 根据工具结果生成回复
 
         # 超过最大迭代次数
         full_text += "\n\n[系统提示：对话轮次已达上限，如果问题尚未解决，请继续提问。]"
         self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
+        if not getattr(self, "_user_msg_persisted", False):
+            self._save_message(session_id, "user", user_message, metadata=pending_user_metadata)
+            self._user_msg_persisted = True
         yield {
             "event": "done",
             "data": {"session_id": session_id, "tokens_used": total_tokens},
@@ -342,6 +358,23 @@ class ContractAgent:
                 i += 1
 
         return cleaned
+
+    @staticmethod
+    def _ensure_trailing_pair_intact(messages: List[dict]) -> List[dict]:
+        """如果历史以 assistant(tool_calls) 开头但缺少对应 tool 回复，
+        说明截断拆散了配对。回退一格找到完整的最后一轮工具配对。
+        """
+        if not messages:
+            return messages
+        last = messages[-1]
+        if last.get("role") == "assistant" and last.get("tool_calls"):
+            # 向前找最近的 user 消息，确保包含完整一轮
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i].get("role") == "user":
+                    return messages[i:]
+            # 没有 user 兜底：剥离末尾的 tool_calls
+            return [{"role": "assistant", "content": last.get("content") or ""}]
+        return messages
 
     @staticmethod
     def _sanitize_messages_for_api(messages: List[dict], session_id: str) -> List[dict]:
@@ -462,8 +495,9 @@ class ContractAgent:
             return None
 
     @staticmethod
-    def _build_tool_result_fallback(messages: List[dict]) -> str:
-        """当 LLM 在工具调用后未生成回复时，从最近的 tool 结果构建兜底回复"""
+    def _build_tool_result_fallback(messages: List[dict]) -> Optional[str]:
+        """当 LLM 在工具调用后未生成回复时，从最近的 tool 结果构建兜底回复。
+        返回 None 表示无法生成（caller 应回退到通用错误提示）。"""
         # 查找最后一个 tool 消息
         for msg in reversed(messages):
             if msg.get("role") == "tool":

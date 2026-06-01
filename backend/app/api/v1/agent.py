@@ -120,6 +120,11 @@ async def chat(
                 user_message=question,
                 attachments=[a.model_dump() for a in request.attachments] if request.attachments else None,
             ):
+                # 客户端断开时 yield 会抛 CancelledError，中断整轮 ReAct 循环，
+                # 避免 LLM 继续跑完整轮浪费 token
+                if await request.is_disconnected():
+                    logger.info("SSE客户端断开，中断Agent生成 session=%s", request.session_id)
+                    return
                 yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
         except Exception as e:
             logger.exception("Agent chat error")
@@ -145,15 +150,21 @@ async def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
 ):
-    """上传文件到临时目录，供聊天中使用"""
-    os.makedirs(settings.TEMP_UPLOAD_DIR, exist_ok=True)
+    """上传文件到按用户隔离的临时目录，供聊天中使用。
+
+    路径格式：TEMP_UPLOAD_DIR/{user_id}/{file_id}
+    - 用户隔离：避免 file_id 跨用户访问（虽然当前 LLM 不会跨用户传，但防御性写法）
+    - 启动时清理过期文件（参见 main.py 的 _cleanup_temp_uploads）
+    """
+    user_dir = os.path.join(settings.TEMP_UPLOAD_DIR, str(current_user.id))
+    os.makedirs(user_dir, exist_ok=True)
 
     content = await file.read()
     if len(content) > settings.MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail="文件过大")
 
     file_id = str(uuid.uuid4())
-    file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
+    file_path = os.path.join(user_dir, file_id)
 
     with open(file_path, "wb") as f:
         f.write(content)

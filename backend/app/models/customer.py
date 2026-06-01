@@ -15,7 +15,8 @@ class Customer(BaseModel):
     contact_person = Column(String(100), comment="联系人")
     phone = Column(String(20), index=True, comment="联系电话")
     email = Column(String(100), comment="联系邮箱")
-    id_card_number_encrypted = Column(Text, comment="身份证号（加密存储）")
+    # TODO(security): 当前仅 base64 编码（可逆），不是真加密。生产环境应使用 cryptography 库的 AES + KMS 密钥加密。
+    id_card_number_encrypted = Column(Text, comment="身份证号（base64 编码占位字段，待真加密）")
     business_license = Column(String(50), comment="营业执照号")
     address = Column(Text, comment="地址")
     wechat_group_name = Column(String(200), index=True, comment="微信群名称")

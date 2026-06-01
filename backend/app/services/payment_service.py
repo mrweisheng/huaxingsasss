@@ -36,6 +36,8 @@ class PaymentService:
         created_by: int = None,
         type: str = "income",
         payee_name: str = None,
+        installment_name: str = None,
+        receipt_data: dict = None,
     ) -> Payment:
         """
         创建付款记录并自动计算汇率。
@@ -79,7 +81,9 @@ class PaymentService:
             paid_date=paid_date,
             payment_method=payment_method,
             payee_name=payee_name if type == "expense" else None,
+            installment_name=installment_name,
             receipt_image_path=receipt_image_path,
+            receipt_data=receipt_data,
             notes=notes,
             status='paid' if has_receipt else 'pending',
             created_by=created_by,
@@ -266,11 +270,23 @@ class PaymentService:
                     db, contract, payment.paid_amount, payment.paid_amount_in_cny or 0
                 )
             else:
-                # 收入扣减
-                if payment.currency == contract.currency:
-                    contract.paid_amount -= payment.paid_amount
+                # 收入扣减：必须按币种/汇率折算扣减 paid_amount，避免跨币种时 paid_amount 与 paid_amount_in_cny 失同步
                 contract.paid_amount_in_cny = (contract.paid_amount_in_cny or 0) - (payment.paid_amount_in_cny or 0)
-                contract.remaining_amount = contract.total_amount - contract.paid_amount
+                if payment.currency == contract.currency:
+                    contract.paid_amount = (contract.paid_amount or 0) - (payment.paid_amount or 0)
+                else:
+                    # 跨币种：用付款日汇率反算回合同币种
+                    if payment.paid_date and payment.paid_amount_in_cny and payment.paid_amount:
+                        contract_rate, _ = ExchangeRateService.convert_to_cny(
+                            db, Decimal('1'), contract.currency, payment.paid_date
+                        )
+                        if contract_rate:
+                            contract.paid_amount = (contract.paid_amount or 0) - \
+                                (payment.paid_amount_in_cny / contract_rate).quantize(Decimal('0.01'))
+                # 保底为 0，避免历史脏数据导致负数
+                contract.paid_amount = max(contract.paid_amount or 0, Decimal('0'))
+                contract.paid_amount_in_cny = max(contract.paid_amount_in_cny or 0, Decimal('0'))
+                contract.remaining_amount = (contract.total_amount or 0) - (contract.paid_amount or 0)
                 contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
                 if contract.status == 'completed' and contract.paid_amount_in_cny < contract.total_amount_in_cny:
                     contract.status = 'active'

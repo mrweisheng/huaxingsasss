@@ -105,6 +105,8 @@ class CustomerService:
             contact_person=contact_person,
             phone=phone,
             email=email,
+            # TODO(security): 当前仅 base64 编码（可逆），合规上不等同加密。
+            # 计划升级为 cryptography 库 AES-GCM + KMS 密钥管理。
             id_card_number_encrypted=(
                 base64.b64encode(id_card_number.encode()).decode()
                 if id_card_number

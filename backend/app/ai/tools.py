@@ -179,19 +179,29 @@ class ToolExecutor:
         total_count = query.count()
         customers = query.order_by(Customer.created_at.desc()).limit(limit).all()
 
+        # 单条 group_by 查询统计每个客户的合同数，避免 N+1
+        contract_count_map: dict[int, int] = {}
+        if customers:
+            rows = (
+                self.db.query(Contract.customer_id, func.count(Contract.id))
+                .filter(
+                    Contract.customer_id.in_([c.id for c in customers]),
+                    Contract.is_deleted == False,
+                )
+                .group_by(Contract.customer_id)
+                .all()
+            )
+            contract_count_map = {cid: cnt for cid, cnt in rows}
+
         results = []
         for c in customers:
-            contract_count = self.db.query(Contract).filter(
-                Contract.customer_id == c.id,
-                Contract.is_deleted == False,
-            ).count()
             results.append({
                 "id": c.id,
                 "name": c.name,
                 "contact_person": c.contact_person,
                 "phone": c.phone,
                 "wechat_group_name": c.wechat_group_name,
-                "contract_count": contract_count,
+                "contract_count": contract_count_map.get(c.id, 0),
             })
 
         # 无筛选条件时：返回统计 + 少量样例，引导用户精确查找
@@ -461,13 +471,22 @@ class ToolExecutor:
     def _ensure_file_in_receipt_dir(self, file_path: str) -> str:
         """如果 file_path 是 agent_upload/{file_id} 格式，
         把文件从临时目录复制到凭证目录，返回新路径。
-        否则原样返回。"""
+        否则原样返回。
+
+        路径查找顺序（2026/06 重构后支持用户隔离）：
+        1. TEMP_UPLOAD_DIR/{self.user.id}/{file_id}（新格式）
+        2. TEMP_UPLOAD_DIR/{file_id}（旧格式，兼容历史数据）
+        """
         if not file_path or not file_path.startswith("agent_upload/"):
             return file_path
         file_id = file_path[len("agent_upload/"):]
-        temp_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
-        if not os.path.exists(temp_path):
-            logger.warning("凭证文件复制跳过: 临时文件不存在 path=%s", temp_path)
+        candidates = [
+            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id),
+            os.path.join(settings.TEMP_UPLOAD_DIR, file_id),
+        ]
+        temp_path = next((p for p in candidates if os.path.exists(p)), None)
+        if not temp_path:
+            logger.warning("凭证文件复制跳过: 临时文件不存在 file_id=%s, user=%s", file_id, self.user.id)
             return file_path
         try:
             with open(temp_path, "rb") as f:
@@ -572,14 +591,9 @@ class ToolExecutor:
                     notes="合同标注已付，待补充凭证" if not matched_receipt else "合同标注已付，已关联凭证",
                     created_by=self.user.id,
                     type="income",
+                    installment_name=term.get("name"),
+                    receipt_data=(receipt_data if matched_receipt else None),
                 )
-                if term.get("name"):
-                    payment.installment_name = term["name"]
-                if matched_receipt and receipt_data:
-                    payment.receipt_data = receipt_data
-                if term.get("name") or (matched_receipt and receipt_data):
-                    self.db.commit()
-                    self.db.refresh(payment)
 
                 auto_payments.append({
                     "payment_id": payment.id,
@@ -632,12 +646,16 @@ class ToolExecutor:
         if not customer:
             return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
 
-        # 处理文件
-        temp_file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
+        # 处理文件：支持用户隔离路径与旧全局路径
+        candidates = [
+            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id),
+            os.path.join(settings.TEMP_UPLOAD_DIR, file_id),
+        ]
+        temp_file_path = next((p for p in candidates if os.path.exists(p)), None)
         file_hash = None
         original_file_path = f"agent_upload/{file_id}"
 
-        if os.path.exists(temp_file_path):
+        if temp_file_path and os.path.exists(temp_file_path):
             with open(temp_file_path, "rb") as f:
                 content = f.read()
             file_hash = calculate_file_hash(content)
@@ -820,15 +838,9 @@ class ToolExecutor:
                 notes=kwargs.get("notes"),
                 created_by=self.user.id,
                 type="income",
+                installment_name=kwargs.get("installment_name"),
+                receipt_data=kwargs.get("receipt_data"),
             )
-            self.db.refresh(payment)
-            if kwargs.get("installment_name"):
-                payment.installment_name = kwargs["installment_name"]
-            if kwargs.get("receipt_data"):
-                payment.receipt_data = kwargs["receipt_data"]
-            if kwargs.get("installment_name") or kwargs.get("receipt_data"):
-                self.db.commit()
-                self.db.refresh(payment)
             if payment.contract and payment.contract.customer:
                 payment.contract.customer  # ensure loaded
             result = self._payment_to_dict(payment)
@@ -868,15 +880,9 @@ class ToolExecutor:
                 created_by=self.user.id,
                 type="expense",
                 payee_name=kwargs["payee_name"],
+                installment_name=kwargs.get("installment_name"),
+                receipt_data=kwargs.get("receipt_data"),
             )
-            self.db.refresh(payment)
-            if kwargs.get("installment_name"):
-                payment.installment_name = kwargs["installment_name"]
-            if kwargs.get("receipt_data"):
-                payment.receipt_data = kwargs["receipt_data"]
-            if kwargs.get("installment_name") or kwargs.get("receipt_data"):
-                self.db.commit()
-                self.db.refresh(payment)
             result = self._payment_to_dict(payment)
             result["contract_number"] = payment.contract.contract_number if payment.contract else None
             return json.dumps({"success": True, "payment": result}, ensure_ascii=False)
@@ -908,6 +914,15 @@ class ToolExecutor:
         # 可更新字段白名单
         updatable_fields = ["notes", "payment_method", "receipt_image_path", "receipt_data", "installment_name", "paid_date"]
         updates = {f: kwargs[f] for f in updatable_fields if kwargs.get(f) is not None}
+
+        # paid_date 合理性校验：拒绝晚于今天的日期，避免 LLM 误传未来日期
+        if "paid_date" in updates:
+            try:
+                paid_date_val = date.fromisoformat(updates["paid_date"])
+                if paid_date_val > date.today():
+                    return json.dumps({"error": f"付款日期不能晚于今天: {updates['paid_date']}"}, ensure_ascii=False)
+            except (ValueError, TypeError):
+                return json.dumps({"error": f"paid_date 格式错误，应为 YYYY-MM-DD: {updates['paid_date']}"}, ensure_ascii=False)
 
         # 凭证路径：从 TEMP 复制到凭证目录
         if "receipt_image_path" in updates:
@@ -1190,7 +1205,7 @@ class ToolExecutor:
             query = query.filter(Payment.contract_id == kwargs["contract_id"])
 
         if kwargs.get("payee_name"):
-            query = query.filter(Payment.payee_name.ilike(f"%{kwargs['payee_name']}%"))
+            query = query.filter(Payment.payee_name.ilike(f"%{_escape_ilike(kwargs['payee_name'])}%"))
 
         payments = query.all()
         total_expense = sum(float(p.paid_amount_in_cny or 0) for p in payments)
@@ -1243,7 +1258,7 @@ class ToolExecutor:
                 query = query.filter(Contract.sales_person_id == self.user.id)
             if kwargs.get("customer_name"):
                 query = query.join(Customer).filter(
-                    Customer.name.ilike(f"%{kwargs['customer_name']}%")
+                    Customer.name.ilike(f"%{_escape_ilike(kwargs['customer_name'])}%")
                 )
 
         if kwargs.get("date_from"):
@@ -1329,7 +1344,7 @@ class ToolExecutor:
 
         if kwargs.get("customer_name"):
             query = query.join(Contract).join(Customer).filter(
-                Customer.name.ilike(f"%{kwargs['customer_name']}%")
+                Customer.name.ilike(f"%{_escape_ilike(kwargs['customer_name'])}%")
             )
 
         min_days = kwargs.get("min_days_overdue", 1)
@@ -1536,9 +1551,21 @@ class ToolExecutor:
             return ".xls 旧格式不受支持，请转换为 .xlsx"
 
     def analyze_image(self, file_id: str, analysis_type: str = "receipt") -> str:
-        """分析上传的文件（图片/PDF/Word/Excel/文本），同步调用"""
-        file_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
-        if not os.path.exists(file_path):
+        """分析上传的文件（图片/PDF/Word/Excel/文本），同步调用
+
+        路径约定（2026/06 重构后）：TEMP_UPLOAD_DIR/{user_id}/{file_id}
+        用户隔离由 api/v1/agent.py 的 /upload 端点写入路径决定。
+        为兼容旧全局路径与新用户隔离路径，这里两路都尝试。
+        """
+        # 新格式：用户隔离路径
+        user_scoped_path = os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id)
+        # 旧格式：全局路径（历史数据兼容）
+        legacy_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
+        if os.path.exists(user_scoped_path):
+            file_path = user_scoped_path
+        elif os.path.exists(legacy_path):
+            file_path = legacy_path
+        else:
             return json.dumps({"error": f"文件不存在: {file_id}"}, ensure_ascii=False)
 
         # 1) 读取文件头判断是否为图片
@@ -1800,29 +1827,35 @@ class ToolExecutor:
         return json.dumps({"error": "无法识别的文件类型，支持：图片、PDF、Word、Excel、文本"}, ensure_ascii=False)
 
     # 文档类型 → 禁止的工具集合
+    # receipt：上传凭证时，禁止创建合同/客户（凭证不能触发合同录入）
+    # general：上传非合同图片时，禁止创建新合同（应通过 update_contract 关联已有合同）
     _DOCUMENT_BLOCKED_TOOLS = {
-        "receipt": {"create_contract", "create_customer"},
-        "general": {"create_contract", "create_customer"},
+        "receipt": {"create_contract", "create_customer", "create_expense", "update_contract"},
+        "general": {"create_contract", "create_customer", "create_payment", "create_expense", "update_payment"},
     }
 
     def _check_document_guard(self, tool_name: str) -> Optional[str]:
-        """文档上下文守卫。返回 None 放行，返回 JSON 字符串拦截。"""
+        """文档上下文守卫。返回 None 放行，返回 JSON 字符串拦截。
+        一次性消费：无论是否拦截，检查后立即清空上下文，
+        避免污染同会话后续轮次的工具调用。"""
         if self._document_context is None:
             return None
-        blocked = self._DOCUMENT_BLOCKED_TOOLS.get(self._document_context)
+        context = self._document_context
+        self._document_context = None  # 一次性消费
+        blocked = self._DOCUMENT_BLOCKED_TOOLS.get(context)
         if not blocked or tool_name not in blocked:
             return None
         label = {"receipt": "付款凭证", "general": "非合同类文件"}.get(
-            self._document_context, self._document_context
+            context, context
         )
         hint = {
-            "receipt": "凭证只能用于付款操作（match_receipt / create_payment / update_payment）。如需创建合同，请让用户上传合同文件。",
-            "general": "此类文件应通过 update_contract 关联已有合同。如需创建新合同，请让用户上传合同文件。",
-        }.get(self._document_context, "")
+            "receipt": "凭证只能用于付款操作（match_receipt / create_payment / update_payment）。如需创建/修改合同，请让用户上传合同文件。",
+            "general": "此类文件应通过 update_contract 关联已有合同（仅修改微信群/备注等元信息），不能用于付款操作。如需创建新合同或记录付款，请让用户上传合同/凭证文件。",
+        }.get(context, "")
         return json.dumps({
             "error": f"当前文件为「{label}」，不允许执行「{tool_name}」。{hint}",
             "blocked_tool": tool_name,
-            "document_context": self._document_context,
+            "document_context": context,
         }, ensure_ascii=False)
 
     def execute(self, tool_name: str, arguments: dict) -> str:
@@ -1835,10 +1868,11 @@ class ToolExecutor:
         args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
         logger.info("工具调用: %s | 参数: %s", tool_name, args_preview)
 
-        # 文档上下文守卫
+        # 文档上下文守卫：analyze_image 设置的 document_context 一次性消费后立即清空，
+        # 避免污染同会话后续轮次的工具调用
         blocked = self._check_document_guard(tool_name)
         if blocked:
-            logger.warning("文档上下文守卫拦截: tool=%s, context=%s", tool_name, self._document_context)
+            logger.warning("文档上下文守卫拦截: tool=%s", tool_name)
             return blocked
 
         try:
