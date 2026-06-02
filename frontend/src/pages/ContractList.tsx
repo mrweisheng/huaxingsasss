@@ -210,43 +210,57 @@ export default function ContractList() {
                   )}
 
                   <div className="amount-section">
-                    <div className="amount-total-row">
-                      <span className="amount-total-label">合同总额</span>
-                      <span className="amount-total-value">{formatAmount(contract.total_amount, contract.currency)}</span>
+                    {/* 总金额 — 视觉锚点 */}
+                    <div className="amount-hero">
+                      <span className="amount-hero-label">合同总额</span>
+                      <span className="amount-hero-value">
+                        {formatAmount(contract.total_amount, contract.currency)}
+                      </span>
                     </div>
-                    <div className="amount-grid">
-                      <div className="amount-col">
-                        <span className="amount-col-label">已付</span>
-                        <div className="amount-col-bar">
-                          <div className="amount-col-fill paid" style={{ width: `${progress}%` }} />
+
+                    {/* 已付 / 未付 — 并排对比 */}
+                    <div className="amount-split">
+                      <div className="amount-split-item is-paid">
+                        <div className="split-item-header">
+                          <span className="split-dot paid" />
+                          <span className="split-label">已付</span>
                         </div>
-                        <span className="amount-col-value paid">{formatAmount(contract.paid_amount, contract.currency)}</span>
+                        <div className="split-value paid">
+                          {formatAmount(contract.paid_amount, contract.currency)}
+                        </div>
+                        {contract.payment_total_count > 0 && (
+                          <div className="split-meta">
+                            <span className="split-count">{contract.paid_count}/{contract.payment_total_count}笔</span>
+                            {(contract as any).expense_count > 0 && (
+                              <span className="split-expense">{(contract as any).expense_count}笔支出</span>
+                            )}
+                          </div>
+                        )}
                       </div>
-                      <div className="amount-col">
-                        <span className="amount-col-label">尾款</span>
-                        <div className="amount-col-bar">
-                          <div className="amount-col-fill remaining" style={{ width: `${100 - progress}%` }} />
+
+                      <div className="amount-split-vert" />
+
+                      <div className="amount-split-item is-unpaid">
+                        <div className="split-item-header">
+                          <span className="split-dot unpaid" />
+                          <span className="split-label">未付</span>
                         </div>
-                        <span className={`amount-col-value ${contract.remaining_amount > 0 ? 'unpaid' : 'paid'}`}>
+                        <div className={`split-value ${contract.remaining_amount > 0 ? 'unpaid' : 'paid'}`}>
                           {formatAmount(contract.remaining_amount, contract.currency)}
-                        </span>
+                        </div>
+                        {contract.payment_total_count > 0 && (
+                          <div className="split-meta">
+                            <div className="split-progress">
+                              <div className="split-progress-track">
+                                <div className="split-progress-fill" style={{ width: `${progress}%` }} />
+                              </div>
+                              <span className="split-progress-text">{progress}%</span>
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
-
-                  {contract.payment_total_count > 0 && (
-                    <div className="payment-summary">
-                      <span className="payment-summary-total">{contract.payment_total_count}笔付款</span>
-                      {contract.paid_count > 0 && (
-                        <span className="payment-summary-paid">{contract.paid_count}笔已付</span>
-                      )}
-                      {(contract as any).expense_count > 0 && (
-                        <span className="payment-summary-paid" style={{ backgroundColor: '#fff1f0', color: '#ff4d4f' }}>
-                          {(contract as any).expense_count}笔支出
-                        </span>
-                      )}
-                    </div>
-                  )}
 
                   <div className="card-footer">
                     <div className="footer-item">

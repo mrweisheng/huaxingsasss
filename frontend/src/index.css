@@ -380,6 +380,160 @@ body {
   white-space: nowrap;
 }
 
+/* ═══════════════════════════════════════════════
+   登录页 · 有意义的动效
+   原则：进场叙事 → 操作反馈，不动无意义的东西
+   ═══════════════════════════════════════════════ */
+
+/* ── 1. 背景——大气氛围（不抢戏） ── */
+@keyframes l2Orb1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  25%      { transform: translate(8vw, -6vh) scale(1.12); }
+  50%      { transform: translate(-4vw, 7vh) scale(0.92); }
+  75%      { transform: translate(-6vw, -3vh) scale(1.06); }
+}
+@keyframes l2Orb2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(-6vw, 7vh) scale(0.88); }
+  66%      { transform: translate(5vw, -4vh) scale(1.1); }
+}
+@keyframes l2Orb3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(5vw, -6vh) scale(1.08); }
+}
+@keyframes l2Orb4 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40%      { transform: translate(-4vw, 5vh) scale(1.06); }
+  80%      { transform: translate(3vw, -3vh) scale(0.93); }
+}
+
+/* ── 2. 卡片入场——从模糊中显形（"请进"的感觉） ── */
+@keyframes l2CardAppear {
+  0%   { opacity: 0; transform: scale(0.95) translateY(30px); filter: blur(16px); }
+  100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); }
+}
+
+/* ── 3. Logo 轻落定 ── */
+@keyframes l2LogoLand {
+  0%   { transform: scale(0.7) translateY(-16px); opacity: 0; }
+  65%  { transform: scale(1.08) translateY(2px); opacity: 1; }
+  100% { transform: scale(1) translateY(0); opacity: 1; }
+}
+
+/* ── 4. 内容淡入上移——指引视线向下 ── */
+@keyframes l2StaggerUp {
+  from { opacity: 0; transform: translateY(14px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 5. 金色装饰线——中心展开 ── */
+@keyframes l2AccentExpand {
+  from { transform: scaleX(0); opacity: 0; }
+  to   { transform: scaleX(1); opacity: 1; }
+}
+
+/* ── 6. 特性小圆点呼吸 ── */
+@keyframes l2DotPulse {
+  0%, 100% { opacity: 0.4; transform: scale(1); }
+  50%      { opacity: 1; transform: scale(1.6); }
+}
+
+/* ── 7. 登录失败——震动反馈 ── */
+@keyframes l2FormShake {
+  0%, 100% { transform: translateX(0); }
+  12%      { transform: translateX(-7px); }
+  25%      { transform: translateX(7px); }
+  37%      { transform: translateX(-5px); }
+  50%      { transform: translateX(5px); }
+  62%      { transform: translateX(-3px); }
+  75%      { transform: translateX(3px); }
+}
+
+/* ═══════════ 玻璃态输入框样式（登录页专用）═══════════ */
+/* 用双类名提升特异性，确保覆盖全局 ant-input 规则 */
+.l2-glass-input.l2-glass-input .ant-input-affix-wrapper,
+.l2-glass-input .ant-input-affix-wrapper.ant-input-affix-wrapper {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 12px !important;
+  transition: all 0.35s cubic-bezier(0.16, 1, 0.3, 1) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+}
+.l2-glass-input.l2-glass-input .ant-input-affix-wrapper:hover,
+.l2-glass-input .ant-input-affix-wrapper.ant-input-affix-wrapper:hover {
+  border-color: rgba(255, 255, 255, 0.16) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+.l2-glass-input.l2-glass-input .ant-input-affix-wrapper:focus-within,
+.l2-glass-input .ant-input-affix-wrapper.ant-input-affix-wrapper:focus-within,
+.l2-glass-input.l2-glass-input .ant-input-affix-wrapper.ant-input-affix-wrapper-focused,
+.l2-glass-input .ant-input-affix-wrapper.ant-input-affix-wrapper-focused {
+  border-color: rgba(201, 149, 43, 0.55) !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow:
+    0 0 0 3px rgba(201, 149, 43, 0.10),
+    0 0 24px rgba(201, 149, 43, 0.06),
+    inset 0 1px 0 rgba(255, 255, 255, 0.06) !important;
+}
+/* 内部 input 文本 */
+.l2-glass-input .ant-input,
+.l2-glass-input .ant-input-affix-wrapper input.ant-input {
+  background: transparent !important;
+  color: #e2e8f0 !important;
+  font-size: 15px !important;
+  caret-color: #c9952b !important;
+}
+.l2-glass-input .ant-input::placeholder,
+.l2-glass-input .ant-input-affix-wrapper input.ant-input::placeholder {
+  color: rgba(255, 255, 255, 0.20) !important;
+}
+/* 密码显示切换图标 */
+.l2-glass-input .ant-input-password-icon,
+.l2-glass-input span.ant-input-suffix .anticon {
+  color: rgba(255, 255, 255, 0.22) !important;
+  transition: color 0.25s !important;
+}
+.l2-glass-input .ant-input-password-icon:hover,
+.l2-glass-input span.ant-input-suffix .anticon:hover {
+  color: rgba(255, 255, 255, 0.55) !important;
+}
+/* prefix 图标 */
+.l2-glass-input .ant-input-prefix {
+  color: rgba(255, 255, 255, 0.28) !important;
+  margin-right: 10px !important;
+}
+/* 表单校验错误时边框颜色 */
+.l2-glass-input .ant-form-item-has-error .ant-input-affix-wrapper,
+.l2-glass-input .ant-form-item-has-error .ant-input-affix-wrapper.ant-input-affix-wrapper {
+  border-color: rgba(220, 38, 38, 0.55) !important;
+  box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.08) !important;
+}
+
+/* 登录表单：错误提示文字颜色柔和化（深色背景下纯红刺眼） */
+.l2-login-form .ant-form-item-explain-error {
+  color: rgba(252, 165, 165, 0.85) !important;
+  font-size: 12px !important;
+  margin-top: 4px !important;
+}
+
+/* ═══════════ 金色登录按钮 ═══════════ */
+.l2-btn-gold {
+  transition: all 0.4s cubic-bezier(0.16, 1, 0.3, 1) !important;
+}
+.l2-btn-gold:hover:not(:disabled) {
+  transform: translateY(-2px) !important;
+  box-shadow:
+    0 10px 40px rgba(201,149,43,0.35),
+    0 0 0 4px rgba(201,149,43,0.08),
+    0 0 60px rgba(201,149,43,0.08) !important;
+}
+.l2-btn-gold:active:not(:disabled) {
+  transform: translateY(0) scale(0.98) !important;
+}
+
 /* 响应式 */
 @media (max-width: 768px) {
   .page-container {

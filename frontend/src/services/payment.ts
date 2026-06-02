@@ -5,8 +5,11 @@ export interface PaymentListParams {
   page?: number
   per_page?: number
   contract_id?: number
+  keyword?: string
   status?: string
   type?: string
+  date_from?: string
+  date_to?: string
 }
 
 export const paymentApi = {

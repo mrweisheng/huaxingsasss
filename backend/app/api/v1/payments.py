@@ -29,8 +29,11 @@ def list_payments(
     page: int = Query(1, ge=1, description="页码"),
     per_page: int = Query(20, ge=1, le=100, description="每页数量"),
     contract_id: Optional[int] = Query(None, description="合同ID"),
+    keyword: Optional[str] = Query(None, description="搜索关键词（合同编号/客户名称）"),
     status: Optional[str] = Query(None, description="付款状态"),
     payment_type: Optional[str] = Query(None, alias="type", description="类型: income/expense"),
+    date_from: Optional[date] = Query(None, description="付款日期起"),
+    date_to: Optional[date] = Query(None, description="付款日期止"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -41,10 +44,19 @@ def list_payments(
 
     if contract_id:
         query = query.filter(Payment.contract_id == contract_id)
+    if keyword:
+        query = query.filter(
+            Contract.contract_number.ilike(f'%{keyword}%') |
+            Customer.name.ilike(f'%{keyword}%')
+        )
     if status:
         query = query.filter(Payment.status == status)
     if payment_type:
         query = query.filter(Payment.type == payment_type)
+    if date_from:
+        query = query.filter(Payment.paid_date >= date_from)
+    if date_to:
+        query = query.filter(Payment.paid_date <= date_to)
 
     # 角色权限：income 只看收入+自己合同，expense 只看支出+自己创建的，admin 全量
     if current_user.role == "income":

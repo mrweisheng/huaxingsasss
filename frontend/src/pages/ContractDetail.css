@@ -108,241 +108,421 @@
   color: var(--border-default);
 }
 
-/* ─── KPI 指标卡 ─── */
-.cd-kpi-row {
-  display: grid;
-  grid-template-columns: 2fr 1fr 1fr 1fr;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.cd-kpi-card {
+/* ─── 财务概览面板 · 统一设计 ─── */
+.cd-finance-panel {
   background: var(--bg-surface);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  padding: 18px 20px;
+  overflow: hidden;
+  margin-bottom: 12px;
   box-shadow: var(--shadow-sm);
+}
+
+/* ── 行1：合同总额 + 进度条 ── */
+.cd-fn-hero {
+  padding: 20px 24px 18px;
+  border-bottom: 1px solid var(--border-light);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 40px;
+}
+
+.cd-fn-hero-main {
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  transition: all 0.25s ease;
-  position: relative;
-  overflow: hidden;
+  gap: 2px;
 }
 
-.cd-kpi-card::after {
-  content: '';
-  position: absolute;
-  top: 0; right: 0;
-  width: 80px; height: 80px;
-  border-radius: 0 0 0 80px;
-  opacity: 0.04;
-  pointer-events: none;
-}
-
-.cd-kpi-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
-}
-
-/* 合同总额卡 */
-.cd-kpi-card.primary {
-  background: linear-gradient(135deg, #eef2fa 0%, #f5f7fc 100%);
-  border-color: #c8d4e6;
-}
-
-.cd-kpi-card.primary::after { background: var(--brand-primary); }
-
-/* 已收 */
-.cd-kpi-card.income {
-  border-left: 3px solid var(--color-success);
-}
-.cd-kpi-card.income::after { background: var(--color-success); }
-
-/* 支出 */
-.cd-kpi-card.expense {
-  border-left: 3px solid var(--color-danger);
-}
-.cd-kpi-card.expense::after { background: var(--color-danger); }
-
-/* 尾款 */
-.cd-kpi-card.remaining {
-  border-left: 3px solid var(--color-danger);
-  background: linear-gradient(135deg, var(--bg-surface) 0%, var(--color-danger-bg) 100%);
-}
-.cd-kpi-card.remaining::after { background: var(--color-danger); }
-
-.cd-kpi-card.remaining-paid {
-  border-left: 3px solid var(--color-success);
-  background: linear-gradient(135deg, var(--bg-surface) 0%, var(--color-success-bg) 100%);
-}
-.cd-kpi-card.remaining-paid::after { background: var(--color-success); }
-
-.cd-kpi-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 600;
+.cd-fn-hero-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
   letter-spacing: 0.5px;
-  position: relative;
-  z-index: 1;
 }
 
-.cd-kpi-card.primary .cd-kpi-label {
-  color: var(--brand-primary);
-  font-size: 14px;
-}
-
-.cd-kpi-value {
+.cd-fn-hero-value {
   font-family: var(--font-mono);
-  font-size: 24px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: -1px;
+  font-size: 42px;
+  font-weight: 800;
+  color: var(--brand-deep);
+  letter-spacing: -2px;
   line-height: 1.15;
-  position: relative;
-  z-index: 1;
   font-variant-numeric: tabular-nums;
 }
 
-.cd-kpi-card.primary .cd-kpi-value {
-  font-size: 32px;
-  color: var(--brand-deep);
-}
-
-.cd-kpi-value.success { color: var(--color-success); }
-.cd-kpi-value.danger  { color: var(--color-danger); }
-
-.cd-kpi-sub {
+.cd-fn-hero-sub {
   font-size: 12px;
   color: var(--text-tertiary);
   margin-top: 2px;
-  position: relative;
-  z-index: 1;
 }
 
-/* ─── 付款进度条 ─── */
-.cd-progress-row {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 14px 20px;
-  margin-bottom: 12px;
+/* 进度条（Hero 右侧） */
+.cd-fn-hero-progress {
   display: flex;
-  align-items: center;
-  gap: 14px;
-  box-shadow: var(--shadow-sm);
-}
-
-.cd-progress-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 600;
-  white-space: nowrap;
-  min-width: 60px;
-}
-
-.cd-progress-track {
-  flex: 1;
-  height: 8px;
-  background: var(--border-light);
-  border-radius: 5px;
-  overflow: hidden;
-}
-
-.cd-progress-fill {
-  height: 100%;
-  border-radius: 5px;
-  background: linear-gradient(90deg, var(--brand-primary), var(--brand-primary-light));
-  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-}
-
-.cd-progress-fill::after {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0; bottom: 0;
-  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.25) 50%, transparent 100%);
-  animation: cdShimmer 2s ease-in-out infinite;
-}
-
-@keyframes cdShimmer {
-  0%, 100% { transform: translateX(-100%); }
-  50%      { transform: translateX(100%); }
-}
-
-.cd-progress-fill.complete {
-  background: linear-gradient(90deg, var(--color-success), #14b8a6);
-}
-
-.cd-progress-pct {
-  font-family: var(--font-mono);
-  font-size: 18px;
-  font-weight: 700;
-  color: var(--brand-primary);
-  white-space: nowrap;
-  min-width: 48px;
-  text-align: right;
-}
-
-.cd-progress-pct.complete {
-  color: var(--color-success);
-}
-
-/* ─── 利润/损益条 ─── */
-.cd-pnl-row {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 16px 20px;
-  display: flex;
-  align-items: center;
-  gap: 0;
-  margin-bottom: 12px;
-  box-shadow: var(--shadow-sm);
-}
-
-.cd-pnl-section-label {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 600;
-  min-width: 72px;
-  line-height: 1.4;
-}
-
-.cd-pnl-sep {
-  width: 1px;
-  background: var(--border-light);
-  height: 40px;
-  margin: 0 24px;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+  min-width: 160px;
   flex-shrink: 0;
 }
 
-.cd-pnl-item {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  flex: 1;
-}
-
-.cd-pnl-item-label {
-  font-size: 12px;
+.cd-fn-progress-label {
+  font-size: 11px;
   color: var(--text-tertiary);
   font-weight: 500;
 }
 
-.cd-pnl-item-value {
+.cd-fn-progress-track {
+  width: 100%;
+  height: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.cd-fn-progress-fill {
+  height: 100%;
+  border-radius: 5px;
+  background: linear-gradient(90deg, var(--brand-primary), var(--brand-primary-light));
+  transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.cd-fn-progress-fill.done {
+  background: linear-gradient(90deg, var(--color-success), #14b8a6);
+}
+
+.cd-fn-progress-pct {
   font-family: var(--font-mono);
-  font-size: 18px;
+  font-size: 26px;
   font-weight: 700;
+  color: var(--brand-primary);
   font-variant-numeric: tabular-nums;
 }
 
-.cd-pnl-item-value.income  { color: var(--color-success); }
-.cd-pnl-item-value.expense { color: var(--color-danger); }
-.cd-pnl-item-value.profit-pos { color: var(--brand-primary); font-size: 20px; }
-.cd-pnl-item-value.profit-neg { color: var(--color-danger); font-size: 20px; }
+.cd-fn-progress-pct.done {
+  color: var(--color-success);
+}
 
-/* ─── 信息栏 ─── */
+/* ── 行2：四栏指标卡 ── */
+.cd-fn-cards {
+  display: grid;
+  grid-template-columns: 1fr 1.15fr 0.85fr 0.85fr;
+  gap: 0;
+}
+
+.cd-fn-card {
+  padding: 16px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+}
+
+.cd-fn-card:not(:last-child) {
+  border-right: 1px solid var(--border-light);
+}
+
+.fn-card-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.fn-card-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.fn-card-dot.income    { background: #0d9488; box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15); }
+.fn-card-dot.remaining { background: #d97706; box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15); }
+.fn-card-dot.cleared   { background: #52c41a; box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.15); }
+.fn-card-dot.expense   { background: #dc2626; box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15); }
+
+.fn-card-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+
+.fn-card-value {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fn-card-value.income    { color: #0d9488; }
+.fn-card-value.remaining { color: #d97706; }
+.fn-card-value.cleared   { color: #52c41a; }
+.fn-card-value.expense   { color: #dc2626; }
+
+.fn-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.fn-card-tag {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+.fn-card-tag.expense {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+.fn-card-demo-tag {
+  font-size: 9px;
+  font-weight: 500;
+  color: var(--color-warning);
+  background: var(--color-warning-bg);
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: auto;
+}
+
+.fn-card-status {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 3px;
+}
+
+.fn-card-status.remaining { background: rgba(217, 119, 6, 0.08); color: #d97706; }
+.fn-card-status.cleared   { background: rgba(82, 196, 26, 0.08);  color: #52c41a; }
+
+.fn-card-cny {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+}
+
+/* 剩余尾款卡片为视觉重点时，微调背景 */
+.cd-fn-card.fn-remaining {
+  background: rgba(217, 119, 6, 0.02);
+}
+
+/* ── 净利润卡 ── */
+.cd-fn-card.fn-profit {
+  background: rgba(13, 148, 136, 0.015);
+}
+
+/* ── 付款记录 · 横向卡片 ── */
+.cd-payment-section {
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-light);
+  overflow: hidden;
+  margin-bottom: 12px;
+  box-shadow: var(--shadow-sm);
+}
+
+.cd-payment-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-light);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.cd-payment-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cd-payment-count {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  background: var(--bg-subtle);
+  padding: 3px 10px;
+  border-radius: 10px;
+}
+
+.cd-no-payments {
+  text-align: center;
+  padding: 40px 24px;
+  color: var(--text-tertiary);
+}
+
+/* 横向卡片容器 */
+.cd-payment-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 12px;
+  padding: 16px 20px;
+}
+
+/* 单张付款卡 */
+.cd-pay-card {
+  border: 1px solid var(--border-light);
+  border-radius: 10px;
+  padding: 14px 16px;
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: all 0.2s ease;
+}
+
+.cd-pay-card:hover {
+  border-color: var(--border-default);
+  box-shadow: var(--shadow-sm);
+}
+
+.cd-pay-card.paid {
+  border-color: rgba(13, 148, 136, 0.2);
+}
+
+.cd-pay-card.overdue {
+  border-color: rgba(220, 38, 38, 0.2);
+  background: rgba(220, 38, 38, 0.015);
+}
+
+.cd-pay-card-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cd-pay-card-period {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  display: inline-flex;
+  align-items: center;
+}
+
+.cd-pay-card-payee {
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.cd-pay-card-status {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.cd-pay-card-status.paid      { background: var(--color-success-bg); color: var(--color-success); }
+.cd-pay-card-status.overdue   { background: var(--color-danger-bg); color: var(--color-danger); }
+.cd-pay-card-status.partial   { background: var(--color-warning-bg); color: var(--color-warning); }
+.cd-pay-card-status.pending   { background: var(--bg-hover); color: var(--text-secondary); }
+.cd-pay-card-status.cancelled { background: var(--bg-subtle); color: var(--text-tertiary); }
+
+.cd-pay-card-amount {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+
+.cd-pay-card-amount.settled { color: #0d9488; }
+.cd-pay-card-amount.expense { color: #dc2626; }
+.cd-pay-card-amount.pending { color: var(--text-secondary); }
+
+.cd-pay-card-cny {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  margin-left: 8px;
+}
+
+.cd-pay-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.cd-pay-card-method {
+  background: var(--bg-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.cd-pay-card-receipt {
+  cursor: pointer;
+  color: var(--brand-primary);
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  transition: color 0.2s;
+}
+
+.cd-pay-card-receipt:hover {
+  color: var(--brand-primary-light);
+}
+
+.cd-pay-card-desc {
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  word-break: break-all;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-light);
+}
+
+/* 移除旧样式 */
+.cd-payment-timeline,
+.cd-timeline-item,
+.cd-timeline-node,
+.cd-timeline-body,
+.cd-timeline-top,
+.cd-timeline-period,
+.cd-timeline-payee,
+.cd-timeline-status,
+.cd-timeline-amount,
+.cd-timeline-cny,
+.cd-timeline-meta,
+.cd-timeline-meta-item,
+.cd-timeline-method,
+.cd-timeline-receipt,
+.cd-timeline-desc,
+.cd-fn-pnl,
+.cd-fn-pnl-header,
+.cd-fn-pnl-title,
+.cd-fn-pnl-hint,
+.cd-fn-pnl-demo,
+.cd-fn-pnl-body,
+.cd-fn-pnl-item,
+.cd-fn-pnl-sep,
+.cd-fn-pnl-dots,
+.pnl-label,
+.pnl-value,
+.pnl-value.income,
+.pnl-value.expense,
+.pnl-value.positive,
+.pnl-value.negative,
+.cd-payment-table,
+.cd-cell-desc,
+.cd-cell-amount,
+.cd-cell-payee,
+.cd-method-tag,
+.payment-status { display: none; }
 .cd-info-strip {
   background: var(--bg-surface);
   border: 1px solid var(--border-light);
@@ -374,6 +554,16 @@
   font-size: 12px;
   color: var(--text-tertiary);
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.cd-info-label-icon {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  opacity: 0.7;
 }
 
 .cd-info-value {
@@ -407,34 +597,117 @@
   gap: 8px;
 }
 
-.cd-payment-terms {
+/* ─── 付款条款 · 步骤化 ─── */
+.cd-payment-terms-steps {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
 
-.cd-payment-term-item {
+.cd-term-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--border-light);
+  transition: all 0.2s ease;
+}
+
+.cd-term-step:hover {
+  border-color: var(--border-default);
+}
+
+.cd-term-step.settled {
+  background: var(--color-success-bg);
+  border-color: rgba(13, 148, 136, 0.2);
+}
+
+.cd-term-step.pending {
+  background: var(--bg-surface);
+  border-style: dashed;
+}
+
+.cd-term-step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 10px 14px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-md);
-  border-left: 3px solid var(--brand-primary);
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  flex-shrink: 0;
+  border: 2px solid var(--border-default);
+  color: var(--text-tertiary);
+}
+
+.cd-term-step-num.settled {
+  background: #0d9488;
+  border-color: #0d9488;
+  color: white;
   font-size: 13px;
 }
 
-.cd-term-amount {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 14px;
+.cd-term-step-body {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.cd-term-step-name {
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-primary);
 }
 
-.cd-term-condition {
-  font-size: 12px;
+.cd-term-step-amount {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  color: var(--text-secondary);
+}
+
+.cd-term-step-amount.settled {
+  color: #0d9488;
+}
+
+.cd-term-step-status {
+  font-size: 10px;
+  font-weight: 500;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.cd-term-step-status.settled {
+  background: rgba(13, 148, 136, 0.1);
+  color: #0d9488;
+}
+
+.cd-term-step-status.pending {
+  background: var(--bg-hover);
   color: var(--text-tertiary);
 }
+
+.cd-term-step-cond {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 2px 8px;
+  background: var(--bg-subtle);
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+/* 旧付款条款样式移除 */
+.cd-payment-terms,
+.cd-payment-term-item,
+.cd-term-amount,
+.cd-term-condition { display: none; }
 
 .cd-special-terms {
   display: flex;
@@ -486,7 +759,7 @@
   font-size: 13px;
 }
 
-/* ─── 付款记录 ─── */
+/* ─── 付款记录 · 时间轴 ─── */
 .cd-payment-section {
   background: var(--bg-surface);
   border-radius: var(--radius-lg);
@@ -524,98 +797,173 @@
   color: var(--text-tertiary);
 }
 
-/* ── 收付记录表格 ── */
-.cd-payment-table .ant-table-thead > tr > th {
-  background: var(--bg-subtle) !important;
-  color: var(--text-secondary) !important;
-  font-weight: 600 !important;
-  font-size: 12px !important;
-  padding: 10px 12px !important;
-  border-bottom: 1px solid var(--border-light) !important;
+/* 时间轴容器 */
+.cd-payment-timeline {
+  padding: 8px 20px 16px;
 }
 
-.cd-payment-table .ant-table-tbody > tr > td {
-  padding: 10px 12px !important;
-  border-bottom: 1px solid var(--border-light) !important;
-  transition: background 0.15s ease;
+.cd-timeline-item {
+  display: flex;
+  gap: 14px;
+  padding: 14px 0;
+  position: relative;
 }
 
-.cd-payment-table .ant-table-tbody > tr:hover > td {
-  background: var(--bg-hover) !important;
+.cd-timeline-item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 9px;
+  top: 38px;
+  bottom: 0;
+  width: 2px;
+  background: var(--border-light);
+  border-radius: 1px;
 }
 
-/* 描述列自动换行 — 强制覆盖 Ant Design td 的 nowrap */
-.cd-payment-table .ant-table-tbody > tr > td {
-  white-space: normal !important;
+.cd-timeline-node {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 1;
 }
 
-.cd-cell-desc {
+.cd-timeline-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.cd-timeline-top {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.cd-timeline-period {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.cd-timeline-payee {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.cd-timeline-status {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: auto;
+}
+
+.cd-timeline-status.paid       { background: var(--color-success-bg); color: var(--color-success); }
+.cd-timeline-status.overdue    { background: var(--color-danger-bg); color: var(--color-danger); }
+.cd-timeline-status.partial    { background: var(--color-warning-bg); color: var(--color-warning); }
+.cd-timeline-status.pending    { background: var(--bg-hover); color: var(--text-secondary); }
+.cd-timeline-status.cancelled  { background: var(--bg-subtle); color: var(--text-tertiary); }
+
+.cd-timeline-amount {
+  font-family: var(--font-mono);
+  font-size: 17px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.5px;
+}
+
+.cd-timeline-amount.settled  { color: #0d9488; }
+.cd-timeline-amount.expense  { color: #dc2626; }
+.cd-timeline-amount.pending  { color: var(--text-secondary); }
+
+.cd-timeline-cny {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  margin-left: 8px;
+}
+
+.cd-timeline-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.cd-timeline-meta-item {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+.cd-timeline-method {
+  background: var(--bg-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.cd-timeline-receipt {
+  cursor: pointer;
+  color: var(--brand-primary);
+  font-weight: 500;
+  transition: color 0.2s;
+  display: inline-flex;
+  align-items: center;
+}
+
+.cd-timeline-receipt:hover {
+  color: var(--brand-primary-light);
+}
+
+.cd-timeline-desc {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
   word-break: break-all;
 }
 
-/* 金额 */
-.cd-cell-amount {
-  font-family: var(--font-mono);
-  font-weight: 700;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-  color: var(--text-primary);
-}
-
-.cd-cell-amount.success { color: var(--color-success); }
-.cd-cell-amount.danger  { color: var(--color-danger); }
-
-/* 收款方 */
-.cd-cell-payee {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text-primary);
-}
-
-/* 方式标签 */
-.cd-method-tag {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-tertiary);
-  background: var(--bg-subtle);
-  padding: 2px 8px;
-  border-radius: 4px;
-}
-
-.payment-status {
-  display: inline-block;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 2px 7px;
-  border-radius: 4px;
-}
-
-.payment-status.pending       { background: #f5f5f5; color: var(--text-secondary); }
-.payment-status.pending-voucher { background: var(--color-warning-bg); color: var(--color-warning); }
-.payment-status.partial       { background: var(--color-info-bg); color: var(--color-info); }
-.payment-status.paid          { background: var(--color-success-bg); color: var(--color-success); }
-.payment-status.overdue       { background: var(--color-danger-bg); color: var(--color-danger); }
-.payment-status.cancelled     { background: #f5f5f5; color: var(--text-tertiary); }
+/* 移除旧表格样式（已替换为时间轴） */
+.cd-payment-table,
+.cd-cell-desc,
+.cd-cell-amount,
+.cd-cell-payee,
+.cd-method-tag,
+.payment-status { display: none; }
 
 /* ─── 响应式 ─── */
 @media (max-width: 1024px) {
-  .cd-kpi-row { grid-template-columns: repeat(2, 1fr); }
-  .cd-kpi-card.primary .cd-kpi-value { font-size: 26px; }
-  .cd-info-grid { grid-template-columns: repeat(2, 1fr); }
-  .cd-topbar { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .cd-fn-hero { flex-direction: column; align-items: flex-start; gap: 16px; }
+  .cd-fn-hero-progress { width: 100%; align-items: flex-start; }
+  .cd-fn-cards { grid-template-columns: 1fr 1fr; }
+  .cd-fn-cards .cd-fn-card:nth-child(2) { border-right: 1px solid var(--border-light); }
+  .cd-fn-cards .cd-fn-card:nth-child(3),
+  .cd-fn-cards .cd-fn-card:nth-child(4) { border-top: 1px solid var(--border-light); }
 }
 
 @media (max-width: 768px) {
-  .cd-kpi-row { grid-template-columns: 1fr 1fr; }
-  .cd-pnl-row { flex-wrap: wrap; gap: 8px; }
-  .cd-pnl-sep { display: none; }
-  .cd-pnl-item { flex: 0 0 calc(33% - 8px); }
-  .cd-info-grid { grid-template-columns: 1fr 1fr; }
   .detail-header { flex-wrap: wrap; }
   .complete-btn { margin-left: 0; width: 100%; }
+  .contract-detail-container { padding: 12px; }
+  .cd-info-grid { grid-template-columns: 1fr 1fr; }
+
+  .cd-fn-hero-value { font-size: 30px; }
+  .cd-fn-progress-pct { font-size: 20px; }
+  .cd-fn-cards { grid-template-columns: 1fr; }
+  .cd-fn-cards .cd-fn-card { border-right: none !important; }
+  .cd-fn-cards .cd-fn-card:not(:last-child) { border-bottom: 1px solid var(--border-light); }
+
+  .cd-payment-row { grid-template-columns: 1fr; }
+  .cd-pay-card-amount { font-size: 15px; }
+
+  .cd-term-step-body { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .cd-term-step-amount { margin-left: 0; }
 }
