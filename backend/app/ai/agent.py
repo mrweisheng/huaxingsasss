@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import os
+import re
 import time
 import uuid
 from datetime import datetime, date
@@ -27,6 +28,19 @@ from app.models.chat_history import ChatHistory
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
+
+
+logger = logging.getLogger(__name__)
+
+# 用户确认意图匹配模式
+_CONFIRM_PATTERN = re.compile(
+    r'^(好的|确认|没问题|可以|执行|对|是的|ok|yes|好|行|就这样|确认执行|'
+    r'没问题.*|就这样.*|可以.*|好的.*|确认.*|是的.*|OK|Ok|可以[的啊吧]|'
+    r'对[的啊吧]|好[的啊吧]|行[的啊吧]|确认[的了]|执行吧|没问题[的了]|OK[的了]|'
+    r'是的[的了]|是的吧|没错|对的|OK了|ok了|好滴|好嘞|必须的|'
+    r'需要的|要[的啊]|要的|当然|当然可以)$',
+    re.IGNORECASE,
+)
 
 
 class ContractAgent:
@@ -86,10 +100,23 @@ class ContractAgent:
             # 导致 LLM 看不到工具结果
             history = self._ensure_trailing_pair_intact(history)
 
-        # 4. 构建消息
+        # 4. 确认意图快捷路径：检测用户是否在确认上一轮提出的操作
+        if (
+            not file_context  # 没有新附件
+            and not attachments
+            and self._is_confirmation(user_message)
+            and self._last_assistant_asked_confirmation(history)
+        ):
+            logger.info("检测到用户确认意图，注入快捷信号: session=%s", session_id[:8])
+            user_message = (
+                f"[系统注入：用户已确认，请立即执行上一轮提出的操作，不要重复解释或再次确认]\n"
+                f"用户说：「{user_message}」"
+            )
+
+        # 5. 构建消息
         messages = self._build_messages(history, user_message, file_context, summary=summary)
 
-        # 5. 用户消息先入 messages（用于本轮 LLM 调用），
+        # 6. 用户消息先入 messages（用于本轮 LLM 调用），
         #    但延迟到助手回复成功后再 commit，避免 LLM 失败时出现"用户问了 AI 没答"的孤儿用户消息。
         pending_user_metadata = {
             "attachments": attachments,
@@ -270,6 +297,32 @@ class ContractAgent:
             file_id = att.get("file_id", "")
             results.append(f"用户上传了文件（file_id: {file_id}）")
         return "\n".join(results)
+
+    @staticmethod
+    def _is_confirmation(user_message: str) -> bool:
+        """判断用户消息是否为确认意图（短文本 + 匹配确认模式）"""
+        stripped = user_message.strip()
+        if not stripped or len(stripped) > 30:
+            return False
+        return bool(_CONFIRM_PATTERN.match(stripped))
+
+    @staticmethod
+    def _last_assistant_asked_confirmation(history: List[dict]) -> bool:
+        """检查最近一条 assistant 消息是否在请求用户确认"""
+        for msg in reversed(history):
+            if msg.get("role") == "assistant":
+                content = msg.get("content", "")
+                if not content:
+                    continue
+                # 检查是否包含确认请求的典型措辞
+                confirm_keywords = (
+                    "确认", "是否", "要关联", "关联吗", "要创建", "创建吗",
+                    "是否需要", "需要吗", "执行吗", "是否将", "将.*关联",
+                    "确认后", "请确认", "确认一下",
+                )
+                import re as _re
+                return bool(_re.search("|".join(confirm_keywords), content))
+        return False
 
     def _load_history(self, session_id: str) -> List[dict]:
         """从数据库加载对话历史（上限 100 条，用于摘要和上下文构建）"""
@@ -497,81 +550,16 @@ class ContractAgent:
             logger.warning("历史摘要生成失败，降级为完整历史: %s", e)
             return None
 
-    @staticmethod
-    def _build_tool_result_fallback(messages: List[dict]) -> Optional[str]:
+    def _build_tool_result_fallback(self, messages: List[dict]) -> Optional[str]:
         """当 LLM 在工具调用后未生成回复时，从最近的 tool 结果构建兜底回复。
-        返回 None 表示无法生成（caller 应回退到通用错误提示）。"""
-        # 查找最后一个 tool 消息
+        委托给 ToolExecutor.format_result_summary 处理。"""
         for msg in reversed(messages):
             if msg.get("role") == "tool":
                 content = msg.get("content", "")
                 if not content:
                     continue
-                try:
-                    data = json.loads(content)
-                    if isinstance(data, dict) and data.get("success"):
-                        d = data.get("data", {})
-                        if "document_type" in d:
-                            # 凭证分析结果
-                            parts = ["文件分析完成，以下是提取的关键信息："]
-                            if d.get("document_type"):
-                                parts.append(f"凭证类型: {d['document_type']}")
-                            if d.get("amount"):
-                                cur = d.get("currency", "")
-                                parts.append(f"金额: {d['amount']} {cur}".strip())
-                            if d.get("transaction_date"):
-                                parts.append(f"日期: {d['transaction_date']}")
-                            if d.get("payer_name"):
-                                parts.append(f"付款人: {d['payer_name']}")
-                            if d.get("payee_name"):
-                                parts.append(f"收款人: {d['payee_name']}")
-                            if d.get("transaction_id"):
-                                parts.append(f"流水号: {d['transaction_id']}")
-                            return "\n".join(parts)
-                        if "content" in d and isinstance(d["content"], str):
-                            # 文档内容
-                            return f"文件分析完成，内容摘要：\n{d['content'][:1000]}"
-                        if "contract_number" in d or "title" in d:
-                            # 合同分析结果
-                            parts = ["合同分析完成，以下是提取的关键信息："]
-                            if d.get("title"):
-                                parts.append(f"合同标题: {d['title']}")
-                            if d.get("contract_number"):
-                                parts.append(f"合同编号: {d['contract_number']}")
-                            if d.get("party_b", {}).get("name"):
-                                parts.append(f"客户: {d['party_b']['name']}")
-                            if d.get("total_amount"):
-                                cur = d.get("currency", "")
-                                parts.append(f"总金额: {d['total_amount']} {cur}".strip())
-                            return "\n".join(parts)
-                    # 无 success 字段的结果（如 match_receipt）
-                    if isinstance(data, dict) and "matches" in data:
-                        parts = ["已找到可能的匹配项："]
-                        message = data.get("message", "")
-                        if message:
-                            parts.append(message)
-                        for m in data["matches"][:3]:
-                            customer = m.get("customer_name", "未知")
-                            contract_no = m.get("contract_number", "")
-                            installment = m.get("installment_name", "")
-                            amount = m.get("amount", "")
-                            currency = m.get("currency", "")
-                            parts.append(
-                                f"• {customer} — {contract_no} "
-                                f"({installment}): {amount} {currency}"
-                            )
-                        if len(data["matches"]) > 3:
-                            parts.append(f"  ...及其他 {len(data['matches'])-3} 条匹配")
-                        return "\n".join(parts)
-                except (json.JSONDecodeError, TypeError):
-                    pass
-                # 纯文本工具结果（兜底）
-                preview = content[:500]
-                if len(content) > 500:
-                    preview += "..."
-                return f"工具执行完成，返回结果：\n{preview}"
-
-        return ""
+                return self.executor.format_result_summary(content)
+        return None
 
     @staticmethod
     def _serialize_messages(messages: List[dict]) -> str:

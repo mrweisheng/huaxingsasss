@@ -117,6 +117,15 @@ class ToolExecutor:
         sid = self.session_id or "nosession"
         return f"vl:{analysis_type}:{sid}:{file_id}"
 
+    def _summarize_analysis_for_context(self, structured: dict, analysis_type: str) -> dict:
+        """压缩 VL 分析结果再返回给 LLM context，剥离大字段（完整数据已缓存供后续工具取用）"""
+        if not isinstance(structured, dict):
+            return structured
+        summary = dict(structured)
+        # full_text 可能 2000+ tokens，已缓存在 Redis，create_contract 直接从缓存读取
+        summary.pop("full_text", None)
+        return summary
+
     def _cache_analysis(self, file_id: str, analysis_type: str, data: dict) -> None:
         """将 analyze_image 的 VL 完整输出缓存到 Redis（含内存降级）"""
         if not isinstance(data, dict):
@@ -249,6 +258,129 @@ class ToolExecutor:
             "receipt_data": p.receipt_data,
         }
 
+    def _contract_to_dict_lite(self, c: Contract) -> dict:
+        """精简合同信息，用于列表/搜索场景（减少 context token 消耗）"""
+        return {
+            "id": c.id,
+            "contract_number": c.contract_number,
+            "title": c.title,
+            "customer_name": c.customer.name if c.customer else None,
+            "business_type": c.business_type,
+            "total_amount": float(c.total_amount) if c.total_amount else 0,
+            "currency": c.currency,
+            "status": c.status,
+            "signed_date": str(c.signed_date) if c.signed_date else None,
+        }
+
+    def _payment_to_dict_lite(self, p: Payment) -> dict:
+        """精简付款信息，用于列表/查询场景（不含 receipt_data 等大字段）"""
+        return {
+            "id": p.id,
+            "installment_name": p.installment_name,
+            "type": p.type,
+            "payee_name": p.payee_name,
+            "currency": p.currency,
+            "amount": float(p.amount) if p.amount else 0,
+            "paid_amount": float(p.paid_amount) if p.paid_amount else 0,
+            "status": p.status,
+            "due_date": str(p.due_date) if p.due_date else None,
+            "paid_date": str(p.paid_date) if p.paid_date else None,
+        }
+
+    def format_result_summary(self, result_json: str) -> Optional[str]:
+        """从工具结果 JSON 生成人类可读的摘要（供 agent 兜底回复使用）。
+        返回 None 表示无法生成摘要。"""
+        if not result_json or not result_json.strip():
+            return None
+        try:
+            data = json.loads(result_json)
+        except (json.JSONDecodeError, TypeError):
+            preview = result_json[:500]
+            if len(result_json) > 500:
+                preview += "..."
+            return f"工具执行完成，返回结果：\n{preview}"
+
+        if not isinstance(data, dict):
+            preview = result_json[:500]
+            return f"工具执行完成，返回结果：\n{preview}"
+
+        # analyze_image 成功返回
+        if data.get("success"):
+            d = data.get("data", {})
+            if isinstance(d, dict):
+                if "document_type" in d:
+                    parts = ["文件分析完成，以下是提取的关键信息："]
+                    if d.get("document_type"):
+                        parts.append(f"凭证类型: {d['document_type']}")
+                    if d.get("amount"):
+                        cur = d.get("currency", "")
+                        parts.append(f"金额: {d['amount']} {cur}".strip())
+                    if d.get("transaction_date"):
+                        parts.append(f"日期: {d['transaction_date']}")
+                    if d.get("payer_name"):
+                        parts.append(f"付款人: {d['payer_name']}")
+                    if d.get("payee_name"):
+                        parts.append(f"收款人: {d['payee_name']}")
+                    return "\n".join(parts)
+                if "content" in d and isinstance(d["content"], str):
+                    return f"文件分析完成，内容摘要：\n{d['content'][:1000]}"
+                if "contract_number" in d or "title" in d:
+                    parts = ["合同分析完成，以下是提取的关键信息："]
+                    if d.get("title"):
+                        parts.append(f"合同标题: {d['title']}")
+                    if d.get("contract_number"):
+                        parts.append(f"合同编号: {d['contract_number']}")
+                    if isinstance(d.get("party_b"), dict) and d["party_b"].get("name"):
+                        parts.append(f"客户: {d['party_b']['name']}")
+                    if d.get("total_amount"):
+                        cur = d.get("currency", "")
+                        parts.append(f"总金额: {d['total_amount']} {cur}".strip())
+                    return "\n".join(parts)
+                # group_name 场景
+                if d.get("group_name"):
+                    parts = [f"群聊分析完成：{d['group_name']}"]
+                    if d.get("business_type"):
+                        parts.append(f"业务类型: {d['business_type']}")
+                    return "\n".join(parts)
+
+        # match_receipt 结果
+        if "matches" in data:
+            parts = ["已找到可能的匹配项："]
+            message = data.get("message", "")
+            if message:
+                parts.append(message)
+            for m in data["matches"][:3]:
+                customer = m.get("customer_name", "未知")
+                contract_no = m.get("contract_number", "")
+                installment = m.get("installment_name", "")
+                amount = m.get("amount", "")
+                currency = m.get("currency", "")
+                parts.append(
+                    f"• {customer} — {contract_no} "
+                    f"({installment}): {amount} {currency}"
+                )
+            if len(data["matches"]) > 3:
+                parts.append(f"  ...及其他 {len(data['matches'])-3} 条匹配")
+            return "\n".join(parts)
+
+        # 其他成功结果
+        if data.get("success") and data.get("contract"):
+            c = data["contract"]
+            return f"操作成功：合同 {c.get('contract_number', '')} 已更新"
+
+        if data.get("success") and data.get("customer"):
+            c = data["customer"]
+            return f"操作成功：客户 {c.get('name', '')} 已创建/更新"
+
+        if data.get("success") and data.get("payment"):
+            return "操作成功：付款记录已创建/更新"
+
+        # 通用兜底
+        preview = result_json[:500]
+        if len(result_json) > 500:
+            preview += "..."
+        return f"工具执行完成，返回结果：\n{preview}"
+
     # ── 查询工具 ──
 
     def search_customers(
@@ -339,7 +471,7 @@ class ToolExecutor:
         except Exception as e:
             return json.dumps({"error": str(e)}, ensure_ascii=False)
 
-        contracts = [self._contract_to_dict(c) for c in items]
+        contracts = [self._contract_to_dict_lite(c) for c in items]
 
         # 无筛选条件时：返回统计 + 少量样例，引导用户精确查找
         if not has_filter:
@@ -386,15 +518,33 @@ class ToolExecutor:
             else:
                 type_filter = None
 
-            payment_data = PaymentService.get_contract_payments(self.db, contract_id, type_filter=type_filter)
+            # Agent 场景：直接查询并用精简序列化，避免 PaymentResponse 22 字段全量输出
+            pay_query = self.db.query(Payment).filter(Payment.contract_id == contract_id)
+            if type_filter:
+                pay_query = pay_query.filter(Payment.type == type_filter)
+            all_payments = pay_query.order_by(Payment.installment_number).all()
+            income_pays = [p for p in all_payments if p.type == "income"]
+            expense_pays = [p for p in all_payments if p.type == "expense"]
+
+            total_paid_cny = sum(p.paid_amount_in_cny or 0 for p in income_pays if p.status == 'paid')
+            total_expense_cny = sum(p.paid_amount_in_cny or 0 for p in expense_pays if p.status == 'paid')
 
             if type_filter != "expense":
-                result["income"] = payment_data["income"]
+                result["income"] = {
+                    "payments": [self._payment_to_dict_lite(p) for p in income_pays],
+                    "total_amount": float(contract.total_amount),
+                    "paid_amount": float(contract.paid_amount),
+                    "remaining_amount": float(contract.remaining_amount or 0),
+                    "total_paid_in_cny": float(total_paid_cny),
+                }
             if type_filter != "income":
-                result["expense"] = payment_data["expense"]
-            # 利润只有 admin 能看
+                result["expense"] = {
+                    "payments": [self._payment_to_dict_lite(p) for p in expense_pays],
+                    "total_expense": float(contract.total_expense or 0),
+                    "total_expense_in_cny": float(contract.total_expense_in_cny or 0),
+                }
             if self._is_admin():
-                result["profit_in_cny"] = payment_data["profit_in_cny"]
+                result["profit_in_cny"] = float(total_paid_cny - total_expense_cny)
         except Exception:
             result["income"] = {"payments": []}
             result["expense"] = {"payments": []}
@@ -452,7 +602,7 @@ class ToolExecutor:
                 per_page=50,
             )
 
-        contracts = [self._contract_to_dict(c) for c in items]
+        contracts = [self._contract_to_dict_lite(c) for c in items]
         result = {
             "contracts": contracts,
             "total": total,
@@ -494,7 +644,7 @@ class ToolExecutor:
         payments = query.order_by(Payment.created_at.desc()) \
             .offset((page - 1) * per_page).limit(per_page).all()
 
-        results = [self._payment_to_dict(p) for p in payments]
+        results = [self._payment_to_dict_lite(p) for p in payments]
 
         for r, p in zip(results, payments):
             if p.contract:
@@ -1683,7 +1833,7 @@ class ToolExecutor:
         results = []
         for c in contracts:
             results.append({
-                **self._contract_to_dict(c),
+                **self._contract_to_dict_lite(c),
                 "days_until_expiry": (c.end_date - date.today()).days if c.end_date else None,
             })
 
@@ -1928,7 +2078,7 @@ class ToolExecutor:
                 self._pending_receipt_path = receipt_path
                 return json.dumps({
                     "success": True,
-                    "data": structured,
+                    "data": self._summarize_analysis_for_context(structured, analysis_type),
                     "file_id": file_id,
                     "file_path": receipt_path,
                     "file_type": "image",
@@ -2001,7 +2151,7 @@ class ToolExecutor:
                             self._pending_receipt_path = receipt_path
                             return json.dumps({
                                 "success": True,
-                                "data": structured,
+                                "data": self._summarize_analysis_for_context(structured, analysis_type),
                                 "file_id": file_id,
                                 "file_path": receipt_path,
                                 "file_type": "pdf",
@@ -2056,7 +2206,8 @@ class ToolExecutor:
                                 logger.warning("analyze_image PDF VL: 文件持久化失败 file_id=%s", file_id)
                             self._pending_receipt_path = receipt_path
                             return json.dumps({
-                                "success": True, "data": structured,
+                                "success": True,
+                                "data": self._summarize_analysis_for_context(structured, analysis_type),
                                 "file_id": file_id, "file_path": receipt_path,
                                 "file_type": "pdf", "analysis_type": analysis_type,
                             }, ensure_ascii=False)
@@ -2604,8 +2755,8 @@ TOOL_DEFINITIONS = [
                     "file_id": {"type": "string", "description": "上传接口返回的文件ID"},
                     "analysis_type": {
                         "type": "string",
-                        "enum": ["receipt", "contract", "general"],
-                        "description": "分析类型（图片/扫描件适用）",
+                        "enum": ["receipt", "contract", "general", "group_chat"],
+                        "description": "分析类型：receipt=付款凭证, contract=合同/协议, general=其他图片, group_chat=微信群聊截图",
                     },
                 },
             },

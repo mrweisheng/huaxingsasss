@@ -1,12 +1,16 @@
 """
 LLM客户端 - SiliconFlow Qwen-VL + DeepSeek Agent
 """
+import asyncio
 import base64
 import json
+import logging
 import re
 from typing import Dict, Any, Optional, AsyncGenerator, List
 import httpx
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class SiliconFlowClient:
@@ -185,12 +189,14 @@ class SiliconFlowClient:
 
 
 class DeepSeekClient:
-    """DeepSeek API客户端，支持流式输出和函数调用"""
+    """DeepSeek API客户端，支持流式输出、函数调用和指数退避重试"""
 
     def __init__(self):
         self.api_key = settings.DEEPSEEK_API_KEY
         self.base_url = settings.DEEPSEEK_BASE_URL
         self.model = settings.DEEPSEEK_AGENT_MODEL
+        self.max_retries = getattr(settings, 'DEEPSEEK_MAX_RETRIES', 3)
+        self.retry_base_delay = getattr(settings, 'DEEPSEEK_RETRY_BASE_DELAY', 1.0)
 
     async def chat_completion_stream(
         self,
@@ -200,8 +206,11 @@ class DeepSeekClient:
         max_tokens: int = 4096,
     ) -> AsyncGenerator[dict, None]:
         """
-        流式调用 DeepSeek API，支持函数调用。
+        流式调用 DeepSeek API，支持函数调用和指数退避重试。
         逐个 yield 解析后的 SSE 事件。
+
+        重试条件：429（限流）、5xx（服务端错误）、TimeoutException、ConnectError
+        不重试：4xx（客户端错误，除 429 外）
 
         Yields:
             {"type": "text", "content": "..."} — 文本增量
@@ -223,123 +232,161 @@ class DeepSeekClient:
             "Content-Type": "application/json",
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            async with client.stream(
-                "POST",
-                f"{self.base_url}/chat/completions",
-                json=payload,
-                headers=headers,
-            ) as response:
-                if response.status_code != 200:
-                    error_body = await response.aread()
-                    raise Exception(f"DeepSeek API error {response.status_code}: {error_body.decode()}")
-
-                current_tool_calls: dict = {}
-
-                async for line in response.aiter_lines():
-                    if not line.startswith("data: "):
-                        continue
-                    data = line[6:]
-                    if data == "[DONE]":
-                        # flush remaining tool calls
-                        for tc in current_tool_calls.values():
-                            yield {
-                                "type": "tool_call",
-                                "id": tc["id"],
-                                "name": tc["name"],
-                                "arguments": tc.get("arguments", ""),
-                            }
-                        yield {"type": "done", "finish_reason": "stop"}
-                        return
-
-                    try:
-                        chunk = json.loads(data)
-                    except json.JSONDecodeError:
-                        continue
-
-                    delta = chunk.get("choices", [{}])[0].get("delta", {})
-                    finish_reason = chunk.get("choices", [{}])[0].get("finish_reason")
-
-                    # 文本内容
-                    content = delta.get("content")
-                    if content:
-                        yield {"type": "text", "content": content}
-
-                    # 工具调用（增量）
-                    tool_calls = delta.get("tool_calls")
-                    if tool_calls:
-                        for tc in tool_calls:
-                            idx = tc.get("index", 0)
-                            if idx not in current_tool_calls:
-                                current_tool_calls[idx] = {
-                                    "id": tc.get("id", ""),
-                                    "name": tc.get("function", {}).get("name", ""),
-                                    "arguments": "",
-                                }
-                            if tc.get("id"):
-                                current_tool_calls[idx]["id"] = tc["id"]
-                            fn = tc.get("function", {})
-                            if fn.get("name"):
-                                current_tool_calls[idx]["name"] = fn["name"]
-                            if fn.get("arguments"):
-                                current_tool_calls[idx]["arguments"] += fn["arguments"]
-
-                    # usage 信息（流式模式下最后的 chunk 可能包含）
-                    usage = chunk.get("usage")
-                    if usage:
-                        yield {
-                            "type": "usage",
-                            "prompt_tokens": usage.get("prompt_tokens", 0),
-                            "completion_tokens": usage.get("completion_tokens", 0),
-                            "total_tokens": usage.get("total_tokens", 0),
-                        }
-
-                    # finish
-                    if finish_reason == "tool_calls":
-                        for tc in current_tool_calls.values():
-                            yield {
-                                "type": "tool_call",
-                                "id": tc["id"],
-                                "name": tc["name"],
-                                "arguments": tc.get("arguments", ""),
-                            }
-                        current_tool_calls = {}
-                        yield {"type": "done", "finish_reason": "tool_calls"}
-                        return
-
-                    if finish_reason == "length":
-                        # max_tokens 截断：如果已累计了 tool_calls，必须把它们 yield 出去
-                        # 否则上游 ReAct 循环会误判 not tool_calls → 对话结束，工具调用彻底丢失
-                        if current_tool_calls:
+        last_error = None
+        for attempt in range(self.max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=120.0) as client:
+                    async with client.stream(
+                        "POST",
+                        f"{self.base_url}/chat/completions",
+                        json=payload,
+                        headers=headers,
+                    ) as response:
+                        # 可重试的服务端错误
+                        if response.status_code == 429:
+                            retry_after = float(response.headers.get("retry-after", str(self.retry_base_delay * (2 ** attempt))))
                             logger.warning(
-                                "DeepSeek 流式返回 length 截断且含 tool_calls，"
-                                "已强制 flush %d 个工具调用",
-                                len(current_tool_calls),
+                                "DeepSeek 限流 429，%.1fs 后重试 (attempt %d/%d)",
+                                retry_after, attempt + 1, self.max_retries,
                             )
-                            for tc in current_tool_calls.values():
+                            await response.aread()  # 消费响应体
+                            await asyncio.sleep(retry_after)
+                            continue
+
+                        if response.status_code >= 500:
+                            delay = self.retry_base_delay * (2 ** attempt)
+                            logger.warning(
+                                "DeepSeek 服务端错误 %d，%.1fs 后重试 (attempt %d/%d)",
+                                response.status_code, delay, attempt + 1, self.max_retries,
+                            )
+                            await response.aread()
+                            await asyncio.sleep(delay)
+                            continue
+
+                        # 客户端错误（4xx 除 429）不重试
+                        if response.status_code >= 400:
+                            error_body = await response.aread()
+                            raise Exception(
+                                f"DeepSeek API error {response.status_code}: {error_body.decode()}"
+                            )
+
+                        # 成功：处理 SSE 流
+                        current_tool_calls: dict = {}
+
+                        async for line in response.aiter_lines():
+                            if not line.startswith("data: "):
+                                continue
+                            data = line[6:]
+                            if data == "[DONE]":
+                                for tc in current_tool_calls.values():
+                                    yield {
+                                        "type": "tool_call",
+                                        "id": tc["id"],
+                                        "name": tc["name"],
+                                        "arguments": tc.get("arguments", ""),
+                                    }
+                                yield {"type": "done", "finish_reason": "stop"}
+                                return
+
+                            try:
+                                chunk = json.loads(data)
+                            except json.JSONDecodeError:
+                                continue
+
+                            delta = chunk.get("choices", [{}])[0].get("delta", {})
+                            finish_reason = chunk.get("choices", [{}])[0].get("finish_reason")
+
+                            content = delta.get("content")
+                            if content:
+                                yield {"type": "text", "content": content}
+
+                            tool_calls = delta.get("tool_calls")
+                            if tool_calls:
+                                for tc in tool_calls:
+                                    idx = tc.get("index", 0)
+                                    if idx not in current_tool_calls:
+                                        current_tool_calls[idx] = {
+                                            "id": tc.get("id", ""),
+                                            "name": tc.get("function", {}).get("name", ""),
+                                            "arguments": "",
+                                        }
+                                    if tc.get("id"):
+                                        current_tool_calls[idx]["id"] = tc["id"]
+                                    fn = tc.get("function", {})
+                                    if fn.get("name"):
+                                        current_tool_calls[idx]["name"] = fn["name"]
+                                    if fn.get("arguments"):
+                                        current_tool_calls[idx]["arguments"] += fn["arguments"]
+
+                            usage = chunk.get("usage")
+                            if usage:
                                 yield {
-                                    "type": "tool_call",
-                                    "id": tc["id"],
-                                    "name": tc["name"],
-                                    "arguments": tc.get("arguments", ""),
+                                    "type": "usage",
+                                    "prompt_tokens": usage.get("prompt_tokens", 0),
+                                    "completion_tokens": usage.get("completion_tokens", 0),
+                                    "total_tokens": usage.get("total_tokens", 0),
                                 }
-                            current_tool_calls = {}
-                            yield {"type": "done", "finish_reason": "tool_calls"}
-                            return
-                        yield {"type": "done", "finish_reason": "length"}
+
+                            if finish_reason == "tool_calls":
+                                for tc in current_tool_calls.values():
+                                    yield {
+                                        "type": "tool_call",
+                                        "id": tc["id"],
+                                        "name": tc["name"],
+                                        "arguments": tc.get("arguments", ""),
+                                    }
+                                current_tool_calls = {}
+                                yield {"type": "done", "finish_reason": "tool_calls"}
+                                return
+
+                            if finish_reason == "length":
+                                if current_tool_calls:
+                                    logger.warning(
+                                        "DeepSeek 流式返回 length 截断且含 tool_calls，"
+                                        "已强制 flush %d 个工具调用",
+                                        len(current_tool_calls),
+                                    )
+                                    for tc in current_tool_calls.values():
+                                        yield {
+                                            "type": "tool_call",
+                                            "id": tc["id"],
+                                            "name": tc["name"],
+                                            "arguments": tc.get("arguments", ""),
+                                        }
+                                    current_tool_calls = {}
+                                    yield {"type": "done", "finish_reason": "tool_calls"}
+                                    return
+                                yield {"type": "done", "finish_reason": "length"}
+                                return
+
+                            if finish_reason == "stop":
+                                if current_tool_calls:
+                                    for tc in current_tool_calls.values():
+                                        yield {
+                                            "type": "tool_call",
+                                            "id": tc["id"],
+                                            "name": tc["name"],
+                                            "arguments": tc.get("arguments", ""),
+                                        }
+                                yield {"type": "done", "finish_reason": "stop"}
+                                return
+                        # 流正常结束（无 finish_reason）
                         return
 
-                    if finish_reason == "stop":
-                        if current_tool_calls:
-                            for tc in current_tool_calls.values():
-                                yield {
-                                    "type": "tool_call",
-                                    "id": tc["id"],
-                                    "name": tc["name"],
-                                    "arguments": tc.get("arguments", ""),
-                                }
-                        yield {"type": "done", "finish_reason": "stop"}
-                        return
+            except (httpx.TimeoutException, httpx.ConnectError) as e:
+                last_error = e
+                delay = self.retry_base_delay * (2 ** attempt)
+                logger.warning(
+                    "DeepSeek 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
+                    type(e).__name__, delay, attempt + 1, self.max_retries,
+                )
+                await asyncio.sleep(delay)
+                continue
+
+        # 所有重试耗尽
+        raise Exception(
+            f"DeepSeek API 在 {self.max_retries} 次重试后仍失败: {last_error}"
+        )
 
     async def analyze_image_with_vl(
         self,

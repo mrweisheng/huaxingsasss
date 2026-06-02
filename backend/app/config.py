@@ -68,8 +68,12 @@ class Settings(BaseSettings):
     # DeepSeek配置（Agent智能体模型）
     DEEPSEEK_API_KEY: Optional[str] = None
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
-    DEEPSEEK_MODEL: str = "deepseek-chat"
-    DEEPSEEK_AGENT_MODEL: str = "deepseek-chat"
+    DEEPSEEK_MODEL: str = "deepseek-v4-flash"
+    DEEPSEEK_AGENT_MODEL: str = "deepseek-v4-flash"
+
+    # DeepSeek 重试配置
+    DEEPSEEK_MAX_RETRIES: int = 3
+    DEEPSEEK_RETRY_BASE_DELAY: float = 1.0
 
     # Agent配置
     AGENT_MAX_ITERATIONS: int = 8
