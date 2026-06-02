@@ -507,7 +507,8 @@ export default function ContractDetail() {
               const isSettled = contract.paid_count > i
               // 兼容历史数据：旧合同存的是 installment_name 而非 name，且无 condition
               const termName = term.name || term.installment_name || `第 ${i + 1} 期`
-              const termCond = term.condition || term.due_date
+              const dueDateStr = term.due_date ? String(term.due_date).trim() : ''
+              const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDateStr)
               return (
                 <div key={i} className={`cd-term-step ${isSettled ? 'settled' : 'pending'}`}>
                   <div className={`cd-term-step-num ${isSettled ? 'settled' : ''}`}>
@@ -522,13 +523,16 @@ export default function ContractDetail() {
                       {isSettled ? '已付' : '待付'}
                     </span>
                   </div>
-                  {termCond && (
+                  {term.condition ? (
+                    // 有合同原文 condition（如"第一期：乙方已于2026年5月28日支付定金港币伍万元整"）
+                    // 原样展示，不加 label —— condition 本身已是完整描述
+                    <span className="cd-term-step-cond">{term.condition}</span>
+                  ) : term.due_date ? (
+                    // 回退到 due_date 兜底（旧合同 condition 已丢失）
                     <span className="cd-term-step-cond">
-                      {/^\d{4}-\d{2}-\d{2}$/.test(String(termCond).trim())
-                        ? `约定付款：${termCond}`
-                        : `约定：${termCond}`}
+                      {isIsoDate ? `约定付款：${term.due_date}` : `约定：${term.due_date}`}
                     </span>
-                  )}
+                  ) : null}
                 </div>
               )
             })}

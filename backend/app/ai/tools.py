@@ -514,6 +514,92 @@ class ToolExecutor:
             pass
         return None
 
+    def _backfill_payment_terms_condition(self, contract_data_raw) -> None:
+        """从 chat_history 里最近一次 analyze_image 输出回填 payment_terms[].condition。
+
+        DeepSeek 调 create_contract 时偶尔会把 VL 提取的 condition 整个丢掉。
+        VL 原始返回完整保留在 chat_history 表（role=tool, intent_type=analyze_image），
+        这里按 name+amount 主键配对、按下标+amount 兜底，把 condition 补回 contract_data。
+        任何异常都静默吞掉，不阻断合同创建。
+        """
+        if not isinstance(contract_data_raw, dict):
+            return
+        terms = contract_data_raw.get("payment_terms")
+        if not isinstance(terms, list) or not terms:
+            return
+        # 没有缺失 condition 的就跳过
+        if not any(isinstance(t, dict) and not t.get("condition") for t in terms):
+            return
+        if not self.session_id:
+            return
+
+        try:
+            from app.models.chat_history import ChatHistory
+            record = (
+                self.db.query(ChatHistory)
+                .filter(
+                    ChatHistory.session_id == self.session_id,
+                    ChatHistory.user_id == self.user.id,
+                    ChatHistory.role == "tool",
+                    ChatHistory.intent_type == "analyze_image",
+                )
+                .order_by(ChatHistory.created_at.desc())
+                .first()
+            )
+            if not record or not record.answer:
+                return
+            try:
+                analyzed = json.loads(record.answer)
+            except (json.JSONDecodeError, TypeError):
+                return
+            if not analyzed.get("success") or not isinstance(analyzed.get("data"), dict):
+                return
+            src_terms = analyzed["data"].get("payment_terms")
+            if not isinstance(src_terms, list) or not src_terms:
+                return
+
+            def _amount_eq(a, b) -> bool:
+                try:
+                    return abs(float(a) - float(b)) < 0.01
+                except (TypeError, ValueError):
+                    return False
+
+            # 第一轮：name + amount 配对
+            for t in terms:
+                if not isinstance(t, dict) or t.get("condition"):
+                    continue
+                t_name = t.get("name")
+                if not t_name:
+                    continue
+                for s in src_terms:
+                    if not isinstance(s, dict) or not s.get("condition"):
+                        continue
+                    if t_name == s.get("name") and _amount_eq(t.get("amount"), s.get("amount")):
+                        t["condition"] = s["condition"]
+                        logger.info(
+                            "回填 payment_terms condition（name=%s, 按 name+amount 配对）",
+                            t_name,
+                        )
+                        break
+
+            # 第二轮：下标 + amount 配对（应对 DeepSeek 改了 name）
+            for idx, t in enumerate(terms):
+                if not isinstance(t, dict) or t.get("condition"):
+                    continue
+                if idx >= len(src_terms):
+                    break
+                s = src_terms[idx]
+                if not isinstance(s, dict) or not s.get("condition"):
+                    continue
+                if _amount_eq(t.get("amount"), s.get("amount")):
+                    t["condition"] = s["condition"]
+                    logger.info(
+                        "回填 payment_terms condition（下标=%d, 按下标+amount 配对）",
+                        idx,
+                    )
+        except Exception as e:
+            logger.warning("回填 payment_terms condition 失败: %s", e)
+
     def _ensure_file_in_receipt_dir(self, file_path: str) -> Optional[str]:
         """如果 file_path 是 agent_upload/{file_id} 格式，
         把文件从临时目录复制到凭证目录，返回新路径。
@@ -707,6 +793,12 @@ class ToolExecutor:
                 contract_data_raw["payment_terms"] = normalized
                 # 同步回 kwargs，确保后续 _auto_create_payments_from_terms 用到归一化后的数据
                 kwargs["contract_data"] = contract_data_raw
+
+        # 回查 chat_history 补 condition：
+        # DeepSeek 在调 create_contract 时偶尔会把 payment_terms[].condition 整个丢掉，
+        # 但 analyze_image 工具的完整返回（含 condition 原文）已写入 chat_history.answer。
+        # 这里按 name+amount 主键配对、按下标+amount 兜底，把 condition 找回来。
+        self._backfill_payment_terms_condition(contract_data_raw)
 
         if not customer_id:
             return json.dumps({"error": "缺少 customer_id，请先创建或查找客户"}, ensure_ascii=False)
