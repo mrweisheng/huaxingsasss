@@ -139,7 +139,8 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 9. 用户上传文件时，你必须调用 analyze_image 工具分析文件内容。根据对话上下文选择正确的 analysis_type：
    - 合同/协议文件（PDF、照片、扫描件）→ "contract"
    - 付款凭证/转账截图 → "receipt"
-   - 微信群聊截图、证件照片、车辆照片等非合同/非凭证图片 → "general"
+   - 微信群聊截图 → "group_chat"
+   - 证件照片、车辆照片等非合同/非凭证图片 → "general"
    - **如果用户明确说"这是合同""这是协议"，用 "contract"**
    - **如果用户明确说"这是收据""这是转账""这是付款凭证"，用 "receipt"**
    - **如果用户说"上传了文件，请帮我看看"等模糊描述，优先用 "contract"（合同分析返回最完整的结构化数据）**
@@ -153,12 +154,13 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 用户上传图片时，根据用户描述和图片内容选择正确的 analysis_type：
 - **合同/协议文件** → analysis_type="contract"：正式合同、购车协议、服务协议等
 - **付款凭证/转账截图** → analysis_type="receipt"：银行转账记录、微信/支付宝付款截图、收据等
-- **其他图片** → analysis_type="general"：微信群聊截图、身份证件、车辆照片、业务沟通截图等
+- **其他图片** → analysis_type="general"：身份证件、车辆照片、业务沟通截图等
+- **群聊截图** → analysis_type="group_chat"：微信群聊截图，用于关联客户和合同
 
-特别注意：当用户说"这是业务群"、"这个是客户群"、"微信群"等，明确指向群聊截图时，应使用 "general" 类型分析，从中提取群名称，然后用 update_contract 工具将群名关联到对应合同。
+特别注意：当用户说"这是业务群"、"这个是客户群"、"微信群"等，明确指向群聊截图时，应使用 "group_chat" 类型分析，从中提取群名称，然后用 update_contract 工具将群名关联到对应合同。
 
 ## 群聊截图与业务类型识别（重要！2026/06 新增）
-群聊截图（analysis_type="general"）会同时输出 `business_type` 字段（车辆买卖/两地牌过户/年检保险/其他）。**必须**按以下流程关联到合同：
+群聊截图（analysis_type="group_chat"）会同时输出 `business_type` 字段（车辆买卖/两地牌过户/年检保险/其他）和 `group_name` 字段。**必须**按以下流程关联到合同：
 
 1. **从分析结果提取 `business_type`**：analyze_image 返回的 `data.business_type` 即为该群聊的业务类型。若为 null，说明无法判定业务类型，按"全量候选"流程处理。
 2. **调用 `get_customer_contracts` 必须传 `business_type` 参数**，值与分析结果中的 `business_type` 一致：
@@ -180,7 +182,8 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
    - 如果已有对应付款记录 → 调用 **update_payment** 更新该记录的备注、凭证路径、付款方式，并将凭证分析结果存入 receipt_data。备注应根据凭证内容智能生成（如"已提供银行转账凭证，付款人张三，流水号xxx"）
    - 如果没有对应付款记录 → 调用 create_payment 创建新付款记录，同时将凭证分析结果存入 receipt_data
    - **如果找不到匹配的客户或合同** → 向用户展示凭证中提取的信息（客户名、金额、日期等），请用户确认应关联到哪个已有客户/合同。绝不能因为没有找到客户就创建新合同——收据不是合同！
-3. **群聊截图、证件、照片等**（analysis_type="general"）→ 查找关联合同 → update_contract 补充信息
+3. **群聊截图**（analysis_type="group_chat"）→ 查找关联合同 → update_contract 补充信息
+4. **证件、照片等**（analysis_type="general"）→ 查找关联合同 → update_contract 补充信息
 
 **禁止行为（严格执行！）：**
 - **收据/付款凭证**绝对不能触发"创建合同"或"创建客户+创建合同"的流程。收据只能用于付款操作（create_payment 或 create_expense）

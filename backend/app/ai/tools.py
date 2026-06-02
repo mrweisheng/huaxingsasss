@@ -27,7 +27,12 @@ from app.models.customer import Customer
 from app.models.contract import Contract
 from app.models.payment import Payment
 from app.models.user import User
-from app.ai.prompts import RECEIPT_ANALYSIS_PROMPT, CONTRACT_ANALYSIS_PROMPT, GENERAL_ANALYSIS_PROMPT
+from app.ai.prompts import (
+    RECEIPT_ANALYSIS_PROMPT,
+    CONTRACT_ANALYSIS_PROMPT,
+    GENERAL_ANALYSIS_PROMPT,
+    GROUP_CHAT_ANALYSIS_PROMPT,
+)
 from app.core.business_types import BusinessType
 from app.services.contract_service import ContractService
 from app.services.customer_service import CustomerService
@@ -1056,6 +1061,7 @@ class ToolExecutor:
                 updates[field] = kwargs[field]
 
         if not updates:
+            self._document_context = None  # 消费上下文
             return json.dumps({"error": "没有需要更新的字段"}, ensure_ascii=False)
 
         try:
@@ -1069,14 +1075,15 @@ class ToolExecutor:
             }
             updated = ContractService.update_contract(self.db, contract_id, contract_update)
             if not updated:
+                self._document_context = None  # 更新失败也消费上下文
                 return json.dumps({"error": "更新失败"}, ensure_ascii=False)
 
             # 群名关联审计：标记来源，便于后续统计推断准确率
-            # - 群聊识别上下文（document_context="general"）→ business_type_infer
+            # - 群聊识别上下文（document_context="general" 或 "group_chat"）→ business_type_infer
             # - 用户在对话中明确说"把这个群名关联到合同" → user_manual
             # - 其他情况下手动更新 → user_manual（保守兜底）
             audit_source = "user_manual"
-            if "wechat_group" in updates and self._document_context == "general":
+            if "wechat_group" in updates and self._document_context in ("general", "group_chat"):
                 audit_source = "business_type_infer"
             if "wechat_group" in updates:
                 try:
@@ -1095,7 +1102,7 @@ class ToolExecutor:
                     )
                 except Exception:
                     logger.exception("update_contract: 群名关联审计写入失败")
-            # 写操作完成：显式消费 document_context，避免污染同会话后续轮次
+            # 写操作完成（成功或失败）：显式消费 document_context，避免污染同会话后续轮次
             self._document_context = None
 
             return json.dumps({
@@ -1105,6 +1112,7 @@ class ToolExecutor:
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("update_contract failed")
+            self._document_context = None  # 异常路径也要消费上下文
             return json.dumps({"error": f"更新合同失败: {str(e)}"}, ensure_ascii=False)
 
     def create_payment(self, **kwargs) -> str:
@@ -1864,6 +1872,7 @@ class ToolExecutor:
                 "receipt": RECEIPT_ANALYSIS_PROMPT,
                 "contract": CONTRACT_ANALYSIS_PROMPT,
                 "general": GENERAL_ANALYSIS_PROMPT,
+                "group_chat": GROUP_CHAT_ANALYSIS_PROMPT,
             }.get(analysis_type, GENERAL_ANALYSIS_PROMPT)
 
             file_bytes, mime = _compress_image(file_bytes, mime)
@@ -2140,6 +2149,7 @@ class ToolExecutor:
     _DOCUMENT_BLOCKED_TOOLS = {
         "receipt": {"create_contract", "create_customer", "create_expense", "update_contract"},
         "general": {"create_contract", "create_customer", "create_payment", "create_expense", "update_payment"},
+        "group_chat": {"create_contract", "create_customer", "create_payment", "create_expense", "update_payment"},
     }
 
     def _check_document_guard(self, tool_name: str) -> Optional[str]:
@@ -2154,26 +2164,13 @@ class ToolExecutor:
         if not blocked or tool_name not in blocked:
             return None
         self._document_context = None  # 命中拦截时一次性消费
-        label = {"receipt": "付款凭证", "general": "非合同类文件"}.get(
+        label = {"receipt": "付款凭证", "general": "非合同类文件", "group_chat": "群聊截图"}.get(
             context, context
         )
         hint = {
             "receipt": "凭证只能用于付款操作（match_receipt / create_payment / update_payment）。如需创建/修改合同，请让用户上传合同文件。",
             "general": "此类文件应通过 update_contract 关联已有合同（仅修改微信群/备注等元信息），不能用于付款操作。如需创建新合同或记录付款，请让用户上传合同/凭证文件。",
-        }.get(context, "")
-        return json.dumps({
-            "error": f"当前文件为「{label}」，不允许执行「{tool_name}」。{hint}",
-            "blocked_tool": tool_name,
-            "document_context": context,
-        }, ensure_ascii=False)
-        if not blocked or tool_name not in blocked:
-            return None
-        label = {"receipt": "付款凭证", "general": "非合同类文件"}.get(
-            context, context
-        )
-        hint = {
-            "receipt": "凭证只能用于付款操作（match_receipt / create_payment / update_payment）。如需创建/修改合同，请让用户上传合同文件。",
-            "general": "此类文件应通过 update_contract 关联已有合同（仅修改微信群/备注等元信息），不能用于付款操作。如需创建新合同或记录付款，请让用户上传合同/凭证文件。",
+            "group_chat": "群聊截图应通过 update_contract 关联已有合同（仅修改微信群/备注等元信息），不能用于付款操作。如需创建新合同或记录付款，请让用户上传合同/凭证文件。",
         }.get(context, "")
         return json.dumps({
             "error": f"当前文件为「{label}」，不允许执行「{tool_name}」。{hint}",
@@ -2191,8 +2188,9 @@ class ToolExecutor:
         args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
         logger.info("工具调用: %s | 参数: %s", tool_name, args_preview)
 
-        # 文档上下文守卫：analyze_image 设置的 document_context 一次性消费后立即清空，
-        # 避免污染同会话后续轮次的工具调用
+        # 文档上下文守卫：analyze_image 设置的 document_context 按以下规则处理：
+        # - 工具命中封锁列表 → 拦截并一次性消费上下文
+        # - 工具放行 → 保留上下文，由后续写操作工具（如 update_contract）结束后显式清空
         blocked = self._check_document_guard(tool_name)
         if blocked:
             logger.warning("文档上下文守卫拦截: tool=%s", tool_name)
