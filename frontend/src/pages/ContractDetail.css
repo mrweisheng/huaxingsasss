@@ -544,13 +544,16 @@
   background: var(--bg-hover) !important;
 }
 
-/* 描述列自动换行 */
+/* 描述列自动换行 — 强制覆盖 Ant Design td 的 nowrap */
+.cd-payment-table .ant-table-tbody > tr > td {
+  white-space: normal !important;
+}
+
 .cd-cell-desc {
   font-size: 12px;
   color: var(--text-secondary);
   line-height: 1.5;
   word-break: break-all;
-  white-space: normal;
 }
 
 /* 金额 */

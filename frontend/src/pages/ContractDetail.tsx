@@ -166,6 +166,7 @@ export default function ContractDetail() {
     {
       title: '描述',
       key: 'description',
+      width: 200,
       render: (_: unknown, record: Payment) => (
         <span className="cd-cell-desc">{record.description || '-'}</span>
       ),
@@ -271,6 +272,7 @@ export default function ContractDetail() {
     {
       title: '描述',
       key: 'description',
+      width: 200,
       render: (_: unknown, record: Payment) => (
         <span className="cd-cell-desc">{record.description || '-'}</span>
       ),
