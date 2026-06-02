@@ -42,11 +42,17 @@ class ContractService:
         date_from: Optional[date] = None,
         date_to: Optional[date] = None,
         sales_person_id: Optional[int] = None,
-        contract_number: Optional[str] = None
+        contract_number: Optional[str] = None,
+        business_type: Optional[str] = None,
     ) -> tuple[List[Contract], int]:
         """
         获取合同列表
-        
+
+        Args:
+            business_type: 业务类型过滤。
+                - 传入非空字符串 → WHERE business_type IN (传入值, NULL)，存量合同 NULL 兜底包含
+                - None/空 → 不过滤
+
         Returns:
             (合同列表, 总数)
         """
@@ -72,6 +78,15 @@ class ContractService:
         # 业务员过滤
         if sales_person_id:
             query = query.filter(Contract.sales_person_id == sales_person_id)
+
+        # 业务类型过滤（含 NULL 兜底）
+        if business_type:
+            from app.core.business_types import BusinessType as _BT
+            normalized = _BT.normalize(business_type) or business_type
+            # IN (传入值, NULL) —— 存量合同 business_type 为 NULL 时兜底包含
+            query = query.filter(
+                or_(Contract.business_type == normalized, Contract.business_type.is_(None))
+            )
 
         # 客户名称模糊搜索（繁简兼容）
         if customer_name:

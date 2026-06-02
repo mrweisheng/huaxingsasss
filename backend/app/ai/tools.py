@@ -28,6 +28,7 @@ from app.models.contract import Contract
 from app.models.payment import Payment
 from app.models.user import User
 from app.ai.prompts import RECEIPT_ANALYSIS_PROMPT, CONTRACT_ANALYSIS_PROMPT, GENERAL_ANALYSIS_PROMPT
+from app.core.business_types import BusinessType
 from app.services.contract_service import ContractService
 from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
@@ -395,19 +396,72 @@ class ToolExecutor:
 
         return json.dumps(result, ensure_ascii=False)
 
-    def get_customer_contracts(self, customer_id: int) -> str:
+    def get_customer_contracts(
+        self,
+        customer_id: int,
+        business_type: Optional[str] = None,
+    ) -> str:
+        """获取某客户的合同列表。
+
+        Args:
+            customer_id: 客户 ID。
+            business_type: 业务类型过滤（车辆买卖/两地牌过户/年检保险/其他）。
+                传入时仅返回该类型合同（NULL 存量合同兜底包含）；
+                零结果时自动回退到全量展示，避免空数据误导。
+        """
         sales_person_id = None
         if self.user.role == "income":
             sales_person_id = self.user.id
 
-        items, total = ContractService.get_contracts(
-            self.db,
-            customer_id=customer_id,
-            sales_person_id=sales_person_id,
-            per_page=50,
-        )
+        normalized = BusinessType.normalize(business_type) if business_type else None
+        filter_applied = normalized is not None
+        fallback_to_all = False
+
+        if filter_applied:
+            # 带过滤：先在 Service 层用 business_type 过滤
+            items, total = ContractService.get_contracts(
+                self.db,
+                customer_id=customer_id,
+                sales_person_id=sales_person_id,
+                business_type=normalized,
+                per_page=50,
+            )
+            if total == 0:
+                # 零结果兜底：再查全量
+                logger.info(
+                    "get_customer_contracts: business_type=%s 零结果，回退到全量 customer_id=%d",
+                    normalized, customer_id,
+                )
+                items, total = ContractService.get_contracts(
+                    self.db,
+                    customer_id=customer_id,
+                    sales_person_id=sales_person_id,
+                    per_page=50,
+                )
+                fallback_to_all = True
+        else:
+            items, total = ContractService.get_contracts(
+                self.db,
+                customer_id=customer_id,
+                sales_person_id=sales_person_id,
+                per_page=50,
+            )
+
         contracts = [self._contract_to_dict(c) for c in items]
-        return json.dumps({"contracts": contracts, "total": total}, ensure_ascii=False)
+        result = {
+            "contracts": contracts,
+            "total": total,
+            "filter": {
+                "business_type": normalized,
+                "applied": filter_applied,
+                "fallback_to_all": fallback_to_all,
+            },
+        }
+        if filter_applied and fallback_to_all:
+            result["message"] = (
+                f"按业务类型「{normalized}」未找到合同，已展示该客户全部 {total} 份合同供选择。"
+            )
+        return json.dumps(result, ensure_ascii=False)
 
     def query_payments(self, **kwargs) -> str:
         query = self.db.query(Payment).filter(Payment.is_deleted == False)
@@ -1007,13 +1061,47 @@ class ToolExecutor:
         try:
             from app.schemas.contract import ContractUpdate
             contract_update = ContractUpdate(**updates)
+            old_values = {
+                "wechat_group": contract.wechat_group,
+                "remarks": contract.remarks,
+                "title": contract.title,
+                "business_description": contract.business_description,
+            }
             updated = ContractService.update_contract(self.db, contract_id, contract_update)
             if not updated:
                 return json.dumps({"error": "更新失败"}, ensure_ascii=False)
 
+            # 群名关联审计：标记来源，便于后续统计推断准确率
+            # - 群聊识别上下文（document_context="general"）→ business_type_infer
+            # - 用户在对话中明确说"把这个群名关联到合同" → user_manual
+            # - 其他情况下手动更新 → user_manual（保守兜底）
+            audit_source = "user_manual"
+            if "wechat_group" in updates and self._document_context == "general":
+                audit_source = "business_type_infer"
+            if "wechat_group" in updates:
+                try:
+                    from app.services.audit_service import AuditService
+                    AuditService.log(
+                        self.db,
+                        user_id=self.user.id,
+                        action="link_wechat_group",
+                        entity_type="contract",
+                        entity_id=contract_id,
+                        old_values={"wechat_group": old_values.get("wechat_group")},
+                        new_values={
+                            "wechat_group": updates["wechat_group"],
+                            "source": audit_source,
+                        },
+                    )
+                except Exception:
+                    logger.exception("update_contract: 群名关联审计写入失败")
+            # 写操作完成：显式消费 document_context，避免污染同会话后续轮次
+            self._document_context = None
+
             return json.dumps({
                 "success": True,
                 "contract": self._contract_to_dict(updated),
+                "audit_source": audit_source,
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("update_contract failed")
@@ -2056,13 +2144,28 @@ class ToolExecutor:
 
     def _check_document_guard(self, tool_name: str) -> Optional[str]:
         """文档上下文守卫。返回 None 放行，返回 JSON 字符串拦截。
-        一次性消费：无论是否拦截，检查后立即清空上下文，
-        避免污染同会话后续轮次的工具调用。"""
+        仅在「命中拦截」时一次性清空上下文。未命中的工具（如 general→get_customer_contracts
+        或 general→update_contract）放行并保留上下文，让后续 update_contract 能识别
+        「群聊识别推断」来源。execute 入口负责在写操作完成后消费上下文。"""
         if self._document_context is None:
             return None
         context = self._document_context
-        self._document_context = None  # 一次性消费
         blocked = self._DOCUMENT_BLOCKED_TOOLS.get(context)
+        if not blocked or tool_name not in blocked:
+            return None
+        self._document_context = None  # 命中拦截时一次性消费
+        label = {"receipt": "付款凭证", "general": "非合同类文件"}.get(
+            context, context
+        )
+        hint = {
+            "receipt": "凭证只能用于付款操作（match_receipt / create_payment / update_payment）。如需创建/修改合同，请让用户上传合同文件。",
+            "general": "此类文件应通过 update_contract 关联已有合同（仅修改微信群/备注等元信息），不能用于付款操作。如需创建新合同或记录付款，请让用户上传合同/凭证文件。",
+        }.get(context, "")
+        return json.dumps({
+            "error": f"当前文件为「{label}」，不允许执行「{tool_name}」。{hint}",
+            "blocked_tool": tool_name,
+            "document_context": context,
+        }, ensure_ascii=False)
         if not blocked or tool_name not in blocked:
             return None
         label = {"receipt": "付款凭证", "general": "非合同类文件"}.get(
@@ -2098,6 +2201,7 @@ class ToolExecutor:
         try:
             result = handler(**arguments)
             logger.info("工具结果: %s → %s", tool_name, result[:200] if result else "empty")
+            # 写操作成功后由各工具自行决定是否清空 document_context（保持显式可控）
             return result
         except Exception as e:
             logger.exception("❌ 工具执行失败: %s", tool_name)
@@ -2213,12 +2317,31 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_customer_contracts",
-            "description": "获取某客户的所有合同及付款状态汇总。",
+            "description": (
+                "获取某客户的合同列表及付款状态汇总。"
+                "支持按业务类型（business_type）过滤。"
+                "群聊截图识别后会携带 business_type 调用本工具，仅返回该类型合同，"
+                "过滤后零结果会自动回退到全量展示，并在返回中带 message 提示。"
+                "业务类型取值：车辆买卖 / 两地牌过户 / 年检保险 / 其他。"
+            ),
             "parameters": {
                 "type": "object",
                 "required": ["customer_id"],
                 "properties": {
                     "customer_id": {"type": "integer", "description": "客户ID"},
+                    "business_type": {
+                        "type": "string",
+                        "enum": [
+                            "车辆买卖",
+                            "两地牌过户",
+                            "年检保险",
+                            "其他",
+                        ],
+                        "description": (
+                            "业务类型过滤。群聊截图识别后必须传入识别结果中的 business_type；"
+                            "凭证/合同流程可不传。不传则返回全量。"
+                        ),
+                    },
                 },
             },
         },

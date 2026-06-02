@@ -3,6 +3,7 @@
 """
 from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DECIMAL, Date, JSON, Index, text
 from sqlalchemy.orm import relationship
+from app.core.business_types import BusinessType, LEGACY_VALUES
 from app.models.base import BaseModel
 
 
@@ -14,7 +15,12 @@ class Contract(BaseModel):
     # 合同基本信息
     contract_number = Column(String(50), unique=True, nullable=False, index=True, comment="合同编号")
     title = Column(String(500), comment="合同标题")
-    business_type = Column(String(50), index=True, comment="业务类型: 车辆业务/中港牌业务")
+    # 业务类型：单一事实来源见 app.core.business_types.BusinessType
+    # 标准值：车辆买卖 / 两地牌过户 / 年检保险 / 其他
+    # Legacy 值（存量数据）：车辆业务 / 中港牌业务（读取时由 BusinessType.normalize 规整）
+    business_type = Column(String(50), index=True, comment=(
+        f"业务类型: {'/'.join(BusinessType.all_values())}；legacy: {'/'.join(LEGACY_VALUES)}"
+    ))
     business_description = Column(String(200), comment="业务描述")
     
     # 关联关系
