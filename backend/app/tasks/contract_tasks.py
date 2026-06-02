@@ -85,7 +85,9 @@ def parse_contract_task(self, contract_id: int, file_path: str):
         if contract.total_amount and contract.paid_amount is not None:
             contract.remaining_amount = contract.total_amount - contract.paid_amount
 
-        # 根据置信度设置状态
+        # 根据置信度设置状态和元数据
+        contract.confidence = round(confidence, 4) if confidence is not None else None
+        contract.needs_review = confidence < 0.85 if confidence is not None else False
         if confidence >= 0.85:
             contract.status = "active"
         else:

@@ -309,7 +309,12 @@ class ContractService:
                 except (ValueError, TypeError):
                     pass
         
-        # 解析完成直接设为执行中
+        # 写入置信度元数据
+        if confidence is not None:
+            contract.confidence = round(confidence, 4)
+            contract.needs_review = confidence < 0.85
+        
+        # 解析完成直接设为执行中（人工确认路径，不按置信度分级）
         contract.status = 'active'
         
         db.commit()

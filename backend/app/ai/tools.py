@@ -861,32 +861,70 @@ class ToolExecutor:
         else:
             contract_number = ContractService.generate_contract_number()
 
-        # 解析日期
-        signed_date = None
-        if kwargs.get("signed_date"):
-            try:
-                signed_date = date.fromisoformat(kwargs["signed_date"])
-            except ValueError:
-                pass
+        # ━━━ 构建合同字段：声明式映射，Agent 显式传入 > VL 缓存回退 ━━━
+        # 原则：VL 已提取的数据不应因 Agent 漏传参数而丢失。
+        # 新增 VL 字段时只需在 FIELD_MAP 加一行，契约工具会自动生效。
+        from app.schemas.contract import ContractCreate
 
-        # 构建 schema 并创建
+        def _parse_date(val):
+            """安全解析日期，兼容 date 对象 / YYYY-MM-DD 字符串 / datetime 对象"""
+            if val is None:
+                return None
+            if isinstance(val, date):
+                return val
+            if isinstance(val, str) and val.strip():
+                try:
+                    return date.fromisoformat(val.strip())
+                except ValueError:
+                    pass
+            return None
+
+        def _resolve(kwargs_key: str, merged_path: str, *, parser=None, default=None):
+            """统一取值：kwargs[key] 优先，否则 merged 路径回退。parser 用于类型转换，对 default 也生效。"""
+            val = kwargs.get(kwargs_key)
+            if val is not None and val != "":
+                return parser(val) if parser else val
+            # 递归解析 merged 嵌套路径，如 "validity_period.start_date"
+            parts = merged_path.split(".")
+            node = merged
+            for p in parts:
+                if isinstance(node, dict):
+                    node = node.get(p)
+                else:
+                    node = None
+                    break
+            if node is not None and node != "":
+                return parser(node) if parser else node
+            # default 也走 parser 保证类型一致（如 default=0 配 parser=_parse_date 会返回 None）
+            return parser(default) if (parser and default is not None) else default
+
+        # 嵌套路径需要在 merged 里先定位
+        validity = merged.get("validity_period") if isinstance(merged.get("validity_period"), dict) else {}
+
+        contract_fields = {
+            "contract_number": contract_number,
+            "customer_id": customer_id,
+            "original_file_path": original_file_path,
+            "file_hash": file_hash,
+            "status": "active",
+            # ── 以下字段：kwargs 优先，VL 缓存兜底 ──
+            "title":               _resolve("title", "title"),
+            "business_type":       _resolve("business_type", "business_type"),
+            "business_description": _resolve("business_description", "business_description"),
+            "currency":            _resolve("currency", "currency", default="CNY"),
+            "total_amount":        Decimal(str(_resolve("total_amount", "total_amount", default=0))),
+            "signed_date":         _resolve("signed_date", "signed_date", parser=_parse_date),
+            "start_date":          _resolve("start_date", "start_date", parser=_parse_date)
+                                   or _parse_date(validity.get("start_date")),
+            "end_date":            _resolve("end_date", "end_date", parser=_parse_date)
+                                   or _parse_date(validity.get("end_date")),
+            "wechat_group":        _resolve("wechat_group", "wechat_group"),
+        }
+        # 过滤掉 None 的可选字段（让 schema 默认值生效）
+        contract_fields = {k: v for k, v in contract_fields.items() if v is not None}
+
         try:
-            from app.schemas.contract import ContractCreate
-
-            contract_create = ContractCreate(
-                contract_number=contract_number,
-                title=kwargs.get("title") or merged.get("title"),
-                business_type=kwargs.get("business_type") or merged.get("business_type"),
-                business_description=kwargs.get("business_description") or merged.get("business_description"),
-                customer_id=customer_id,
-                currency=kwargs.get("currency") or merged.get("currency", "CNY"),
-                total_amount=Decimal(str(kwargs.get("total_amount") or merged.get("total_amount", 0))),
-                original_file_path=original_file_path,
-                file_hash=file_hash,
-                signed_date=signed_date,
-                wechat_group=kwargs.get("wechat_group"),
-                status="active",
-            )
+            contract_create = ContractCreate(**contract_fields)
 
             contract = ContractService.create_contract(
                 db=self.db,
@@ -904,6 +942,14 @@ class ToolExecutor:
             # 存储合同全文（用于知识库问答）
             if merged.get("full_text"):
                 contract.contract_text = merged["full_text"]
+            # 写入 VL 解析元数据
+            if merged.get("confidence") is not None:
+                try:
+                    conf = float(merged["confidence"])
+                    contract.confidence = round(conf, 4)
+                    contract.needs_review = conf < 0.85
+                except (TypeError, ValueError):
+                    pass
             self.db.commit()
             self.db.refresh(contract)
 
@@ -927,10 +973,14 @@ class ToolExecutor:
                     "currency": contract.currency,
                     "total_amount": float(contract.total_amount),
                     "status": contract.status,
+                    "confidence": float(contract.confidence) if contract.confidence else None,
+                    "needs_review": contract.needs_review,
                     "wechat_group": contract.wechat_group,
                     "signed_date": str(contract.signed_date) if contract.signed_date else None,
                 },
                 "auto_payments": auto_payments,
+                **({"_warning": "合同总金额为0，VL未提取到金额且Agent未补传。请人工核实合同金额。"}
+                   if contract.total_amount == 0 else {}),
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("create_contract failed")
