@@ -418,12 +418,6 @@ class ToolExecutor:
         if kwargs.get("status"):
             query = query.filter(Payment.status == kwargs["status"])
 
-        if kwargs.get("overdue_only"):
-            query = query.filter(
-                Payment.due_date < date.today(),
-                Payment.status == "pending",
-            )
-
         if kwargs.get("type"):
             query = query.filter(Payment.type == kwargs["type"])
 
@@ -1525,16 +1519,10 @@ class ToolExecutor:
 
         total_paid = sum(float(p.paid_amount or 0) for p in payments if p.status == "paid")
         total_pending = sum(float(p.amount or 0) for p in payments if p.status == "pending")
-        total_overdue = sum(
-            float(p.amount or 0)
-            for p in payments
-            if p.status == "pending" and p.due_date and p.due_date < date.today()
-        )
 
         summary = {
             "total_paid": total_paid,
             "total_pending": total_pending,
-            "total_overdue": total_overdue,
             "payment_count": len(payments),
         }
 
@@ -1577,41 +1565,6 @@ class ToolExecutor:
             summary["groups"] = list(groups.values())
 
         return json.dumps(summary, ensure_ascii=False)
-
-    def get_overdue_payments(self, **kwargs) -> str:
-        query = self.db.query(Payment).filter(
-            Payment.is_deleted == False,
-            Payment.due_date < date.today(),
-            Payment.status == "pending",
-        )
-
-        if self.user.role == "income":
-            query = query.filter(Payment.type == "income")
-            query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
-        elif self.user.role == "expense":
-            query = query.filter(Payment.type == "expense")
-
-        if kwargs.get("customer_name"):
-            query = query.join(Contract).join(Customer).filter(
-                Customer.name.ilike(f"%{_escape_ilike(kwargs['customer_name'])}%")
-            )
-
-        min_days = kwargs.get("min_days_overdue", 1)
-        payments = query.all()
-
-        results = []
-        for p in payments:
-            days_overdue = (date.today() - p.due_date).days if p.due_date else 0
-            if days_overdue >= min_days:
-                results.append({
-                    **self._payment_to_dict(p),
-                    "days_overdue": days_overdue,
-                    "contract_number": p.contract.contract_number if p.contract else None,
-                    "customer_name": p.contract.customer.name if p.contract and p.contract.customer else None,
-                })
-
-        results.sort(key=lambda x: x["days_overdue"], reverse=True)
-        return json.dumps({"overdue_payments": results, "total": len(results)}, ensure_ascii=False)
 
     def get_expiring_contracts(self, **kwargs) -> str:
         within_days = kwargs.get("within_days", 30)
@@ -1690,13 +1643,6 @@ class ToolExecutor:
             for c in latest_contracts
         ]
 
-        # 逾期统计
-        overdue_count = self.db.query(Payment).filter(
-            Payment.is_deleted == False,
-            Payment.due_date < date.today(),
-            Payment.status == "pending",
-        ).count()
-
         # 30天内到期合同
         from datetime import timedelta
         target_date = date.today() + timedelta(days=30)
@@ -1723,7 +1669,6 @@ class ToolExecutor:
             "customers_total": customers_total,
             "contracts_total": contracts_total,
             "contracts_by_status": by_status,
-            "overdue_payments": overdue_count,
             "expiring_contracts_30days": expiring_count,
             "income_total_cny": float(income_total),
             "expense_total_cny": float(expense_total),
@@ -2165,7 +2110,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_overview",
-            "description": "获取系统全局统计概览：客户总数、合同总数（按状态分布）、逾期付款数、即将到期合同数、收支汇总，以及最近客户和合同样例。用于回答'现在什么情况''有哪些数据''系统里有什么'等开放式问题。不要传任何参数。",
+            "description": "获取系统全局统计概览：客户总数、合同总数（按状态分布）、即将到期合同数、收支汇总，以及最近客户和合同样例。用于回答'现在什么情况''有哪些数据''系统里有什么'等开放式问题。不要传任何参数。",
             "parameters": {"type": "object", "properties": {}},
         },
     },
@@ -2282,7 +2227,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "query_payments",
-            "description": "按合同ID、类型或状态查询付款记录。可查找逾期付款。income角色只能查看收入，expense角色只能查看支出。",
+            "description": "按合同ID、类型或状态查询付款记录。income角色只能查看收入，expense角色只能查看支出。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -2297,7 +2242,6 @@ TOOL_DEFINITIONS = [
                         "enum": ["pending", "paid"],
                         "description": "付款状态筛选",
                     },
-                    "overdue_only": {"type": "boolean", "description": "只返回逾期付款", "default": False},
                     "page": {"type": "integer", "default": 1},
                     "per_page": {"type": "integer", "default": 20},
                 },
@@ -2467,7 +2411,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "get_payment_summary",
-            "description": "获取付款汇总：已付总额、待付总额、逾期总额。可按客户或合同分组。",
+            "description": "获取付款汇总：已付总额、待付总额。可按客户或合同分组。",
             "parameters": {
                 "type": "object",
                 "properties": {
@@ -2479,20 +2423,6 @@ TOOL_DEFINITIONS = [
                         "enum": ["customer", "contract"],
                         "description": "分组方式",
                     },
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_overdue_payments",
-            "description": "查找所有逾期未付的款项（已过应付款日期且状态为pending）。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "customer_name": {"type": "string", "description": "按客户名筛选"},
-                    "min_days_overdue": {"type": "integer", "description": "最小逾期天数", "default": 1},
                 },
             },
         },

@@ -38,7 +38,7 @@
 /* ── KPI 摘要行 ── */
 .pl-kpi-row {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr 1fr;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -86,12 +86,6 @@
   border-left: 3px solid var(--color-warning);
 }
 .pl-kpi-card.pending::after { background: var(--color-warning); }
-
-.pl-kpi-card.overdue {
-  border-left: 3px solid var(--color-danger);
-  background: linear-gradient(135deg, var(--bg-surface) 0%, var(--color-danger-bg) 100%);
-}
-.pl-kpi-card.overdue::after { background: var(--color-danger); }
 
 .pl-kpi-label {
   font-size: 12px;
@@ -154,14 +148,6 @@
 }
 
 /* 行状态色调 */
-.payment-table .ant-table-tbody > tr.tr-overdue > td {
-  background: var(--color-danger-bg) !important;
-}
-
-.payment-table .ant-table-tbody > tr.tr-overdue:hover > td {
-  background: #fde8e8 !important;
-}
-
 .payment-table .ant-table-tbody > tr.tr-paid > td {
   /* 浅绿色调通过金额和状态标签传达，行底色保持干净 */
 }
@@ -250,10 +236,19 @@
 .payment-status.pending       { background: #f5f5f5; color: var(--text-secondary); }
 .payment-status.partial       { background: var(--color-info-bg); color: var(--color-info); }
 .payment-status.paid          { background: var(--color-success-bg); color: var(--color-success); }
-.payment-status.overdue       { background: var(--color-danger-bg); color: var(--color-danger); }
 .payment-status.cancelled     { background: #f5f5f5; color: var(--text-tertiary); }
 
-/* 类型标签小圆点 */
+/* 币种标签 */
+.pl-currency-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
 .pl-type-dot {
   display: inline-flex;
   align-items: center;

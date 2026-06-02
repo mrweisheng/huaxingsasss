@@ -389,11 +389,6 @@
   border-color: rgba(13, 148, 136, 0.2);
 }
 
-.cd-pay-card.overdue {
-  border-color: rgba(220, 38, 38, 0.2);
-  background: rgba(220, 38, 38, 0.015);
-}
-
 .cd-pay-card-top {
   display: flex;
   align-items: center;
@@ -424,7 +419,6 @@
 }
 
 .cd-pay-card-status.paid      { background: var(--color-success-bg); color: var(--color-success); }
-.cd-pay-card-status.overdue   { background: var(--color-danger-bg); color: var(--color-danger); }
 .cd-pay-card-status.partial   { background: var(--color-warning-bg); color: var(--color-warning); }
 .cd-pay-card-status.pending   { background: var(--bg-hover); color: var(--text-secondary); }
 .cd-pay-card-status.cancelled { background: var(--bg-subtle); color: var(--text-tertiary); }
@@ -868,7 +862,6 @@
 }
 
 .cd-timeline-status.paid       { background: var(--color-success-bg); color: var(--color-success); }
-.cd-timeline-status.overdue    { background: var(--color-danger-bg); color: var(--color-danger); }
 .cd-timeline-status.partial    { background: var(--color-warning-bg); color: var(--color-warning); }
 .cd-timeline-status.pending    { background: var(--bg-hover); color: var(--text-secondary); }
 .cd-timeline-status.cancelled  { background: var(--bg-subtle); color: var(--text-tertiary); }

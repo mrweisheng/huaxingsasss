@@ -46,7 +46,6 @@ const TOOL_LABELS: Record<string, string> = {
   query_payments: '查询付款',
   create_payment: '创建付款',
   get_payment_summary: '付款汇总',
-  get_overdue_payments: '逾期查询',
   get_expiring_contracts: '到期合同',
   analyze_image: '文件分析',
 }
@@ -245,7 +244,7 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
 /* ── 快捷建议 ── */
 const suggestions = [
   '查看当前系统有哪些数据',
-  '查询逾期付款记录',
+  '查询最近付款记录',
   '上传合同文件进行录入',
 ]
 
@@ -610,7 +609,7 @@ export default function AgentChat() {
                 有什么可以帮你的？
               </Text>
               <Text style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 28, textAlign: 'center', maxWidth: 400 }}>
-                查询合同付款 · 上传凭证登记 · 分析逾期情况 · 合同条款问答
+                查询合同付款 · 上传凭证登记 · 查看收支统计 · 合同条款问答
               </Text>
               <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: 320 }}>
                 {suggestions.map((text, i) => (

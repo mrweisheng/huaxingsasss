@@ -15,7 +15,6 @@ import {
   PhoneOutlined,
   EnvironmentOutlined,
   ClockCircleFilled,
-  WarningFilled,
 } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { paymentApi } from '@/services/payment'
@@ -53,10 +52,9 @@ function calcProgress(paid: number, total: number): number {
 }
 
 const paymentStatusMap: Record<string, { text: string }> = {
-  pending:   { text: '待支付' },
+  pending:   { text: '待确认' },
   partial:   { text: '部分支付' },
-  paid:      { text: '已支付' },
-  overdue:   { text: '逾期' },
+  paid:      { text: '已确认' },
   cancelled: { text: '已取消' },
 }
 
@@ -175,15 +173,12 @@ export default function ContractDetail() {
       <div className="cd-payment-row">
         {payments.map((payment) => {
           const isPaid = payment.status === 'paid'
-          const isOverdue = payment.status === 'overdue'
           return (
             <div key={payment.id} className={`cd-pay-card ${payment.status}`}>
               <div className="cd-pay-card-top">
                 <span className="cd-pay-card-period">
                   {isPaid
                     ? <CheckCircleFilled style={{ color: '#0d9488', marginRight: 4, fontSize: 13 }} />
-                    : isOverdue
-                    ? <WarningFilled style={{ color: '#dc2626', marginRight: 4, fontSize: 13 }} />
                     : <ClockCircleFilled style={{ color: '#94a3b8', marginRight: 4, fontSize: 13 }} />
                   }
                   第{payment.installment_number}期

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, type Key } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef, type Key } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Table, Button, Select, Input, DatePicker, Empty, Popconfirm, message, Image, Tabs, Tooltip } from 'antd'
 import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons'
@@ -31,8 +31,7 @@ function receiptDataSummary(data: Record<string, any> | undefined): string | nul
 const statusMap: Record<string, { color: string; text: string }> = {
   pending: { color: '#8c8c8c', text: '待支付' },
   partial: { color: '#d97706', text: '部分支付' },
-  paid: { color: '#0d9488', text: '已支付' },
-  overdue: { color: '#dc2626', text: '逾期' },
+  paid: { color: '#0d9488', text: '已确认' },
   cancelled: { color: '#8c8c8c', text: '已取消' },
 }
 
@@ -134,11 +133,21 @@ export default function PaymentList() {
     }
   }
 
-  // ── KPI 统计（基于当前页） ──
-  const kpiIncome = payments.filter(p => p.type === 'income').reduce((s, p) => s + (p.paid_amount_in_cny || p.paid_amount || 0), 0)
-  const kpiExpense = payments.filter(p => p.type === 'expense').reduce((s, p) => s + (p.paid_amount_in_cny || p.paid_amount || 0), 0)
+  // ── KPI 统计：按币种+类型原币分组（useMemo 避免重算） ──
+  const kpiGroups = useMemo(() => payments.reduce((acc, p) => {
+    // 角色过滤
+    if (role === 'income' && p.type !== 'income') return acc
+    if (role === 'expense' && p.type !== 'expense') return acc
+    const key = `${p.type}_${p.currency}`
+    if (!acc[key]) {
+      acc[key] = { total: 0, count: 0, currency: p.currency, type: p.type }
+    }
+    acc[key].total += p.paid_amount || 0
+    acc[key].count += 1
+    return acc
+  }, {} as Record<string, { total: number; count: number; currency: string; type: string }>), [payments, role])
+
   const kpiPending = payments.filter(p => p.status === 'pending' || p.status === 'partial').length
-  const kpiOverdue = payments.filter(p => p.status === 'overdue').length
 
   // ── 列定义 ──
   const columns = [
@@ -203,12 +212,22 @@ export default function PaymentList() {
         <span className="pl-cell-desc">{record.description || '-'}</span>
       ),
     },
-    // 金额（合并币种）
+    // 币种
+    {
+      title: '币种',
+      dataIndex: 'currency',
+      key: 'currency',
+      width: 55,
+      align: 'center' as const,
+      render: (v: string) => (
+        <span className={`pl-currency-tag ${v?.toLowerCase()}`}>{v || '-'}</span>
+      ),
+    },
+    // 金额（含 CNY 折算提示）
     {
       title: '金额',
       key: 'amount',
-      width: 120,
-      minWidth: 100,
+      width: 130,
       align: 'right' as const,
       render: (_: unknown, record: Payment) => {
         const isPaid = record.status === 'paid'
@@ -364,10 +383,9 @@ export default function PaymentList() {
               onChange={handleStatusChange}
               suffixIcon={<FilterOutlined />}
               options={[
-                { label: '待支付', value: 'pending' },
+                { label: '待确认', value: 'pending' },
                 { label: '部分支付', value: 'partial' },
-                { label: '已支付', value: 'paid' },
-                { label: '逾期', value: 'overdue' },
+                { label: '已确认', value: 'paid' },
               ]}
             />
           </div>
@@ -378,39 +396,30 @@ export default function PaymentList() {
         <Tabs activeKey={activeTab} onChange={handleTabChange} items={visibleTabs} style={{ marginBottom: 16 }} />
       )}
 
-      {/* KPI 摘要行 */}
+      {/* KPI 摘要行 — 按币种分组 */}
       {payments.length > 0 && (
         <div className="pl-kpi-row">
-          <div className="pl-kpi-card income">
-            <div className="pl-kpi-label">收入</div>
-            <div className="pl-kpi-value success">
-              ¥{kpiIncome.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-              {payments.filter(p => p.type === 'income').length} 笔
-            </div>
-          </div>
-          <div className="pl-kpi-card expense">
-            <div className="pl-kpi-label">支出</div>
-            <div className="pl-kpi-value danger">
-              ¥{kpiExpense.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-              {payments.filter(p => p.type === 'expense').length} 笔
-            </div>
-          </div>
+          {Object.entries(kpiGroups).map(([key, g]) => {
+            const sym = currencySymbol[g.currency] || '¥'
+            return (
+              <div key={key} className={`pl-kpi-card ${g.type}`}>
+                <div className="pl-kpi-label">
+                  {g.type === 'income' ? '收入' : '支出'} · {g.currency}
+                </div>
+                <div className={`pl-kpi-value ${g.type === 'income' ? 'success' : 'danger'}`}>
+                  {sym}{g.total.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
+                  {g.count} 笔
+                </div>
+              </div>
+            )
+          })}
           <div className="pl-kpi-card pending">
-            <div className="pl-kpi-label">待处理</div>
+            <div className="pl-kpi-label">待确认</div>
             <div className="pl-kpi-value warning">{kpiPending}</div>
             <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-              待支付 / 部分支付
-            </div>
-          </div>
-          <div className="pl-kpi-card overdue">
-            <div className="pl-kpi-label">逾期</div>
-            <div className="pl-kpi-value danger">{kpiOverdue}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-              {kpiOverdue > 0 ? '需立即处理' : '无逾期'}
+              待确认 / 部分支付
             </div>
           </div>
         </div>
@@ -456,7 +465,6 @@ export default function PaymentList() {
             onExpandedRowsChange: (keys: readonly Key[]) => setExpandedRowKeys([...keys]),
           }}
           rowClassName={(record) => {
-            if (record.status === 'overdue') return 'tr-overdue'
             if (record.status === 'paid') return 'tr-paid'
             return ''
           }}
