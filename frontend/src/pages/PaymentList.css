@@ -1,12 +1,120 @@
 /* ============================================================
-   付款管理页面 · 专用样式
+   收付管理页面 · 专用样式
    ============================================================ */
 
 /* ── 页面容器 ── */
 .payment-list-container {
   padding: 20px 24px;
   min-height: calc(100vh - 112px);
+  animation: plFadeIn 0.35s ease-out;
 }
+
+@keyframes plFadeIn {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── 筛选栏 ── */
+.pl-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.pl-search-box {
+  width: 200px;
+}
+
+.pl-search-box .ant-input-search {
+  width: 100%;
+}
+
+.pl-search-box .ant-input-affix-wrapper {
+  border-radius: var(--radius-sm) !important;
+  border-color: var(--border-light) !important;
+}
+
+/* ── KPI 摘要行 ── */
+.pl-kpi-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.pl-kpi-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.25s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.pl-kpi-card::after {
+  content: '';
+  position: absolute;
+  top: 0; right: 0;
+  width: 60px; height: 60px;
+  border-radius: 0 0 0 60px;
+  opacity: 0.04;
+  pointer-events: none;
+}
+
+.pl-kpi-card:hover {
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.pl-kpi-card.income {
+  border-left: 3px solid var(--color-success);
+}
+.pl-kpi-card.income::after { background: var(--color-success); }
+
+.pl-kpi-card.expense {
+  border-left: 3px solid var(--color-danger);
+}
+.pl-kpi-card.expense::after { background: var(--color-danger); }
+
+.pl-kpi-card.pending {
+  border-left: 3px solid var(--color-warning);
+}
+.pl-kpi-card.pending::after { background: var(--color-warning); }
+
+.pl-kpi-card.overdue {
+  border-left: 3px solid var(--color-danger);
+  background: linear-gradient(135deg, var(--bg-surface) 0%, var(--color-danger-bg) 100%);
+}
+.pl-kpi-card.overdue::after { background: var(--color-danger); }
+
+.pl-kpi-label {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  position: relative;
+  z-index: 1;
+}
+
+.pl-kpi-value {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  position: relative;
+  z-index: 1;
+}
+
+.pl-kpi-value.success { color: var(--color-success); }
+.pl-kpi-value.danger  { color: var(--color-danger); }
+.pl-kpi-value.warning { color: var(--color-warning); }
 
 /* ── 表格 ── */
 .payment-table .ant-table {
@@ -31,17 +139,174 @@
   color: var(--text-secondary) !important;
   font-weight: 600 !important;
   font-size: 12px !important;
+  padding: 12px 14px !important;
   border-bottom: 1px solid var(--border-light) !important;
-  padding: '12px 16px' !important;
 }
 
 .payment-table .ant-table-tbody > tr > td {
+  padding: 12px 14px !important;
   border-bottom: 1px solid var(--border-light) !important;
-  padding: '10px 16px' !important;
+  transition: background 0.15s ease;
 }
 
 .payment-table .ant-table-tbody > tr:hover > td {
   background: var(--bg-hover) !important;
+}
+
+/* 行状态色调 */
+.payment-table .ant-table-tbody > tr.tr-overdue > td {
+  background: var(--color-danger-bg) !important;
+}
+
+.payment-table .ant-table-tbody > tr.tr-overdue:hover > td {
+  background: #fde8e8 !important;
+}
+
+.payment-table .ant-table-tbody > tr.tr-paid > td {
+  /* 浅绿色调通过金额和状态标签传达，行底色保持干净 */
+}
+
+/* ── 合并列样式 ── */
+.pl-cell-compound {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.4;
+}
+
+.pl-cell-contract-num {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.pl-cell-customer-name {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ── 客户列 ── */
+.pl-cell-customer-main {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+
+.pl-cell-payee {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* ── 合同列 ── */
+.pl-cell-contract-link {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-info);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.pl-cell-contract-link:hover {
+  color: var(--color-info-dark, #096dd9);
+  text-decoration: underline;
+}
+
+.pl-cell-installment {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
+/* ── 业务说明列 ── */
+.pl-cell-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  max-height: 36px;
+}
+
+.pl-cell-amount {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.pl-cell-amount.success { color: var(--color-success); }
+
+/* 状态标签（与合同详情一致） */
+.payment-status {
+  display: inline-block;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+
+.payment-status.pending       { background: #f5f5f5; color: var(--text-secondary); }
+.payment-status.partial       { background: var(--color-info-bg); color: var(--color-info); }
+.payment-status.paid          { background: var(--color-success-bg); color: var(--color-success); }
+.payment-status.overdue       { background: var(--color-danger-bg); color: var(--color-danger); }
+.payment-status.cancelled     { background: #f5f5f5; color: var(--text-tertiary); }
+
+/* 类型标签小圆点 */
+.pl-type-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.pl-type-dot.income {
+  background: var(--color-success-bg);
+  color: var(--color-success);
+}
+
+.pl-type-dot.expense {
+  background: var(--color-danger-bg);
+  color: var(--color-danger);
+}
+
+/* 方式图标 */
+.pl-method-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+/* 操作区 */
+.pl-action-btns {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  justify-content: center;
+}
+
+/* 展开行备注 */
+.pl-expand-notes {
+  padding: 12px 16px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.6;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
 }
 
 /* ── 空状态 ── */
@@ -50,8 +315,15 @@
 }
 
 /* ── 响应式 ── */
+@media (max-width: 1024px) {
+  .pl-kpi-row { grid-template-columns: 1fr 1fr; }
+  .pl-filter-bar { flex-direction: column; align-items: stretch; }
+  .pl-search-box { width: 100%; }
+}
+
 @media (max-width: 768px) {
   .payment-list-container {
     padding: 12px;
   }
+  .pl-kpi-row { grid-template-columns: 1fr 1fr; gap: 8px; }
 }

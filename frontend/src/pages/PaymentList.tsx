@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef, type Key } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Table, Button, Select, Input, DatePicker, Empty, Popconfirm, message, Image, Tabs, Tooltip } from 'antd'
 import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
@@ -58,6 +59,7 @@ export default function PaymentList() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const user = useAuthStore((s) => s.user)
   const role = user?.role || ''
+  const navigate = useNavigate()
 
   const defaultTab = role === 'expense' ? 'expense' : role === 'income' ? 'income' : 'all'
   const [activeTab, setActiveTab] = useState(defaultTab)
@@ -155,16 +157,57 @@ export default function PaymentList() {
         </Tooltip>
       ),
     },
-    // 描述 — 合并合同/客户/业务/期数/收款方
+    // 客户
     {
-      title: '描述',
-      key: 'description',
-      width: 300,
-      minWidth: 200,
-      ellipsis: true,
+      title: '客户',
+      key: 'customer',
+      width: 110,
       render: (_: unknown, record: Payment) => (
-        <span>{record.description || '-'}</span>
+        <div className="pl-cell-compound">
+          <span className="pl-cell-customer-main">{record.customer_name || '-'}</span>
+          {record.type === 'expense' && record.payee_name && (
+            <span className="pl-cell-payee">收款：{record.payee_name}</span>
+          )}
+        </div>
       ),
+    },
+    // 关联合同
+    {
+      title: '关联合同',
+      key: 'contract',
+      width: 150,
+      render: (_: unknown, record: Payment) => (
+        <div className="pl-cell-compound">
+          {record.contract_number ? (
+            <a
+              className="pl-cell-contract-link"
+              onClick={() => navigate(`/contracts/${record.contract_id}`)}
+            >
+              {record.contract_number}
+            </a>
+          ) : (
+            <span className="pl-cell-contract-link">-</span>
+          )}
+          <span className="pl-cell-installment">
+            第{record.installment_number}期{record.type === 'income' ? '收款' : '支出'}
+          </span>
+        </div>
+      ),
+    },
+    // 业务说明
+    {
+      title: '业务说明',
+      key: 'description',
+      ellipsis: { showTitle: false },
+      width: 240,
+      render: (_: unknown, record: Payment) => {
+        const desc = record.description || '-'
+        return (
+          <Tooltip placement="topLeft" title={desc}>
+            <span className="pl-cell-desc">{desc}</span>
+          </Tooltip>
+        )
+      },
     },
     // 金额（合并币种）
     {
