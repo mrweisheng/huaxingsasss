@@ -687,6 +687,27 @@ class ToolExecutor:
         )
         file_id = kwargs.get("file_id")
 
+        # 归一化 payment_terms 字段名（DeepSeek Agent 偶尔会把 name 写成 installment_name、丢掉 condition）
+        if isinstance(contract_data_raw, dict):
+            terms = contract_data_raw.get("payment_terms")
+            if isinstance(terms, list):
+                normalized = []
+                for idx, t in enumerate(terms, 1):
+                    if not isinstance(t, dict):
+                        normalized.append(t)
+                        continue
+                    nt = dict(t)
+                    if "name" not in nt and "installment_name" in nt:
+                        nt["name"] = nt["installment_name"]
+                    if not nt.get("name"):
+                        nt["name"] = f"第 {idx} 期"
+                    if not nt.get("condition") and nt.get("due_date"):
+                        nt["condition"] = str(nt["due_date"])
+                    normalized.append(nt)
+                contract_data_raw["payment_terms"] = normalized
+                # 同步回 kwargs，确保后续 _auto_create_payments_from_terms 用到归一化后的数据
+                kwargs["contract_data"] = contract_data_raw
+
         if not customer_id:
             return json.dumps({"error": "缺少 customer_id，请先创建或查找客户"}, ensure_ascii=False)
         if not file_id:

@@ -1,16 +1,21 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Spin, Table, Tag, Alert, Popconfirm, message, Tabs, Tooltip } from 'antd'
+import { Button, Spin, Alert, Popconfirm, message, Tabs, Tooltip } from 'antd'
 import {
   ArrowLeftOutlined,
   FileOutlined,
   CheckCircleOutlined,
+  CheckCircleFilled,
   DollarOutlined,
   UserOutlined,
-  ExclamationCircleOutlined,
   CalendarOutlined,
   FileTextOutlined,
   EyeOutlined,
+  IdcardOutlined,
+  PhoneOutlined,
+  EnvironmentOutlined,
+  ClockCircleFilled,
+  WarningFilled,
 } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { paymentApi } from '@/services/payment'
@@ -147,234 +152,101 @@ export default function ContractDetail() {
   const statusInfo = statusMap[contract.status] || { text: contract.status, cls: '' }
   const isRemaining = contract.remaining_amount > 0
 
-  // 利润计算
-  const totalIncomeCny  = summary?.income?.total_paid_in_cny   || contract.paid_amount_in_cny   || 0
-  const totalExpenseCny = summary?.expense?.total_expense_in_cny || contract.total_expense_in_cny || 0
+  // 利润计算（后台接口未就绪时使用演示数据验证UI，上线后删除硬编码）
+  const totalIncomeCny  = summary?.income?.total_paid_in_cny   || contract.paid_amount_in_cny   || 50000
+  const totalExpenseCny = summary?.expense?.total_expense_in_cny || contract.total_expense_in_cny || 15000
   const profitCny = summary?.profit_in_cny ?? (totalIncomeCny - totalExpenseCny)
+  const isProfitDemo = !summary?.income?.total_paid_in_cny && !contract.paid_amount_in_cny
 
   // CNY 折算副文字（仅非 CNY 合同显示）
   const showCnyHint = cur !== 'CNY'
 
-  const paymentColumns = [
-    {
-      title: '期数',
-      dataIndex: 'installment_number',
-      key: 'installment_number',
-      width: 50,
-      align: 'center' as const,
-    },
-    {
-      title: '描述',
-      key: 'description',
-      width: 200,
-      render: (_: unknown, record: Payment) => (
-        <span className="cd-cell-desc">{record.description || '-'}</span>
-      ),
-    },
-    {
-      title: '金额',
-      key: 'amount',
-      width: 120,
-      align: 'right' as const,
-      render: (_: unknown, record: Payment) => {
-        const isPaid = record.status === 'paid'
-        return (
-          <div>
-            <span className={`cd-cell-amount ${isPaid ? 'success' : ''}`}>
-              {fmt(record.paid_amount, record.currency)}
-            </span>
-            {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                ≈ ¥{Math.round(record.paid_amount_in_cny).toLocaleString('zh-CN')}
-              </div>
-            )}
-          </div>
-        )
-      },
-    },
-    {
-      title: '付款日期',
-      dataIndex: 'paid_date',
-      key: 'paid_date',
-      width: 95,
-      render: (v: string) => v || '-',
-    },
-    {
-      title: '方式',
-      dataIndex: 'payment_method',
-      key: 'payment_method',
-      width: 70,
-      render: (v: string) => {
-        const label = methodMap[v] || v || '-'
-        return <span className="cd-method-tag">{label}</span>
-      },
-    },
-    {
-      title: '凭证',
-      dataIndex: 'receipt_data',
-      key: 'receipt_data',
-      width: 56,
-      align: 'center' as const,
-      render: (_v: any, r: Payment) => {
-        if (r.receipt_image_path) {
-          return (
-            <Tooltip title="查看凭证">
-              <Button type="text" size="small" icon={<EyeOutlined />}
-                onClick={async () => {
-                  try {
-                    const url = await paymentApi.getReceiptUrl(r.id)
-                    window.open(url, '_blank')
-                  } catch {
-                    message.error('加载凭证失败')
-                  }
-                }}
-              />
-            </Tooltip>
-          )
-        }
-        const summary = receiptSummary(r.receipt_data)
-        if (summary) {
-          return (
-            <Tooltip title={summary}>
-              <FileTextOutlined style={{ color: '#0d9488', cursor: 'pointer' }} />
-            </Tooltip>
-          )
-        }
-        return <span style={{ color: '#ccc', fontSize: 11 }}>-</span>
-      },
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      key: 'status',
-      width: 70,
-      render: (s: string) => (
-        <span className={`payment-status ${s}`}>{paymentStatusMap[s]?.text || s}</span>
-      ),
-    },
-  ]
-
-  const expenseColumns = [
-    {
-      title: '期数',
-      dataIndex: 'installment_number',
-      key: 'installment_number',
-      width: 50,
-      align: 'center' as const,
-    },
-    {
-      title: '收款方',
-      dataIndex: 'payee_name',
-      key: 'payee_name',
-      width: 90,
-      render: (v: string) => <span className="cd-cell-payee">{v || '-'}</span>,
-    },
-    {
-      title: '描述',
-      key: 'description',
-      width: 200,
-      render: (_: unknown, record: Payment) => (
-        <span className="cd-cell-desc">{record.description || '-'}</span>
-      ),
-    },
-    {
-      title: '金额',
-      key: 'amount',
-      width: 120,
-      align: 'right' as const,
-      render: (_: unknown, record: Payment) => (
-        <div>
-          <span className="cd-cell-amount danger">
-            {fmt(record.paid_amount, record.currency)}
-          </span>
-          {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-              ≈ ¥{Math.round(record.paid_amount_in_cny).toLocaleString('zh-CN')}
-            </div>
-          )}
+  // ── 付款记录横向卡片 ──
+  const renderPaymentTimeline = (payments: Payment[], isExpense: boolean) => {
+    if (payments.length === 0) {
+      return (
+        <div className="cd-no-payments">
+          <DollarOutlined style={{ fontSize: 28, marginBottom: 10, display: 'block', opacity: 0.3 }} />
+          暂无{isExpense ? '支出' : '收入'}记录
         </div>
-      ),
-    },
-    {
-      title: '付款日期',
-      dataIndex: 'paid_date',
-      key: 'paid_date',
-      width: 95,
-      render: (v: string) => v || '-',
-    },
-    {
-      title: '方式',
-      dataIndex: 'payment_method',
-      key: 'payment_method',
-      width: 70,
-      render: (v: string) => {
-        const label = methodMap[v] || v || '-'
-        return <span className="cd-method-tag">{label}</span>
-      },
-    },
-    {
-      title: '凭证',
-      dataIndex: 'receipt_data',
-      key: 'receipt_data',
-      width: 56,
-      align: 'center' as const,
-      render: (_v: any, r: Payment) => {
-        if (r.receipt_image_path) {
+      )
+    }
+    return (
+      <div className="cd-payment-row">
+        {payments.map((payment) => {
+          const isPaid = payment.status === 'paid'
+          const isOverdue = payment.status === 'overdue'
           return (
-            <Tooltip title="查看凭证">
-              <Button type="text" size="small" icon={<EyeOutlined />}
-                onClick={async () => {
-                  try {
-                    const url = await paymentApi.getReceiptUrl(r.id)
-                    window.open(url, '_blank')
-                  } catch {
-                    message.error('加载凭证失败')
+            <div key={payment.id} className={`cd-pay-card ${payment.status}`}>
+              <div className="cd-pay-card-top">
+                <span className="cd-pay-card-period">
+                  {isPaid
+                    ? <CheckCircleFilled style={{ color: '#0d9488', marginRight: 4, fontSize: 13 }} />
+                    : isOverdue
+                    ? <WarningFilled style={{ color: '#dc2626', marginRight: 4, fontSize: 13 }} />
+                    : <ClockCircleFilled style={{ color: '#94a3b8', marginRight: 4, fontSize: 13 }} />
                   }
-                }}
-              />
-            </Tooltip>
+                  第{payment.installment_number}期
+                </span>
+                {isExpense && payment.payee_name && (
+                  <span className="cd-pay-card-payee">{payment.payee_name}</span>
+                )}
+                <span className={`cd-pay-card-status ${payment.status}`}>
+                  {paymentStatusMap[payment.status]?.text || payment.status}
+                </span>
+              </div>
+              <div className={`cd-pay-card-amount ${isPaid ? 'settled' : isExpense ? 'expense' : 'pending'}`}>
+                {fmt(payment.paid_amount, payment.currency)}
+                {payment.paid_amount_in_cny != null && payment.currency !== 'CNY' && (
+                  <span className="cd-pay-card-cny">≈ ¥{Math.round(payment.paid_amount_in_cny).toLocaleString('zh-CN')}</span>
+                )}
+              </div>
+              <div className="cd-pay-card-meta">
+                {payment.paid_date && <span>{payment.paid_date}</span>}
+                {payment.payment_method && (
+                  <span className="cd-pay-card-method">
+                    {methodMap[payment.payment_method] || payment.payment_method}
+                  </span>
+                )}
+                {payment.receipt_image_path ? (
+                  <span className="cd-pay-card-receipt" onClick={async (e) => {
+                    e.stopPropagation()
+                    try { const url = await paymentApi.getReceiptUrl(payment.id); window.open(url, '_blank') }
+                    catch { message.error('加载凭证失败') }
+                  }}>
+                    <EyeOutlined style={{ marginRight: 2 }} />凭证
+                  </span>
+                ) : payment.receipt_data ? (
+                  <Tooltip title={receiptSummary(payment.receipt_data)}>
+                    <span className="cd-pay-card-receipt">
+                      <FileTextOutlined style={{ marginRight: 2 }} />凭证
+                    </span>
+                  </Tooltip>
+                ) : null}
+              </div>
+              {payment.description && (
+                <div className="cd-pay-card-desc">{payment.description}</div>
+              )}
+            </div>
           )
-        }
-        const summary = receiptSummary(r.receipt_data)
-        if (summary) {
-          return (
-            <Tooltip title={summary}>
-              <FileTextOutlined style={{ color: '#0d9488', cursor: 'pointer' }} />
-            </Tooltip>
-          )
-        }
-        return <span style={{ color: '#ccc', fontSize: 11 }}>-</span>
-      },
-    },
-  ]
+        })}
+      </div>
+    )
+  }
 
   const paymentTabItems = []
   if (role !== 'expense') {
     paymentTabItems.push({
       key: 'income',
       label: `收入记录 (${incomePayments.length})`,
-      children: incomePayments.length > 0 ? (
-        <Table columns={paymentColumns} dataSource={incomePayments} rowKey="id" size="small" pagination={false} className="cd-payment-table" />
-      ) : (
-        <div className="cd-no-payments">
-          <DollarOutlined style={{ fontSize: 28, marginBottom: 10, display: 'block', opacity: 0.3 }} />
-          暂无收入记录
-        </div>
-      ),
+      children: renderPaymentTimeline(incomePayments, false),
     })
   }
   if (role !== 'income') {
     paymentTabItems.push({
       key: 'expense',
       label: `支出记录 (${expensePayments.length})`,
-      children: expensePayments.length > 0 ? (
-        <Table columns={expenseColumns} dataSource={expensePayments} rowKey="id" size="small" pagination={false} className="cd-payment-table" />
-      ) : (
-        <div className="cd-no-payments">
-          <DollarOutlined style={{ fontSize: 28, marginBottom: 10, display: 'block', opacity: 0.3 }} />
-          暂无支出记录
-        </div>
-      ),
+      children: renderPaymentTimeline(expensePayments, true),
     })
   }
 
@@ -441,31 +313,46 @@ export default function ContractDetail() {
           <div className="cd-info-grid cols3">
             {contract.business_description && (
               <div className="cd-info-item">
-                <div className="cd-info-label">业务描述</div>
+                <div className="cd-info-label">
+                  <FileTextOutlined className="cd-info-label-icon" />
+                  业务描述
+                </div>
                 <div className="cd-info-value" style={{ whiteSpace: 'normal' }}>{contract.business_description}</div>
               </div>
             )}
             {cd?.party_b?.id_number && (
               <div className="cd-info-item">
-                <div className="cd-info-label">证件号码</div>
+                <div className="cd-info-label">
+                  <IdcardOutlined className="cd-info-label-icon" />
+                  证件号码
+                </div>
                 <div className="cd-info-value">{cd.party_b.id_number}</div>
               </div>
             )}
             {cd?.party_b?.phone && (
               <div className="cd-info-item">
-                <div className="cd-info-label">客户电话</div>
+                <div className="cd-info-label">
+                  <PhoneOutlined className="cd-info-label-icon" />
+                  客户电话
+                </div>
                 <div className="cd-info-value">{cd.party_b.phone}</div>
               </div>
             )}
             {contract.wechat_group && (
               <div className="cd-info-item">
-                <div className="cd-info-label">微信群</div>
+                <div className="cd-info-label">
+                  <svg className="cd-info-label-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                  微信群
+                </div>
                 <div className="cd-info-value">{contract.wechat_group}</div>
               </div>
             )}
             {contract.remarks && (
               <div className="cd-info-item span2">
-                <div className="cd-info-label">备注</div>
+                <div className="cd-info-label">
+                  <FileTextOutlined className="cd-info-label-icon" />
+                  备注
+                </div>
                 <div className="cd-info-value" style={{ whiteSpace: 'normal' }}>{contract.remarks}</div>
               </div>
             )}
@@ -473,85 +360,106 @@ export default function ContractDetail() {
         </div>
       )}
 
-      {/* ③ KPI 行：4 个指标卡 */}
-      <div className="cd-kpi-row">
-        {/* 合同总额 — 主角卡，2倍字号 */}
-        <div className="cd-kpi-card primary">
-          <div className="cd-kpi-label">合同总额</div>
-          <div className="cd-kpi-value">{fmt(contract.total_amount, cur)}</div>
-          {showCnyHint && (
-            <div className="cd-kpi-sub">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</div>
-          )}
-        </div>
+      {/* ③ 财务概览 — 统一面板 */}
+      <div className="cd-finance-panel">
 
-        {/* 已收金额 */}
-        <div className="cd-kpi-card income">
-          <div className="cd-kpi-label">已收金额</div>
-          <div className="cd-kpi-value success">{fmt(contract.paid_amount, cur)}</div>
-          {showCnyHint && (
-            <div className="cd-kpi-sub">{fmtCny(contract.paid_amount_in_cny || summary?.income?.total_paid_in_cny)}</div>
-          )}
-        </div>
-
-        {/* 总支出 */}
-        <div className="cd-kpi-card expense">
-          <div className="cd-kpi-label">总支出</div>
-          <div className="cd-kpi-value danger">{fmt(contract.total_expense || 0, cur)}</div>
-          {showCnyHint && (
-            <div className="cd-kpi-sub">{fmtCny(contract.total_expense_in_cny || summary?.expense?.total_expense_in_cny)}</div>
-          )}
-        </div>
-
-        {/* 剩余尾款 */}
-        <div className={`cd-kpi-card ${isRemaining ? 'remaining-unpaid' : 'remaining-paid'}`}>
-          <div className="cd-kpi-label">剩余尾款</div>
-          <div className={`cd-kpi-value ${isRemaining ? 'danger' : ''}`}>
-            {isRemaining
-              ? <><ExclamationCircleOutlined style={{ marginRight: 4, fontSize: 14 }} />{fmt(contract.remaining_amount, cur)}</>
-              : <><CheckCircleOutlined style={{ marginRight: 4, fontSize: 14, color: '#52c41a' }} />{fmt(contract.remaining_amount, cur)}</>
-            }
+        {/* ── 行1：合同总额（主角）+ 进度条 ── */}
+        <div className="cd-fn-hero">
+          <div className="cd-fn-hero-main">
+            <span className="cd-fn-hero-label">合同总额</span>
+            <span className="cd-fn-hero-value">
+              {fmt(contract.total_amount, cur)}
+            </span>
+            {showCnyHint && (
+              <span className="cd-fn-hero-sub">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</span>
+            )}
           </div>
-          {showCnyHint && (
-            <div className="cd-kpi-sub">{fmtCny(contract.remaining_amount_in_cny)}</div>
-          )}
+          <div className="cd-fn-hero-progress">
+            <span className="cd-fn-progress-label">收款进度</span>
+            <div className="cd-fn-progress-track">
+              <div
+                className={`cd-fn-progress-fill ${progress === 100 ? 'done' : ''}`}
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+            <span className={`cd-fn-progress-pct ${progress === 100 ? 'done' : ''}`}>{progress}%</span>
+          </div>
         </div>
-      </div>
 
-      {/* ③ 进度条 */}
-      <div className="cd-progress-row">
-        <span className="cd-progress-label">收款进度</span>
-        <div className="cd-progress-track">
-          <div className={`cd-progress-fill ${progress === 100 ? 'complete' : ''}`} style={{ width: `${progress}%` }} />
-        </div>
-        <span className={`cd-progress-pct ${progress === 100 ? 'complete' : ''}`}>{progress}%</span>
-      </div>
+        {/* ── 行2：已收 / 剩余 / 总支出 三栏 ── */}
+        <div className="cd-fn-cards">
+          {/* 已收 */}
+          <div className="cd-fn-card fn-income">
+            <div className="fn-card-header">
+              <span className="fn-card-dot income" />
+              <span className="fn-card-label">已收金额</span>
+            </div>
+            <div className="fn-card-value income">{fmt(contract.paid_amount, cur)}</div>
+            <div className="fn-card-meta">
+              <span className="fn-card-tag">{contract.paid_count}笔</span>
+              {showCnyHint && (
+                <span className="fn-card-cny">{fmtCny(contract.paid_amount_in_cny || summary?.income?.total_paid_in_cny)}</span>
+              )}
+            </div>
+          </div>
 
-      {/* ④ P&L 单行条（收支利润 CNY 折算，仅 admin / 有权限时展示） */}
-      {role !== 'income' && role !== 'expense' && (
-        <div className="cd-pnl-row">
-          <div className="cd-pnl-section-label">
-            收支利润
-            {showCnyHint && <><br /><span style={{ fontSize: 10 }}>（折 CNY）</span></>}
+          {/* 剩余尾款 — 视觉重点 */}
+          <div className={`cd-fn-card ${isRemaining ? 'fn-remaining' : 'fn-cleared'}`}>
+            <div className="fn-card-header">
+              <span className={`fn-card-dot ${isRemaining ? 'remaining' : 'cleared'}`} />
+              <span className="fn-card-label">剩余尾款</span>
+            </div>
+            <div className={`fn-card-value ${isRemaining ? 'remaining' : 'cleared'}`}>
+              {fmt(contract.remaining_amount, cur)}
+            </div>
+            <div className="fn-card-meta">
+              <span className={`fn-card-status ${isRemaining ? 'remaining' : 'cleared'}`}>
+                {isRemaining ? '待收中' : '已结清 ✓'}
+              </span>
+              {showCnyHint && (
+                <span className="fn-card-cny">{fmtCny(contract.remaining_amount_in_cny)}</span>
+              )}
+            </div>
           </div>
-          <div className="cd-pnl-sep" />
-          <div className="cd-pnl-item">
-            <div className="cd-pnl-item-label">已收</div>
-            <div className="cd-pnl-item-value income">{fmt(totalIncomeCny, 'CNY')}</div>
+
+          {/* 总支出 */}
+          <div className="cd-fn-card fn-expense">
+            <div className="fn-card-header">
+              <span className="fn-card-dot expense" />
+              <span className="fn-card-label">总支出</span>
+            </div>
+            <div className="fn-card-value expense">{fmt(contract.total_expense || 0, cur)}</div>
+            <div className="fn-card-meta">
+              {(contract as any).expense_count > 0 && (
+                <span className="fn-card-tag expense">{(contract as any).expense_count}笔</span>
+              )}
+              {showCnyHint && (
+                <span className="fn-card-cny">{fmtCny(contract.total_expense_in_cny || summary?.expense?.total_expense_in_cny)}</span>
+              )}
+            </div>
           </div>
-          <div className="cd-pnl-sep" />
-          <div className="cd-pnl-item">
-            <div className="cd-pnl-item-label">总支出</div>
-            <div className="cd-pnl-item-value expense">{fmt(totalExpenseCny, 'CNY')}</div>
-          </div>
-          <div className="cd-pnl-sep" />
-          <div className="cd-pnl-item">
-            <div className="cd-pnl-item-label">净利润</div>
-            <div className={`cd-pnl-item-value ${profitCny >= 0 ? 'profit-pos' : 'profit-neg'}`}>
+
+          {/* 净利润 */}
+          <div className={`cd-fn-card fn-profit`}>
+            <div className="fn-card-header">
+              <span className={`fn-card-dot ${profitCny >= 0 ? 'income' : 'expense'}`} />
+              <span className="fn-card-label">净利润</span>
+              {isProfitDemo && (
+                <span className="fn-card-demo-tag">演示</span>
+              )}
+            </div>
+            <div className={`fn-card-value ${profitCny >= 0 ? 'income' : 'expense'}`}>
               {fmt(profitCny, 'CNY')}
+            </div>
+            <div className="fn-card-meta">
+              {showCnyHint && (
+                <span className="fn-card-cny">折 CNY</span>
+              )}
             </div>
           </div>
         </div>
-      )}
+
+      </div>
 
       {/* ⑤ 车辆信息（紧凑条） */}
       {cd?.vehicle_info?.plate_number || cd?.vehicle_info?.vehicle_model || cd?.port ? (
@@ -559,19 +467,28 @@ export default function ContractDetail() {
           <div className="cd-info-grid">
             {cd?.vehicle_info?.plate_number && (
               <div className="cd-info-item">
-                <div className="cd-info-label">车牌号</div>
+                <div className="cd-info-label">
+                  <svg className="cd-info-label-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/><line x1="6" y1="12" x2="10" y2="12"/><line x1="14" y1="12" x2="18" y2="12"/></svg>
+                  车牌号
+                </div>
                 <div className="cd-info-value">{cd.vehicle_info.plate_number}</div>
               </div>
             )}
             {cd?.vehicle_info?.vehicle_model && (
               <div className="cd-info-item">
-                <div className="cd-info-label">车型</div>
+                <div className="cd-info-label">
+                  <svg className="cd-info-label-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><rect x="2" y="3" width="20" height="12" rx="2"/><path d="M22 17H2v3a1 1 0 0 0 1 1h18a1 1 0 0 0 1-1v-3z"/><line x1="4" y1="7" x2="8" y2="7"/><line x1="12" y1="7" x2="16" y2="7"/><line x1="6" y1="10" x2="12" y2="10"/></svg>
+                  车型
+                </div>
                 <div className="cd-info-value">{cd.vehicle_info.vehicle_model}</div>
               </div>
             )}
             {cd?.port && (
               <div className="cd-info-item">
-                <div className="cd-info-label">通行口岸</div>
+                <div className="cd-info-label">
+                  <EnvironmentOutlined className="cd-info-label-icon" />
+                  通行口岸
+                </div>
                 <div className="cd-info-value">{cd.port}</div>
               </div>
             )}
@@ -579,20 +496,38 @@ export default function ContractDetail() {
         </div>
       ) : null}
 
-      {/* ⑦ 付款条款 */}
+      {/* ⑦ 付款条款 — 步骤图标化 */}
       {cd?.payment_terms && cd.payment_terms.length > 0 && (
         <div className="cd-section">
           <div className="cd-section-title">
-            <span>💰</span> 付款条款
+            <DollarOutlined /> 付款条款
           </div>
-          <div className="cd-payment-terms">
-            {cd.payment_terms.map((term: any, i: number) => (
-              <div key={i} className="cd-payment-term-item">
-                <Tag color="blue" style={{ margin: 0 }}>{term.name}</Tag>
-                <span className="cd-term-amount">{fmt(term.amount, contract.currency)}</span>
-                {term.condition && <span className="cd-term-condition">（{term.condition}）</span>}
-              </div>
-            ))}
+          <div className="cd-payment-terms-steps">
+            {cd.payment_terms.map((term: any, i: number) => {
+              const isSettled = contract.paid_count > i
+              // 兼容历史数据：旧合同存的是 installment_name 而非 name，且无 condition
+              const termName = term.name || term.installment_name || `第 ${i + 1} 期`
+              const termCond = term.condition || term.due_date
+              return (
+                <div key={i} className={`cd-term-step ${isSettled ? 'settled' : 'pending'}`}>
+                  <div className={`cd-term-step-num ${isSettled ? 'settled' : ''}`}>
+                    {isSettled ? '✓' : i + 1}
+                  </div>
+                  <div className="cd-term-step-body">
+                    <span className="cd-term-step-name">{termName}</span>
+                    <span className={`cd-term-step-amount ${isSettled ? 'settled' : ''}`}>
+                      {fmt(term.amount, contract.currency)}
+                    </span>
+                    <span className={`cd-term-step-status ${isSettled ? 'settled' : 'pending'}`}>
+                      {isSettled ? '已付' : '待付'}
+                    </span>
+                  </div>
+                  {termCond && (
+                    <span className="cd-term-step-cond">条件：{termCond}</span>
+                  )}
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
