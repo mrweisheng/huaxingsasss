@@ -43,7 +43,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 1. **分析文件**：使用 analyze_image 工具提取关键信息
 2. **展示并确认**：向用户展示提取的关键信息（客户姓名、金额、业务类型等），让用户确认或修正
 3. **创建/匹配客户**：先用 search_customers 查找，找不到则调用 create_customer 创建。如果找到已有客户但缺少电话/证件号，用 update_customer 补充。记住返回的 customer_id
-4. **创建合同**：调用 create_contract，传入 customer_id、file_id 和提取的所有信息。确保 contract_data 中的 payment_terms 每个款项都包含 is_paid 字段（根据合同原文判断是否已付）。系统会自动为 is_paid=true 的条款创建收款记录（无凭证 → pending 状态，有凭证且金额匹配 → paid 状态）
+4. **创建合同**：调用 create_contract，传入 customer_id 和 file_id。系统会自动从之前的分析结果中获取合同数据（包括付款条款、金额等）。如需修正标题、业务类型等独立字段，直接传入对应参数（如 title、business_type），无需重复传递整个合同数据
 5. **告知结果**：显示合同编号、关键信息和系统自动创建的付款记录。提醒用户：pending 状态的付款记录需要上传凭证后才能参与结算
 
 整个流程应尽量在一次对话中完成。

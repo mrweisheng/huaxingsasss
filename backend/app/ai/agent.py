@@ -245,8 +245,8 @@ class ContractAgent:
                     "content": result,
                 })
 
-                # 持久化 tool result 消息（截断长度与 LLM 看到的一致，避免 sanitizer 误判）
-                self.save_tool_message(session_id, tc["id"], tc["name"], result[:6000])
+                # 持久化 tool result 消息（完整存储，缓存方案依赖完整 VL 输出）
+                self.save_tool_message(session_id, tc["id"], tc["name"], result)
 
             # 继续循环，让 LLM 根据工具结果生成回复
 

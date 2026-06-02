@@ -17,6 +17,7 @@ from datetime import timedelta
 
 import httpx
 import logging
+import redis as redis_lib
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
@@ -78,12 +79,99 @@ def _escape_ilike(keyword: str) -> str:
 class ToolExecutor:
     """Agent 工具执行器，每个方法返回 JSON 字符串"""
 
+    # VL 分析缓存 TTL（秒），跨请求保持可用
+    _ANALYSIS_CACHE_TTL = 1800  # 30 分钟
+
     def __init__(self, db: Session, user: User, session_id: Optional[str] = None):
         self.db = db
         self.user = user
         self.session_id = session_id
         self._document_context: Optional[str] = None  # "receipt"|"contract"|"general"|None
         self._pending_receipt_path: Optional[str] = None  # 同请求内快速路径
+
+        # Redis 缓存：跨请求持久化 VL 分析结果
+        self._redis: Optional[redis_lib.Redis] = None
+        # 内存兜底：Redis 不可用时降级
+        self._memory_contract: dict = {}
+        self._memory_receipt: dict = {}
+        try:
+            self._redis = redis_lib.Redis.from_url(
+                settings.REDIS_URL,
+                socket_connect_timeout=1,
+                socket_timeout=1,
+                decode_responses=True,
+            )
+            self._redis.ping()
+            logger.debug("ToolExecutor Redis 缓存就绪")
+        except Exception:
+            logger.debug("ToolExecutor Redis 不可用，降级内存缓存")
+
+    def _cache_key(self, analysis_type: str, file_id: str) -> str:
+        """Redis 缓存 key: vl:{contract|receipt}:{session_id}:{file_id}"""
+        sid = self.session_id or "nosession"
+        return f"vl:{analysis_type}:{sid}:{file_id}"
+
+    def _cache_analysis(self, file_id: str, analysis_type: str, data: dict) -> None:
+        """将 analyze_image 的 VL 完整输出缓存到 Redis（含内存降级）"""
+        if not isinstance(data, dict):
+            return
+        if self._redis:
+            try:
+                key = self._cache_key(analysis_type, file_id)
+                self._redis.setex(key, self._ANALYSIS_CACHE_TTL, json.dumps(data, ensure_ascii=False))
+                logger.debug("vl_cache写入Redis: key=%s", key)
+                return
+            except Exception:
+                logger.warning("vl_cache Redis写入失败，降级内存: file_id=%s", file_id)
+        # 内存降级
+        if analysis_type == "contract":
+            self._memory_contract[file_id] = data
+        elif analysis_type == "receipt":
+            self._memory_receipt[file_id] = data
+
+    def _get_cached_analysis(self, file_id: str, analysis_type: str) -> Optional[dict]:
+        """从缓存获取 VL 分析结果，优先 Redis，降级内存，都无则返回 None"""
+        if self._redis:
+            try:
+                key = self._cache_key(analysis_type, file_id)
+                raw = self._redis.get(key)
+                if raw:
+                    data = json.loads(raw)
+                    if isinstance(data, dict):
+                        logger.debug("vl_cache命中Redis: key=%s", key)
+                        return data
+            except Exception:
+                logger.warning("vl_cache Redis读取失败: file_id=%s", file_id)
+        # 内存降级
+        store = self._memory_contract if analysis_type == "contract" else self._memory_receipt
+        data = store.get(file_id)
+        if isinstance(data, dict):
+            logger.debug("vl_cache命中内存: type=%s file_id=%s", analysis_type, file_id)
+            return data
+        return None
+
+    def _normalize_payment_terms(self, merged_data: dict) -> None:
+        """归一化 payment_terms：installment_name→name, due_date→condition兜底, 缺name补序号。
+        在最终合并数据上执行，覆盖 VL 输出和 Agent 传入两条路径。"""
+        if not isinstance(merged_data, dict):
+            return
+        terms = merged_data.get("payment_terms")
+        if not isinstance(terms, list):
+            return
+        normalized = []
+        for idx, t in enumerate(terms, 1):
+            if not isinstance(t, dict):
+                normalized.append(t)
+                continue
+            nt = dict(t)
+            if "name" not in nt and "installment_name" in nt:
+                nt["name"] = nt.pop("installment_name")
+            if not nt.get("name"):
+                nt["name"] = f"第 {idx} 期"
+            if not nt.get("condition") and nt.get("due_date"):
+                nt["condition"] = str(nt["due_date"])
+            normalized.append(nt)
+        merged_data["payment_terms"] = normalized
 
     def _can_access_contract(self, contract: Contract) -> bool:
         if self.user.role == "admin":
@@ -514,92 +602,6 @@ class ToolExecutor:
             pass
         return None
 
-    def _backfill_payment_terms_condition(self, contract_data_raw) -> None:
-        """从 chat_history 里最近一次 analyze_image 输出回填 payment_terms[].condition。
-
-        DeepSeek 调 create_contract 时偶尔会把 VL 提取的 condition 整个丢掉。
-        VL 原始返回完整保留在 chat_history 表（role=tool, intent_type=analyze_image），
-        这里按 name+amount 主键配对、按下标+amount 兜底，把 condition 补回 contract_data。
-        任何异常都静默吞掉，不阻断合同创建。
-        """
-        if not isinstance(contract_data_raw, dict):
-            return
-        terms = contract_data_raw.get("payment_terms")
-        if not isinstance(terms, list) or not terms:
-            return
-        # 没有缺失 condition 的就跳过
-        if not any(isinstance(t, dict) and not t.get("condition") for t in terms):
-            return
-        if not self.session_id:
-            return
-
-        try:
-            from app.models.chat_history import ChatHistory
-            record = (
-                self.db.query(ChatHistory)
-                .filter(
-                    ChatHistory.session_id == self.session_id,
-                    ChatHistory.user_id == self.user.id,
-                    ChatHistory.role == "tool",
-                    ChatHistory.intent_type == "analyze_image",
-                )
-                .order_by(ChatHistory.created_at.desc())
-                .first()
-            )
-            if not record or not record.answer:
-                return
-            try:
-                analyzed = json.loads(record.answer)
-            except (json.JSONDecodeError, TypeError):
-                return
-            if not analyzed.get("success") or not isinstance(analyzed.get("data"), dict):
-                return
-            src_terms = analyzed["data"].get("payment_terms")
-            if not isinstance(src_terms, list) or not src_terms:
-                return
-
-            def _amount_eq(a, b) -> bool:
-                try:
-                    return abs(float(a) - float(b)) < 0.01
-                except (TypeError, ValueError):
-                    return False
-
-            # 第一轮：name + amount 配对
-            for t in terms:
-                if not isinstance(t, dict) or t.get("condition"):
-                    continue
-                t_name = t.get("name")
-                if not t_name:
-                    continue
-                for s in src_terms:
-                    if not isinstance(s, dict) or not s.get("condition"):
-                        continue
-                    if t_name == s.get("name") and _amount_eq(t.get("amount"), s.get("amount")):
-                        t["condition"] = s["condition"]
-                        logger.info(
-                            "回填 payment_terms condition（name=%s, 按 name+amount 配对）",
-                            t_name,
-                        )
-                        break
-
-            # 第二轮：下标 + amount 配对（应对 DeepSeek 改了 name）
-            for idx, t in enumerate(terms):
-                if not isinstance(t, dict) or t.get("condition"):
-                    continue
-                if idx >= len(src_terms):
-                    break
-                s = src_terms[idx]
-                if not isinstance(s, dict) or not s.get("condition"):
-                    continue
-                if _amount_eq(t.get("amount"), s.get("amount")):
-                    t["condition"] = s["condition"]
-                    logger.info(
-                        "回填 payment_terms condition（下标=%d, 按下标+amount 配对）",
-                        idx,
-                    )
-        except Exception as e:
-            logger.warning("回填 payment_terms condition 失败: %s", e)
-
     def _ensure_file_in_receipt_dir(self, file_path: str) -> Optional[str]:
         """如果 file_path 是 agent_upload/{file_id} 格式，
         把文件从临时目录复制到凭证目录，返回新路径。
@@ -764,46 +766,52 @@ class ToolExecutor:
             return json.dumps({"error": "当前角色无权创建合同"}, ensure_ascii=False)
 
         customer_id = kwargs.get("customer_id")
-        contract_data_raw = kwargs.get("contract_data", {})
-        logger.info(
-            "create_contract: customer_id=%s, file_id=%s, contract_data类型=%s, keys=%s",
-            customer_id, kwargs.get("file_id"),
-            type(contract_data_raw).__name__,
-            list(contract_data_raw.keys()) if isinstance(contract_data_raw, dict) else "N/A",
-        )
         file_id = kwargs.get("file_id")
-
-        # 归一化 payment_terms 字段名（DeepSeek Agent 偶尔会把 name 写成 installment_name、丢掉 condition）
-        if isinstance(contract_data_raw, dict):
-            terms = contract_data_raw.get("payment_terms")
-            if isinstance(terms, list):
-                normalized = []
-                for idx, t in enumerate(terms, 1):
-                    if not isinstance(t, dict):
-                        normalized.append(t)
-                        continue
-                    nt = dict(t)
-                    if "name" not in nt and "installment_name" in nt:
-                        nt["name"] = nt["installment_name"]
-                    if not nt.get("name"):
-                        nt["name"] = f"第 {idx} 期"
-                    if not nt.get("condition") and nt.get("due_date"):
-                        nt["condition"] = str(nt["due_date"])
-                    normalized.append(nt)
-                contract_data_raw["payment_terms"] = normalized
-                # 同步回 kwargs，确保后续 _auto_create_payments_from_terms 用到归一化后的数据
-                kwargs["contract_data"] = contract_data_raw
-
-        # 回查 chat_history 补 condition：
-        # DeepSeek 在调 create_contract 时偶尔会把 payment_terms[].condition 整个丢掉，
-        # 但 analyze_image 工具的完整返回（含 condition 原文）已写入 chat_history.answer。
-        # 这里按 name+amount 主键配对、按下标+amount 兜底，把 condition 找回来。
-        self._backfill_payment_terms_condition(contract_data_raw)
+        contract_data_raw = kwargs.get("contract_data", {})
 
         if not customer_id:
             return json.dumps({"error": "缺少 customer_id，请先创建或查找客户"}, ensure_ascii=False)
         if not file_id:
             return json.dumps({"error": "缺少 file_id，无法关联原始文件"}, ensure_ascii=False)
+
+        # ━━━ 数据来源策略：VL 缓存优先，Agent 仅覆盖白名单字段 ━━━
+        cache_data = self._get_cached_analysis(file_id, "contract")
+        data_source = "unknown"
+
+        if cache_data and isinstance(cache_data, dict):
+            # 缓存命中：缓存为基础，仅白名单字段可从 Agent/kwargs 覆盖
+            merged = dict(cache_data)
+            AGENT_OVERRIDABLE = {"title", "business_type", "business_description"}
+            for key in AGENT_OVERRIDABLE:
+                agent_val = kwargs.get(key) or (contract_data_raw.get(key) if isinstance(contract_data_raw, dict) else None)
+                if agent_val:
+                    merged[key] = agent_val
+            # payment_terms 始终用 VL 原始输出，不容 Agent 改写
+            merged["payment_terms"] = cache_data.get("payment_terms", [])
+            merged["full_text"] = cache_data.get("full_text", "")
+            # 如果 Agent 传了 payment_terms，打 warn 日志
+            if isinstance(contract_data_raw, dict) and contract_data_raw.get("payment_terms"):
+                logger.warning(
+                    "create_contract: Agent传了payment_terms已忽略，使用VL缓存 file_id=%s", file_id
+                )
+            data_source = "cache"
+        elif isinstance(contract_data_raw, dict) and contract_data_raw:
+            # 缓存 miss，降级使用 Agent 传来的 contract_data（兼容旧行为）
+            merged = dict(contract_data_raw)
+            data_source = "agent_passed"
+        else:
+            # 全都没有，空数据
+            merged = {}
+            data_source = "empty"
+
+        logger.info(
+            "create_contract数据来源: file_id=%s source=%s keys=%s",
+            file_id, data_source,
+            list(merged.keys()) if isinstance(merged, dict) else "N/A",
+        )
+
+        # ━━━ 归一化 payment_terms（VL 也可能写出 installment_name / 缺 name）━━━
+        self._normalize_payment_terms(merged)
 
         # 验证客户存在
         customer = self.db.query(Customer).filter(
@@ -867,12 +875,12 @@ class ToolExecutor:
 
             contract_create = ContractCreate(
                 contract_number=contract_number,
-                title=kwargs.get("title"),
-                business_type=kwargs.get("business_type"),
-                business_description=kwargs.get("business_description"),
+                title=kwargs.get("title") or merged.get("title"),
+                business_type=kwargs.get("business_type") or merged.get("business_type"),
+                business_description=kwargs.get("business_description") or merged.get("business_description"),
                 customer_id=customer_id,
-                currency=kwargs.get("currency") or contract_data_raw.get("currency", "CNY"),
-                total_amount=Decimal(str(kwargs.get("total_amount", 0))),
+                currency=kwargs.get("currency") or merged.get("currency", "CNY"),
+                total_amount=Decimal(str(kwargs.get("total_amount") or merged.get("total_amount", 0))),
                 original_file_path=original_file_path,
                 file_hash=file_hash,
                 signed_date=signed_date,
@@ -886,23 +894,22 @@ class ToolExecutor:
                 sales_person_id=self.user.id,
             )
 
-            # 写入 contract_data JSON
+            # 写入 contract_data JSON（使用合并后的完整数据）
             contract.contract_data = {
                 "source": "agent",
                 "file_id": file_id,
-                "business_type": kwargs.get("business_type"),
-                "business_description": kwargs.get("business_description"),
-                **(contract_data_raw if isinstance(contract_data_raw, dict) else {}),
+                "data_source": data_source,
+                **merged,
             }
             # 存储合同全文（用于知识库问答）
-            if isinstance(contract_data_raw, dict) and contract_data_raw.get("full_text"):
-                contract.contract_text = contract_data_raw["full_text"]
+            if merged.get("full_text"):
+                contract.contract_text = merged["full_text"]
             self.db.commit()
             self.db.refresh(contract)
 
             receipt_file_path = self._ensure_file_in_receipt_dir(kwargs.get("receipt_file_path"))
             auto_payments = self._auto_create_payments_from_terms(
-                contract, contract_data_raw, kwargs.get("receipt_data"), receipt_file_path
+                contract, merged, kwargs.get("receipt_data"), receipt_file_path
             )
             logger.info(
                 "create_contract完成: contract_id=%d, auto_payments=%s",
@@ -1127,9 +1134,19 @@ class ToolExecutor:
             return json.dumps({"error": f"更新付款失败: {str(e)}"}, ensure_ascii=False)
 
     def match_receipt(self, **kwargs) -> str:
-        receipt_data = kwargs.get("receipt_data", {})
-        if not isinstance(receipt_data, dict):
-            return json.dumps({"error": "receipt_data 必须是JSON对象"}, ensure_ascii=False)
+        receipt_data = kwargs.get("receipt_data")
+        file_id = kwargs.get("file_id")
+
+        # 优先从缓存获取凭证分析结果
+        if not receipt_data or not isinstance(receipt_data, dict) or not receipt_data:
+            if file_id:
+                cached = self._get_cached_analysis(file_id, "receipt")
+                if cached:
+                    receipt_data = cached
+                    logger.info("match_receipt 使用缓存凭证数据: file_id=%s", file_id)
+
+        if not receipt_data or not isinstance(receipt_data, dict):
+            return json.dumps({"error": "缺少凭证数据。请先调用 analyze_image 分析凭证，或直接传入 receipt_data。"}, ensure_ascii=False)
 
         payer_name = receipt_data.get("payer_name", "")
         receipt_amount = None
@@ -1809,6 +1826,8 @@ class ToolExecutor:
                     structured = {"raw": content}
 
                 self._document_context = analysis_type
+                # 缓存 VL 完整输出，后续 create_contract 等工具可直接取用，避免 LLM 搬运丢失字段
+                self._cache_analysis(file_id, analysis_type, structured)
                 # 分析成功后立即将文件从 temp 复制到凭证永久目录，避免跨回合 temp 清理导致凭证丢失
                 permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
                 receipt_path = permanent_path or f"agent_upload/{file_id}"
@@ -1882,6 +1901,7 @@ class ToolExecutor:
 
                             logger.info("PDF文本模型解析完成: analysis_type=%s, keys=%s", analysis_type, list(structured.keys()) if isinstance(structured, dict) else "非dict")
                             self._document_context = analysis_type
+                            self._cache_analysis(file_id, analysis_type, structured)
                             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
                             receipt_path = permanent_path or f"agent_upload/{file_id}"
                             if not permanent_path:
@@ -1937,6 +1957,7 @@ class ToolExecutor:
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
                             self._document_context = analysis_type
+                            self._cache_analysis(file_id, analysis_type, structured)
                             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
                             receipt_path = permanent_path or f"agent_upload/{file_id}"
                             if not permanent_path:
@@ -2237,20 +2258,20 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_contract",
-            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。创建后系统会自动根据合同中的付款条款创建对应的付款记录（已付款项自动记录为 pending，如同时上传了凭证且金额匹配则直接记录为 paid）。",
+            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。创建后系统会自动根据合同中的付款条款创建对应的付款记录（已付款项自动记录为 pending，如同时上传了凭证且金额匹配则直接记录为 paid）。系统会自动使用之前 analyze_image 的分析结果，无需重复传递合同数据。",
             "parameters": {
                 "type": "object",
-                "required": ["customer_id", "file_id", "contract_data"],
+                "required": ["customer_id", "file_id"],
                 "properties": {
                     "customer_id": {"type": "integer", "description": "客户ID（通过 create_customer 或 search_customers 获取）"},
-                    "file_id": {"type": "string", "description": "上传文件的ID（聊天上传时返回的 file_id）"},
-                    "contract_data": {"type": "object", "description": "从合同文件提取的全部信息（JSON对象，包含甲方乙方、金额、payment_terms等）。payment_terms中每个款项必须包含is_paid布尔字段，表示该款项是否已付"},
+                    "file_id": {"type": "string", "description": "上传文件的ID（聊天上传时返回的 file_id）。系统会自动使用之前 analyze_image 对该文件的分析结果。"},
+                    "contract_data": {"type": "object", "description": "【通常无需传递】合同提取数据。系统自动使用分析结果。仅当需覆盖特定字段（如标题修正）时传入。"},
                     "title": {"type": "string", "description": "合同标题（如：购车合同、两地牌办理合同）"},
                     "total_amount": {"type": "number", "description": "合同总金额"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "合同币种。从合同原文提取，如 HK$/港币=HKD，¥/人民币=CNY。不清楚时询问用户确认。"},
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
                     "business_type": {"type": "string", "enum": ["车辆业务", "中港牌业务"], "description": "业务大类：车辆业务（买车卖车）或中港牌业务（办理中港车牌）"},
-                    "business_description": {"type": "string", "description": "业务具体描述，严格基于合同原文。中港牌业务需区分：购买现牌（如「购买现牌 粤Z·XX123港 深圳湾口岸」）或 新申请（如「新申请深圳湾口岸中港车牌」）。车辆业务如没写车型就用底盘号描述，不要猜测"},
+                    "business_description": {"type": "string", "description": "业务具体描述，严格基于合同原文。"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
                     "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},
                     "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入 analyze_image 返回的 file_path。系统会自动保存到凭证目录。"},
@@ -2360,12 +2381,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "match_receipt",
-            "description": "根据凭证分析结果智能匹配到合同付款记录。优先按客户名匹配，其次按金额匹配。返回候选列表供用户确认，确认后用 update_payment 补充凭证。用户上传付款凭证时必须先调用此工具查找匹配。",
+            "description": "根据凭证分析结果智能匹配到合同付款记录。优先按客户名匹配，其次按金额匹配。返回候选列表供用户确认，确认后用 update_payment 补充凭证。用户上传付款凭证时必须先调用此工具查找匹配。系统会自动使用之前 analyze_image 的分析结果，通常无需传递 receipt_data。",
             "parameters": {
                 "type": "object",
-                "required": ["receipt_data"],
+                "required": [],
                 "properties": {
-                    "receipt_data": {"type": "object", "description": "凭证分析结果（JSON对象，包含 payer_name/amount/currency/transaction_date 等）"},
+                    "file_id": {"type": "string", "description": "凭证文件的ID。如已通过 analyze_image 分析过，系统会自动从缓存获取凭证数据。"},
+                    "receipt_data": {"type": "object", "description": "【通常无需传递】凭证分析结果。系统自动使用缓存数据。仅当缓存不可用时手动传入。"},
                     "customer_name": {"type": "string", "description": "客户姓名（当凭证中无法识别客户时，由用户提供）"},
                 },
             },
