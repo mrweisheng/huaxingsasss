@@ -523,7 +523,11 @@ export default function ContractDetail() {
                     </span>
                   </div>
                   {termCond && (
-                    <span className="cd-term-step-cond">条件：{termCond}</span>
+                    <span className="cd-term-step-cond">
+                      {/^\d{4}-\d{2}-\d{2}$/.test(String(termCond).trim())
+                        ? `约定付款：${termCond}`
+                        : `约定：${termCond}`}
+                    </span>
                   )}
                 </div>
               )
