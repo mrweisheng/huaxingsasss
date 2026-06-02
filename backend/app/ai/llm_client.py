@@ -210,7 +210,7 @@ class DeepSeekClient:
         逐个 yield 解析后的 SSE 事件。
 
         重试条件：429（限流）、5xx（服务端错误）、TimeoutException、ConnectError
-        不重试：4xx（客户端错误，除 429 外）
+        不重试：4xx（客户端错误，除 429 外）、流已开始传输后断开
 
         Yields:
             {"type": "text", "content": "..."} — 文本增量
@@ -233,23 +233,32 @@ class DeepSeekClient:
         }
 
         last_error = None
-        for attempt in range(self.max_retries):
-            try:
-                async with httpx.AsyncClient(timeout=120.0) as client:
+        # AsyncClient 在重试循环外，复用连接池
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            for attempt in range(self.max_retries):
+                # 追踪是否已向调用方 yield 过事件；
+                # 流传输一旦开始就不能重试，否则会产生重复输出
+                yielded_count = 0
+                try:
                     async with client.stream(
                         "POST",
                         f"{self.base_url}/chat/completions",
                         json=payload,
                         headers=headers,
                     ) as response:
-                        # 可重试的服务端错误
+                        # 可重试的服务端错误（尚未 yield 任何事件）
                         if response.status_code == 429:
-                            retry_after = float(response.headers.get("retry-after", str(self.retry_base_delay * (2 ** attempt))))
+                            # retry-after 可能是秒数或 HTTP-date，安全解析
+                            try:
+                                retry_after = float(response.headers.get("retry-after", ""))
+                            except (ValueError, TypeError):
+                                retry_after = self.retry_base_delay * (2 ** attempt)
+                            retry_after = max(retry_after, self.retry_base_delay)
                             logger.warning(
                                 "DeepSeek 限流 429，%.1fs 后重试 (attempt %d/%d)",
                                 retry_after, attempt + 1, self.max_retries,
                             )
-                            await response.aread()  # 消费响应体
+                            await response.aread()
                             await asyncio.sleep(retry_after)
                             continue
 
@@ -299,6 +308,7 @@ class DeepSeekClient:
                             content = delta.get("content")
                             if content:
                                 yield {"type": "text", "content": content}
+                                yielded_count += 1
 
                             tool_calls = delta.get("tool_calls")
                             if tool_calls:
@@ -373,15 +383,22 @@ class DeepSeekClient:
                         # 流正常结束（无 finish_reason）
                         return
 
-            except (httpx.TimeoutException, httpx.ConnectError) as e:
-                last_error = e
-                delay = self.retry_base_delay * (2 ** attempt)
-                logger.warning(
-                    "DeepSeek 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
-                    type(e).__name__, delay, attempt + 1, self.max_retries,
-                )
-                await asyncio.sleep(delay)
-                continue
+                except (httpx.TimeoutException, httpx.ConnectError) as e:
+                    # 流传输中途断开 → 不重试（已 yield 的内容无法撤回）
+                    if yielded_count > 0:
+                        logger.error(
+                            "DeepSeek 流传输中途断开（已 yield %d 个事件），放弃重试: %s",
+                            yielded_count, type(e).__name__,
+                        )
+                        raise
+                    last_error = e
+                    delay = self.retry_base_delay * (2 ** attempt)
+                    logger.warning(
+                        "DeepSeek 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
+                        type(e).__name__, delay, attempt + 1, self.max_retries,
+                    )
+                    await asyncio.sleep(delay)
+                    continue
 
         # 所有重试耗尽
         raise Exception(

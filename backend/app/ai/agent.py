@@ -9,7 +9,6 @@ import os
 import re
 import time
 import uuid
-from datetime import datetime, date
 from typing import AsyncGenerator, Optional, List, Dict, Any
 
 from sqlalchemy.orm import Session
@@ -29,15 +28,12 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
-
-logger = logging.getLogger(__name__)
-
-# 用户确认意图匹配模式
+# 用户确认意图匹配模式（re.IGNORECASE 已覆盖大小写变体，无需重复 OK/Ok/ok）
 _CONFIRM_PATTERN = re.compile(
     r'^(好的|确认|没问题|可以|执行|对|是的|ok|yes|好|行|就这样|确认执行|'
-    r'没问题.*|就这样.*|可以.*|好的.*|确认.*|是的.*|OK|Ok|可以[的啊吧]|'
-    r'对[的啊吧]|好[的啊吧]|行[的啊吧]|确认[的了]|执行吧|没问题[的了]|OK[的了]|'
-    r'是的[的了]|是的吧|没错|对的|OK了|ok了|好滴|好嘞|必须的|'
+    r'没问题.*|就这样.*|可以.*|好的.*|确认.*|是的.*|可以[的啊吧]|'
+    r'对[的啊吧]|好[的啊吧]|行[的啊吧]|确认[的了]|执行吧|没问题[的了]|'
+    r'是的[的了]|是的吧|没错|对的|好滴|好嘞|必须的|'
     r'需要的|要[的啊]|要的|当然|当然可以)$',
     re.IGNORECASE,
 )
@@ -320,8 +316,7 @@ class ContractAgent:
                     "是否需要", "需要吗", "执行吗", "是否将", "将.*关联",
                     "确认后", "请确认", "确认一下",
                 )
-                import re as _re
-                return bool(_re.search("|".join(confirm_keywords), content))
+                return bool(re.search("|".join(confirm_keywords), content))
         return False
 
     def _load_history(self, session_id: str) -> List[dict]:

@@ -117,7 +117,7 @@ class ToolExecutor:
         sid = self.session_id or "nosession"
         return f"vl:{analysis_type}:{sid}:{file_id}"
 
-    def _summarize_analysis_for_context(self, structured: dict, analysis_type: str) -> dict:
+    def _summarize_analysis_for_context(self, structured: dict) -> dict:
         """压缩 VL 分析结果再返回给 LLM context，剥离大字段（完整数据已缓存供后续工具取用）"""
         if not isinstance(structured, dict):
             return structured
@@ -2078,7 +2078,7 @@ class ToolExecutor:
                 self._pending_receipt_path = receipt_path
                 return json.dumps({
                     "success": True,
-                    "data": self._summarize_analysis_for_context(structured, analysis_type),
+                    "data": self._summarize_analysis_for_context(structured),
                     "file_id": file_id,
                     "file_path": receipt_path,
                     "file_type": "image",
@@ -2151,7 +2151,7 @@ class ToolExecutor:
                             self._pending_receipt_path = receipt_path
                             return json.dumps({
                                 "success": True,
-                                "data": self._summarize_analysis_for_context(structured, analysis_type),
+                                "data": self._summarize_analysis_for_context(structured),
                                 "file_id": file_id,
                                 "file_path": receipt_path,
                                 "file_type": "pdf",
@@ -2207,7 +2207,7 @@ class ToolExecutor:
                             self._pending_receipt_path = receipt_path
                             return json.dumps({
                                 "success": True,
-                                "data": self._summarize_analysis_for_context(structured, analysis_type),
+                                "data": self._summarize_analysis_for_context(structured),
                                 "file_id": file_id, "file_path": receipt_path,
                                 "file_type": "pdf", "analysis_type": analysis_type,
                             }, ensure_ascii=False)
