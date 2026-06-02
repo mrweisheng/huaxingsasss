@@ -55,6 +55,14 @@ const paymentStatusMap: Record<string, { text: string }> = {
   cancelled: { text: '已取消' },
 }
 
+const methodMap: Record<string, string> = {
+  bank_transfer: '银行转账',
+  wechat: '微信',
+  alipay: '支付宝',
+  cash: '现金',
+  check: '支票',
+}
+
 /** 从 receipt_data 中提取摘要信息 */
 function receiptSummary(data: Record<string, any> | undefined): string | null {
   if (!data || typeof data !== 'object') return null
@@ -148,50 +156,97 @@ export default function ContractDetail() {
   const showCnyHint = cur !== 'CNY'
 
   const paymentColumns = [
-    { title: '期数', dataIndex: 'installment_number', key: 'installment_number', width: 60 },
-    { title: '描述', dataIndex: 'description', key: 'description', width: 200, ellipsis: true as const, render: (v: string) => v || '-' },
-    { title: '期数名称', dataIndex: 'installment_name', key: 'installment_name', render: (v: string) => v || '-' },
-    { title: '币种', dataIndex: 'currency', key: 'currency', width: 60 },
-    { title: '金额', dataIndex: 'paid_amount', key: 'paid_amount', render: (v: number, r: Payment) => fmt(v, r.currency) },
-    { title: '折CNY', dataIndex: 'paid_amount_in_cny', key: 'paid_amount_in_cny', width: 100, render: (v: number | null) => v != null ? fmt(v, 'CNY') : '-' },
-    { title: '付款日期', dataIndex: 'paid_date', key: 'paid_date', width: 110, render: (v: string) => v || '-' },
-    { title: '方式', dataIndex: 'payment_method', key: 'payment_method', width: 80, render: (v: string) => v || '-' },
+    {
+      title: '期数',
+      dataIndex: 'installment_number',
+      key: 'installment_number',
+      width: 50,
+      align: 'center' as const,
+    },
+    {
+      title: '描述',
+      key: 'description',
+      render: (_: unknown, record: Payment) => (
+        <span className="cd-cell-desc">{record.description || '-'}</span>
+      ),
+    },
+    {
+      title: '金额',
+      key: 'amount',
+      width: 120,
+      align: 'right' as const,
+      render: (_: unknown, record: Payment) => {
+        const isPaid = record.status === 'paid'
+        return (
+          <div>
+            <span className={`cd-cell-amount ${isPaid ? 'success' : ''}`}>
+              {fmt(record.paid_amount, record.currency)}
+            </span>
+            {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                ≈ ¥{Math.round(record.paid_amount_in_cny).toLocaleString('zh-CN')}
+              </div>
+            )}
+          </div>
+        )
+      },
+    },
+    {
+      title: '付款日期',
+      dataIndex: 'paid_date',
+      key: 'paid_date',
+      width: 95,
+      render: (v: string) => v || '-',
+    },
+    {
+      title: '方式',
+      dataIndex: 'payment_method',
+      key: 'payment_method',
+      width: 70,
+      render: (v: string) => {
+        const label = methodMap[v] || v || '-'
+        return <span className="cd-method-tag">{label}</span>
+      },
+    },
     {
       title: '凭证',
       dataIndex: 'receipt_data',
       key: 'receipt_data',
-      width: 120,
+      width: 56,
+      align: 'center' as const,
       render: (_v: any, r: Payment) => {
         if (r.receipt_image_path) {
           return (
-            <Button type="link" size="small" icon={<EyeOutlined />}
-              onClick={async () => {
-                try {
-                  const url = await paymentApi.getReceiptUrl(r.id)
-                  window.open(url, '_blank')
-                } catch {
-                  message.error('加载凭证失败')
-                }
-              }}
-            >查看</Button>
+            <Tooltip title="查看凭证">
+              <Button type="text" size="small" icon={<EyeOutlined />}
+                onClick={async () => {
+                  try {
+                    const url = await paymentApi.getReceiptUrl(r.id)
+                    window.open(url, '_blank')
+                  } catch {
+                    message.error('加载凭证失败')
+                  }
+                }}
+              />
+            </Tooltip>
           )
         }
         const summary = receiptSummary(r.receipt_data)
         if (summary) {
           return (
             <Tooltip title={summary}>
-              <span style={{ color: '#0d9488', fontSize: 12 }}><FileTextOutlined /> 有记录</span>
+              <FileTextOutlined style={{ color: '#0d9488', cursor: 'pointer' }} />
             </Tooltip>
           )
         }
-        return <span style={{ color: '#bbb', fontSize: 12 }}>-</span>
+        return <span style={{ color: '#ccc', fontSize: 11 }}>-</span>
       },
     },
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 80,
+      width: 70,
       render: (s: string) => (
         <span className={`payment-status ${s}`}>{paymentStatusMap[s]?.text || s}</span>
       ),
@@ -199,43 +254,94 @@ export default function ContractDetail() {
   ]
 
   const expenseColumns = [
-    { title: '期数', dataIndex: 'installment_number', key: 'installment_number', width: 60 },
-    { title: '描述', dataIndex: 'description', key: 'description', width: 200, ellipsis: true as const, render: (v: string) => v || '-' },
-    { title: '收款方', dataIndex: 'payee_name', key: 'payee_name', render: (v: string) => v || '-' },
-    { title: '币种', dataIndex: 'currency', key: 'currency', width: 60 },
-    { title: '金额', dataIndex: 'paid_amount', key: 'paid_amount', render: (v: number, r: Payment) => fmt(v, r.currency) },
-    { title: '折CNY', dataIndex: 'paid_amount_in_cny', key: 'paid_amount_in_cny', width: 100, render: (v: number | null) => v != null ? fmt(v, 'CNY') : '-' },
-    { title: '付款日期', dataIndex: 'paid_date', key: 'paid_date', width: 110, render: (v: string) => v || '-' },
-    { title: '方式', dataIndex: 'payment_method', key: 'payment_method', width: 80, render: (v: string) => v || '-' },
+    {
+      title: '期数',
+      dataIndex: 'installment_number',
+      key: 'installment_number',
+      width: 50,
+      align: 'center' as const,
+    },
+    {
+      title: '收款方',
+      dataIndex: 'payee_name',
+      key: 'payee_name',
+      width: 90,
+      render: (v: string) => <span className="cd-cell-payee">{v || '-'}</span>,
+    },
+    {
+      title: '描述',
+      key: 'description',
+      render: (_: unknown, record: Payment) => (
+        <span className="cd-cell-desc">{record.description || '-'}</span>
+      ),
+    },
+    {
+      title: '金额',
+      key: 'amount',
+      width: 120,
+      align: 'right' as const,
+      render: (_: unknown, record: Payment) => (
+        <div>
+          <span className="cd-cell-amount danger">
+            {fmt(record.paid_amount, record.currency)}
+          </span>
+          {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+              ≈ ¥{Math.round(record.paid_amount_in_cny).toLocaleString('zh-CN')}
+            </div>
+          )}
+        </div>
+      ),
+    },
+    {
+      title: '付款日期',
+      dataIndex: 'paid_date',
+      key: 'paid_date',
+      width: 95,
+      render: (v: string) => v || '-',
+    },
+    {
+      title: '方式',
+      dataIndex: 'payment_method',
+      key: 'payment_method',
+      width: 70,
+      render: (v: string) => {
+        const label = methodMap[v] || v || '-'
+        return <span className="cd-method-tag">{label}</span>
+      },
+    },
     {
       title: '凭证',
       dataIndex: 'receipt_data',
       key: 'receipt_data',
-      width: 120,
+      width: 56,
+      align: 'center' as const,
       render: (_v: any, r: Payment) => {
         if (r.receipt_image_path) {
           return (
-            <Button type="link" size="small" icon={<EyeOutlined />}
-              onClick={async () => {
-                try {
-                  const url = await paymentApi.getReceiptUrl(r.id)
-                  window.open(url, '_blank')
-                } catch {
-                  message.error('加载凭证失败')
-                }
-              }}
-            >查看</Button>
+            <Tooltip title="查看凭证">
+              <Button type="text" size="small" icon={<EyeOutlined />}
+                onClick={async () => {
+                  try {
+                    const url = await paymentApi.getReceiptUrl(r.id)
+                    window.open(url, '_blank')
+                  } catch {
+                    message.error('加载凭证失败')
+                  }
+                }}
+              />
+            </Tooltip>
           )
         }
         const summary = receiptSummary(r.receipt_data)
         if (summary) {
           return (
             <Tooltip title={summary}>
-              <span style={{ color: '#0d9488', fontSize: 12 }}><FileTextOutlined /> 有记录</span>
+              <FileTextOutlined style={{ color: '#0d9488', cursor: 'pointer' }} />
             </Tooltip>
           )
         }
-        return <span style={{ color: '#bbb', fontSize: 12 }}>-</span>
+        return <span style={{ color: '#ccc', fontSize: 11 }}>-</span>
       },
     },
   ]
@@ -246,7 +352,7 @@ export default function ContractDetail() {
       key: 'income',
       label: `收入记录 (${incomePayments.length})`,
       children: incomePayments.length > 0 ? (
-        <Table columns={paymentColumns} dataSource={incomePayments} rowKey="id" size="small" pagination={false} scroll={{ x: 800 }} />
+        <Table columns={paymentColumns} dataSource={incomePayments} rowKey="id" size="small" pagination={false} className="cd-payment-table" />
       ) : (
         <div className="cd-no-payments">
           <DollarOutlined style={{ fontSize: 28, marginBottom: 10, display: 'block', opacity: 0.3 }} />
@@ -260,7 +366,7 @@ export default function ContractDetail() {
       key: 'expense',
       label: `支出记录 (${expensePayments.length})`,
       children: expensePayments.length > 0 ? (
-        <Table columns={expenseColumns} dataSource={expensePayments} rowKey="id" size="small" pagination={false} scroll={{ x: 800 }} />
+        <Table columns={expenseColumns} dataSource={expensePayments} rowKey="id" size="small" pagination={false} className="cd-payment-table" />
       ) : (
         <div className="cd-no-payments">
           <DollarOutlined style={{ fontSize: 28, marginBottom: 10, display: 'block', opacity: 0.3 }} />

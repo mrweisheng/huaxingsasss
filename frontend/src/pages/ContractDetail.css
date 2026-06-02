@@ -524,6 +524,66 @@
   color: var(--text-tertiary);
 }
 
+/* ── 收付记录表格 ── */
+.cd-payment-table .ant-table-thead > tr > th {
+  background: var(--bg-subtle) !important;
+  color: var(--text-secondary) !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--border-light) !important;
+}
+
+.cd-payment-table .ant-table-tbody > tr > td {
+  padding: 10px 12px !important;
+  border-bottom: 1px solid var(--border-light) !important;
+  transition: background 0.15s ease;
+}
+
+.cd-payment-table .ant-table-tbody > tr:hover > td {
+  background: var(--bg-hover) !important;
+}
+
+/* 描述列自动换行 */
+.cd-cell-desc {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  word-break: break-all;
+  white-space: normal;
+}
+
+/* 金额 */
+.cd-cell-amount {
+  font-family: var(--font-mono);
+  font-weight: 700;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+}
+
+.cd-cell-amount.success { color: var(--color-success); }
+.cd-cell-amount.danger  { color: var(--color-danger); }
+
+/* 收款方 */
+.cd-cell-payee {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+/* 方式标签 */
+.cd-method-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  background: var(--bg-subtle);
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
 .payment-status {
   display: inline-block;
   font-size: 11px;

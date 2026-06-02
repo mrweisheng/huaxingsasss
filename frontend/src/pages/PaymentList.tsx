@@ -194,20 +194,14 @@ export default function PaymentList() {
         </div>
       ),
     },
-    // 业务说明
+    // 业务说明 — 自动换行，不限行数
     {
       title: '业务说明',
       key: 'description',
-      ellipsis: { showTitle: false },
-      width: 240,
-      render: (_: unknown, record: Payment) => {
-        const desc = record.description || '-'
-        return (
-          <Tooltip placement="topLeft" title={desc}>
-            <span className="pl-cell-desc">{desc}</span>
-          </Tooltip>
-        )
-      },
+      width: 260,
+      render: (_: unknown, record: Payment) => (
+        <span className="pl-cell-desc">{record.description || '-'}</span>
+      ),
     },
     // 金额（合并币种）
     {
