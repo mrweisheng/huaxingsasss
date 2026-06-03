@@ -4,6 +4,7 @@ import { Input, Select, DatePicker, Button, Popconfirm, message, Empty } from 'a
 import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
+import ContractUploadWizard from '@/components/ContractUploadWizard'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
 import './ContractList.css'
@@ -54,6 +55,7 @@ export default function ContractList() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
   const [hoveredCard, setHoveredCard] = useState<number | null>(null)
+  const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadContracts = useCallback(async () => {
@@ -153,7 +155,7 @@ export default function ContractList() {
             value={dateRange}
           />
           {(role === 'admin' || role === 'income') && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/contracts/upload')}>
+            <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
               上传
             </Button>
           )}
@@ -302,6 +304,11 @@ export default function ContractList() {
           )}
         </>
       )}
+
+      <ContractUploadWizard
+        open={uploadModalOpen}
+        onClose={() => { setUploadModalOpen(false); loadContracts() }}
+      />
     </div>
   )
 }

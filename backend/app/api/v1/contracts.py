@@ -11,7 +11,10 @@ from datetime import date
 
 from app.db.session import get_db
 from app.models.contract import Contract
-from app.schemas.contract import ContractCreate, ContractUpdate, ContractResponse, ContractParseResult
+from app.schemas.contract import (
+    ContractCreate, ContractUpdate, ContractResponse, ContractParseResult,
+    AnalyzeFileRequest, ContractCreateFromAnalysis,
+)
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
 from app.models.user import User
@@ -71,6 +74,155 @@ def list_contracts(
             total_pages=(total + per_page - 1) // per_page
         )
     )
+
+
+@router.post("/analyze-file")
+def analyze_file(
+    req: AnalyzeFileRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """分析已上传的合同文件（同步），返回 AI 提取的结构化数据 + 重复检测。"""
+    if current_user.role not in ("admin", "income"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅 admin 或 income 角色可分析合同")
+
+    from app.services.contract_analyzer import ContractAnalyzer
+
+    file_path = ContractAnalyzer.resolve_file_path(req.file_id, current_user.id)
+    if not file_path:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件不存在，请重新上传")
+
+    try:
+        result = ContractAnalyzer.analyze_file(file_path, db, current_user.id)
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("合同文件分析失败")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"分析失败: {str(e)}")
+
+    return ResponseModel(code=200, data=result)
+
+
+@router.post("/create-from-analysis")
+def create_from_analysis(
+    req: ContractCreateFromAnalysis,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """根据 AI 分析结果（经用户确认/编辑后）创建合同 + 自动付款记录。"""
+    if current_user.role not in ("admin", "income"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅 admin 或 income 角色可创建合同")
+
+    from app.services.contract_analyzer import ContractAnalyzer, auto_create_payments_from_terms
+    from app.models.customer import Customer
+
+    # 验证客户存在
+    customer = db.query(Customer).filter(
+        Customer.id == req.customer_id, Customer.is_deleted == False
+    ).first()
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"客户不存在: {req.customer_id}")
+
+    # 解析文件路径 + 移动到永久目录
+    temp_path = ContractAnalyzer.resolve_file_path(req.file_id, current_user.id)
+    file_hash = None
+    original_file_path = f"agent_upload/{req.file_id}"
+
+    if temp_path:
+        with open(temp_path, "rb") as f:
+            file_hash = calculate_file_hash(f.read())
+
+        # 基于文件 hash 重复检测
+        existing = db.query(Contract).filter(
+            Contract.file_hash == file_hash,
+            Contract.is_deleted == False,
+        ).first()
+        if existing:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"该文件已创建过合同（编号: {existing.contract_number}, ID: {existing.id}）",
+            )
+
+        contract_number = ContractService.generate_contract_number()
+        original_file_path = ContractAnalyzer.copy_to_contract_dir(temp_path, contract_number)
+    else:
+        contract_number = ContractService.generate_contract_number()
+
+    # 构建合同创建数据
+    contract_create = ContractCreate(
+        contract_number=contract_number,
+        customer_id=req.customer_id,
+        original_file_path=original_file_path,
+        file_hash=file_hash,
+        status="active",
+        title=req.title,
+        business_type=req.business_type,
+        business_description=req.business_description,
+        currency=req.currency,
+        total_amount=req.total_amount,
+        signed_date=req.signed_date,
+        start_date=req.start_date,
+        end_date=req.end_date,
+        wechat_group=req.wechat_group,
+        remarks=req.remarks,
+    )
+
+    try:
+        contract = ContractService.create_contract(
+            db=db,
+            contract_data=contract_create,
+            sales_person_id=current_user.id,
+        )
+
+        # 写入 contract_data JSON
+        contract_data_json = dict(req.analysis_data) if req.analysis_data else {}
+        contract_data_json["source"] = "wizard"
+        contract_data_json["file_id"] = req.file_id
+        # 覆盖 payment_terms 为用户确认后的版本
+        if req.payment_terms:
+            contract_data_json["payment_terms"] = [t.model_dump(exclude_none=True) for t in req.payment_terms]
+        contract.contract_data = contract_data_json
+
+        # 合同全文
+        if req.full_text:
+            contract.contract_text = req.full_text
+
+        # 置信度 + needs_review
+        if req.confidence is not None:
+            contract.confidence = round(req.confidence, 4)
+            contract.needs_review = req.confidence < 0.85
+
+        db.commit()
+        db.refresh(contract)
+
+        # 自动创建已支付的付款记录
+        payment_terms_data = contract_data_json if req.payment_terms else None
+        auto_payments = []
+        if payment_terms_data and req.payment_terms:
+            auto_payments = auto_create_payments_from_terms(
+                contract, contract_data_json, db, current_user.id
+            )
+
+        return ResponseModel(code=200, data={
+            "contract": {
+                "id": contract.id,
+                "contract_number": contract.contract_number,
+                "customer_name": customer.name,
+                "customer_id": req.customer_id,
+                "title": contract.title,
+                "currency": contract.currency,
+                "total_amount": float(contract.total_amount),
+                "status": contract.status,
+                "confidence": float(contract.confidence) if contract.confidence else None,
+                "needs_review": contract.needs_review,
+            },
+            "auto_payments": auto_payments,
+        })
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).exception("从分析结果创建合同失败")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"创建合同失败: {str(e)}")
 
 
 @router.post("/upload-and-parse", response_model=ContractParseResult, status_code=status.HTTP_202_ACCEPTED)

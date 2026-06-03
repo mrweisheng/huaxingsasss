@@ -2008,6 +2008,45 @@ class ToolExecutor:
         else:
             return json.dumps({"error": f"文件不存在: {file_id}"}, ensure_ascii=False)
 
+        # ━━━ 合同类型：委托给 ContractAnalyzer（共享逻辑） ━━━
+        if analysis_type == "contract":
+            from app.services.contract_analyzer import ContractAnalyzer
+            try:
+                result = ContractAnalyzer.analyze_file(file_path, self.db, self.user.id)
+            except Exception as e:
+                logger.exception("ContractAnalyzer.analyze_file failed")
+                return json.dumps({"error": f"合同分析失败: {str(e)}"}, ensure_ascii=False)
+
+            if result.get("duplicate_detected"):
+                return json.dumps({
+                    "success": True,
+                    "duplicate_detected": True,
+                    "message": result.get("message", "该文件已在系统中存在对应的合同记录"),
+                    "existing_contract": result.get("existing_contract"),
+                    "file_id": file_id,
+                    "analysis_type": analysis_type,
+                }, ensure_ascii=False)
+
+            structured = result.get("data", {})
+            self._document_context = analysis_type
+            # 缓存 VL 完整输出，后续 create_contract 等工具可直接取用
+            self._cache_analysis(file_id, analysis_type, structured)
+            # 将文件从 temp 复制到凭证永久目录
+            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+            receipt_path = permanent_path or f"agent_upload/{file_id}"
+            if not permanent_path:
+                logger.warning("analyze_image: 凭证文件持久化失败 file_id=%s", file_id)
+            self._pending_receipt_path = receipt_path
+            return json.dumps({
+                "success": True,
+                "data": self._summarize_analysis_for_context(structured),
+                "file_id": file_id,
+                "file_path": receipt_path,
+                "file_type": result.get("file_type", "unknown"),
+                "analysis_type": analysis_type,
+            }, ensure_ascii=False)
+
+        # ━━━ 非 contract 类型：保持原有逻辑 ━━━
         # 1) 读取文件头判断是否为图片
         with open(file_path, "rb") as f:
             header = f.read(12)
@@ -2015,30 +2054,6 @@ class ToolExecutor:
             file_bytes = f.read()
 
         mime = self._detect_image_mime(header)
-
-        # 合同文件重复检测：在 VL/PDF 等昂贵调用前拦截，节省 token 和时间
-        if analysis_type == "contract":
-            file_hash = calculate_file_hash(file_bytes)
-            existing_contract = self.db.query(Contract).filter(
-                Contract.file_hash == file_hash,
-                Contract.is_deleted == False,
-            ).first()
-            if existing_contract:
-                return json.dumps({
-                    "success": True,
-                    "duplicate_detected": True,
-                    "message": "该文件已在系统中存在对应的合同记录，无需重复录入。",
-                    "existing_contract": {
-                        "id": existing_contract.id,
-                        "contract_number": existing_contract.contract_number,
-                        "title": existing_contract.title,
-                        "status": existing_contract.status,
-                        "total_amount": float(existing_contract.total_amount) if existing_contract.total_amount else 0,
-                        "currency": existing_contract.currency,
-                    },
-                    "file_id": file_id,
-                    "analysis_type": analysis_type,
-                }, ensure_ascii=False)
 
         if mime:
             # 是图片 → VL 模型分析
