@@ -21,6 +21,8 @@ import redis as redis_lib
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
+from dashscope import Generation
+
 from app.config import settings
 from app.core.chinese import search_variants
 from app.models.customer import Customer
@@ -977,27 +979,32 @@ class ToolExecutor:
         if not file_id:
             return json.dumps({"error": "缺少 file_id，无法关联原始文件"}, ensure_ascii=False)
 
-        # ━━━ 数据来源策略：VL 缓存优先，Agent 仅覆盖白名单字段 ━━━
+        # ━━━ 数据来源策略：VL 缓存优先，预提取缓存次之，Agent 兜底 ━━━
         cache_data = self._get_cached_analysis(file_id, "contract")
         data_source = "unknown"
 
         if cache_data and isinstance(cache_data, dict):
-            # 缓存命中：缓存为基础，仅白名单字段可从 Agent/kwargs 覆盖
-            merged = dict(cache_data)
-            AGENT_OVERRIDABLE = {"title", "business_type", "business_description"}
-            for key in AGENT_OVERRIDABLE:
-                agent_val = kwargs.get(key) or (contract_data_raw.get(key) if isinstance(contract_data_raw, dict) else None)
-                if agent_val:
-                    merged[key] = agent_val
-            # payment_terms 始终用 VL 原始输出，不容 Agent 改写
-            merged["payment_terms"] = cache_data.get("payment_terms", [])
-            merged["full_text"] = cache_data.get("full_text", "")
-            # 如果 Agent 传了 payment_terms，打 warn 日志
-            if isinstance(contract_data_raw, dict) and contract_data_raw.get("payment_terms"):
-                logger.warning(
-                    "create_contract: Agent传了payment_terms已忽略，使用VL缓存 file_id=%s", file_id
-                )
-            data_source = "cache"
+            if cache_data.get("raw_text"):
+                # 预提取缓存（快速文本提取路径）：原文作为 full_text，结构化字段由 Agent 传入
+                merged = dict(contract_data_raw) if isinstance(contract_data_raw, dict) else {}
+                merged["full_text"] = cache_data["raw_text"]
+                data_source = "pre_extracted"
+            else:
+                # VL 结构化缓存：以缓存为基础，仅白名单字段可从 Agent 覆盖
+                merged = dict(cache_data)
+                AGENT_OVERRIDABLE = {"title", "business_type", "business_description"}
+                for key in AGENT_OVERRIDABLE:
+                    agent_val = kwargs.get(key) or (contract_data_raw.get(key) if isinstance(contract_data_raw, dict) else None)
+                    if agent_val:
+                        merged[key] = agent_val
+                # payment_terms 始终用 VL 原始输出，不容 Agent 改写
+                merged["payment_terms"] = cache_data.get("payment_terms", [])
+                merged["full_text"] = cache_data.get("full_text", "")
+                if isinstance(contract_data_raw, dict) and contract_data_raw.get("payment_terms"):
+                    logger.warning(
+                        "create_contract: Agent传了payment_terms已忽略，使用VL缓存 file_id=%s", file_id
+                    )
+                data_source = "cache"
         elif isinstance(contract_data_raw, dict) and contract_data_raw:
             # 缓存 miss，降级使用 Agent 传来的 contract_data（兼容旧行为）
             merged = dict(contract_data_raw)
@@ -2147,32 +2154,24 @@ class ToolExecutor:
                     full_text = "\n\n".join(all_page_texts)
 
                     if full_text.strip():
-                        # ✅ 有文本 → 用 DeepSeek 文本模型解析（通过硅基流动平台）
-                        logger.info("PDF文本提取成功，使用DeepSeek文本模型(硅基流动)解析: text_len=%d", len(full_text))
+                        # ✅ 有文本 → 用百炼 DeepSeek-V4-Flash 文本模型解析
+                        logger.info("PDF文本提取成功，使用百炼DeepSeek-V4-Flash解析: text_len=%d", len(full_text))
                         try:
                             # 合同类型：去掉 full_text 转录要求，文本已由 PyMuPDF 提取，节省 ~30s 生成时间
                             from app.services.contract_analyzer import _make_text_extraction_prompt
                             actual_prompt = _make_text_extraction_prompt(prompt) if analysis_type == "contract" else prompt
-                            payload = {
-                                "model": settings.DEEPSEEK_AGENT_MODEL,
-                                "messages": [{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
-                                "temperature": 0.1,
-                                "max_tokens": 4096,
-                            }
-                            headers = {
-                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
-                                "Content-Type": "application/json",
-                            }
-                            with httpx.Client(timeout=120.0) as client:
-                                response = client.post(
-                                    f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
-                                    json=payload, headers=headers,
-                                )
+                            response = Generation.call(
+                                api_key=settings.DASHSCOPE_API_KEY,
+                                model="deepseek-v4-flash",
+                                messages=[{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
+                                result_format="message",
+                                enable_thinking=True,
+                            )
                             if response.status_code != 200:
-                                logger.error("DeepSeek API错误: status=%d, body=%s", response.status_code, response.text[:200])
-                                return json.dumps({"error": f"DeepSeek API 错误: {response.text}"}, ensure_ascii=False)
+                                logger.error("百炼DeepSeek API错误: code=%s, message=%s", response.code, response.message)
+                                return json.dumps({"error": f"百炼 DeepSeek API 错误: {response.message}"}, ensure_ascii=False)
 
-                            content = response.json()["choices"][0]["message"]["content"]
+                            content = response.output.choices[0].message.content
                             try:
                                 structured = json.loads(content)
                             except json.JSONDecodeError:
@@ -2198,7 +2197,7 @@ class ToolExecutor:
                                 "analysis_type": analysis_type,
                             }, ensure_ascii=False)
                         except Exception as e:
-                            logger.exception("DeepSeek解析PDF失败")
+                            logger.exception("百炼DeepSeek解析PDF失败")
                             return json.dumps({"error": f"PDF文本解析失败: {str(e)}"}, ensure_ascii=False)
                     else:
                         # ❌ 无文本（扫描件）→ 渲染为图片走 VL
@@ -2315,6 +2314,10 @@ class ToolExecutor:
         if text_result:
             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
             file_out = permanent_path or f"agent_upload/{file_id}"
+            # 合同类型：缓存原文 + 设置文档上下文，确保 create_contract 链路完整
+            if analysis_type == "contract":
+                self._document_context = analysis_type
+                self._cache_analysis(file_id, analysis_type, {"raw_text": text_result, "file_type": "document"})
             return json.dumps({
                 "success": True, "data": {"content": text_result},
                 "file_id": file_id, "file_path": file_out,
@@ -2326,6 +2329,10 @@ class ToolExecutor:
         if excel_result:
             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
             file_out = permanent_path or f"agent_upload/{file_id}"
+            # 合同类型：缓存原文 + 设置文档上下文
+            if analysis_type == "contract":
+                self._document_context = analysis_type
+                self._cache_analysis(file_id, analysis_type, {"raw_text": excel_result, "file_type": "excel"})
             return json.dumps({
                 "success": True, "data": {"content": excel_result},
                 "file_id": file_id, "file_path": file_out,

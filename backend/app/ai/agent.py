@@ -1,6 +1,6 @@
 """
 ContractAgent — 基于 ReAct 模式的智能业务助手
-使用 DeepSeek API 进行函数调用，SiliconFlow VL 模型处理图片
+使用 DashScope 百炼 DeepSeek-V4-Flash 进行函数调用，qwen3-vl-flash 视觉模型处理图片
 """
 import asyncio
 import json
@@ -16,7 +16,7 @@ import redis as redis_lib
 
 from sqlalchemy.orm import Session
 
-from app.ai.llm_client import DeepSeekClient
+from app.ai.llm_client import DashScopeAgentClient
 from app.ai.prompts import (
     build_system_prompt,
     RECEIPT_ANALYSIS_PROMPT,
@@ -71,7 +71,7 @@ class ContractAgent:
     def __init__(self, db: Session, user: User):
         self.db = db
         self.user = user
-        self.llm = DeepSeekClient()
+        self.llm = DashScopeAgentClient()
         self.executor = ToolExecutor(db, user)
 
     async def chat(
@@ -164,7 +164,7 @@ class ContractAgent:
             messages = self._sanitize_messages_for_api(messages, session_id)
 
             try:
-                logger.info("ReAct迭代 #%d: 开始调用 DeepSeek API...", iteration)
+                logger.info("ReAct迭代 #%d: 开始调用 DashScope Agent API...", iteration)
                 async for event in self.llm.chat_completion_stream(
                     messages=messages,
                     tools=TOOL_DEFINITIONS,
@@ -334,9 +334,9 @@ class ContractAgent:
         return "\n".join(results)
 
     async def _try_pre_analyze(self, file_id: str, file_type: str) -> Optional[str]:
-        """尝试对文本型文件做轻量提取。
-        文本型 PDF / Word / Excel 仅提取原文传给 LLM（<1s），
-        扫描件 PDF 和图片返回 None 交给 LLM 调 analyze_image → VL 模型。"""
+        """快速提取文本型文件内容（<1s），跳过慢的 ContractAnalyzer API 调用。
+        文本型 PDF / Word / Excel：提取原文 → 查重 → 缓存 → 返回给 LLM。
+        扫描件 PDF / 图片：返回 None，交给 LLM 调 analyze_image → VL 模型。"""
         if not file_id:
             return None
 
@@ -358,16 +358,18 @@ class ContractAgent:
 
         from app.services.contract_analyzer import _is_docx, _is_xlsx
 
-        # 仅处理可提取文字的文件类型
+        text = ""
+        file_type_label = ""
+
         if header[:4] == b"%PDF":
             # PDF：检测是否有可提取文字
             try:
                 from app.services.contract_analyzer import _extract_pdf_text
                 text = _extract_pdf_text(file_path)
-                if not text.strip():
-                    # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
-                    return None
             except Exception:
+                return None
+            if not text.strip():
+                # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
                 return None
             file_type_label = "PDF"
         elif _is_docx(header):
@@ -376,6 +378,8 @@ class ContractAgent:
                 text = _extract_word_text(file_path)
             except Exception:
                 return None
+            if not text.strip():
+                return None
             file_type_label = "Word"
         elif _is_xlsx(header):
             try:
@@ -383,20 +387,52 @@ class ContractAgent:
                 text = _extract_excel_text(file_path)
             except Exception:
                 return None
+            if not text.strip():
+                return None
             file_type_label = "Excel"
         else:
             # 图片或其他格式，交给 LLM 调 analyze_image
             return None
 
-        if not text or not text.strip():
-            # 无法提取文字，回退到 LLM → analyze_image
-            return None
+        # 快速查重：计算 hash + DB 查询（复用 ContractAnalyzer 的 hash 算法）
+        try:
+            from app.utils.file_utils import calculate_file_hash
+            with open(file_path, "rb") as f:
+                file_hash = calculate_file_hash(f.read())
+            from app.models.contract import Contract
+            existing = self.db.query(Contract).filter(
+                Contract.file_hash == file_hash,
+                Contract.is_deleted == False,
+            ).first()
+            if existing:
+                return (
+                    f"[系统预分析结果 - 文件重复]\n"
+                    f"该文件已在系统中存在对应的合同记录。\n"
+                    f"合同编号：{existing.contract_number}，客户：{existing.title or '未知'}，"
+                    f"状态：{existing.status}。"
+                )
+        except Exception:
+            logger.debug("查重跳过: file_id=%s", file_id)
 
-        # 直接传提取的文字给 LLM，跳过 _call_text_model API 调用（48s → <1s）
+        # 设置文档上下文 + 缓存原文到 Redis
+        # create_contract 可从缓存拿到 raw_text 作为 full_text
+        self.executor._document_context = "contract"
+        self.executor._cache_analysis(file_id, "contract", {
+            "raw_text": text,
+            "file_type": file_type_label,
+        })
+
+        # 截断原文给 LLM，完整原文通过缓存供 create_contract 使用
+        context_str = text[:3000]
+        if len(text) > 3000:
+            context_str += f"\n\n...（共 {len(text)} 字符，已截断）"
+
         return (
-            f"[系统已自动提取文件内容，请直接分析以下文本，无需再调用 analyze_image 工具]\n"
+            f"[系统已自动提取文件内容，请勿再调用 analyze_image 工具]\n"
             f"文件类型：{file_type_label}\n"
-            f"提取的文字内容（共 {len(text)} 字符）：\n\n{text[:50000]}"
+            f"file_id：{file_id}\n"
+            f"提取内容：\n{context_str}\n\n"
+            f"请直接基于以上内容向用户展示关键信息，询问是否需要创建合同。"
         )
 
     @staticmethod
@@ -794,7 +830,7 @@ class ContractAgent:
             role=role,
             tool_calls=tool_calls,
             extra_metadata=metadata or {},
-            llm_model=settings.DEEPSEEK_AGENT_MODEL,
+            llm_model=settings.DASHSCOPE_AGENT_MODEL,
             tokens_used=tokens_used or None,
         )
         self.db.add(record)
@@ -816,7 +852,7 @@ class ContractAgent:
             role="tool",
             intent_type=tool_name,
             extra_metadata={"tool_call_id": tool_call_id},
-            llm_model=settings.DEEPSEEK_AGENT_MODEL,
+            llm_model=settings.DASHSCOPE_AGENT_MODEL,
         )
         self.db.add(record)
         self.db.commit()
