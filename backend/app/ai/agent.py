@@ -318,14 +318,109 @@ class ContractAgent:
         }
 
     async def _process_attachments(self, attachments: List[dict]) -> str:
-        """处理附件：只返回文件标识信息，不预分析。
-        LLM 会根据 system prompt 指引自已调用 analyze_image 工具，
-        选择正确的 analysis_type（contract/receipt/general）。"""
+        """处理附件：对文本型 PDF 直接预分析（跳过 LLM 决策层），其余返回文件标识交给 LLM 调 analyze_image。"""
         results = []
         for att in attachments:
             file_id = att.get("file_id", "")
-            results.append(f"用户上传了文件（file_id: {file_id}）")
+            file_type = att.get("file_type", "")
+
+            # 尝试预分析：文本型 PDF / Word / Excel 可直接用文本模型，不需要 LLM 中转
+            pre_analyzed = await self._try_pre_analyze(file_id, file_type)
+            if pre_analyzed:
+                results.append(pre_analyzed)
+            else:
+                results.append(f"用户上传了文件（file_id: {file_id}）")
+
         return "\n".join(results)
+
+    async def _try_pre_analyze(self, file_id: str, file_type: str) -> Optional[str]:
+        """尝试对文件做预分析。文本型 PDF / Word / Excel 直接用文本模型解析，
+        扫描件 PDF 和图片返回 None 交给 LLM 调 analyze_image → VL 模型。"""
+        if not file_id:
+            return None
+
+        # 解析文件路径（与 ContractAnalyzer.resolve_file_path 一致）
+        candidates = [
+            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id),
+            os.path.join(settings.TEMP_UPLOAD_DIR, file_id),
+        ]
+        file_path = next((p for p in candidates if os.path.exists(p)), None)
+        if not file_path:
+            return None
+
+        # 判断是否为文本型文件（可提取文字的）
+        try:
+            with open(file_path, "rb") as f:
+                header = f.read(12)
+        except OSError:
+            return None
+
+        is_text_pdf = False
+        is_text_doc = False
+
+        if header[:4] == b"%PDF":
+            # PDF：检测是否有可提取文字
+            try:
+                import fitz
+                doc = fitz.open(file_path)
+                try:
+                    text = ""
+                    for page in doc:
+                        t = page.get_text().strip()
+                        if t:
+                            text += t + "\n"
+                finally:
+                    doc.close()
+                if text.strip():
+                    is_text_pdf = True
+                else:
+                    # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
+                    return None
+            except Exception:
+                return None
+        elif file_path.endswith(".docx"):
+            is_text_doc = True
+        elif file_path.endswith(".xlsx"):
+            is_text_doc = True
+        else:
+            # 图片或其他格式，交给 LLM 调 analyze_image
+            return None
+
+        # 文本型文件：直接调用 ContractAnalyzer
+        try:
+            from app.services.contract_analyzer import ContractAnalyzer
+            result = await asyncio.to_thread(
+                ContractAnalyzer.analyze_file, file_path, self.db, self.user.id
+            )
+        except Exception as e:
+            logger.exception("预分析失败，回退到 LLM 决策: file_id=%s", file_id)
+            return None
+
+        if not result or not result.get("success"):
+            return None
+
+        if result.get("duplicate_detected"):
+            return (
+                f"[系统预分析结果 - 文件重复]\n"
+                f"该文件已在系统中存在对应的合同记录。\n"
+                f"{result.get('message', '')}"
+            )
+
+        # 缓存分析结果到 executor，后续 create_contract 可直接取用
+        structured = result.get("data", {})
+        self.executor._document_context = "contract"
+        self.executor._cache_analysis(file_id, "contract", structured)
+
+        # 构建给 LLM 的上下文：让 LLM 直接基于分析结果回复用户
+        summary = self.executor._summarize_analysis_for_context(structured)
+        context_str = json.dumps(summary, ensure_ascii=False, indent=2)
+
+        return (
+            f"[系统已自动完成文件分析，请勿再调用 analyze_image 工具]\n"
+            f"文件类型：{result.get('file_type', 'unknown')}\n"
+            f"分析结果：\n{context_str}\n\n"
+            f"请直接基于以上分析结果向用户展示关键信息，询问是否需要创建合同。"
+        )
 
     @staticmethod
     def _is_confirmation(user_message: str) -> bool:
