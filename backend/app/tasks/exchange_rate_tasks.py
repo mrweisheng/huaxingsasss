@@ -2,7 +2,7 @@
 汇率自动同步定时任务
 
 每天北京时间 00:30 自动同步最新汇率到数据库。
-数据来源：frankfurter.dev（ECB 参考汇率） + open.er-api.com（备用）
+数据来源：frankfurter.dev（ECB 参考汇率） + @fawazahmed0/currency-api（备用）
 """
 import logging
 from datetime import date

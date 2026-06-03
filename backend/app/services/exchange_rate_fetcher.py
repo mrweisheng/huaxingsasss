@@ -49,7 +49,7 @@ def fetch_exchange_rates() -> Dict[str, Optional[float]]:
 
     执行顺序：
     1. 优先从 frankfurter.dev 获取
-    2. 失败则从 open.er-api.com 获取
+    2. 失败则从 @fawazahmed0/currency-api 获取
     3. 都失败返回空结果
 
     Returns:
@@ -198,24 +198,18 @@ def _fetch_currency_api(
 
     result = {"source": "currency-api", "date": date_or_latest}
 
-    # 先获取 HKD 汇率表（含 HKD/CNY 和 HKD/USD）
-    url = f"{CURRENCY_API_BASE}@{version}/v1/currencies/hkd.json"
-    with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
+    # 按需获取汇率表，避免不必要的 HTTP 请求
+    if "HKD" in currencies:
+        url = f"{CURRENCY_API_BASE}@{version}/v1/currencies/hkd.json"
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            resp = client.get(url)
+            resp.raise_for_status()
 
-    data = resp.json()
-    hkd_rates = data.get("hkd", {})
-    actual_date = data.get("date", date_or_latest)
-    result["date"] = actual_date
+        data = resp.json()
+        result["date"] = data.get("date", date_or_latest)
+        hkd_cny = data.get("hkd", {}).get("cny")
+        result["hkdcny"] = round(hkd_cny, 6) if hkd_cny and hkd_cny > 0 else None
 
-    hkd_cny = hkd_rates.get("cny")
-    if hkd_cny and hkd_cny > 0:
-        result["hkdcny"] = round(hkd_cny, 6)
-    else:
-        result["hkdcny"] = None
-
-    # USD/CNY：需要查 USD 汇率表
     if "USD" in currencies:
         usd_url = f"{CURRENCY_API_BASE}@{version}/v1/currencies/usd.json"
         with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
@@ -223,12 +217,9 @@ def _fetch_currency_api(
             usd_resp.raise_for_status()
 
         usd_data = usd_resp.json()
-        usd_rates = usd_data.get("usd", {})
-        usd_cny = usd_rates.get("cny")
-        if usd_cny and usd_cny > 0:
-            result["usdcny"] = round(usd_cny, 6)
-        else:
-            result["usdcny"] = None
+        result["date"] = usd_data.get("date", date_or_latest)
+        usd_cny = usd_data.get("usd", {}).get("cny")
+        result["usdcny"] = round(usd_cny, 6) if usd_cny and usd_cny > 0 else None
 
     return result
 
