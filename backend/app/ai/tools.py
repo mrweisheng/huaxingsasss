@@ -2031,17 +2031,12 @@ class ToolExecutor:
             self._document_context = analysis_type
             # 缓存 VL 完整输出，后续 create_contract 等工具可直接取用
             self._cache_analysis(file_id, analysis_type, structured)
-            # 将文件从 temp 复制到凭证永久目录
-            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
-            receipt_path = permanent_path or f"agent_upload/{file_id}"
-            if not permanent_path:
-                logger.warning("analyze_image: 凭证文件持久化失败 file_id=%s", file_id)
-            self._pending_receipt_path = receipt_path
+            # 合同文件不复制到凭证目录 —— create_contract 会从 temp 复制到合同目录
             return json.dumps({
                 "success": True,
                 "data": self._summarize_analysis_for_context(structured),
                 "file_id": file_id,
-                "file_path": receipt_path,
+                "file_path": f"agent_upload/{file_id}",
                 "file_type": result.get("file_type", "unknown"),
                 "analysis_type": analysis_type,
             }, ensure_ascii=False)
