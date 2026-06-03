@@ -32,6 +32,30 @@ from app.models.user import User
 
 logger = logging.getLogger(__name__)
 
+# 工具名称 → 中文友好描述（用于前端 thinking 提示）
+_TOOL_FRIENDLY_NAMES = {
+    "get_overview": "查询全局统计",
+    "search_customers": "搜索客户",
+    "create_customer": "创建客户",
+    "update_customer": "更新客户信息",
+    "search_contracts": "搜索合同",
+    "get_contract_detail": "获取合同详情",
+    "get_customer_contracts": "查询客户合同",
+    "create_contract": "创建合同",
+    "update_contract": "更新合同信息",
+    "query_payments": "查询付款记录",
+    "create_payment": "创建收入记录",
+    "create_expense": "创建支出记录",
+    "update_payment": "更新付款记录",
+    "match_receipt": "匹配凭证",
+    "get_expense_summary": "汇总支出",
+    "get_payment_summary": "汇总付款",
+    "get_expiring_contracts": "查询即将到期合同",
+    "search_contract_text": "搜索合同全文",
+    "ask_contract": "查阅合同内容",
+    "analyze_image": "分析文件",
+}
+
 # 用户确认意图匹配模式（re.IGNORECASE 已覆盖大小写变体，无需重复 OK/Ok/ok）
 _CONFIRM_PATTERN = re.compile(
     r'^(好的|确认|没问题|可以|执行|对|是的|ok|yes|好|行|就这样|确认执行|'
@@ -234,6 +258,10 @@ class ContractAgent:
                 self._user_msg_persisted = True
 
             for tc in tool_calls:
+                # 工具执行前通知前端
+                _friendly = _TOOL_FRIENDLY_NAMES.get(tc["name"], tc["name"])
+                yield {"event": "thinking", "data": {"message": f"正在{_friendly}..."}}
+
                 yield {
                     "event": "tool_call",
                     "data": {
@@ -276,6 +304,7 @@ class ContractAgent:
                 self.save_tool_message(session_id, tc["id"], tc["name"], result)
 
             # 继续循环，让 LLM 根据工具结果生成回复
+            yield {"event": "thinking", "data": {"message": "正在整合结果..."}}
 
         # 超过最大迭代次数
         full_text += "\n\n[系统提示：对话轮次已达上限，如果问题尚未解决，请继续提问。]"
