@@ -307,7 +307,7 @@ export default function ContractList() {
 
       <ContractUploadWizard
         open={uploadModalOpen}
-        onClose={() => { setUploadModalOpen(false); loadContracts() }}
+        onClose={(created) => { setUploadModalOpen(false); if (created) loadContracts() }}
       />
     </div>
   )

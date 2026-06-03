@@ -179,6 +179,70 @@ def _extract_pdf_text(file_path: str) -> str:
         doc.close()
 
 
+def _extract_word_text(file_path: str) -> str:
+    """提取 Word (.docx) 文档文本"""
+    try:
+        from docx import Document
+        doc = Document(file_path)
+        paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
+        if paragraphs:
+            return "\n".join(paragraphs)[:10000]
+    except ImportError:
+        pass
+    return ""
+
+
+def _extract_excel_text(file_path: str) -> str:
+    """提取 Excel (.xlsx) 表格数据"""
+    try:
+        import openpyxl
+        wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
+        rows = []
+        for sheet_name in wb.sheetnames:
+            ws = wb[sheet_name]
+            rows.append(f"[工作表: {sheet_name}]")
+            count = 0
+            for row in ws.iter_rows():
+                vals = [str(c.value) if c.value is not None else "" for c in row]
+                line = "\t".join(vals)
+                if line.strip():
+                    rows.append(line)
+                    count += 1
+                if count >= 200:
+                    rows.append("... (仅前 200 行)")
+                    break
+        wb.close()
+        return "\n".join(rows)[:10000]
+    except ImportError:
+        return ""
+    except Exception:
+        return ""
+
+
+def _is_docx(content: bytes) -> bool:
+    """通过文件头检测 .docx（ZIP 签名 + 内部 [Content_Types].xml）"""
+    if content[:4] != b"PK\x03\x04":
+        return False
+    return b"[Content_Types]" in content[:2000]
+
+
+def _is_xlsx(content: bytes) -> bool:
+    """通过文件头检测 .xlsx（ZIP 签名 + 内部 xl/ 目录）"""
+    if content[:4] != b"PK\x03\x04":
+        return False
+    return b"xl/" in content[:2000]
+
+
+def _extract_plain_text(file_bytes: bytes) -> str:
+    """尝试多种编码提取纯文本内容"""
+    for encoding in ("utf-8", "gbk", "gb2312", "utf-16"):
+        try:
+            return file_bytes[:20000].decode(encoding)[:10000]
+        except (UnicodeDecodeError, UnicodeError):
+            continue
+    return ""
+
+
 # ─── 归一化 payment_terms ───
 
 def normalize_payment_terms(data: dict) -> None:
@@ -285,20 +349,22 @@ class ContractAnalyzer:
         file_path: str,
         db: Session,
         user_id: Optional[int] = None,
+        skip_duplicate_check: bool = False,
     ) -> dict:
         """
-        分析合同文件（图片/PDF），返回结构化分析结果。
+        分析合同文件（图片/PDF/Word/Excel），返回结构化分析结果。
 
         Args:
             file_path: 文件绝对路径
             db: 数据库 session（用于重复检测）
             user_id: 用户 ID（仅用于日志）
+            skip_duplicate_check: 跳过重复检测（用户确认"仍然创建"时传 True）
 
         Returns:
             dict: {
                 "success": bool,
                 "data": {...},           # 结构化分析结果
-                "file_type": str,        # "image" | "pdf"
+                "file_type": str,        # "image" | "pdf" | "word" | "excel"
                 "file_hash": str,        # 文件哈希
                 "duplicate_detected": bool,
                 "existing_contract": {...} | None,
@@ -312,29 +378,30 @@ class ContractAnalyzer:
 
         file_hash = calculate_file_hash(file_bytes)
 
-        # 重复检测
-        existing_contract = db.query(Contract).filter(
-            Contract.file_hash == file_hash,
-            Contract.is_deleted == False,
-        ).first()
-        if existing_contract:
-            return {
-                "success": True,
-                "duplicate_detected": True,
-                "data": None,
-                "file_hash": file_hash,
-                "file_type": None,
-                "message": "该文件已在系统中存在对应的合同记录",
-                "existing_contract": {
-                    "id": existing_contract.id,
-                    "contract_number": existing_contract.contract_number,
-                    "title": existing_contract.title,
-                    "status": existing_contract.status,
-                    "total_amount": float(existing_contract.total_amount) if existing_contract.total_amount else 0,
-                    "currency": existing_contract.currency,
-                    "customer_name": existing_contract.customer.name if existing_contract.customer else None,
-                },
-            }
+        # 重复检测（可跳过）
+        if not skip_duplicate_check:
+            existing_contract = db.query(Contract).filter(
+                Contract.file_hash == file_hash,
+                Contract.is_deleted == False,
+            ).first()
+            if existing_contract:
+                return {
+                    "success": True,
+                    "duplicate_detected": True,
+                    "data": None,
+                    "file_hash": file_hash,
+                    "file_type": None,
+                    "message": "该文件已在系统中存在对应的合同记录",
+                    "existing_contract": {
+                        "id": existing_contract.id,
+                        "contract_number": existing_contract.contract_number,
+                        "title": existing_contract.title,
+                        "status": existing_contract.status,
+                        "total_amount": float(existing_contract.total_amount) if existing_contract.total_amount else 0,
+                        "currency": existing_contract.currency,
+                        "customer_name": existing_contract.customer.name if existing_contract.customer else None,
+                    },
+                }
 
         # 判断文件类型并分析
         mime = _detect_image_mime(header)
@@ -357,15 +424,34 @@ class ContractAnalyzer:
                 structured = _call_vl_model(img_bytes, "image/png", CONTRACT_ANALYSIS_PROMPT)
             file_type = "pdf"
         else:
-            return {
-                "success": False,
-                "error": "不支持的文件格式，仅支持图片（JPEG/PNG）和 PDF",
-                "file_hash": file_hash,
-                "file_type": None,
-                "data": None,
-                "duplicate_detected": False,
-                "existing_contract": None,
-            }
+            # 尝试 Word / Excel
+            text_content = ""
+            # 根据文件扩展名判断（agent/upload 不保留扩展名，所以也尝试内容检测）
+            file_name = os.path.basename(file_path)
+            if file_name.endswith(".docx") or _is_docx(file_bytes):
+                text_content = _extract_word_text(file_path)
+                file_type = "word"
+            elif file_name.endswith(".xlsx") or _is_xlsx(file_bytes):
+                text_content = _extract_excel_text(file_path)
+                file_type = "excel"
+            else:
+                # 最后尝试纯文本编码检测
+                text_content = _extract_plain_text(file_bytes)
+                file_type = "text"
+
+            if not text_content.strip():
+                return {
+                    "success": False,
+                    "error": "无法提取文件内容，仅支持图片（JPEG/PNG）、PDF、Word（.docx）、Excel（.xlsx）格式",
+                    "file_hash": file_hash,
+                    "file_type": None,
+                    "data": None,
+                    "duplicate_detected": False,
+                    "existing_contract": None,
+                }
+
+            # 文本内容 → DeepSeek 文本模型
+            structured = _call_text_model(text_content, CONTRACT_ANALYSIS_PROMPT)
 
         # 归一化 payment_terms
         normalize_payment_terms(structured)

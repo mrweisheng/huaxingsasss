@@ -101,6 +101,7 @@ class AnalyzeFileRequest(BaseModel):
     """合同文件分析请求"""
     file_id: str = Field(..., description="已上传文件的 ID（由 /agent/upload 返回）")
     file_name: Optional[str] = Field(None, description="原始文件名（用于推断扩展名）")
+    skip_duplicate_check: bool = Field(default=False, description="跳过重复检测（用户确认仍然创建时传 True）")
 
 
 class PaymentTermItem(BaseModel):

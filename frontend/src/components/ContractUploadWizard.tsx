@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import {
   Modal, Steps, Button, Upload, Input, Select, InputNumber,
-  DatePicker, Form, Spin, Alert, Tag, Divider, Space, message, Card,
+  DatePicker, Form, Spin, Alert, Tag, Divider, Space, message, Card, Radio,
 } from 'antd'
 import {
   InboxOutlined, ArrowLeftOutlined,
@@ -19,7 +19,7 @@ const { TextArea } = Input
 
 interface Props {
   open: boolean
-  onClose: () => void
+  onClose: (created: boolean) => void
 }
 
 /** 向导步骤索引 */
@@ -52,12 +52,13 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
   // Step 2: 分析结果
   const [analysisResult, setAnalysisResult] = useState<any>(null)
   const [duplicateInfo, setDuplicateInfo] = useState<any>(null)
-
   // Step 3: 客户
   const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null)
   const [customers, setCustomers] = useState<Customer[]>([])
   const [searchingCustomers, setSearchingCustomers] = useState(false)
   const [showNewCustomerForm, setShowNewCustomerForm] = useState(false)
+  /** 用户选择哪方是客户: 'party_a' | 'party_b' */
+  const [selectedParty, setSelectedParty] = useState<'party_a' | 'party_b'>('party_b')
   const [newCustomerForm] = Form.useForm()
 
   // Step 4: 确认数据
@@ -75,11 +76,13 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
     setCustomers([])
     setSearchingCustomers(false)
     setShowNewCustomerForm(false)
+    setSelectedParty('party_b')
     newCustomerForm.resetFields()
     confirmForm.resetFields()
   }, [newCustomerForm, confirmForm])
 
-  const handleClose = () => { reset(); onClose() }
+  const handleClose = () => { reset(); onClose(false) }
+  const handleCreated = () => { reset(); onClose(true) }
 
   // ─── Step 1: 上传文件 ───
   const handleUpload = async (file: File) => {
@@ -97,13 +100,13 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
     return false // 阻止 antd 自动上传
   }
 
-  // ─── Step 2: AI 分析（进入时自动触发） ───
-  const runAnalysis = useCallback(async () => {
+  // ─── Step 2: AI 分析 ───
+  const runAnalysis = useCallback(async (skipDuplicate = false) => {
     if (!fileId) return
     setLoading(true)
     setDuplicateInfo(null)
     try {
-      const res = await contractApi.analyzeFile(fileId, uploadedFile?.name)
+      const res = await contractApi.analyzeFile(fileId, uploadedFile?.name, skipDuplicate)
       const data = res.data
       if (data.duplicate_detected) {
         setDuplicateInfo(data.existing_contract)
@@ -112,25 +115,55 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
       }
       setAnalysisResult(data)
       setLoading(false)
-      // 自动搜索客户
-      await searchCustomers(data.data)
-      setCurrent(STEP_CUSTOMER)
+      // 不自动跳转——让用户查看分析结果后手动点"下一步"
     } catch (err: any) {
       message.error(err?.response?.data?.detail || 'AI 分析失败')
       setLoading(false)
     }
   }, [fileId, uploadedFile])
 
+  /** 从 Step 2 进入 Step 3：搜索客户 */
+  const goFromAnalysisToCustomer = async () => {
+    await searchCustomers(analysisResult?.data)
+    // 预填新建客户表单
+    const party = analysisResult?.data?.party_b || {}
+    newCustomerForm.setFieldsValue({
+      name: party.name || '',
+      phone: party.phone || '',
+      id_card_number: party.id_number || '',
+    })
+    setCurrent(STEP_CUSTOMER)
+  }
+
   // ─── Step 3: 搜索/创建客户 ───
   const searchCustomers = async (analysisData?: any) => {
     setSearchingCustomers(true)
     try {
-      // 从分析结果中提取候选名字
-      const names: string[] = []
-      if (analysisData?.party_b?.name) names.push(analysisData.party_b.name)
-      if (analysisData?.party_a?.name) names.push(analysisData.party_a.name)
-      const keyword = names[0] || ''
-      const res = await customerApi.getList({ keyword, per_page: 20 })
+      // 用选中方的名字搜索
+      const name = analysisData?.[selectedParty]?.name || ''
+      const res = await customerApi.getList({ keyword: name, per_page: 20 })
+      setCustomers(res.items || [])
+    } catch {
+      setCustomers([])
+    } finally {
+      setSearchingCustomers(false)
+    }
+  }
+
+  /** 切换甲方/乙方时更新搜索和预填 */
+  const handlePartyChange = async (party: 'party_a' | 'party_b') => {
+    setSelectedParty(party)
+    const info = analysisResult?.data?.[party] || {}
+    // 更新预填
+    newCustomerForm.setFieldsValue({
+      name: info.name || '',
+      phone: info.phone || '',
+      id_card_number: info.id_number || '',
+    })
+    // 重新搜索
+    setSearchingCustomers(true)
+    try {
+      const res = await customerApi.getList({ keyword: info.name || '', per_page: 20 })
       setCustomers(res.items || [])
     } catch {
       setCustomers([])
@@ -219,7 +252,7 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
 
       await contractApi.createFromAnalysis(payload)
       message.success('合同创建成功')
-      handleClose()
+      handleCreated()
     } catch (err: any) {
       if (err?.errorFields) return // 表单验证错误
       message.error(err?.response?.data?.detail || '创建合同失败')
@@ -230,11 +263,7 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
 
   // ─── Step 导航逻辑 ───
   const goNext = () => {
-    if (current === STEP_UPLOAD) {
-      // 上传步骤由 handleUpload 处理跳转
-    } else if (current === STEP_ANALYSIS) {
-      runAnalysis()
-    } else if (current === STEP_CUSTOMER) {
+    if (current === STEP_CUSTOMER) {
       if (!selectedCustomerId) {
         message.warning('请选择或创建客户')
         return
@@ -246,13 +275,6 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
 
   const goPrev = () => {
     if (current > STEP_UPLOAD) setCurrent(current - 1)
-  }
-
-  const canGoNext = () => {
-    if (current === STEP_UPLOAD) return !!fileId
-    if (current === STEP_ANALYSIS) return true
-    if (current === STEP_CUSTOMER) return !!selectedCustomerId
-    return false
   }
 
   const confidenceValue = analysisResult?.data?.confidence
@@ -331,17 +353,47 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
                   danger
                   onClick={() => {
                     setDuplicateInfo(null)
-                    // 强制继续：重新分析（重复检测在 analyze_file 中已完成，
-                    // 但这里让用户可以忽略重复警告继续）
-                    runAnalysis()
+                    // 传 skip_duplicate_check=true 绕过重复检测
+                    runAnalysis(true)
                   }}
                 >
                   仍然创建
                 </Button>
               </Space>
             </div>
+          ) : analysisResult ? (
+            /* 分析完成——展示摘要，让用户确认后进入下一步 */
+            <div style={{ textAlign: 'left' }}>
+              <Card size="small" style={{ marginBottom: 16, background: '#f6ffed' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <FileTextOutlined />
+                  <strong>AI 分析完成</strong>
+                  <Tag color={confidenceColor}>置信度: {confidenceLabel}</Tag>
+                </div>
+                {confidenceValue != null && confidenceValue < 0.85 && (
+                  <Alert type="warning" message="AI 置信度较低，后续步骤中请仔细核对数据" showIcon style={{ marginBottom: 8 }} />
+                )}
+                <div style={{ fontSize: 13, color: '#555' }}>
+                  {analysisResult.data?.title && <p>标题：{analysisResult.data.title}</p>}
+                  {analysisResult.data?.business_type && <p>业务类型：{analysisResult.data.business_type}</p>}
+                  {analysisResult.data?.total_amount != null && (
+                    <p>总金额：{analysisResult.data.currency || 'CNY'} {analysisResult.data.total_amount}</p>
+                  )}
+                  {analysisResult.data?.party_b?.name && <p>乙方：{analysisResult.data.party_b.name}</p>}
+                  {analysisResult.data?.party_a?.name && <p>甲方：{analysisResult.data.party_a.name}</p>}
+                  {analysisResult.data?.payment_terms?.length > 0 && (
+                    <p>付款条款：{analysisResult.data.payment_terms.length} 条</p>
+                  )}
+                </div>
+              </Card>
+              <div style={{ textAlign: 'center' }}>
+                <Button type="primary" onClick={goFromAnalysisToCustomer} icon={<ArrowRightOutlined />}>
+                  下一步：关联客户
+                </Button>
+              </div>
+            </div>
           ) : (
-            <Button type="primary" onClick={runAnalysis}>
+            <Button type="primary" onClick={() => runAnalysis(false)}>
               开始 AI 分析
             </Button>
           )}
@@ -354,18 +406,33 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
           <div style={{ marginBottom: 16 }}>
             <h4 style={{ marginBottom: 8 }}>
               <UserOutlined style={{ marginRight: 4 }} />
-              AI 识别到的客户信息
+              选择哪一方是客户
             </h4>
             <Card size="small" style={{ background: '#fafafa' }}>
-              {analysisResult?.data?.party_b ? (
-                <div>
-                  <p><strong>乙方（客户）：</strong>{analysisResult.data.party_b.name || '未识别'}</p>
-                  {analysisResult.data.party_b.phone && <p><strong>电话：</strong>{analysisResult.data.party_b.phone}</p>}
-                  {analysisResult.data.party_b.id_number && <p><strong>证件号：</strong>{analysisResult.data.party_b.id_number}</p>}
-                </div>
-              ) : (
-                <p style={{ color: '#999' }}>未识别到客户信息</p>
-              )}
+              <Radio.Group
+                value={selectedParty}
+                onChange={e => handlePartyChange(e.target.value)}
+                style={{ width: '100%' }}
+              >
+                <Space direction="vertical" style={{ width: '100%' }}>
+                  {analysisResult?.data?.party_b && (
+                    <Radio value="party_b" style={{ width: '100%' }}>
+                      <strong>乙方：</strong>{analysisResult.data.party_b.name || '未识别'}
+                      {analysisResult.data.party_b.phone && ` | 电话: ${analysisResult.data.party_b.phone}`}
+                      {analysisResult.data.party_b.id_number && ` | 证件: ${analysisResult.data.party_b.id_number}`}
+                    </Radio>
+                  )}
+                  {analysisResult?.data?.party_a && (
+                    <Radio value="party_a" style={{ width: '100%' }}>
+                      <strong>甲方：</strong>{analysisResult.data.party_a.name || '未识别'}
+                      {analysisResult.data.party_a.contact && ` | 联系: ${analysisResult.data.party_a.contact}`}
+                    </Radio>
+                  )}
+                  {!(analysisResult?.data?.party_b || analysisResult?.data?.party_a) && (
+                    <p style={{ color: '#999' }}>未识别到甲乙方信息，请手动创建客户</p>
+                  )}
+                </Space>
+              </Radio.Group>
             </Card>
           </div>
 
@@ -418,11 +485,6 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
                 form={newCustomerForm}
                 layout="vertical"
                 size="small"
-                initialValues={{
-                  name: analysisResult?.data?.party_b?.name || '',
-                  phone: analysisResult?.data?.party_b?.phone || '',
-                  id_card_number: analysisResult?.data?.party_b?.id_number || '',
-                }}
               >
                 <Form.Item name="name" label="客户名称" rules={[{ required: true, message: '请输入客户名称' }]}>
                   <Input placeholder="输入客户名称" />
@@ -565,8 +627,9 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
           {current === STEP_UPLOAD ? '取消' : '上一步'}
         </Button>
         <div style={{ display: 'flex', gap: 8 }}>
-          {current < STEP_CONFIRM && current !== STEP_ANALYSIS && (
-            <Button type="primary" onClick={goNext} disabled={!canGoNext()} loading={loading} icon={<ArrowRightOutlined />}>
+          {/* Step 3 和 Step 4 显示"下一步"/"确认创建"按钮 */}
+          {current === STEP_CUSTOMER && (
+            <Button type="primary" onClick={goNext} disabled={!selectedCustomerId} loading={loading} icon={<ArrowRightOutlined />}>
               下一步
             </Button>
           )}

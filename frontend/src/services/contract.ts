@@ -27,8 +27,12 @@ export const contractApi = {
   },
 
   /** 分析已上传的合同文件（同步） */
-  analyzeFile: (fileId: string, fileName?: string): Promise<any> =>
-    api.post('/contracts/analyze-file', { file_id: fileId, file_name: fileName }),
+  analyzeFile: (fileId: string, fileName?: string, skipDuplicate?: boolean): Promise<any> =>
+    api.post('/contracts/analyze-file', {
+      file_id: fileId,
+      file_name: fileName,
+      skip_duplicate_check: skipDuplicate || false,
+    }),
 
   /** 从 AI 分析结果创建合同 */
   createFromAnalysis: (data: any): Promise<any> =>

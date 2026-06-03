@@ -1,6 +1,7 @@
 """
 合同管理API路由
 """
+import logging
 from typing import Optional, List
 from decimal import Decimal
 from pathlib import Path
@@ -8,6 +9,8 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 from datetime import date
+
+logger = logging.getLogger(__name__)
 
 from app.db.session import get_db
 from app.models.contract import Contract
@@ -93,10 +96,12 @@ def analyze_file(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="文件不存在，请重新上传")
 
     try:
-        result = ContractAnalyzer.analyze_file(file_path, db, current_user.id)
+        result = ContractAnalyzer.analyze_file(
+            file_path, db, current_user.id,
+            skip_duplicate_check=req.skip_duplicate_check,
+        )
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("合同文件分析失败")
+        logger.exception("合同文件分析失败")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"分析失败: {str(e)}")
 
     return ResponseModel(code=200, data=result)
@@ -131,15 +136,16 @@ def create_from_analysis(
         with open(temp_path, "rb") as f:
             file_hash = calculate_file_hash(f.read())
 
-        # 基于文件 hash 重复检测
+        # 基于文件 hash 重复检测（soft warning：已在 analyze-file 阶段提醒用户，
+        # 用户确认"仍然创建"后此处仅记录日志，不阻断）
         existing = db.query(Contract).filter(
             Contract.file_hash == file_hash,
             Contract.is_deleted == False,
         ).first()
         if existing:
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=f"该文件已创建过合同（编号: {existing.contract_number}, ID: {existing.id}）",
+            logger.warning(
+                "重复文件创建: user=%d, file_hash=%s, existing_contract=%d/%s",
+                current_user.id, file_hash[:8], existing.id, existing.contract_number,
             )
 
         contract_number = ContractService.generate_contract_number()
@@ -220,8 +226,7 @@ def create_from_analysis(
     except ValueError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).exception("从分析结果创建合同失败")
+        logger.exception("从分析结果创建合同失败")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"创建合同失败: {str(e)}")
 
 
