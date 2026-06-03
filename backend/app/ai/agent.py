@@ -444,8 +444,8 @@ class ContractAgent:
                 "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
                 "Content-Type": "application/json",
             }
-            with httpx.Client(timeout=120.0) as client:
-                response = client.post(
+            async with httpx.AsyncClient(timeout=120.0) as client:
+                response = await client.post(
                     f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
                     json=payload, headers=headers,
                 )
