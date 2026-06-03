@@ -142,24 +142,24 @@ def _call_vl_model(file_bytes: bytes, mime: str, prompt: str) -> dict:
 
 
 def _call_text_model(text: str, prompt: str) -> dict:
-    """调用 DeepSeek 文本模型（硅基流动）分析文本，返回结构化 JSON dict。"""
+    """调用 DashScope 文本模型分析文本，返回结构化 JSON dict。"""
     payload = {
-        "model": settings.DEEPSEEK_AGENT_MODEL,
+        "model": settings.DASHSCOPE_TEXT_MODEL,
         "messages": [{"role": "user", "content": f"{prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{text[:8000]}"}],
         "temperature": 0.1,
         "max_tokens": 4096,
     }
     headers = {
-        "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
+        "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
         "Content-Type": "application/json",
     }
     with httpx.Client(timeout=120.0) as client:
         response = client.post(
-            f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
+            f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
             json=payload, headers=headers,
         )
     if response.status_code != 200:
-        raise RuntimeError(f"DeepSeek API 错误: {response.text}")
+        raise RuntimeError(f"DashScope API 错误: {response.text}")
 
     content = response.json()["choices"][0]["message"]["content"]
     try:
@@ -468,7 +468,7 @@ class ContractAnalyzer:
                     "existing_contract": None,
                 }
 
-            # 文本内容 → DeepSeek 文本模型
+            # 文本内容 → 百炼 DashScope 文本模型（qwen-plus）
             structured = _call_text_model(text_content, CONTRACT_ANALYSIS_PROMPT)
 
         # 归一化 payment_terms

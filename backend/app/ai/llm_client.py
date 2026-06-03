@@ -1,5 +1,5 @@
 """
-LLM客户端 - SiliconFlow Qwen-VL + DeepSeek Agent
+LLM客户端 - 阿里云百炼 DashScope（qwen3-vl-flash 视觉模型 + deepseek-v4-flash Agent 推理）
 """
 import asyncio
 import base64
@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 class SiliconFlowClient:
-    """VL 视觉模型客户端（阿里云百炼 qwen3-vl-flash）"""
+    """VL 视觉模型客户端（阿里云百炼 qwen3-vl-flash，兼容模式 API）"""
 
     def __init__(self):
         self.api_key = settings.DASHSCOPE_API_KEY
@@ -188,15 +188,19 @@ class SiliconFlowClient:
         return min(base_confidence, 1.0)
 
 
-class DeepSeekClient:
-    """硅基流动平台 DeepSeek API客户端，支持流式输出、函数调用和指数退避重试"""
+class DashScopeAgentClient:
+    """阿里云百炼 DashScope Agent 推理客户端（deepseek-v4-flash）
+    
+    通过兼容模式 API 调用，支持流式输出、函数调用和指数退避重试。
+    复用 DASHSCOPE_API_KEY（与 qwen3-vl-flash 共用）。
+    """
 
     def __init__(self):
-        self.api_key = settings.SILICONFLOW_API_KEY
-        self.base_url = settings.DEEPSEEK_BASE_URL
-        self.model = settings.DEEPSEEK_AGENT_MODEL
-        self.max_retries = getattr(settings, 'DEEPSEEK_MAX_RETRIES', 3)
-        self.retry_base_delay = getattr(settings, 'DEEPSEEK_RETRY_BASE_DELAY', 1.0)
+        self.api_key = settings.DASHSCOPE_API_KEY
+        self.base_url = settings.DASHSCOPE_BASE_URL
+        self.model = settings.DASHSCOPE_AGENT_MODEL
+        self.max_retries = getattr(settings, 'AGENT_MAX_RETRIES', 3)
+        self.retry_base_delay = getattr(settings, 'AGENT_RETRY_BASE_DELAY', 1.0)
 
     async def chat_completion_stream(
         self,
@@ -206,7 +210,7 @@ class DeepSeekClient:
         max_tokens: int = 4096,
     ) -> AsyncGenerator[dict, None]:
         """
-        流式调用 DeepSeek API，支持函数调用和指数退避重试。
+        流式调用 DashScope Agent 模型（兼容模式），支持函数调用和指数退避重试。
         逐个 yield 解析后的 SSE 事件。
 
         重试条件：429（限流）、5xx（服务端错误）、TimeoutException、ConnectError
@@ -233,11 +237,8 @@ class DeepSeekClient:
         }
 
         last_error = None
-        # AsyncClient 在重试循环外，复用连接池
         async with httpx.AsyncClient(timeout=120.0) as client:
             for attempt in range(self.max_retries):
-                # 追踪是否已向调用方 yield 过事件；
-                # 流传输一旦开始就不能重试，否则会产生重复输出
                 yielded_count = 0
                 try:
                     async with client.stream(
@@ -246,16 +247,14 @@ class DeepSeekClient:
                         json=payload,
                         headers=headers,
                     ) as response:
-                        # 可重试的服务端错误（尚未 yield 任何事件）
                         if response.status_code == 429:
-                            # retry-after 可能是秒数或 HTTP-date，安全解析
                             try:
                                 retry_after = float(response.headers.get("retry-after", ""))
                             except (ValueError, TypeError):
                                 retry_after = self.retry_base_delay * (2 ** attempt)
                             retry_after = max(retry_after, self.retry_base_delay)
                             logger.warning(
-                                "DeepSeek 限流 429，%.1fs 后重试 (attempt %d/%d)",
+                                "DashScope Agent 限流 429，%.1fs 后重试 (attempt %d/%d)",
                                 retry_after, attempt + 1, self.max_retries,
                             )
                             await response.aread()
@@ -265,18 +264,17 @@ class DeepSeekClient:
                         if response.status_code >= 500:
                             delay = self.retry_base_delay * (2 ** attempt)
                             logger.warning(
-                                "DeepSeek 服务端错误 %d，%.1fs 后重试 (attempt %d/%d)",
+                                "DashScope Agent 服务端错误 %d，%.1fs 后重试 (attempt %d/%d)",
                                 response.status_code, delay, attempt + 1, self.max_retries,
                             )
                             await response.aread()
                             await asyncio.sleep(delay)
                             continue
 
-                        # 客户端错误（4xx 除 429）不重试
                         if response.status_code >= 400:
                             error_body = await response.aread()
                             raise Exception(
-                                f"DeepSeek API error {response.status_code}: {error_body.decode()}"
+                                f"DashScope Agent API error {response.status_code}: {error_body.decode()}"
                             )
 
                         # 成功：处理 SSE 流
@@ -352,7 +350,7 @@ class DeepSeekClient:
                             if finish_reason == "length":
                                 if current_tool_calls:
                                     logger.warning(
-                                        "DeepSeek 流式返回 length 截断且含 tool_calls，"
+                                        "DashScope Agent 流式返回 length 截断且含 tool_calls，"
                                         "已强制 flush %d 个工具调用",
                                         len(current_tool_calls),
                                     )
@@ -380,29 +378,26 @@ class DeepSeekClient:
                                         }
                                 yield {"type": "done", "finish_reason": "stop"}
                                 return
-                        # 流正常结束（无 finish_reason）
                         return
 
                 except (httpx.TimeoutException, httpx.ConnectError) as e:
-                    # 流传输中途断开 → 不重试（已 yield 的内容无法撤回）
                     if yielded_count > 0:
                         logger.error(
-                            "DeepSeek 流传输中途断开（已 yield %d 个事件），放弃重试: %s",
+                            "DashScope Agent 流传输中途断开（已 yield %d 个事件），放弃重试: %s",
                             yielded_count, type(e).__name__,
                         )
                         raise
                     last_error = e
                     delay = self.retry_base_delay * (2 ** attempt)
                     logger.warning(
-                        "DeepSeek 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
+                        "DashScope Agent 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
                         type(e).__name__, delay, attempt + 1, self.max_retries,
                     )
                     await asyncio.sleep(delay)
                     continue
 
-        # 所有重试耗尽
         raise Exception(
-            f"DeepSeek API 在 {self.max_retries} 次重试后仍失败: {last_error}"
+            f"DashScope Agent API 在 {self.max_retries} 次重试后仍失败: {last_error}"
         )
 
     async def analyze_image_with_vl(
@@ -410,7 +405,7 @@ class DeepSeekClient:
         image_path: str,
         prompt: str,
     ) -> Dict[str, Any]:
-        """使用 SiliconFlow VL 模型分析图片（复用现有 SiliconFlow 配置）"""
+        """使用百炼 VL 模型分析图片（复用 SiliconFlowClient）"""
         sf_client = SiliconFlowClient()
 
         with open(image_path, "rb") as f:

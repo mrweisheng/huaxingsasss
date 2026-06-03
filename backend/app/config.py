@@ -64,15 +64,14 @@ class Settings(BaseSettings):
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"
+    DASHSCOPE_TEXT_MODEL: str = "qwen-plus"  # 文本模型，用于合同结构化提取
     
-    # DeepSeek配置（通过硅基流动平台调用，复用 SILICONFLOW_API_KEY）
-    DEEPSEEK_BASE_URL: str = "https://api.siliconflow.cn/v1"
-    DEEPSEEK_MODEL: str = "deepseek-ai/DeepSeek-V4-Flash"
-    DEEPSEEK_AGENT_MODEL: str = "deepseek-ai/DeepSeek-V4-Flash"
+    # Agent 推理模型配置（阿里云百炼 DeepSeek-V4-Flash，复用 DASHSCOPE_API_KEY）
+    DASHSCOPE_AGENT_MODEL: str = "deepseek-v4-flash"
 
-    # DeepSeek 重试配置
-    DEEPSEEK_MAX_RETRIES: int = 3
-    DEEPSEEK_RETRY_BASE_DELAY: float = 1.0
+    # Agent 重试配置
+    AGENT_MAX_RETRIES: int = 3
+    AGENT_RETRY_BASE_DELAY: float = 1.0
 
     # Agent配置
     AGENT_MAX_ITERATIONS: int = 8

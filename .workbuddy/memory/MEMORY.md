@@ -26,3 +26,15 @@ summary: "Project notes: architecture decisions, conventions, patterns"
 **Frontend**:
 - PaymentList: show "折算CNY" column only when amount_in_cny is not null
 - ContractDetail/CustomerDetail: CNY fields hidden when null
+
+## AI 服务架构 (2026-06-03)
+
+**Decision**: Agent 推理模型从硅基流动 DeepSeek 迁移到阿里云百炼 DashScope DeepSeek-V4-Flash。
+
+**Rationale**: 统一 API 平台，与 qwen3-vl-flash 共用 DASHSCOPE_API_KEY，减少 API key 管理。
+
+**Architecture**:
+- **Agent 流式推理**: 百炼兼容模式 API（`DASHSCOPE_BASE_URL/chat/completions`），`DashScopeAgentClient` 类，模型 `deepseek-v4-flash`
+- **PDF 文本解析**: 原生 `dashscope.Generation.call()` SDK，`enable_thinking=True`
+- **视觉分析**: 保持不变，继续使用兼容模式 `qwen3-vl-flash`
+- **配置文件**: `.env` 中 `DASHSCOPE_AGENT_MODEL=deepseek-v4-flash`，`config.py` 中对应 `AGENT_MAX_RETRIES=3`, `AGENT_RETRY_BASE_DELAY=1.0`

@@ -1603,10 +1603,8 @@ SILICONFLOW_VISION_MODEL=Qwen/Qwen3-VL-32B-Instruct
 # 文本模型（智能问答）
 SILICONFLOW_TEXT_MODEL=Qwen/Qwen3-VL-8B-Instruct
 
-# 可选：DeepSeek作为备用
-DEEPSEEK_API_KEY=sk-657924ca61a4439bb6ca4dfdcf293e33
-DEEPSEEK_BASE_URL=https://api.deepseek.com/v1
-DEEPSEEK_MODEL=deepseek-chat
+# 可选：百炼 DeepSeek-V4-Flash Agent 推理模型（复用 DASHSCOPE_API_KEY）
+DASHSCOPE_AGENT_MODEL=deepseek-v4-flash
 ```
 
 ### 5.2 LLM客户端封装

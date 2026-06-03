@@ -97,7 +97,7 @@ npm run build      # TypeScript 检查 + Vite 构建
   - `agent.py` — `ContractAgent` ReAct 循环引擎，SSE 流式输出，多轮对话管理。含历史消息摘要（`_summarize_history()`）和确认意图检测（`_is_confirmation()`）。
   - `tools.py` — `ToolExecutor` 工具执行器（20 个工具）+ `TOOL_DEFINITIONS`（OpenAI function calling 格式）。含文档上下文守卫（receipt/contract/general/group_chat 阻断不匹配的工具调用）和 VL 结果 Redis 缓存。
   - `prompts.py` — 系统提示词（含角色权限描述）、凭证/合同/群聊分析提示词模板。
-  - `llm_client.py` — `SiliconFlowClient`（VL 视觉模型，历史遗留包装）+ `DeepSeekClient`（Agent 推理模型，流式函数调用）。主用 DashScope qwen3-vl-flash 做视觉分析。
+  - `llm_client.py` — `SiliconFlowClient`（VL 视觉模型，历史遗留包装）+ `DashScopeAgentClient`（Agent 推理模型，流式函数调用）。主用 DashScope qwen3-vl-flash 做视觉分析，deepseek-v4-flash 做 Agent 推理。
 - **`core/`** — JWT 认证（`security.py`）、自定义异常（`exceptions.py`）、中间件（`middleware.py`）、日志（`logging.py`）、中文工具（`chinese.py`）、业务类型常量（`business_types.py`）。`main.py` 已注册全局异常 handler。
 - **`config.py`** — Pydantic Settings，从 `.env` 读取配置。`SECRET_KEY` 无默认值，必须配置。
 - **`utils/`** — 文件工具（`file_utils.py`）、API 限流器（`rate_limiter.py`）。
@@ -139,10 +139,10 @@ npm run build      # TypeScript 检查 + Vite 构建
 1. `POST /agent/sessions` → 创建会话，获取 session_id
 2. `POST /agent/upload` → 上传凭证/合同图片到临时目录，获取 file_id
 3. `POST /agent/chat` (SSE) → 流式对话，携带 session_id 和 attachments
-4. Agent 内部 ReAct 循环：DeepSeek 函数调用 → ToolExecutor 执行 → 结果回传 LLM → 最终回复
+4. Agent 内部 ReAct 循环：DashScope Agent 函数调用 → ToolExecutor 执行 → 结果回传 LLM → 最终回复
 5. 工具调用现有 Service 层（ContractService、PaymentService 等），权限按 user.role 过滤
 6. 图片分析：主用 DashScope VL 模型（qwen3-vl-flash）识别凭证/合同内容，含图片压缩（最大 1600px）和 Redis 缓存（30 分钟 TTL）
-7. 支持 PDF 多策略分析：有文字 → DeepSeek 文本模型；扫描 PDF → 渲染为图片 → VL 模型。同时支持 Word (.docx) 和 Excel (.xlsx)。
+7. 支持 PDF 多策略分析：有文字 → 百炼 DeepSeek-V4-Flash 文本模型；扫描 PDF → 渲染为图片 → VL 模型。同时支持 Word (.docx) 和 Excel (.xlsx)。
 8. 历史消息超限时自动摘要（`_summarize_history()`），确认意图快捷路径（`_is_confirmation()`）
 
 群聊识别流程：
@@ -169,14 +169,13 @@ npm run build      # TypeScript 检查 + Vite 构建
 关键必配项（详见 `backend/.env.example`）：
 - `SECRET_KEY` — JWT 签名密钥，无默认值，必须设置
 - `POSTGRES_PASSWORD` — 数据库密码
-- `DASHSCOPE_API_KEY` — 阿里云 DashScope API 密钥（视觉模型 qwen3-vl-flash，合同/凭证 OCR）
-- `DEEPSEEK_API_KEY` — DeepSeek Agent 模型 API 密钥（智能对话、函数调用，模型 `deepseek-v4-flash`）
+- `DASHSCOPE_API_KEY` — 阿里云 DashScope API 密钥（视觉模型 qwen3-vl-flash + Agent 推理模型 deepseek-v4-flash，合同/凭证 OCR + 智能对话）
 - `SILICONFLOW_API_KEY` — SiliconFlow API 密钥（历史遗留视觉模型，仍为必配）
 
 可选配置项（有默认值）：
 - `DASHSCOPE_BASE_URL` — DashScope API 地址，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - `DASHSCOPE_VISION_MODEL` — 视觉模型名，默认 `qwen3-vl-flash`
-- `DEEPSEEK_MODEL` / `DEEPSEEK_AGENT_MODEL` — 默认 `deepseek-v4-flash`
+- `DASHSCOPE_AGENT_MODEL` — Agent 推理模型名，默认 `deepseek-v4-flash`
 - `AGENT_MAX_ITERATIONS` — Agent 最大迭代次数，默认 8
 - `AGENT_HISTORY_WINDOW` — 历史消息窗口，默认 100
 - `AGENT_MAX_SUMMARY_MESSAGES` — 摘要触发阈值，默认 10
