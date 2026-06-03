@@ -15,6 +15,8 @@ from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
+import re
+
 import httpx
 from sqlalchemy.orm import Session
 
@@ -91,6 +93,19 @@ def _guess_extension(content: bytes) -> str:
 
 
 # ─── VL / 文本模型调用（纯函数） ───
+
+def _make_text_extraction_prompt(base_prompt: str) -> str:
+    """从 prompt 中移除 full_text 转录要求。
+    文本 PDF 已由 PyMuPDF 提取全文，无需让 LLM 再转录一遍，节省 ~30-40s 生成时间。
+    """
+    lines = base_prompt.split("\n")
+    result = []
+    for line in lines:
+        if "full_text" in line:
+            continue
+        result.append(line)
+    return "\n".join(result)
+
 
 def _call_vl_model(file_bytes: bytes, mime: str, prompt: str) -> dict:
     """调用 DashScope VL 模型分析图片，返回结构化 JSON dict。"""
@@ -416,7 +431,10 @@ class ContractAnalyzer:
             full_text = _extract_pdf_text(file_path)
             if full_text.strip():
                 logger.info("PDF 有文本，使用文本模型解析: text_len=%d", len(full_text))
-                structured = _call_text_model(full_text, CONTRACT_ANALYSIS_PROMPT)
+                prompt = _make_text_extraction_prompt(CONTRACT_ANALYSIS_PROMPT)
+                structured = _call_text_model(full_text, prompt)
+                if isinstance(structured, dict):
+                    structured["full_text"] = full_text
             else:
                 logger.info("PDF 无文本（扫描件），渲染为图片走 VL")
                 img_bytes = _render_pdf_page_to_image(file_path)

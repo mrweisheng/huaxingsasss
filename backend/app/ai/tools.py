@@ -2150,9 +2150,12 @@ class ToolExecutor:
                         # ✅ 有文本 → 用 DeepSeek 文本模型解析（通过硅基流动平台）
                         logger.info("PDF文本提取成功，使用DeepSeek文本模型(硅基流动)解析: text_len=%d", len(full_text))
                         try:
+                            # 合同类型：去掉 full_text 转录要求，文本已由 PyMuPDF 提取，节省 ~30s 生成时间
+                            from app.services.contract_analyzer import _make_text_extraction_prompt
+                            actual_prompt = _make_text_extraction_prompt(prompt) if analysis_type == "contract" else prompt
                             payload = {
                                 "model": settings.DEEPSEEK_AGENT_MODEL,
-                                "messages": [{"role": "user", "content": f"{prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
+                                "messages": [{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
                                 "temperature": 0.1,
                                 "max_tokens": 4096,
                             }
@@ -2176,6 +2179,9 @@ class ToolExecutor:
                                 structured = {"raw": content}
 
                             logger.info("PDF文本模型解析完成: analysis_type=%s, keys=%s", analysis_type, list(structured.keys()) if isinstance(structured, dict) else "非dict")
+                            # 合同类型：注入已提取的 PDF 文本作为 full_text（无需 LLM 转录）
+                            if analysis_type == "contract" and isinstance(structured, dict):
+                                structured["full_text"] = full_text
                             self._document_context = analysis_type
                             self._cache_analysis(file_id, analysis_type, structured)
                             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
