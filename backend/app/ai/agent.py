@@ -351,37 +351,28 @@ class ContractAgent:
         # 判断是否为文本型文件（可提取文字的）
         try:
             with open(file_path, "rb") as f:
-                header = f.read(12)
+                header = f.read(2000)
         except OSError:
             return None
 
-        is_text_pdf = False
-        is_text_doc = False
+        from app.services.contract_analyzer import _is_docx, _is_xlsx
+
+        can_pre_analyze = False
 
         if header[:4] == b"%PDF":
             # PDF：检测是否有可提取文字
             try:
-                import fitz
-                doc = fitz.open(file_path)
-                try:
-                    text = ""
-                    for page in doc:
-                        t = page.get_text().strip()
-                        if t:
-                            text += t + "\n"
-                finally:
-                    doc.close()
+                from app.services.contract_analyzer import _extract_pdf_text
+                text = _extract_pdf_text(file_path)
                 if text.strip():
-                    is_text_pdf = True
+                    can_pre_analyze = True
                 else:
                     # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
                     return None
             except Exception:
                 return None
-        elif file_path.endswith(".docx"):
-            is_text_doc = True
-        elif file_path.endswith(".xlsx"):
-            is_text_doc = True
+        elif _is_docx(header) or _is_xlsx(header):
+            can_pre_analyze = True
         else:
             # 图片或其他格式，交给 LLM 调 analyze_image
             return None
