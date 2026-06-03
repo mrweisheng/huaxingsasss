@@ -16,7 +16,7 @@ from app.db.session import get_db
 from app.models.contract import Contract
 from app.schemas.contract import (
     ContractCreate, ContractUpdate, ContractResponse, ContractParseResult,
-    AnalyzeFileRequest, ContractCreateFromAnalysis,
+    AnalyzeFileRequest, ContractCreateFromAnalysis, ResolveCustomerRequest,
 )
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
@@ -105,6 +105,50 @@ def analyze_file(
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"分析失败: {str(e)}")
 
     return ResponseModel(code=200, data=result)
+
+
+@router.post("/resolve-customer")
+def resolve_customer(
+    req: ResolveCustomerRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """从 AI 分析结果自动关联或创建客户。"""
+    if current_user.role not in ("admin", "income"):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅 admin 或 income 角色可操作")
+
+    from app.services.customer_service import CustomerService
+
+    party_info = req.analysis_data.get(req.party) or {}
+    name = (party_info.get("name") or "").strip()
+    phone = (party_info.get("phone") or "").strip() or None
+    id_number = (party_info.get("id_number") or "").strip() or None
+
+    if not name:
+        return ResponseModel(code=200, data={
+            "success": False,
+            "error": "未识别到客户姓名",
+            "party_info": party_info,
+        })
+
+    customer, created = CustomerService.create_or_get(
+        db=db,
+        name=name,
+        phone=phone,
+        id_card_number=id_number,
+        created_by=current_user.id,
+    )
+
+    return ResponseModel(code=200, data={
+        "success": True,
+        "customer": {
+            "id": customer.id,
+            "name": customer.name,
+            "phone": customer.phone,
+            "created": created,
+        },
+        "party_info": party_info,
+    })
 
 
 @router.post("/create-from-analysis")

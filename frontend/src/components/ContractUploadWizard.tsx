@@ -1,45 +1,26 @@
 import { useState, useCallback } from 'react'
 import {
-  Modal, Steps, Button, Upload, Input, Select, InputNumber,
-  DatePicker, Form, Spin, Alert, Tag, Divider, Space, message, Card, Radio,
+  Modal, Steps, Button, Upload, Input, Spin, Alert, Tag, Space, message, Card,
 } from 'antd'
 import {
-  InboxOutlined, ArrowLeftOutlined,
-  ArrowRightOutlined, CheckOutlined, WarningOutlined,
-  UserOutlined, PlusOutlined, FileTextOutlined,
+  InboxOutlined, ArrowLeftOutlined, ArrowRightOutlined, CheckOutlined,
+  WarningOutlined, FileTextOutlined, UserOutlined, CheckCircleOutlined,
 } from '@ant-design/icons'
-import dayjs from 'dayjs'
 import { agentApi } from '@/services/agent'
 import { contractApi } from '@/services/contract'
 import { customerApi } from '@/services/customer'
-import type { Customer } from '@/types'
 
 const { Dragger } = Upload
-const { TextArea } = Input
 
 interface Props {
   open: boolean
   onClose: (created: boolean) => void
 }
 
-/** 向导步骤索引 */
 const STEP_UPLOAD = 0
 const STEP_ANALYSIS = 1
 const STEP_CUSTOMER = 2
 const STEP_CONFIRM = 3
-
-const BUSINESS_TYPES = [
-  { label: '车辆买卖', value: '车辆买卖' },
-  { label: '两地牌过户', value: '两地牌过户' },
-  { label: '年检保险', value: '年检保险' },
-  { label: '其他', value: '其他' },
-]
-
-const CURRENCIES = [
-  { label: '人民币 (CNY)', value: 'CNY' },
-  { label: '港币 (HKD)', value: 'HKD' },
-  { label: '美元 (USD)', value: 'USD' },
-]
 
 export default function ContractUploadWizard({ open, onClose }: Props) {
   const [current, setCurrent] = useState(STEP_UPLOAD)
@@ -52,19 +33,16 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
   // Step 2: 分析结果
   const [analysisResult, setAnalysisResult] = useState<any>(null)
   const [duplicateInfo, setDuplicateInfo] = useState<any>(null)
-  // Step 3: 客户
-  const [selectedCustomerId, setSelectedCustomerId] = useState<number | null>(null)
-  const [customers, setCustomers] = useState<Customer[]>([])
-  const [searchingCustomers, setSearchingCustomers] = useState(false)
-  const [showNewCustomerForm, setShowNewCustomerForm] = useState(false)
-  /** 用户选择哪方是客户: 'party_a' | 'party_b' */
-  const [selectedParty, setSelectedParty] = useState<'party_a' | 'party_b'>('party_b')
-  const [newCustomerForm] = Form.useForm()
 
-  // Step 4: 确认数据
-  const [confirmForm] = Form.useForm()
+  // Step 3: 客户自动关联
+  const [resolvedCustomer, setResolvedCustomer] = useState<{
+    id: number; name: string; phone?: string; created: boolean
+  } | null>(null)
+  const [resolveError, setResolveError] = useState<string | null>(null)
+  const [fallbackName, setFallbackName] = useState('')
+  const [fallbackPhone, setFallbackPhone] = useState('')
 
-  // ─── 重置状态 ───
+  // ─── 重置 ───
   const reset = useCallback(() => {
     setCurrent(STEP_UPLOAD)
     setLoading(false)
@@ -72,19 +50,16 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
     setFileId(null)
     setAnalysisResult(null)
     setDuplicateInfo(null)
-    setSelectedCustomerId(null)
-    setCustomers([])
-    setSearchingCustomers(false)
-    setShowNewCustomerForm(false)
-    setSelectedParty('party_b')
-    newCustomerForm.resetFields()
-    confirmForm.resetFields()
-  }, [newCustomerForm, confirmForm])
+    setResolvedCustomer(null)
+    setResolveError(null)
+    setFallbackName('')
+    setFallbackPhone('')
+  }, [])
 
   const handleClose = () => { reset(); onClose(false) }
   const handleCreated = () => { reset(); onClose(true) }
 
-  // ─── Step 1: 上传文件 ───
+  // ─── Step 1: 上传 ───
   const handleUpload = async (file: File) => {
     setLoading(true)
     try {
@@ -97,7 +72,7 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
     } finally {
       setLoading(false)
     }
-    return false // 阻止 antd 自动上传
+    return false
   }
 
   // ─── Step 2: AI 分析 ───
@@ -114,175 +89,120 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
         return
       }
       setAnalysisResult(data)
-      setLoading(false)
-      // 不自动跳转——让用户查看分析结果后手动点"下一步"
     } catch (err: any) {
       message.error(err?.response?.data?.detail || 'AI 分析失败')
+    } finally {
       setLoading(false)
     }
   }, [fileId, uploadedFile])
 
-  /** 从 Step 2 进入 Step 3：搜索客户 */
+  /** Step 2 → Step 3：自动关联客户 */
   const goFromAnalysisToCustomer = async () => {
-    await searchCustomers(analysisResult?.data)
-    // 预填新建客户表单
-    const party = analysisResult?.data?.party_b || {}
-    newCustomerForm.setFieldsValue({
-      name: party.name || '',
-      phone: party.phone || '',
-      id_card_number: party.id_number || '',
-    })
     setCurrent(STEP_CUSTOMER)
-  }
-
-  // ─── Step 3: 搜索/创建客户 ───
-  const searchCustomers = async (analysisData?: any) => {
-    setSearchingCustomers(true)
+    setLoading(true)
+    setResolveError(null)
+    setResolvedCustomer(null)
     try {
-      // 用选中方的名字搜索
-      const name = analysisData?.[selectedParty]?.name || ''
-      const res = await customerApi.getList({ keyword: name, per_page: 20 })
-      setCustomers(res.items || [])
-    } catch {
-      setCustomers([])
-    } finally {
-      setSearchingCustomers(false)
-    }
-  }
-
-  /** 切换甲方/乙方时更新搜索和预填 */
-  const handlePartyChange = async (party: 'party_a' | 'party_b') => {
-    setSelectedParty(party)
-    const info = analysisResult?.data?.[party] || {}
-    // 更新预填
-    newCustomerForm.setFieldsValue({
-      name: info.name || '',
-      phone: info.phone || '',
-      id_card_number: info.id_number || '',
-    })
-    // 重新搜索
-    setSearchingCustomers(true)
-    try {
-      const res = await customerApi.getList({ keyword: info.name || '', per_page: 20 })
-      setCustomers(res.items || [])
-    } catch {
-      setCustomers([])
-    } finally {
-      setSearchingCustomers(false)
-    }
-  }
-
-  const handleCreateCustomer = async () => {
-    try {
-      const values = await newCustomerForm.validateFields()
-      const customer = await customerApi.create(values)
-      setSelectedCustomerId(customer.id)
-      message.success('客户创建成功')
-      setShowNewCustomerForm(false)
+      const res = await contractApi.resolveCustomer(analysisResult?.data)
+      const data = res.data
+      if (data.success) {
+        setResolvedCustomer(data.customer)
+      } else {
+        setResolveError(data.error || '无法自动识别客户')
+      }
     } catch (err: any) {
-      if (err?.response?.data?.detail) {
-        message.error(err.response.data.detail)
-      }
+      setResolveError(err?.response?.data?.detail || '客户关联失败')
+    } finally {
+      setLoading(false)
     }
   }
 
-  // ─── Step 4: 填充表单 ───
-  const fillConfirmForm = useCallback(() => {
-    if (!analysisResult?.data) return
-    const d = analysisResult.data
-    const validity = d.validity_period || {}
-
-    confirmForm.setFieldsValue({
-      title: d.title || uploadedFile?.name || '',
-      business_type: d.business_type || undefined,
-      business_description: d.business_description || '',
-      currency: d.currency || 'CNY',
-      total_amount: d.total_amount || 0,
-      signed_date: d.signed_date ? dayjs(d.signed_date) : undefined,
-      start_date: validity.start_date ? dayjs(validity.start_date) : undefined,
-      end_date: validity.end_date ? dayjs(validity.end_date) : undefined,
-      wechat_group: d.wechat_group || '',
-      payment_terms: (d.payment_terms || []).map((t: any) => ({
-        name: t.name || '',
-        amount: t.amount || 0,
-        due_date: t.due_date || '',
-        condition: t.condition || '',
-        is_paid: t.is_paid || false,
-      })),
-    })
-  }, [analysisResult, uploadedFile, confirmForm])
-
-  // ─── 提交创建合同 ───
-  const handleSubmit = async () => {
+  /** 兜底：手动创建客户 */
+  const handleFallbackCreate = async () => {
+    if (!fallbackName.trim()) {
+      message.error('请输入客户姓名')
+      return
+    }
+    setLoading(true)
     try {
-      const values = await confirmForm.validateFields()
-      if (!selectedCustomerId) {
-        message.error('请先选择或创建客户')
-        return
-      }
+      const customer = await customerApi.create({
+        name: fallbackName,
+        phone: fallbackPhone || undefined,
+      })
+      setResolvedCustomer({
+        id: customer.id,
+        name: customer.name,
+        phone: customer.phone,
+        created: true,
+      })
+      setResolveError(null)
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || '创建客户失败')
+    } finally {
+      setLoading(false)
+    }
+  }
 
-      setLoading(true)
-      const paymentTerms = (values.payment_terms || []).map((t: any) => ({
-        name: t.name,
-        amount: t.amount,
-        due_date: t.due_date,
-        condition: t.condition,
-        is_paid: t.is_paid,
-      }))
-
+  // ─── Step 4: 提交创建合同 ───
+  const handleSubmit = async () => {
+    if (!resolvedCustomer) {
+      message.error('客户信息缺失')
+      return
+    }
+    setLoading(true)
+    try {
+      const d = analysisResult?.data || {}
+      const validity = d.validity_period || {}
       const payload = {
         file_id: fileId,
         file_name: uploadedFile?.name,
-        customer_id: selectedCustomerId,
-        title: values.title,
-        business_type: values.business_type,
-        business_description: values.business_description,
-        currency: values.currency,
-        total_amount: values.total_amount,
-        signed_date: values.signed_date?.format('YYYY-MM-DD') || null,
-        start_date: values.start_date?.format('YYYY-MM-DD') || null,
-        end_date: values.end_date?.format('YYYY-MM-DD') || null,
-        wechat_group: values.wechat_group,
-        payment_terms: paymentTerms,
-        analysis_data: analysisResult?.data || {},
-        full_text: analysisResult?.data?.full_text || '',
-        confidence: analysisResult?.data?.confidence || null,
-        remarks: values.remarks,
+        customer_id: resolvedCustomer.id,
+        title: d.title || uploadedFile?.name || '',
+        business_type: d.business_type,
+        business_description: d.business_description,
+        currency: d.currency || 'CNY',
+        total_amount: d.total_amount || 0,
+        signed_date: d.signed_date || null,
+        start_date: validity.start_date || null,
+        end_date: validity.end_date || null,
+        wechat_group: d.wechat_group,
+        payment_terms: (d.payment_terms || []).map((t: any) => ({
+          name: t.name,
+          amount: t.amount,
+          due_date: t.due_date,
+          condition: t.condition,
+          is_paid: t.is_paid,
+        })),
+        analysis_data: d,
+        full_text: d.full_text || '',
+        confidence: d.confidence || null,
       }
-
       await contractApi.createFromAnalysis(payload)
       message.success('合同创建成功')
       handleCreated()
     } catch (err: any) {
-      if (err?.errorFields) return // 表单验证错误
       message.error(err?.response?.data?.detail || '创建合同失败')
     } finally {
       setLoading(false)
     }
   }
 
-  // ─── Step 导航逻辑 ───
+  // ─── Step 导航 ───
   const goNext = () => {
-    if (current === STEP_CUSTOMER) {
-      if (!selectedCustomerId) {
-        message.warning('请选择或创建客户')
-        return
-      }
-      fillConfirmForm()
-      setCurrent(STEP_CONFIRM)
+    if (current === STEP_CUSTOMER && !resolvedCustomer) {
+      message.warning('请先完成客户关联')
+      return
     }
+    setCurrent(STEP_CONFIRM)
   }
 
   const goPrev = () => {
     if (current > STEP_UPLOAD) setCurrent(current - 1)
   }
 
-  const confidenceValue = analysisResult?.data?.confidence
-  const confidenceColor = confidenceValue == null ? 'default'
-    : confidenceValue >= 0.85 ? 'green'
-    : confidenceValue >= 0.6 ? 'orange' : 'red'
-  const confidenceLabel = confidenceValue == null ? '未知'
-    : `${Math.round(confidenceValue * 100)}%`
+  const d = analysisResult?.data || {}
+  const terms: any[] = d.payment_terms || []
+  const validity = d.validity_period || {}
 
   return (
     <Modal
@@ -351,39 +271,30 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
                 <Button onClick={handleClose}>取消</Button>
                 <Button
                   danger
-                  onClick={() => {
-                    setDuplicateInfo(null)
-                    // 传 skip_duplicate_check=true 绕过重复检测
-                    runAnalysis(true)
-                  }}
+                  onClick={() => { setDuplicateInfo(null); runAnalysis(true) }}
                 >
                   仍然创建
                 </Button>
               </Space>
             </div>
           ) : analysisResult ? (
-            /* 分析完成——展示摘要，让用户确认后进入下一步 */
             <div style={{ textAlign: 'left' }}>
               <Card size="small" style={{ marginBottom: 16, background: '#f6ffed' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
                   <FileTextOutlined />
                   <strong>AI 分析完成</strong>
-                  <Tag color={confidenceColor}>置信度: {confidenceLabel}</Tag>
                 </div>
-                {confidenceValue != null && confidenceValue < 0.85 && (
-                  <Alert type="warning" message="AI 置信度较低，后续步骤中请仔细核对数据" showIcon style={{ marginBottom: 8 }} />
-                )}
                 <div style={{ fontSize: 13, color: '#555' }}>
-                  {analysisResult.data?.title && <p>标题：{analysisResult.data.title}</p>}
-                  {analysisResult.data?.business_type && <p>业务类型：{analysisResult.data.business_type}</p>}
-                  {analysisResult.data?.total_amount != null && (
-                    <p>总金额：{analysisResult.data.currency || 'CNY'} {analysisResult.data.total_amount}</p>
+                  {d.title && <p style={{ margin: '4px 0' }}>标题：{d.title}</p>}
+                  {d.business_type && <p style={{ margin: '4px 0' }}>业务类型：{d.business_type}</p>}
+                  {d.total_amount != null && (
+                    <p style={{ margin: '4px 0' }}>
+                      总金额：{d.currency || 'CNY'} {Number(d.total_amount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                    </p>
                   )}
-                  {analysisResult.data?.party_b?.name && <p>乙方：{analysisResult.data.party_b.name}</p>}
-                  {analysisResult.data?.party_a?.name && <p>甲方：{analysisResult.data.party_a.name}</p>}
-                  {analysisResult.data?.payment_terms?.length > 0 && (
-                    <p>付款条款：{analysisResult.data.payment_terms.length} 条</p>
-                  )}
+                  {d.party_b?.name && <p style={{ margin: '4px 0' }}>乙方：{d.party_b.name}</p>}
+                  {d.party_a?.name && <p style={{ margin: '4px 0' }}>甲方：{d.party_a.name}</p>}
+                  {terms.length > 0 && <p style={{ margin: '4px 0' }}>付款条款：{terms.length} 条</p>}
                 </div>
               </Card>
               <div style={{ textAlign: 'center' }}>
@@ -400,224 +311,128 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
         </div>
       )}
 
-      {/* ─── Step 3: 客户选择/创建 ─── */}
+      {/* ─── Step 3: 客户自动关联 ─── */}
       {current === STEP_CUSTOMER && (
-        <div>
-          <div style={{ marginBottom: 16 }}>
-            <h4 style={{ marginBottom: 8 }}>
-              <UserOutlined style={{ marginRight: 4 }} />
-              选择哪一方是客户
-            </h4>
-            <Card size="small" style={{ background: '#fafafa' }}>
-              <Radio.Group
-                value={selectedParty}
-                onChange={e => handlePartyChange(e.target.value)}
-                style={{ width: '100%' }}
-              >
-                <Space direction="vertical" style={{ width: '100%' }}>
-                  {analysisResult?.data?.party_b && (
-                    <Radio value="party_b" style={{ width: '100%' }}>
-                      <strong>乙方：</strong>{analysisResult.data.party_b.name || '未识别'}
-                      {analysisResult.data.party_b.phone && ` | 电话: ${analysisResult.data.party_b.phone}`}
-                      {analysisResult.data.party_b.id_number && ` | 证件: ${analysisResult.data.party_b.id_number}`}
-                    </Radio>
-                  )}
-                  {analysisResult?.data?.party_a && (
-                    <Radio value="party_a" style={{ width: '100%' }}>
-                      <strong>甲方：</strong>{analysisResult.data.party_a.name || '未识别'}
-                      {analysisResult.data.party_a.contact && ` | 联系: ${analysisResult.data.party_a.contact}`}
-                    </Radio>
-                  )}
-                  {!(analysisResult?.data?.party_b || analysisResult?.data?.party_a) && (
-                    <p style={{ color: '#999' }}>未识别到甲乙方信息，请手动创建客户</p>
-                  )}
-                </Space>
-              </Radio.Group>
-            </Card>
-          </div>
-
-          <Divider orientation="left" plain>选择已有客户</Divider>
-          {searchingCustomers ? <Spin /> : (
-            customers.length > 0 ? (
-              <div style={{ maxHeight: 200, overflowY: 'auto', marginBottom: 16 }}>
-                {customers.map(c => (
-                  <Card
-                    key={c.id}
-                    size="small"
-                    hoverable
-                    style={{
-                      marginBottom: 8,
-                      border: selectedCustomerId === c.id ? '2px solid #1677ff' : undefined,
-                      cursor: 'pointer',
-                    }}
-                    onClick={() => setSelectedCustomerId(c.id)}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                      <span><strong>{c.name}</strong></span>
-                      {selectedCustomerId === c.id && <Tag color="blue">已选择</Tag>}
-                    </div>
-                    <div style={{ color: '#888', fontSize: 12 }}>
-                      {c.phone && <span style={{ marginRight: 12 }}>电话: {c.phone}</span>}
-                      {c.wechat_group_name && <span>微信: {c.wechat_group_name}</span>}
-                    </div>
-                  </Card>
-                ))}
+        <div style={{ padding: '16px 0' }}>
+          {loading && !resolvedCustomer ? (
+            <div style={{ textAlign: 'center', padding: '40px 0' }}>
+              <Spin size="large" />
+              <p style={{ marginTop: 16, color: '#666' }}>正在自动关联客户...</p>
+            </div>
+          ) : resolvedCustomer ? (
+            <Card size="small" style={{ background: '#f6ffed' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 18 }} />
+                <strong>客户关联成功</strong>
+                <Tag color={resolvedCustomer.created ? 'green' : 'blue'}>
+                  {resolvedCustomer.created ? '新建客户' : '已有客户'}
+                </Tag>
               </div>
-            ) : (
-              <p style={{ color: '#999', marginBottom: 16 }}>未找到匹配的客户</p>
-            )
-          )}
-
-          <Divider orientation="left" plain>
-            <Button
-              type="link"
-              size="small"
-              icon={<PlusOutlined />}
-              onClick={() => setShowNewCustomerForm(!showNewCustomerForm)}
-            >
-              {showNewCustomerForm ? '收起新建表单' : '创建新客户'}
-            </Button>
-          </Divider>
-
-          {showNewCustomerForm && (
-            <Card size="small" style={{ marginBottom: 16 }}>
-              <Form
-                form={newCustomerForm}
-                layout="vertical"
-                size="small"
-              >
-                <Form.Item name="name" label="客户名称" rules={[{ required: true, message: '请输入客户名称' }]}>
-                  <Input placeholder="输入客户名称" />
-                </Form.Item>
-                <div style={{ display: 'flex', gap: 12 }}>
-                  <Form.Item name="phone" label="电话" style={{ flex: 1 }}>
-                    <Input placeholder="电话号码" />
-                  </Form.Item>
-                  <Form.Item name="id_card_number" label="证件号码" style={{ flex: 1 }}>
-                    <Input placeholder="身份证/证件号" />
-                  </Form.Item>
-                </div>
-                <Form.Item name="email" label="邮箱">
-                  <Input placeholder="电子邮箱" />
-                </Form.Item>
-                <Form.Item name="contact_person" label="联系人">
-                  <Input placeholder="联系人姓名" />
-                </Form.Item>
-                <Form.Item>
-                  <Button type="primary" onClick={handleCreateCustomer}>创建客户</Button>
-                </Form.Item>
-              </Form>
+              <div style={{ fontSize: 13 }}>
+                <strong>{resolvedCustomer.name}</strong>
+                {resolvedCustomer.phone && (
+                  <span style={{ marginLeft: 12, color: '#888' }}>电话: {resolvedCustomer.phone}</span>
+                )}
+              </div>
             </Card>
-          )}
+          ) : resolveError ? (
+            <div>
+              <Alert type="warning" message={resolveError} showIcon style={{ marginBottom: 12 }} />
+              <Card size="small" title="手动输入客户信息">
+                <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
+                  <Input
+                    placeholder="客户姓名 *"
+                    value={fallbackName}
+                    onChange={e => setFallbackName(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <Input
+                    placeholder="电话（选填）"
+                    value={fallbackPhone}
+                    onChange={e => setFallbackPhone(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                </div>
+                <Button type="primary" size="small" onClick={handleFallbackCreate} loading={loading}>
+                  创建客户
+                </Button>
+              </Card>
+            </div>
+          ) : null}
         </div>
       )}
 
-      {/* ─── Step 4: 确认创建 ─── */}
+      {/* ─── Step 4: 只读确认摘要 ─── */}
       {current === STEP_CONFIRM && (
         <div>
-          <div style={{ marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <FileTextOutlined />
-            <span>AI 分析结果确认</span>
-            <Tag color={confidenceColor}>置信度: {confidenceLabel}</Tag>
-            {confidenceValue != null && confidenceValue < 0.85 && (
-              <Alert
-                type="warning"
-                message="AI 置信度较低，请仔细核对数据"
-                showIcon
-                style={{ flex: 1, padding: '4px 12px' }}
-              />
+          <Card size="small" title="合同信息" style={{ marginBottom: 12 }}>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px', fontSize: 13 }}>
+              <div><span style={{ color: '#888' }}>标题：</span>{d.title || uploadedFile?.name || '无'}</div>
+              <div><span style={{ color: '#888' }}>业务类型：</span>{d.business_type || '未识别'}</div>
+              <div><span style={{ color: '#888' }}>币种：</span>{d.currency || 'CNY'}</div>
+              <div>
+                <span style={{ color: '#888' }}>总金额：</span>
+                {d.currency || 'CNY'} {Number(d.total_amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+              </div>
+              <div><span style={{ color: '#888' }}>签订日期：</span>{d.signed_date || '未识别'}</div>
+              <div>
+                <span style={{ color: '#888' }}>有效期：</span>
+                {validity.start_date && validity.end_date
+                  ? `${validity.start_date} ~ ${validity.end_date}`
+                  : '未识别'}
+              </div>
+            </div>
+            {d.business_description && (
+              <div style={{ marginTop: 8, fontSize: 13 }}>
+                <span style={{ color: '#888' }}>业务描述：</span>{d.business_description}
+              </div>
             )}
-          </div>
+            {d.wechat_group && (
+              <div style={{ marginTop: 4, fontSize: 13 }}>
+                <span style={{ color: '#888' }}>微信群：</span>{d.wechat_group}
+              </div>
+            )}
+          </Card>
 
-          <Form form={confirmForm} layout="vertical" size="small">
-            <div style={{ display: 'flex', gap: 12 }}>
-              <Form.Item name="title" label="合同标题" style={{ flex: 2 }}>
-                <Input placeholder="合同标题" />
-              </Form.Item>
-              <Form.Item name="business_type" label="业务类型" style={{ flex: 1 }}>
-                <Select options={BUSINESS_TYPES} placeholder="选择业务类型" />
-              </Form.Item>
-            </div>
-
-            <Form.Item name="business_description" label="业务描述">
-              <TextArea rows={2} placeholder="一句话业务描述" />
-            </Form.Item>
-
-            <div style={{ display: 'flex', gap: 12 }}>
-              <Form.Item name="currency" label="币种" style={{ flex: 1 }}>
-                <Select options={CURRENCIES} />
-              </Form.Item>
-              <Form.Item name="total_amount" label="总金额" style={{ flex: 1 }}>
-                <InputNumber style={{ width: '100%' }} min={0} precision={2} />
-              </Form.Item>
-              <Form.Item name="signed_date" label="签订日期" style={{ flex: 1 }}>
-                <DatePicker style={{ width: '100%' }} />
-              </Form.Item>
-            </div>
-
-            <div style={{ display: 'flex', gap: 12 }}>
-              <Form.Item name="start_date" label="生效日期" style={{ flex: 1 }}>
-                <DatePicker style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item name="end_date" label="到期日期" style={{ flex: 1 }}>
-                <DatePicker style={{ width: '100%' }} />
-              </Form.Item>
-              <Form.Item name="wechat_group" label="微信群" style={{ flex: 1 }}>
-                <Input placeholder="微信群名称" />
-              </Form.Item>
-            </div>
-
-            <Form.Item name="remarks" label="备注">
-              <TextArea rows={2} placeholder="备注信息（可选）" />
-            </Form.Item>
-
-            {/* 付款条款 */}
-            <Divider orientation="left" plain>付款条款</Divider>
-            <Form.List name="payment_terms">
-              {(fields) => fields.length > 0 ? (
-                <div style={{ maxHeight: 240, overflowY: 'auto' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
-                        <th style={{ padding: '6px 8px', textAlign: 'left' }}>款项名称</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'right' }}>金额</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'center' }}>应付日期</th>
-                        <th style={{ padding: '6px 8px', textAlign: 'center' }}>已付</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {fields.map(({ key, name, ...restField }) => (
-                        <tr key={key} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                          <td style={{ padding: '4px 8px' }}>
-                            <Form.Item {...restField} name={[name, 'name']} noStyle>
-                              <Input size="small" placeholder="款项名称" variant="borderless" />
-                            </Form.Item>
-                          </td>
-                          <td style={{ padding: '4px 8px', textAlign: 'right' }}>
-                            <Form.Item {...restField} name={[name, 'amount']} noStyle>
-                              <InputNumber size="small" min={0} precision={2} variant="borderless" style={{ width: 100 }} />
-                            </Form.Item>
-                          </td>
-                          <td style={{ padding: '4px 8px', textAlign: 'center' }}>
-                            <Form.Item {...restField} name={[name, 'due_date']} noStyle>
-                              <Input size="small" placeholder="日期" variant="borderless" style={{ width: 100 }} />
-                            </Form.Item>
-                          </td>
-                          <td style={{ padding: '4px 8px', textAlign: 'center' }}>
-                            <Form.Item {...restField} name={[name, 'is_paid']} noStyle valuePropName="checked">
-                              <input type="checkbox" />
-                            </Form.Item>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              ) : (
-                <p style={{ color: '#999' }}>未提取到付款条款</p>
+          <Card size="small" title="客户信息" style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
+              <UserOutlined />
+              <strong>{resolvedCustomer?.name}</strong>
+              {resolvedCustomer?.phone && (
+                <span style={{ color: '#888' }}>电话: {resolvedCustomer.phone}</span>
               )}
-            </Form.List>
-          </Form>
+              <Tag color={resolvedCustomer?.created ? 'green' : 'blue'}>
+                {resolvedCustomer?.created ? '新建' : '已有'}
+              </Tag>
+            </div>
+          </Card>
+
+          {terms.length > 0 && (
+            <Card size="small" title={`付款条款（${terms.length} 条）`}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+                <thead>
+                  <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
+                    <th style={{ padding: '6px 8px', textAlign: 'left' }}>款项名称</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>金额</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>应付日期</th>
+                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>已付</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {terms.map((t: any, i: number) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
+                      <td style={{ padding: '6px 8px' }}>{t.name || '-'}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>
+                        {Number(t.amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{t.due_date || '-'}</td>
+                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{t.is_paid ? '✓' : '✗'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
         </div>
       )}
 
@@ -627,9 +442,8 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
           {current === STEP_UPLOAD ? '取消' : '上一步'}
         </Button>
         <div style={{ display: 'flex', gap: 8 }}>
-          {/* Step 3 和 Step 4 显示"下一步"/"确认创建"按钮 */}
           {current === STEP_CUSTOMER && (
-            <Button type="primary" onClick={goNext} disabled={!selectedCustomerId} loading={loading} icon={<ArrowRightOutlined />}>
+            <Button type="primary" onClick={goNext} disabled={!resolvedCustomer} loading={loading} icon={<ArrowRightOutlined />}>
               下一步
             </Button>
           )}

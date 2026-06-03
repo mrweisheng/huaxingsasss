@@ -97,6 +97,12 @@ class ContractParseResult(BaseModel):
     message: Optional[str] = Field(None, description="消息")
 
 
+class ResolveCustomerRequest(BaseModel):
+    """从 AI 分析结果自动关联/创建客户"""
+    analysis_data: Dict[str, Any] = Field(..., description="VL 分析结果（含 party_a/party_b）")
+    party: str = Field(default="party_b", description="哪一方是客户: party_a 或 party_b")
+
+
 class AnalyzeFileRequest(BaseModel):
     """合同文件分析请求"""
     file_id: str = Field(..., description="已上传文件的 ID（由 /agent/upload 返回）")

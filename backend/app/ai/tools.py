@@ -2160,7 +2160,7 @@ class ToolExecutor:
                                 "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
                                 "Content-Type": "application/json",
                             }
-                            with httpx.Client(timeout=30.0) as client:
+                            with httpx.Client(timeout=120.0) as client:
                                 response = client.post(
                                     f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
                                     json=payload, headers=headers,

@@ -38,6 +38,10 @@ export const contractApi = {
   createFromAnalysis: (data: any): Promise<any> =>
     api.post('/contracts/create-from-analysis', data),
 
+  /** 从 AI 分析结果自动关联/创建客户 */
+  resolveCustomer: (analysisData: any, party = 'party_b') =>
+    api.post('/contracts/resolve-customer', { analysis_data: analysisData, party }),
+
   update: (id: number, data: Partial<Contract>): Promise<Contract> =>
     api.put(`/contracts/${id}`, data),
 
