@@ -2,9 +2,8 @@
 汇率自动同步定时任务
 
 每天北京时间 00:30 自动同步最新汇率到数据库。
-数据来源：广发银行（主） + 中国银行LLM解析（兜底）
+数据来源：frankfurter.dev（ECB 参考汇率） + open.er-api.com（备用）
 """
-import asyncio
 import logging
 from datetime import date
 
@@ -36,7 +35,7 @@ def sync_daily_rates(self):
 
     db = SessionLocal()
     try:
-        rates = asyncio.run(fetch_exchange_rates())
+        rates = fetch_exchange_rates()
 
         if rates["hkdcny"] is None and rates["usdcny"] is None:
             logger.error("汇率获取失败：两个货币对都没有数据")

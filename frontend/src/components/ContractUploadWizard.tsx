@@ -1,14 +1,16 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect, useRef } from 'react'
 import {
   Modal, Steps, Button, Upload, Input, Spin, Alert, Tag, Space, message, Card,
 } from 'antd'
 import {
   InboxOutlined, ArrowLeftOutlined, ArrowRightOutlined, CheckOutlined,
   WarningOutlined, FileTextOutlined, UserOutlined, CheckCircleOutlined,
+  LoadingOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
 import { contractApi } from '@/services/contract'
 import { customerApi } from '@/services/customer'
+import './ContractUploadWizard.css'
 
 const { Dragger } = Upload
 
@@ -41,6 +43,42 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
   const [resolveError, setResolveError] = useState<string | null>(null)
   const [fallbackName, setFallbackName] = useState('')
   const [fallbackPhone, setFallbackPhone] = useState('')
+
+  // 分析阶段动态提示语
+  const [analyzeHint, setAnalyzeHint] = useState('')
+  const analyzeTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const analyzeHints = [
+    '正在读取文件内容...',
+    'AI 正在提取合同关键字段...',
+    '正在识别金额与付款条款...',
+    '正在匹配客户信息...',
+    '分析即将完成...',
+  ]
+
+  useEffect(() => {
+    if (loading && current === STEP_ANALYSIS) {
+      let idx = 0
+      setAnalyzeHint(analyzeHints[0])
+      analyzeTimerRef.current = setInterval(() => {
+        idx += 1
+        if (idx < analyzeHints.length) {
+          setAnalyzeHint(analyzeHints[idx])
+        }
+      }, 1200)
+    } else {
+      setAnalyzeHint('')
+      if (analyzeTimerRef.current) {
+        clearInterval(analyzeTimerRef.current)
+        analyzeTimerRef.current = null
+      }
+    }
+    return () => {
+      if (analyzeTimerRef.current) {
+        clearInterval(analyzeTimerRef.current)
+      }
+    }
+  }, [loading, current])
 
   // ─── 重置 ───
   const reset = useCallback(() => {
@@ -209,14 +247,17 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
       title="上传合同"
       open={open}
       onCancel={handleClose}
-      width={720}
+      width={680}
+      centered
       footer={null}
       destroyOnClose
       maskClosable={false}
+      className="wizard-modal"
     >
       <Steps
         current={current}
-        style={{ marginBottom: 24 }}
+        className="wizard-steps"
+        size="small"
         items={[
           { title: '上传文件' },
           { title: 'AI 分析' },
@@ -225,228 +266,309 @@ export default function ContractUploadWizard({ open, onClose }: Props) {
         ]}
       />
 
-      {/* ─── Step 1: 上传文件 ─── */}
-      {current === STEP_UPLOAD && (
-        <div style={{ textAlign: 'center', padding: '24px 0' }}>
-          <Dragger
-            accept="image/jpeg,image/png,image/jpg,.pdf,.docx,.xlsx"
-            showUploadList={false}
-            beforeUpload={handleUpload}
-            disabled={loading}
-            style={{ padding: '32px 16px' }}
-          >
-            <p className="ant-upload-drag-icon"><InboxOutlined style={{ fontSize: 48, color: '#1677ff' }} /></p>
-            <p className="ant-upload-text">点击或拖拽文件到此处上传</p>
-            <p className="ant-upload-hint">支持 JPG、PNG、PDF、Word、Excel 格式</p>
-          </Dragger>
-        </div>
-      )}
+      <div className="wizard-content">
+        {/* ─── Step 1: 上传文件 ─── */}
+        {current === STEP_UPLOAD && (
+          <div className="wizard-upload-zone">
+            <Dragger
+              accept="image/jpeg,image/png,image/jpg,.pdf,.docx,.xlsx"
+              showUploadList={false}
+              beforeUpload={handleUpload}
+              disabled={loading}
+            >
+              <p className="ant-upload-drag-icon">
+                {loading ? (
+                  <LoadingOutlined style={{ fontSize: 48, color: 'var(--brand-primary)' }} />
+                ) : (
+                  <InboxOutlined style={{ fontSize: 48, color: 'var(--brand-primary)' }} />
+                )}
+              </p>
+              <p className="ant-upload-text" style={{ fontSize: 15, fontWeight: 500, marginTop: 8 }}>
+                {loading ? '正在上传...' : '点击或拖拽文件到此处上传'}
+              </p>
+              <p className="ant-upload-hint">
+                支持 JPG / PNG / PDF / Word / Excel 格式
+              </p>
+            </Dragger>
+          </div>
+        )}
 
-      {/* ─── Step 2: AI 分析 ─── */}
-      {current === STEP_ANALYSIS && (
-        <div style={{ textAlign: 'center', padding: '40px 0' }}>
-          {loading ? (
-            <>
-              <Spin size="large" />
-              <p style={{ marginTop: 16, color: '#666' }}>AI 正在分析合同内容，请稍候...</p>
-            </>
-          ) : duplicateInfo ? (
-            <div>
-              <Alert
-                type="warning"
-                showIcon
-                icon={<WarningOutlined />}
-                message="检测到重复合同"
-                description={
-                  <div>
-                    <p>该文件已在系统中存在对应的合同记录：</p>
-                    <p>编号：<strong>{duplicateInfo.contract_number}</strong> | 标题：{duplicateInfo.title || '无'}</p>
-                    <p>金额：{duplicateInfo.currency} {duplicateInfo.total_amount} | 状态：{duplicateInfo.status}</p>
-                    {duplicateInfo.customer_name && <p>客户：{duplicateInfo.customer_name}</p>}
+        {/* ─── Step 2: AI 分析 ─── */}
+        {current === STEP_ANALYSIS && (
+          <div className="wizard-analyze-zone">
+            {loading ? (
+              <div className="wizard-progress">
+                <FileTextOutlined className="wizard-progress-icon" spin />
+                <p className="wizard-progress-text">
+                  {analyzeHint || 'AI 正在分析合同内容...'}
+                </p>
+                <p className="wizard-progress-hint">
+                  系统将自动提取金额、客户、付款条款等关键信息，请稍候
+                </p>
+              </div>
+            ) : duplicateInfo ? (
+              <>
+                <div className="wizard-duplicate-warning">
+                  <div className="wizard-duplicate-title">
+                    <WarningOutlined />
+                    检测到重复合同
                   </div>
-                }
-                style={{ marginBottom: 16, textAlign: 'left' }}
-              />
-              <Space>
-                <Button onClick={handleClose}>取消</Button>
-                <Button
-                  danger
-                  onClick={() => { setDuplicateInfo(null); runAnalysis(true) }}
-                >
-                  仍然创建
-                </Button>
-              </Space>
-            </div>
-          ) : analysisResult ? (
-            <div style={{ textAlign: 'left' }}>
-              <Card size="small" style={{ marginBottom: 16, background: '#f6ffed' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <FileTextOutlined />
-                  <strong>AI 分析完成</strong>
+                  <div className="wizard-duplicate-detail">
+                    <div>编号：<strong>{duplicateInfo.contract_number}</strong></div>
+                    <div>标题：{duplicateInfo.title || '无'}</div>
+                    <div>金额：{duplicateInfo.currency} {Number(duplicateInfo.total_amount || 0).toLocaleString()}</div>
+                    <div>状态：<Tag color={duplicateInfo.status === 'active' ? 'blue' : 'green'}>{duplicateInfo.status === 'active' ? '执行中' : '已完成'}</Tag></div>
+                    {duplicateInfo.customer_name && <div>客户：{duplicateInfo.customer_name}</div>}
+                  </div>
                 </div>
-                <div style={{ fontSize: 13, color: '#555' }}>
-                  {d.title && <p style={{ margin: '4px 0' }}>标题：{d.title}</p>}
-                  {d.business_type && <p style={{ margin: '4px 0' }}>业务类型：{d.business_type}</p>}
-                  {d.total_amount != null && (
-                    <p style={{ margin: '4px 0' }}>
-                      总金额：{d.currency || 'CNY'} {Number(d.total_amount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                    </p>
-                  )}
-                  {d.party_b?.name && <p style={{ margin: '4px 0' }}>乙方：{d.party_b.name}</p>}
-                  {d.party_a?.name && <p style={{ margin: '4px 0' }}>甲方：{d.party_a.name}</p>}
-                  {terms.length > 0 && <p style={{ margin: '4px 0' }}>付款条款：{terms.length} 条</p>}
+                <div style={{ display: 'flex', justifyContent: 'center', gap: 12 }}>
+                  <Button onClick={handleClose}>取消</Button>
+                  <Button type="primary" danger onClick={() => { setDuplicateInfo(null); runAnalysis(true) }}>
+                    仍然创建
+                  </Button>
                 </div>
-              </Card>
-              <div style={{ textAlign: 'center' }}>
-                <Button type="primary" onClick={goFromAnalysisToCustomer} icon={<ArrowRightOutlined />}>
-                  下一步：关联客户
+              </>
+            ) : analysisResult ? (
+              <>
+                <div className="wizard-result-card">
+                  <div className="wizard-result-card-header">
+                    <CheckCircleOutlined />
+                    AI 分析完成
+                  </div>
+                  <div className="wizard-result-fields">
+                    {d.title && (
+                      <div className="wizard-result-field">
+                        <span className="wizard-result-field-label">标题</span>
+                        <span className="wizard-result-field-value">{d.title}</span>
+                      </div>
+                    )}
+                    {d.business_type && (
+                      <div className="wizard-result-field">
+                        <span className="wizard-result-field-label">业务类型</span>
+                        <span className="wizard-result-field-value">{d.business_type}</span>
+                      </div>
+                    )}
+                    {d.total_amount != null && (
+                      <div className="wizard-result-field">
+                        <span className="wizard-result-field-label">总金额</span>
+                        <span className="wizard-result-field-value">
+                          {d.currency || 'CNY'} {Number(d.total_amount).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        </span>
+                      </div>
+                    )}
+                    {d.party_b?.name && (
+                      <div className="wizard-result-field">
+                        <span className="wizard-result-field-label">乙方</span>
+                        <span className="wizard-result-field-value">{d.party_b.name}</span>
+                      </div>
+                    )}
+                    {d.party_a?.name && (
+                      <div className="wizard-result-field">
+                        <span className="wizard-result-field-label">甲方</span>
+                        <span className="wizard-result-field-value">{d.party_a.name}</span>
+                      </div>
+                    )}
+                    {terms.length > 0 && (
+                      <div className="wizard-result-field">
+                        <span className="wizard-result-field-label">付款条款</span>
+                        <span className="wizard-result-field-value">{terms.length} 条</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <Button type="primary" onClick={goFromAnalysisToCustomer} icon={<ArrowRightOutlined />} size="large">
+                    下一步：关联客户
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <div className="wizard-start-btn">
+                <Button type="primary" size="large" onClick={() => runAnalysis(false)} icon={<SearchOutlined />}>
+                  开始 AI 分析
                 </Button>
               </div>
-            </div>
-          ) : (
-            <Button type="primary" onClick={() => runAnalysis(false)}>
-              开始 AI 分析
-            </Button>
-          )}
-        </div>
-      )}
+            )}
+          </div>
+        )}
 
-      {/* ─── Step 3: 客户自动关联 ─── */}
-      {current === STEP_CUSTOMER && (
-        <div style={{ padding: '16px 0' }}>
-          {loading && !resolvedCustomer ? (
-            <div style={{ textAlign: 'center', padding: '40px 0' }}>
-              <Spin size="large" />
-              <p style={{ marginTop: 16, color: '#666' }}>正在自动关联客户...</p>
-            </div>
-          ) : resolvedCustomer ? (
-            <Card size="small" style={{ background: '#f6ffed' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 18 }} />
-                <strong>客户关联成功</strong>
-                <Tag color={resolvedCustomer.created ? 'green' : 'blue'}>
-                  {resolvedCustomer.created ? '新建客户' : '已有客户'}
+        {/* ─── Step 3: 客户自动关联 ─── */}
+        {current === STEP_CUSTOMER && (
+          <div className="wizard-customer-zone">
+            {loading && !resolvedCustomer ? (
+              <div className="wizard-progress">
+                <UserOutlined className="wizard-progress-icon" spin />
+                <p className="wizard-progress-text">正在匹配客户...</p>
+                <p className="wizard-progress-hint">
+                  系统将根据合同中的姓名和联系方式自动匹配或创建客户
+                </p>
+              </div>
+            ) : resolvedCustomer ? (
+              <>
+                <div className="wizard-customer-card">
+                  <div className="wizard-customer-card-header">
+                    <CheckCircleOutlined />
+                    <span style={{ fontSize: 14, fontWeight: 600, color: '#1890ff' }}>
+                      客户关联成功
+                    </span>
+                    <Tag color={resolvedCustomer.created ? 'green' : 'blue'}>
+                      {resolvedCustomer.created ? '新建客户' : '已有客户'}
+                    </Tag>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span className="wizard-customer-name">{resolvedCustomer.name}</span>
+                    {resolvedCustomer.phone && (
+                      <span className="wizard-customer-phone">电话：{resolvedCustomer.phone}</span>
+                    )}
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                  <Button type="primary" size="large" onClick={goNext} icon={<ArrowRightOutlined />}>
+                    下一步：确认创建
+                  </Button>
+                </div>
+              </>
+            ) : resolveError ? (
+              <>
+                <Alert
+                  type="warning"
+                  message={resolveError}
+                  showIcon
+                  style={{ marginBottom: 16 }}
+                />
+                <div className="wizard-fallback-card">
+                  <div className="wizard-fallback-title">手动输入客户信息</div>
+                  <div style={{ display: 'flex', gap: 12, marginBottom: 14 }}>
+                    <Input
+                      placeholder="客户姓名 *"
+                      value={fallbackName}
+                      onChange={e => setFallbackName(e.target.value)}
+                      size="large"
+                      style={{ flex: 1 }}
+                      prefix={<UserOutlined />}
+                    />
+                    <Input
+                      placeholder="电话（选填）"
+                      value={fallbackPhone}
+                      onChange={e => setFallbackPhone(e.target.value)}
+                      size="large"
+                      style={{ flex: 1 }}
+                    />
+                  </div>
+                  <Button type="primary" onClick={handleFallbackCreate} loading={loading} block>
+                    创建客户并继续
+                  </Button>
+                </div>
+              </>
+            ) : null}
+          </div>
+        )}
+
+        {/* ─── Step 4: 确认创建 ─── */}
+        {current === STEP_CONFIRM && (
+          <div className="wizard-confirm-zone">
+            <Card size="small" title="合同信息" className="wizard-summary-card">
+              <div className="wizard-summary-grid">
+                <div className="wizard-summary-grid-item">
+                  <span className="wizard-summary-grid-label">标题：</span>
+                  <span className="wizard-summary-grid-value">{d.title || uploadedFile?.name || '无'}</span>
+                </div>
+                <div className="wizard-summary-grid-item">
+                  <span className="wizard-summary-grid-label">业务类型：</span>
+                  <span className="wizard-summary-grid-value">{d.business_type || '未识别'}</span>
+                </div>
+                <div className="wizard-summary-grid-item">
+                  <span className="wizard-summary-grid-label">币种：</span>
+                  <span className="wizard-summary-grid-value">{d.currency || 'CNY'}</span>
+                </div>
+                <div className="wizard-summary-grid-item">
+                  <span className="wizard-summary-grid-label">总金额：</span>
+                  <span className="wizard-summary-grid-value">
+                    {d.currency || 'CNY'} {Number(d.total_amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                  </span>
+                </div>
+                <div className="wizard-summary-grid-item">
+                  <span className="wizard-summary-grid-label">签订日期：</span>
+                  <span className="wizard-summary-grid-value">{d.signed_date || '未识别'}</span>
+                </div>
+                <div className="wizard-summary-grid-item">
+                  <span className="wizard-summary-grid-label">有效期：</span>
+                  <span className="wizard-summary-grid-value">
+                    {validity.start_date && validity.end_date
+                      ? `${validity.start_date} ~ ${validity.end_date}`
+                      : '未识别'}
+                  </span>
+                </div>
+              </div>
+              {d.business_description && (
+                <div style={{ marginTop: 10, fontSize: 13 }}>
+                  <span className="wizard-summary-grid-label">业务描述：</span>
+                  <span className="wizard-summary-grid-value">{d.business_description}</span>
+                </div>
+              )}
+              {d.wechat_group && (
+                <div style={{ marginTop: 4, fontSize: 13 }}>
+                  <span className="wizard-summary-grid-label">微信群：</span>
+                  <span className="wizard-summary-grid-value">{d.wechat_group}</span>
+                </div>
+              )}
+            </Card>
+
+            <Card size="small" title="客户信息" className="wizard-summary-card">
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <UserOutlined style={{ fontSize: 16, color: 'var(--brand-primary)' }} />
+                <span style={{ fontSize: 14, fontWeight: 600 }}>{resolvedCustomer?.name}</span>
+                {resolvedCustomer?.phone && (
+                  <span style={{ fontSize: 13, color: 'var(--text-tertiary)' }}>
+                    电话：{resolvedCustomer.phone}
+                  </span>
+                )}
+                <Tag color={resolvedCustomer?.created ? 'green' : 'blue'}>
+                  {resolvedCustomer?.created ? '新建' : '已有'}
                 </Tag>
               </div>
-              <div style={{ fontSize: 13 }}>
-                <strong>{resolvedCustomer.name}</strong>
-                {resolvedCustomer.phone && (
-                  <span style={{ marginLeft: 12, color: '#888' }}>电话: {resolvedCustomer.phone}</span>
-                )}
-              </div>
             </Card>
-          ) : resolveError ? (
-            <div>
-              <Alert type="warning" message={resolveError} showIcon style={{ marginBottom: 12 }} />
-              <Card size="small" title="手动输入客户信息">
-                <div style={{ display: 'flex', gap: 12, marginBottom: 12 }}>
-                  <Input
-                    placeholder="客户姓名 *"
-                    value={fallbackName}
-                    onChange={e => setFallbackName(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                  <Input
-                    placeholder="电话（选填）"
-                    value={fallbackPhone}
-                    onChange={e => setFallbackPhone(e.target.value)}
-                    style={{ flex: 1 }}
-                  />
-                </div>
-                <Button type="primary" size="small" onClick={handleFallbackCreate} loading={loading}>
-                  创建客户
-                </Button>
-              </Card>
-            </div>
-          ) : null}
-        </div>
-      )}
 
-      {/* ─── Step 4: 只读确认摘要 ─── */}
-      {current === STEP_CONFIRM && (
-        <div>
-          <Card size="small" title="合同信息" style={{ marginBottom: 12 }}>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px 24px', fontSize: 13 }}>
-              <div><span style={{ color: '#888' }}>标题：</span>{d.title || uploadedFile?.name || '无'}</div>
-              <div><span style={{ color: '#888' }}>业务类型：</span>{d.business_type || '未识别'}</div>
-              <div><span style={{ color: '#888' }}>币种：</span>{d.currency || 'CNY'}</div>
-              <div>
-                <span style={{ color: '#888' }}>总金额：</span>
-                {d.currency || 'CNY'} {Number(d.total_amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-              </div>
-              <div><span style={{ color: '#888' }}>签订日期：</span>{d.signed_date || '未识别'}</div>
-              <div>
-                <span style={{ color: '#888' }}>有效期：</span>
-                {validity.start_date && validity.end_date
-                  ? `${validity.start_date} ~ ${validity.end_date}`
-                  : '未识别'}
-              </div>
-            </div>
-            {d.business_description && (
-              <div style={{ marginTop: 8, fontSize: 13 }}>
-                <span style={{ color: '#888' }}>业务描述：</span>{d.business_description}
-              </div>
-            )}
-            {d.wechat_group && (
-              <div style={{ marginTop: 4, fontSize: 13 }}>
-                <span style={{ color: '#888' }}>微信群：</span>{d.wechat_group}
-              </div>
-            )}
-          </Card>
-
-          <Card size="small" title="客户信息" style={{ marginBottom: 12 }}>
-            <div style={{ fontSize: 13, display: 'flex', alignItems: 'center', gap: 8 }}>
-              <UserOutlined />
-              <strong>{resolvedCustomer?.name}</strong>
-              {resolvedCustomer?.phone && (
-                <span style={{ color: '#888' }}>电话: {resolvedCustomer.phone}</span>
-              )}
-              <Tag color={resolvedCustomer?.created ? 'green' : 'blue'}>
-                {resolvedCustomer?.created ? '新建' : '已有'}
-              </Tag>
-            </div>
-          </Card>
-
-          {terms.length > 0 && (
-            <Card size="small" title={`付款条款（${terms.length} 条）`}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-                <thead>
-                  <tr style={{ background: '#fafafa', borderBottom: '1px solid #f0f0f0' }}>
-                    <th style={{ padding: '6px 8px', textAlign: 'left' }}>款项名称</th>
-                    <th style={{ padding: '6px 8px', textAlign: 'right' }}>金额</th>
-                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>应付日期</th>
-                    <th style={{ padding: '6px 8px', textAlign: 'center' }}>已付</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {terms.map((t: any, i: number) => (
-                    <tr key={i} style={{ borderBottom: '1px solid #f5f5f5' }}>
-                      <td style={{ padding: '6px 8px' }}>{t.name || '-'}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'right' }}>
-                        {Number(t.amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
-                      </td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{t.due_date || '-'}</td>
-                      <td style={{ padding: '6px 8px', textAlign: 'center' }}>{t.is_paid ? '✓' : '✗'}</td>
+            {terms.length > 0 && (
+              <Card size="small" title={`付款条款（${terms.length} 条）`} className="wizard-summary-card">
+                <table className="wizard-summary-table">
+                  <thead>
+                    <tr>
+                      <th>款项名称</th>
+                      <th style={{ textAlign: 'right' }}>金额</th>
+                      <th style={{ textAlign: 'center' }}>应付日期</th>
+                      <th style={{ textAlign: 'center' }}>已付</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </Card>
-          )}
-        </div>
-      )}
+                  </thead>
+                  <tbody>
+                    {terms.map((t: any, i: number) => (
+                      <tr key={i}>
+                        <td>{t.name || '-'}</td>
+                        <td className="right">
+                          {Number(t.amount || 0).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}
+                        </td>
+                        <td className="center">{t.due_date || '-'}</td>
+                        <td className="center">{t.is_paid ? '✓' : '✗'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Card>
+            )}
+          </div>
+        )}
+      </div>
 
       {/* ─── 底部按钮 ─── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 24, borderTop: '1px solid #f0f0f0', paddingTop: 16 }}>
-        <Button onClick={current === STEP_UPLOAD ? handleClose : goPrev} icon={current === STEP_UPLOAD ? undefined : <ArrowLeftOutlined />}>
+      <div className="wizard-footer">
+        <Button
+          onClick={current === STEP_UPLOAD ? handleClose : goPrev}
+          icon={current > STEP_UPLOAD ? <ArrowLeftOutlined /> : undefined}
+        >
           {current === STEP_UPLOAD ? '取消' : '上一步'}
         </Button>
-        <div style={{ display: 'flex', gap: 8 }}>
-          {current === STEP_CUSTOMER && (
-            <Button type="primary" onClick={goNext} disabled={!resolvedCustomer} loading={loading} icon={<ArrowRightOutlined />}>
-              下一步
-            </Button>
-          )}
+
+        <div className="wizard-footer-right">
           {current === STEP_CONFIRM && (
             <Button type="primary" onClick={handleSubmit} loading={loading} icon={<CheckOutlined />}>
               确认创建

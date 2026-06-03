@@ -1,0 +1,345 @@
+/* ============================================================
+   合同上传向导 · 专用样式
+   原则：弹窗尺寸稳定 | 内容平滑过渡 | 处理过程可视
+   ============================================================ */
+
+/* ── 弹窗容器 ── */
+.wizard-modal .ant-modal-content {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.wizard-modal .ant-modal-body {
+  padding: 24px 28px;
+  min-height: 440px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 步骤条 ── */
+.wizard-steps {
+  margin-bottom: 28px;
+  flex-shrink: 0;
+}
+
+.wizard-steps .ant-steps-item-title {
+  font-size: 13px !important;
+}
+
+/* ── 内容区（弹性占满，内部居中）── */
+.wizard-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── Step 1: 上传区域 ── */
+.wizard-upload-zone {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 0 30px;
+}
+
+.wizard-upload-zone .ant-upload-drag {
+  border: 2px dashed var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  transition: all 0.25s ease;
+  width: 100%;
+  max-width: 480px;
+}
+
+.wizard-upload-zone .ant-upload-drag:hover {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary-lighter);
+}
+
+/* ── Step 2: 分析区域 ── */
+.wizard-analyze-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 进度反馈（居中） */
+.wizard-progress {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.wizard-progress-icon {
+  font-size: 52px;
+  color: var(--brand-primary);
+  margin-bottom: 24px;
+  opacity: 0.85;
+}
+
+.wizard-progress-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.wizard-progress-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+/* 开始分析按钮 */
+.wizard-start-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.wizard-start-btn .ant-btn {
+  height: 44px;
+  padding: 0 32px;
+  font-size: 15px;
+  border-radius: var(--radius-md);
+}
+
+/* 分析结果卡片 */
+.wizard-result-card {
+  background: linear-gradient(135deg, #f0fdf6 0%, #f6ffed 100%);
+  border: 1px solid #b7eb8f;
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  margin-bottom: 12px;
+}
+
+.wizard-result-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 14px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.wizard-result-card-header .anticon {
+  font-size: 18px;
+  color: #52c41a;
+}
+
+.wizard-result-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+}
+
+.wizard-result-field {
+  font-size: 13px;
+  line-height: 1.8;
+}
+
+.wizard-result-field-label {
+  color: var(--text-tertiary);
+  margin-right: 4px;
+}
+
+.wizard-result-field-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* 重复警告 */
+.wizard-duplicate-warning {
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  margin-bottom: 16px;
+}
+
+.wizard-duplicate-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #ad6800;
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.wizard-duplicate-detail {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.8;
+}
+
+/* ── Step 3: 客户关联 ── */
+.wizard-customer-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* 客户结果卡片 */
+.wizard-customer-card {
+  background: linear-gradient(135deg, #f0f9ff 0%, #e6f7ff 100%);
+  border: 1px solid #91d5ff;
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  margin-bottom: 12px;
+}
+
+.wizard-customer-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.wizard-customer-card-header .anticon {
+  font-size: 18px;
+  color: #1890ff;
+}
+
+.wizard-customer-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-right: 8px;
+}
+
+.wizard-customer-phone {
+  font-size: 13px;
+  color: var(--text-tertiary);
+}
+
+/* 兜底表单卡片 */
+.wizard-fallback-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  padding: 18px 20px;
+  background: var(--bg-surface);
+}
+
+.wizard-fallback-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 14px;
+}
+
+/* ── Step 4: 确认信息 ── */
+.wizard-confirm-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.wizard-summary-card {
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+}
+
+.wizard-summary-card .ant-card-head {
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border-light);
+  min-height: 40px;
+}
+
+.wizard-summary-card .ant-card-body {
+  padding: 16px 20px;
+}
+
+.wizard-summary-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 24px;
+  font-size: 13px;
+}
+
+.wizard-summary-grid-item {
+  line-height: 1.8;
+}
+
+.wizard-summary-grid-label {
+  color: var(--text-tertiary);
+}
+
+.wizard-summary-grid-value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.wizard-summary-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.wizard-summary-table th {
+  background: var(--bg-subtle);
+  padding: 8px 10px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  letter-spacing: 0.3px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.wizard-summary-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.wizard-summary-table td.right {
+  text-align: right;
+  font-family: var(--font-mono);
+}
+
+.wizard-summary-table td.center {
+  text-align: center;
+}
+
+/* ── 底部按钮栏 ── */
+.wizard-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.wizard-footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── 响应式 ── */
+@media (max-width: 768px) {
+  .wizard-modal {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  .wizard-modal .ant-modal-body {
+    padding: 16px;
+    min-height: 380px;
+  }
+
+  .wizard-result-fields,
+  .wizard-summary-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -942,13 +942,23 @@ class ToolExecutor:
                 installment_number = PaymentService.get_next_installment_number(
                     self.db, contract.id, "income"
                 )
+                # 使用条款中的付款日期，回退到合同签订日
+                payment_date = contract.signed_date or date.today()
+                term_due_date = term.get("due_date")
+                if term_due_date and isinstance(term_due_date, str):
+                    try:
+                        parsed = date.fromisoformat(term_due_date.strip())
+                        payment_date = parsed
+                    except (ValueError, TypeError):
+                        pass  # 解析失败，保持 signed_date
+
                 payment = PaymentService.create_payment_with_exchange_rate(
                     db=self.db,
                     contract_id=contract.id,
                     installment_number=installment_number,
                     currency=contract.currency,
                     amount=Decimal(str(term_amount)),
-                    paid_date=contract.signed_date or date.today(),
+                    paid_date=payment_date,
                     payment_method="unknown",
                     receipt_image_path=matched_receipt,
                     notes="合同标注已付，待补充凭证" if not matched_receipt else "合同标注已付，已关联凭证",
@@ -967,8 +977,8 @@ class ToolExecutor:
                     "status": payment.status,
                 })
                 logger.info(
-                    "自动创建付款: contract_id=%d, term=%s, amount=%s, receipt=%s → status=%s",
-                    contract.id, term.get("name"), term_amount,
+                    "自动创建付款: contract_id=%d, term=%s, amount=%s, paid_date=%s, receipt=%s → status=%s",
+                    contract.id, term.get("name"), term_amount, payment_date,
                     "有" if matched_receipt else "无",
                     payment.status,
                 )

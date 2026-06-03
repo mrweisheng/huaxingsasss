@@ -18,6 +18,7 @@ from app.models.customer import Customer
 from app.models.payment import Payment
 from app.schemas.contract import ContractCreate, ContractUpdate
 from app.services.audit_service import AuditService
+from app.services.exchange_rate_service import ExchangeRateService
 
 logger = logging.getLogger(__name__)
 
@@ -204,7 +205,26 @@ class ContractService:
         db.add(contract)
         db.commit()
         db.refresh(contract)
-        
+
+        # 非 CNY 合同：按签订日汇率计算 total_amount_in_cny
+        if contract.currency != "CNY" and contract.total_amount > 0:
+            rate_date = contract.signed_date or date.today()
+            try:
+                exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
+                    db, contract.total_amount, contract.currency, rate_date
+                )
+                contract.total_amount_in_cny = total_in_cny
+                contract.remaining_amount_in_cny = total_in_cny  # paid_amount=0, 所以 remaining = total
+                db.commit()
+                db.refresh(contract)
+                logger.info(
+                    "合同CNY等值计算: contract_id=%d, %s %s → %s CNY (汇率=%s, 日期=%s)",
+                    contract.id, contract.total_amount, contract.currency,
+                    total_in_cny, exchange_rate, rate_date,
+                )
+            except Exception as e:
+                logger.warning("合同CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
+
         return contract
     
     @staticmethod

@@ -1,6 +1,7 @@
 """
 汇率服务
 """
+import logging
 from decimal import Decimal
 from datetime import date, timedelta
 from typing import Optional, Tuple
@@ -8,6 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.models.exchange_rate import ExchangeRate
 from app.config import settings
+
+logger = logging.getLogger(__name__)
 
 
 class ExchangeRateService:
@@ -28,6 +31,12 @@ class ExchangeRateService:
         """
         获取指定日期的汇率
 
+        查找优先级：
+        1. 数据库精确日期匹配
+        2. API 自动获取（frankfurter.dev → open.er-api.com）并存库
+        3. 数据库 30 天内最近 / 系统默认
+        4. 硬编码 fallback
+
         Args:
             from_currency: 源币种（HKD/USD等）
             to_currency: 目标币种（默认CNY）
@@ -39,14 +48,81 @@ class ExchangeRateService:
         if from_currency == to_currency:
             return Decimal('1.0')
 
+        # 1. 精确日期匹配
+        exact = db.query(ExchangeRate).filter(
+            ExchangeRate.from_currency == from_currency,
+            ExchangeRate.to_currency == to_currency,
+            ExchangeRate.rate_date == rate_date,
+            ExchangeRate.is_active == True
+        ).first()
+        if exact:
+            return exact.rate
+
+        # 2. API 按需获取（查不到精确日期时自动调 API）
+        fetched = ExchangeRateService._fetch_and_save_rate(
+            db, from_currency, to_currency, rate_date
+        )
+        if fetched:
+            return fetched
+
+        # 3+4. 30天内最近 / 系统默认 / 硬编码 fallback
         record = ExchangeRateService._query_rate_record(db, from_currency, to_currency, rate_date)
         if record:
             return record.rate
 
         fallback = ExchangeRateService.FALLBACK_RATES.get((from_currency.upper(), to_currency.upper()))
         if fallback:
+            logger.warning(
+                "汇率 fallback 到硬编码: %s/%s, date=%s, rate=%s",
+                from_currency, to_currency, rate_date, fallback,
+            )
             return fallback
 
+        return None
+
+    @staticmethod
+    def _fetch_and_save_rate(
+        db: Session,
+        from_currency: str,
+        to_currency: str,
+        rate_date: date
+    ) -> Optional[Decimal]:
+        """
+        从 API 获取指定日期汇率并存入数据库。
+
+        仅在数据库无精确日期记录时调用，避免重复请求。
+        返回获取到的汇率值，失败返回 None。
+        """
+        if to_currency != "CNY":
+            return None
+
+        try:
+            from app.services.exchange_rate_fetcher import fetch_rate_for_date
+            result = fetch_rate_for_date(from_currency, rate_date)
+            if result and result.get("rate"):
+                rate = Decimal(str(result["rate"]))
+                actual_date = date.fromisoformat(result["actual_date"]) if isinstance(result["actual_date"], str) else result["actual_date"]
+                source = result["source"]
+
+                # 存入数据库（用 API 返回的实际日期，可能是最近工作日）
+                ExchangeRateService.update_exchange_rate(
+                    db=db,
+                    from_currency=from_currency,
+                    to_currency=to_currency,
+                    rate=rate,
+                    rate_date=actual_date,
+                    source=source,
+                )
+                logger.info(
+                    "API 自动获取汇率: %s/%s = %s, date=%s, source=%s",
+                    from_currency, to_currency, rate, actual_date, source,
+                )
+                return rate
+        except Exception as e:
+            logger.warning(
+                "API 自动获取汇率失败: %s/%s, date=%s, error=%s",
+                from_currency, to_currency, rate_date, e,
+            )
         return None
 
     @staticmethod

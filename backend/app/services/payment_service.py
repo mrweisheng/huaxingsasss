@@ -68,10 +68,13 @@ class PaymentService:
             raise ValueError(f"合同不存在：{contract_id}")
 
         # 以合同货币为基准：同币种不换算，混币种按实时汇率换算
-        if currency == contract.currency:
+        # 同币种非 CNY（如港币合同付港币）：仍计算 CNY 等值，用于全局统计和利润计算
+        if currency == "CNY" and contract.currency == "CNY":
+            # 都是人民币，无需任何换算
             exchange_rate = None
             amount_in_cny = None
-        else:
+        elif currency != contract.currency:
+            # 混币种：付款币种 ≠ 合同币种，按付款日汇率折算 CNY
             exchange_rate, amount_in_cny = ExchangeRateService.convert_to_cny(
                 db, amount, currency, paid_date
             )
@@ -79,6 +82,15 @@ class PaymentService:
                 "混币种付款: payment=%s %s, contract=%s %s, rate=%s, amount_in_cny=%s CNY",
                 amount, currency, contract.total_amount, contract.currency,
                 exchange_rate, amount_in_cny,
+            )
+        else:
+            # 同币种且非 CNY（如港币合同付港币）：计算 CNY 等值
+            exchange_rate, amount_in_cny = ExchangeRateService.convert_to_cny(
+                db, amount, currency, paid_date
+            )
+            logger.info(
+                "同币种非CNY付款: payment=%s %s, rate=%s, amount_in_cny=%s CNY",
+                amount, currency, exchange_rate, amount_in_cny,
             )
 
         has_receipt = bool(receipt_image_path)
@@ -278,7 +290,7 @@ class PaymentService:
             payment.status = 'paid'
             contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
             if contract:
-                amount_in_cny = payment.paid_amount_in_cny  # 同币种时为 None，由 _add_to_* 方法跳过 CNY 更新
+                amount_in_cny = payment.paid_amount_in_cny  # 仅 CNY 合同+CNY 付款时为 None，_add_to_* 会跳过 CNY 更新
                 if payment.type == "expense":
                     PaymentService._add_to_contract_expense(
                         db, contract, payment.paid_amount, payment.currency,
