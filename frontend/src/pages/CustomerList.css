@@ -11,7 +11,7 @@
 /* ── 客户卡片网格 ── */
 .customer-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
   gap: 14px;
 }
 
@@ -67,7 +67,7 @@
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  margin-bottom: 12px;
+  margin-bottom: 6px;
 }
 
 .customer-name {
@@ -97,76 +97,233 @@
   box-shadow: 0 2px 8px rgba(30, 58, 95, 0.2);
 }
 
-/* ── 联系方式 ── */
-.contact-section {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-md);
-}
-
-.contact-row {
+/* ── 联系人：紧凑一行 ── */
+.contact-inline {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
-}
-
-.contact-icon {
-  color: var(--text-tertiary);
-  font-size: 13px;
-  width: 16px;
-  text-align: center;
-  flex-shrink: 0;
-}
-
-.contact-label {
-  color: var(--text-tertiary);
-  min-width: 32px;
-  font-size: 12px;
-}
-
-.contact-value {
-  color: var(--text-primary);
-  font-weight: 500;
-}
-
-/* ── 信息网格 ── */
-.info-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 6px;
-  margin-bottom: 12px;
-}
-
-.info-item {
-  display: flex;
-  align-items: center;
-  gap: 6px;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-secondary);
-  padding: 5px 10px;
-  background: var(--bg-subtle);
-  border-radius: var(--radius-sm);
+  margin-bottom: 12px;
+  min-height: 18px;
+}
+
+.contact-inline-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-secondary);
+}
+
+.contact-inline-item .anticon {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.contact-inline-item span:last-child {
+  max-width: 120px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  border: 1px solid var(--border-light);
 }
 
-.info-item .info-icon {
+.contact-inline-empty {
   color: var(--text-tertiary);
   font-size: 12px;
+}
+
+/* ── 关联合同区域 ── */
+.contracts-section {
+  margin-bottom: 10px;
+}
+
+.contracts-header {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+}
+
+.contracts-header-icon {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.contracts-header-label {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+}
+
+.contracts-header-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--brand-primary);
+  margin-left: auto;
+}
+
+/* ── 合同列表 ── */
+.contracts-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+/* ── 合同行 ── */
+.contract-row {
+  padding: 8px 10px;
+  background: var(--bg-subtle);
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.contract-row:hover {
+  background: var(--brand-primary-lighter, rgba(30, 58, 95, 0.04));
+  border-color: rgba(30, 58, 95, 0.15);
+}
+
+.contract-row-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.contract-number {
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono, 'JetBrains Mono', monospace);
+  color: var(--text-primary);
+}
+
+.contract-row-tags {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.business-type-tag {
+  font-size: 10px;
+  background: rgba(30, 58, 95, 0.06);
+  color: var(--text-secondary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  line-height: 16px;
+}
+
+/* ── 状态圆点 ── */
+.status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   flex-shrink: 0;
 }
 
-.info-item .info-text {
+.status-dot-active {
+  background: #1D9E75;
+}
+
+.status-dot-completed {
+  background: #639922;
+}
+
+.status-dot-draft {
+  background: #B4B2A9;
+}
+
+/* ── 合同金额 + 进度 ── */
+.contract-row-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.contract-amount {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.contract-progress {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.progress-track {
+  width: 44px;
+  height: 4px;
+  background: var(--border-light);
+  border-radius: 2px;
   overflow: hidden;
-  text-overflow: ellipsis;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+}
+
+.progress-fill.fill-active {
+  background: #1D9E75;
+}
+
+.progress-fill.fill-completed {
+  background: #639922;
+}
+
+.progress-text {
+  font-size: 10px;
+  color: var(--text-tertiary);
   white-space: nowrap;
+}
+
+/* ── 更多合同 ── */
+.contracts-more {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
+  padding: 4px 0;
+}
+
+/* ── 无合同占位 ── */
+.contracts-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 14px 0;
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* ── 合同骨架屏 ── */
+.contracts-skeleton {
+  padding: 14px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.skeleton-line {
+  height: 10px;
+  background: var(--bg-subtle);
+  border-radius: 4px;
+  width: 100%;
+  animation: skeletonPulse 1.5s ease-in-out infinite;
+}
+
+.skeleton-line.short {
+  width: 60%;
+}
+
+@keyframes skeletonPulse {
+  0%, 100% { opacity: 0.4; }
+  50% { opacity: 0.8; }
 }
 
 /* ── 卡片底部 ── */
@@ -174,7 +331,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding-top: 12px;
+  padding-top: 10px;
   border-top: 1px solid var(--border-light);
 }
 
@@ -277,9 +434,6 @@
   .customer-grid {
     grid-template-columns: 1fr;
   }
-  .info-grid {
-    grid-template-columns: 1fr;
-  }
   .pagination {
     flex-direction: column;
     gap: 12px;
@@ -292,12 +446,12 @@
 
 @media (min-width: 1400px) {
   .customer-grid {
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
   }
 }
 
-@media (min-width: 1600px) {
+@media (min-width: 1700px) {
   .customer-grid {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(4, 1fr);
   }
 }

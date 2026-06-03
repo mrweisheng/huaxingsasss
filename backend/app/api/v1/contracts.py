@@ -25,9 +25,10 @@ router = APIRouter()
 @router.get("", response_model=PaginatedResponse[ContractResponse])
 def list_contracts(
     page: int = Query(1, ge=1, description="页码"),
-    per_page: int = Query(20, ge=1, le=100, description="每页数量"),
+    per_page: int = Query(20, ge=1, le=500, description="每页数量"),
     status: Optional[str] = Query(None, description="合同状态"),
-    customer_id: Optional[int] = Query(None, description="客户ID"),
+    customer_id: Optional[int] = Query(None, description="客户ID（单个）"),
+    customer_ids: Optional[str] = Query(None, description="客户ID列表，逗号分隔（如 1,3,5）"),
     customer_name: Optional[str] = Query(None, description="客户名称"),
     keyword: Optional[str] = Query(None, description="搜索关键词"),
     date_from: Optional[date] = Query(None, description="签订日期起始"),
@@ -41,13 +42,19 @@ def list_contracts(
         sales_person_id = current_user.id
     else:
         sales_person_id = None
-    
+
+    # 解析 customer_ids
+    parsed_customer_ids: Optional[List[int]] = None
+    if customer_ids:
+        parsed_customer_ids = [int(cid.strip()) for cid in customer_ids.split(",") if cid.strip()]
+
     items, total = ContractService.get_contracts(
         db=db,
         page=page,
         per_page=per_page,
         status=status,
         customer_id=customer_id,
+        customer_ids=parsed_customer_ids,
         customer_name=customer_name,
         keyword=keyword,
         date_from=date_from,

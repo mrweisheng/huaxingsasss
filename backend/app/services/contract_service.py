@@ -44,6 +44,7 @@ class ContractService:
         sales_person_id: Optional[int] = None,
         contract_number: Optional[str] = None,
         business_type: Optional[str] = None,
+        customer_ids: Optional[List[int]] = None,
     ) -> tuple[List[Contract], int]:
         """
         获取合同列表
@@ -52,6 +53,8 @@ class ContractService:
             business_type: 业务类型过滤。
                 - 传入非空字符串 → WHERE business_type IN (传入值, NULL)，存量合同 NULL 兜底包含
                 - None/空 → 不过滤
+            customer_ids: 批量客户ID列表。
+                - 传入非空列表 → WHERE customer_id IN (...)
 
         Returns:
             (合同列表, 总数)
@@ -71,9 +74,13 @@ class ContractService:
         if status:
             query = query.filter(Contract.status == status)
 
-        # 客户ID过滤
+        # 客户ID过滤（单个）
         if customer_id:
             query = query.filter(Contract.customer_id == customer_id)
+
+        # 客户ID批量过滤
+        if customer_ids:
+            query = query.filter(Contract.customer_id.in_(customer_ids))
 
         # 业务员过滤
         if sales_person_id:

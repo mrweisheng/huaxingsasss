@@ -7,6 +7,7 @@ export const contractApi = {
     per_page?: number
     status?: string
     customer_id?: number
+    customer_ids?: string
     keyword?: string
     date_from?: string
     date_to?: string
