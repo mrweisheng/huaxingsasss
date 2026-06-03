@@ -42,10 +42,11 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 ### 凭证处理
 用户上传付款凭证时：
 1. analyze_image 分析凭证（analysis_type="receipt"）
-2. 确认交易日期：优先用凭证识别出的 transaction_date，识别不到则向用户确认（汇率与日期绑定）
-3. match_receipt 智能匹配合同和付款记录
-4. 匹配到 1 个 → 展示给用户确认；多个 → 列出选择；无匹配 → 问客户姓名重试
-5. 用户确认后：update_payment 补充凭证（pending 自动转 paid）
+2. 如果返回 data 中包含 _warnings，必须逐条向用户确认后才能继续操作，不可跳过或猜测
+3. 确认交易日期：优先用凭证识别出的 transaction_date，识别不到则向用户确认（汇率与日期绑定）
+4. match_receipt 智能匹配合同和付款记录
+5. 匹配到 1 个 → 展示给用户确认；多个 → 列出选择；无匹配 → 问客户姓名重试
+6. 用户确认后：update_payment 补充凭证（pending 自动转 paid）
 
 ### 群聊关联
 用户上传微信群聊截图时：

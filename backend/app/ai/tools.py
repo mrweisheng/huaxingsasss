@@ -136,6 +136,16 @@ class ToolExecutor:
         sid = self.session_id or "nosession"
         return f"vl:{analysis_type}:{sid}:{file_id}"
 
+    def _inject_receipt_warnings(self, structured: dict) -> None:
+        """凭证分析结果：检测币种/交易日期缺失，注入 _warnings 强制 LLM 向用户确认。"""
+        warnings = []
+        if not structured.get("currency"):
+            warnings.append("⚠️ 币种未识别：请向用户确认这笔付款的币种（CNY/HKD/USD），不可猜测或默认")
+        if not structured.get("transaction_date"):
+            warnings.append("⚠️ 交易日期未识别：请向用户确认付款日期（汇率与日期绑定，日期不同汇率不同）")
+        if warnings:
+            structured["_warnings"] = warnings
+
     def _summarize_analysis_for_context(self, structured: dict) -> dict:
         """压缩 VL 分析结果再返回给 LLM context，剥离大字段（完整数据已缓存供后续工具取用）"""
         if not isinstance(structured, dict):
@@ -2136,6 +2146,9 @@ class ToolExecutor:
                     structured = {"raw": content}
 
                 self._document_context = analysis_type
+                # 凭证类型：检测关键字段缺失，注入 _warnings 强制 LLM 向用户确认
+                if analysis_type == "receipt" and isinstance(structured, dict):
+                    self._inject_receipt_warnings(structured)
                 # 缓存 VL 完整输出，后续 create_contract 等工具可直接取用，避免 LLM 搬运丢失字段
                 self._cache_analysis(file_id, analysis_type, structured)
                 # 分析成功后立即将文件从 temp 复制到凭证永久目录，避免跨回合 temp 清理导致凭证丢失
@@ -2217,6 +2230,8 @@ class ToolExecutor:
                             if analysis_type == "contract" and isinstance(structured, dict):
                                 structured["full_text"] = full_text
                             self._document_context = analysis_type
+                            if analysis_type == "receipt" and isinstance(structured, dict):
+                                self._inject_receipt_warnings(structured)
                             self._cache_analysis(file_id, analysis_type, structured)
                             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
                             receipt_path = permanent_path or f"agent_upload/{file_id}"
@@ -2273,6 +2288,8 @@ class ToolExecutor:
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
                             self._document_context = analysis_type
+                            if analysis_type == "receipt" and isinstance(structured, dict):
+                                self._inject_receipt_warnings(structured)
                             self._cache_analysis(file_id, analysis_type, structured)
                             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
                             receipt_path = permanent_path or f"agent_upload/{file_id}"

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
 import {
-  Modal, Steps, Button, Upload, Input, Spin, Alert, Tag, Space, message, Card,
+  Modal, Steps, Button, Upload, Input, Alert, Tag, message, Card,
 } from 'antd'
 import {
   InboxOutlined, ArrowLeftOutlined, ArrowRightOutlined, CheckOutlined,

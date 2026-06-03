@@ -1,18 +1,17 @@
 """
-外汇牌价获取服务 - frankfurter.dev + open.er-api.com 双源方案
+外汇牌价获取服务 - frankfurter.dev + currency-api 双源方案
 
 架构：
   1. 优先调用 frankfurter.dev（ECB 参考汇率，免费、无需 API Key）
-  2. 失败时使用 open.er-api.com（备用，免费、无需 API Key）
+  2. 失败时使用 @fawazahmed0/currency-api（jsDelivr CDN，免费、无需 API Key）
   3. 都失败时返回空结果（上层任务会记录错误）
 
 数据来源：
-  - 主：frankfurter.dev（European Central Bank reference rates）
-  - 备用：open.er-api.com（exchangerate-api.com free tier）
+  - 主：frankfurter.dev（European Central Bank reference rates，支持 1999 至今历史汇率）
+  - 备用：@fawazahmed0/currency-api（jsDelivr CDN，支持 2024-03-02 至今历史汇率）
 
 特性：
   - 支持当日汇率和任意历史日期汇率查询
-  - 支持日期范围批量查询（用于补齐历史数据）
   - 纯 REST API，不依赖网页爬取
 """
 import logging
@@ -27,7 +26,7 @@ logger = logging.getLogger(__name__)
 # ========== 汇率数据源配置 ==========
 
 FRANKFURTER_BASE = "https://api.frankfurter.dev/v1"
-ER_API_BASE = "https://open.er-api.com/v6"
+CURRENCY_API_BASE = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api"
 
 REQUEST_TIMEOUT = 15.0
 
@@ -71,18 +70,18 @@ def fetch_exchange_rates() -> Dict[str, Optional[float]]:
     except Exception as e:
         logger.warning("frankfurter.dev 汇率获取失败: %s，尝试备用源...", e)
 
-    # 备用源：open.er-api.com
+    # 备用源：@fawazahmed0/currency-api (jsDelivr CDN)
     try:
-        rates = _validate_rates(_fetch_er_api("latest"))
+        rates = _validate_rates(_fetch_currency_api("latest"))
         if rates["hkdcny"] is not None or rates["usdcny"] is not None:
             result.update(rates)
             logger.info(
-                "汇率获取成功（er-api.com 备用）: HKD/CNY=%s, USD/CNY=%s",
+                "汇率获取成功（currency-api 备用）: HKD/CNY=%s, USD/CNY=%s",
                 rates["hkdcny"], rates["usdcny"],
             )
             return result
     except Exception as e:
-        logger.warning("er-api.com 汇率获取失败: %s", e)
+        logger.warning("currency-api 汇率获取失败: %s", e)
 
     logger.error("汇率获取全部失败，返回空结果")
     return result
@@ -122,18 +121,18 @@ def fetch_rate_for_date(
         logger.warning("frankfurter.dev 历史汇率获取失败 (%s, %s): %s",
                        currency, date_str, e)
 
-    # 备用源
+    # 备用源：@fawazahmed0/currency-api
     try:
-        result = _fetch_er_api(date_str, [currency])
+        result = _fetch_currency_api(date_str, [currency])
         key = RATE_KEYS.get(currency)
         if key and result.get(key) is not None:
             return {
                 "rate": result[key],
                 "actual_date": result.get("date", date_str),
-                "source": "er-api",
+                "source": "currency-api",
             }
     except Exception as e:
-        logger.warning("er-api.com 历史汇率获取失败 (%s, %s): %s",
+        logger.warning("currency-api 历史汇率获取失败 (%s, %s): %s",
                        currency, date_str, e)
 
     return None
@@ -178,12 +177,16 @@ def _fetch_frankfurter(
     return result
 
 
-def _fetch_er_api(
+def _fetch_currency_api(
     date_or_latest: str,
     currencies: list = None,
 ) -> Dict[str, Optional[float]]:
     """
-    从 open.er-api.com 获取汇率（备用源）。
+    从 @fawazahmed0/currency-api (jsDelivr CDN) 获取汇率（备用源）。
+
+    支持历史日期查询（2024-03-02 至今），无需 API Key，无速率限制。
+    URL 格式：https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{date}/v1/currencies/{code}.json
+    返回格式：{"date": "...", "hkd": {"cny": 0.92, "usd": 0.13, ...}}
 
     Args:
         date_or_latest: "latest" 或日期字符串 "YYYY-MM-DD"
@@ -191,35 +194,39 @@ def _fetch_er_api(
     """
     currencies = currencies or CURRENCIES
 
-    if date_or_latest == "latest":
-        url = f"{ER_API_BASE}/latest/HKD"
-    else:
-        url = f"{ER_API_BASE}/latest/HKD"
+    version = "latest" if date_or_latest == "latest" else date_or_latest
 
+    result = {"source": "currency-api", "date": date_or_latest}
+
+    # 先获取 HKD 汇率表（含 HKD/CNY 和 HKD/USD）
+    url = f"{CURRENCY_API_BASE}@{version}/v1/currencies/hkd.json"
     with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
         resp = client.get(url)
         resp.raise_for_status()
 
     data = resp.json()
-    if data.get("result") != "success":
-        raise ValueError(f"API 返回失败: {data.get('result')}")
+    hkd_rates = data.get("hkd", {})
+    actual_date = data.get("date", date_or_latest)
+    result["date"] = actual_date
 
-    rates_data = data.get("rates", {})
-
-    result = {"source": "er-api", "date": date_or_latest}
-
-    # open.er-api.com 以 HKD 为基准
-    hkd_cny = rates_data.get("CNY")
+    hkd_cny = hkd_rates.get("cny")
     if hkd_cny and hkd_cny > 0:
         result["hkdcny"] = round(hkd_cny, 6)
     else:
         result["hkdcny"] = None
 
+    # USD/CNY：需要查 USD 汇率表
     if "USD" in currencies:
-        hkd_usd = rates_data.get("USD")
-        if hkd_usd and hkd_usd > 0 and hkd_cny and hkd_cny > 0:
-            # USD/CNY = (HKD/CNY) / (HKD/USD)
-            result["usdcny"] = round(hkd_cny / hkd_usd, 6)
+        usd_url = f"{CURRENCY_API_BASE}@{version}/v1/currencies/usd.json"
+        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            usd_resp = client.get(usd_url)
+            usd_resp.raise_for_status()
+
+        usd_data = usd_resp.json()
+        usd_rates = usd_data.get("usd", {})
+        usd_cny = usd_rates.get("cny")
+        if usd_cny and usd_cny > 0:
+            result["usdcny"] = round(usd_cny, 6)
         else:
             result["usdcny"] = None
 
