@@ -39,6 +39,11 @@ celery_app.conf.beat_schedule = {
         "schedule": crontab(minute=0, hour=3),  # 每天凌晨3点
         "args": (24,),
     },
+    "cleanup-old-chat-sessions": {
+        "task": "app.tasks.cleanup_tasks.cleanup_old_chat_sessions",
+        "schedule": crontab(minute=0, hour=4),  # 每天凌晨4点
+        "args": (90,),
+    },
     "sync-daily-exchange-rates": {
         "task": "app.tasks.exchange_rate_tasks.sync_daily_rates",
         "schedule": crontab(minute=30, hour=0),  # 每天凌晨0:30

@@ -12,6 +12,8 @@ import uuid
 from datetime import date
 from typing import AsyncGenerator, Optional, List, Dict, Any
 
+import redis as redis_lib
+
 from sqlalchemy.orm import Session
 
 from app.ai.llm_client import DeepSeekClient
@@ -21,6 +23,7 @@ from app.ai.prompts import (
     CONTRACT_ANALYSIS_PROMPT,
     GENERAL_ANALYSIS_PROMPT,
     SUMMARY_PROMPT,
+    INCREMENTAL_SUMMARY_PROMPT,
 )
 from app.ai.tools import ToolExecutor, TOOL_DEFINITIONS
 from app.config import settings
@@ -87,8 +90,8 @@ class ContractAgent:
         # 2. 加载历史（当前消息还未保存，不会出现在历史中）
         history = self._load_history(session_id)
 
-        # 3. 历史摘要（超过阈值时压缩早期消息）
-        summary = await self._summarize_history(history)
+        # 3. 历史摘要（超过阈值时压缩早期消息，支持增量缓存）
+        summary = await self._summarize_history(history, session_id=session_id)
         if summary:
             history = history[-settings.AGENT_MAX_SUMMARY_MESSAGES:]
             # 截断可能拆散 tool_call 配对，需重新验证
@@ -514,8 +517,10 @@ class ContractAgent:
 
         return messages
 
-    async def _summarize_history(self, messages: List[dict]) -> Optional[str]:
-        """当历史超过阈值时，将早期消息压缩为摘要保留关键业务信息"""
+    async def _summarize_history(self, messages: List[dict], session_id: str = "") -> Optional[str]:
+        """当历史超过阈值时，将早期消息压缩为摘要保留关键业务信息。
+        支持增量更新：优先从 Redis 读取缓存摘要，仅将新增消息合并进已有摘要。
+        """
         keep_recent = settings.AGENT_MAX_SUMMARY_MESSAGES
         if len(messages) <= keep_recent + 4:
             return None
@@ -524,6 +529,27 @@ class ContractAgent:
         if len(older) < 4:
             return None
 
+        older_count = len(older)
+
+        # 尝试读取缓存摘要
+        cached = self._get_cached_summary(session_id)
+        if cached and cached.get("msg_count") == older_count:
+            # 完全一致，直接复用
+            logger.debug("摘要缓存命中（完全一致）: session=%s, count=%d", session_id[:8], older_count)
+            return cached["summary"]
+
+        if cached and cached.get("summary"):
+            delta_count = older_count - cached["msg_count"]
+            if 0 < delta_count < 10:
+                # 增量更新：仅处理新增消息
+                delta_messages = older[-delta_count:]
+                summary = await self._incremental_summarize(cached["summary"], delta_messages)
+                if summary:
+                    self._cache_summary(session_id, older_count, summary)
+                    return summary
+                # 增量失败，降级全量
+
+        # 全量生成（首次 / 缓存过期 / 增量失败）
         history_text = self._serialize_messages(older)
         prompt = SUMMARY_PROMPT.format(history=history_text)
 
@@ -541,9 +567,72 @@ class ContractAgent:
             summary = "".join(summary_parts).strip()
             if summary:
                 logger.info("历史摘要生成成功，%d 条早期消息压缩为 %d 字", len(older), len(summary))
+                self._cache_summary(session_id, older_count, summary)
             return summary or None
         except Exception as e:
             logger.warning("历史摘要生成失败，降级为完整历史: %s", e)
+            return None
+
+    # ── 摘要缓存方法 ──────────────────────────────────────────
+
+    _SUMMARY_CACHE_TTL = 7200  # 2 小时
+
+    def _get_redis(self) -> Optional[redis_lib.Redis]:
+        """获取 Redis 连接（复用 executor 的连接）"""
+        return getattr(self.executor, "_redis", None)
+
+    def _get_cached_summary(self, session_id: str) -> Optional[dict]:
+        """从 Redis 读取缓存摘要"""
+        redis = self._get_redis()
+        if not redis or not session_id:
+            return None
+        try:
+            raw = redis.get(f"agent_summary:{session_id}")
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get("summary"):
+                    return data
+        except Exception:
+            logger.debug("摘要缓存读取失败: session=%s", session_id[:8])
+        return None
+
+    def _cache_summary(self, session_id: str, msg_count: int, summary: str) -> None:
+        """将摘要写入 Redis 缓存"""
+        redis = self._get_redis()
+        if not redis or not session_id:
+            return
+        try:
+            redis.setex(
+                f"agent_summary:{session_id}",
+                self._SUMMARY_CACHE_TTL,
+                json.dumps({"summary": summary, "msg_count": msg_count}, ensure_ascii=False),
+            )
+        except Exception:
+            logger.debug("摘要缓存写入失败: session=%s", session_id[:8])
+
+    async def _incremental_summarize(self, cached_summary: str, delta_messages: List[dict]) -> Optional[str]:
+        """基于已有摘要和新增消息做增量更新"""
+        delta_text = self._serialize_messages(delta_messages)
+        prompt = INCREMENTAL_SUMMARY_PROMPT.format(
+            existing_summary=cached_summary,
+            delta_messages=delta_text,
+        )
+        try:
+            parts = []
+            async for event in self.llm.chat_completion_stream(
+                messages=[{"role": "user", "content": prompt}],
+                tools=None,
+                temperature=0.1,
+                max_tokens=500,
+            ):
+                if event["type"] == "text":
+                    parts.append(event["content"])
+            summary = "".join(parts).strip()
+            if summary:
+                logger.info("摘要增量更新成功，%d 条新消息合并，摘要 %d 字", len(delta_messages), len(summary))
+            return summary or None
+        except Exception as e:
+            logger.warning("摘要增量更新失败，降级全量: %s", e)
             return None
 
     def _build_tool_result_fallback(self, messages: List[dict]) -> Optional[str]:
@@ -740,7 +829,7 @@ class ContractAgent:
         return result
 
     def delete_session(self, session_id: str) -> bool:
-        """删除会话及其所有消息"""
+        """删除会话及其所有消息，同时清理关联 Redis 缓存"""
         deleted = (
             self.db.query(ChatHistory)
             .filter(
@@ -750,4 +839,26 @@ class ContractAgent:
             .delete()
         )
         self.db.commit()
+        if deleted > 0:
+            self._cleanup_session_redis(session_id)
         return deleted > 0
+
+    def _cleanup_session_redis(self, session_id: str) -> None:
+        """清理会话关联的 Redis 缓存（VL 分析缓存 + 摘要缓存）"""
+        redis = self._get_redis()
+        if not redis:
+            return
+        try:
+            # 清理 VL 分析缓存: vl:*:{session_id}:*
+            cursor = 0
+            while True:
+                cursor, keys = redis.scan(cursor, match=f"vl:*:{session_id}:*", count=100)
+                if keys:
+                    redis.delete(*keys)
+                if cursor == 0:
+                    break
+            # 清理摘要缓存
+            redis.delete(f"agent_summary:{session_id}")
+            logger.debug("会话 Redis 缓存已清理: session=%s", session_id[:8])
+        except Exception:
+            logger.debug("会话 Redis 清理失败（可忽略）: session=%s", session_id[:8])
