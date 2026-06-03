@@ -189,10 +189,10 @@ class SiliconFlowClient:
 
 
 class DeepSeekClient:
-    """DeepSeek API客户端，支持流式输出、函数调用和指数退避重试"""
+    """硅基流动平台 DeepSeek API客户端，支持流式输出、函数调用和指数退避重试"""
 
     def __init__(self):
-        self.api_key = settings.DEEPSEEK_API_KEY
+        self.api_key = settings.SILICONFLOW_API_KEY
         self.base_url = settings.DEEPSEEK_BASE_URL
         self.model = settings.DEEPSEEK_AGENT_MODEL
         self.max_retries = getattr(settings, 'DEEPSEEK_MAX_RETRIES', 3)

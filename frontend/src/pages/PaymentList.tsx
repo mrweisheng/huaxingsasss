@@ -15,6 +15,63 @@ function fmt(amount: number | undefined | null, currency: string): string {
   return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
+function amountToChinese(amount: number, currency: string): string {
+  if (amount === 0) {
+    const cn = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency
+    return `${cn}零元整`
+  }
+  const digitMap = ['零', '壹', '貳', '叁', '肆', '伍', '陸', '柒', '捌', '玖']
+  const unitMap = ['', '拾', '佰', '仟']
+  const bigUnitMap = ['', '萬', '億']
+
+  const currencyName = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency === 'USD' ? '美元' : currency
+  const intPart = Math.floor(amount)
+  const fracPart = Math.round((amount - intPart) * 100)
+
+  let result = ''
+  let intStr = intPart.toString()
+  let unitIdx = 0
+  let bigUnitIdx = 0
+  let hasNonZero = false
+
+  for (let i = intStr.length - 1; i >= 0; i--) {
+    const digit = parseInt(intStr[i])
+    if (digit !== 0) {
+      result = digitMap[digit] + unitMap[unitIdx] + result
+      hasNonZero = true
+    } else if (hasNonZero) {
+      result = digitMap[0] + result
+      hasNonZero = false
+    }
+    unitIdx++
+    if (unitIdx === 4) {
+      unitIdx = 0
+      bigUnitIdx++
+      if (bigUnitIdx < bigUnitMap.length) {
+        result = bigUnitMap[bigUnitIdx] + result
+      }
+    }
+  }
+
+  result = result.replace(/零+$/, '')
+  if (!result) result = '零'
+
+  if (fracPart > 0) {
+    const jiao = Math.floor(fracPart / 10)
+    const fen = fracPart % 10
+    if (jiao > 0) result += digitMap[jiao] + '角'
+    if (fen > 0) result += digitMap[fen] + '分'
+  } else {
+    result += '元整'
+  }
+
+  return `${currencyName}${result}`
+}
+
+function amountToChineseCompact(amount: number, currency: string): string {
+  return amountToChinese(amount, currency)
+}
+
 /** 从 receipt_data 中提取摘要信息用于展示 */
 function receiptDataSummary(data: Record<string, any> | undefined): string | null {
   if (!data || typeof data !== 'object') return null
@@ -133,9 +190,8 @@ export default function PaymentList() {
     }
   }
 
-  // ── KPI 统计：按币种+类型原币分组（useMemo 避免重算） ──
+  // ── KPI 统计（useMemo 避免重算） ──
   const kpiGroups = useMemo(() => payments.reduce((acc, p) => {
-    // 角色过滤
     if (role === 'income' && p.type !== 'income') return acc
     if (role === 'expense' && p.type !== 'expense') return acc
     const key = `${p.type}_${p.currency}`
@@ -147,7 +203,13 @@ export default function PaymentList() {
     return acc
   }, {} as Record<string, { total: number; count: number; currency: string; type: string }>), [payments, role])
 
-  const kpiPending = payments.filter(p => p.status === 'pending' || p.status === 'partial').length
+  const incomeGroups = useMemo(() => Object.values(kpiGroups).filter(g => g.type === 'income'), [kpiGroups])
+  const expenseGroups = useMemo(() => Object.values(kpiGroups).filter(g => g.type === 'expense'), [kpiGroups])
+
+  const statusCounts = useMemo(() => payments.reduce((acc, p) => {
+    acc[p.status] = (acc[p.status] || 0) + 1
+    return acc
+  }, {} as Record<string, number>), [payments])
 
   // ── 列定义 ──
   const columns = [
@@ -396,30 +458,93 @@ export default function PaymentList() {
         <Tabs activeKey={activeTab} onChange={handleTabChange} items={visibleTabs} style={{ marginBottom: 16 }} />
       )}
 
-      {/* KPI 摘要行 — 按币种分组 */}
       {payments.length > 0 && (
-        <div className="pl-kpi-row">
-          {Object.entries(kpiGroups).map(([key, g]) => {
-            const sym = currencySymbol[g.currency] || '¥'
-            return (
-              <div key={key} className={`pl-kpi-card ${g.type}`}>
-                <div className="pl-kpi-label">
-                  {g.type === 'income' ? '收入' : '支出'} · {g.currency}
-                </div>
-                <div className={`pl-kpi-value ${g.type === 'income' ? 'success' : 'danger'}`}>
-                  {sym}{g.total.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-                  {g.count} 笔
-                </div>
+        <div className="pl-kpi-section">
+          <div className="pl-kpi-grid">
+            <div className="pl-kpi-col pl-kpi-col--income">
+              <div className="pl-kpi-col__header">
+                <svg className="pl-kpi-col__arrow" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 19V5M12 5L6 11M12 5L18 11" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="pl-kpi-col__title">收入</span>
               </div>
-            )
-          })}
-          <div className="pl-kpi-card pending">
-            <div className="pl-kpi-label">待确认</div>
-            <div className="pl-kpi-value warning">{kpiPending}</div>
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>
-              待确认 / 部分支付
+              <div className="pl-kpi-col__cards">
+                {['CNY', 'HKD'].map(curr => {
+                  const group = incomeGroups.find(g => g.currency === curr)
+                  return (
+                    <div key={curr} className="pl-big-card pl-big-card--income">
+                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr} {curr}</div>
+                      <div className="pl-big-card__amount">
+                        {group ? (
+                          <>
+                            <span className="pl-big-card__symbol">{currencySymbol[curr] || ''}</span>
+                            <span className="pl-big-card__number">
+                              {group.total.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="pl-big-card__number pl-big-card__number--empty">--</span>
+                        )}
+                      </div>
+                      <div className="pl-big-card__chinese">
+                        {group ? amountToChineseCompact(group.total, curr) : '暂无数据'}
+                      </div>
+                      <div className="pl-big-card__count">{group ? `${group.count} 笔` : '0 笔'}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <div className="pl-kpi-col pl-kpi-col--expense">
+              <div className="pl-kpi-col__header">
+                <svg className="pl-kpi-col__arrow" viewBox="0 0 24 24" fill="none">
+                  <path d="M12 5V19M12 19L6 13M12 19L18 13" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/>
+                </svg>
+                <span className="pl-kpi-col__title">支出</span>
+              </div>
+              <div className="pl-kpi-col__cards">
+                {['CNY', 'HKD'].map(curr => {
+                  const group = expenseGroups.find(g => g.currency === curr)
+                  return (
+                    <div key={curr} className="pl-big-card pl-big-card--expense">
+                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr} {curr}</div>
+                      <div className="pl-big-card__amount">
+                        {group ? (
+                          <>
+                            <span className="pl-big-card__symbol">{currencySymbol[curr] || ''}</span>
+                            <span className="pl-big-card__number">
+                              {group.total.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                            </span>
+                          </>
+                        ) : (
+                          <span className="pl-big-card__number pl-big-card__number--empty">--</span>
+                        )}
+                      </div>
+                      <div className="pl-big-card__chinese">
+                        {group ? amountToChineseCompact(group.total, curr) : '暂无数据'}
+                      </div>
+                      <div className="pl-big-card__count">{group ? `${group.count} 笔` : '0 笔'}</div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+
+          <div className="pl-kpi-status-bar">
+            <span className="pl-kpi-status__label">状态分布</span>
+            <div className="pl-kpi-status__chips">
+              {Object.entries(statusCounts).map(([status, count]) => {
+                const info = statusMap[status]
+                return (
+                  <div key={status} className={`pl-kpi-chip pl-kpi-chip--${status}`}>
+                    <span className="pl-kpi-chip__dot" />
+                    <span className="pl-kpi-chip__text">{info?.text || status}</span>
+                    <span className="pl-kpi-chip__count">{count}</span>
+                  </div>
+                )
+              })}
             </div>
           </div>
         </div>

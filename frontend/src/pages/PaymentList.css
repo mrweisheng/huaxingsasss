@@ -35,80 +35,249 @@
   border-color: var(--border-light) !important;
 }
 
-/* ── KPI 摘要行 ── */
-.pl-kpi-row {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 12px;
-  margin-bottom: 18px;
+/* ── KPI 摘要区域 — 重构：收支面板 + 状态栏 ── */
+
+.pl-kpi-section {
+  margin-bottom: 20px;
+  animation: plFadeIn 0.4s ease-out;
 }
 
-.pl-kpi-card {
-  background: var(--bg-surface);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  padding: 14px 18px;
+.pl-kpi-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.pl-kpi-col {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  box-shadow: var(--shadow-sm);
-  transition: all 0.25s ease;
-  position: relative;
+  border-radius: var(--radius-lg);
   overflow: hidden;
+  position: relative;
 }
 
-.pl-kpi-card::after {
+.pl-kpi-col--income {
+  background: linear-gradient(135deg, rgba(13, 148, 136, 0.06) 0%, rgba(13, 148, 136, 0.02) 100%);
+  border: 1px solid rgba(13, 148, 136, 0.15);
+}
+
+.pl-kpi-col--expense {
+  background: linear-gradient(135deg, rgba(220, 38, 38, 0.06) 0%, rgba(220, 38, 38, 0.02) 100%);
+  border: 1px solid rgba(220, 38, 38, 0.15);
+}
+
+.pl-kpi-col__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid rgba(128, 128, 128, 0.08);
+}
+
+.pl-kpi-col--income .pl-kpi-col__header { border-bottom-color: rgba(13, 148, 136, 0.1); }
+.pl-kpi-col--expense .pl-kpi-col__header { border-bottom-color: rgba(220, 38, 38, 0.1); }
+
+.pl-kpi-col__arrow {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+}
+
+.pl-kpi-col--income .pl-kpi-col__arrow { color: var(--color-success); }
+.pl-kpi-col--expense .pl-kpi-col__arrow { color: var(--color-danger); }
+
+.pl-kpi-col__title {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: 0.5px;
+}
+
+.pl-kpi-col__cards {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  flex: 1;
+}
+
+.pl-big-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 24px 20px;
+  position: relative;
+  overflow: hidden;
+  transition: all 0.3s ease;
+}
+
+.pl-big-card:not(:last-child) {
+  border-right: 1px solid rgba(128, 128, 128, 0.08);
+}
+
+.pl-big-card--income::before {
   content: '';
   position: absolute;
-  top: 0; right: 0;
-  width: 60px; height: 60px;
-  border-radius: 0 0 0 60px;
-  opacity: 0.04;
+  top: -30px;
+  right: -30px;
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle, rgba(13, 148, 136, 0.15) 0%, transparent 70%);
   pointer-events: none;
 }
 
-.pl-kpi-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-2px);
+.pl-big-card--expense::before {
+  content: '';
+  position: absolute;
+  top: -30px;
+  right: -30px;
+  width: 120px;
+  height: 120px;
+  background: radial-gradient(circle, rgba(220, 38, 38, 0.15) 0%, transparent 70%);
+  pointer-events: none;
 }
 
-.pl-kpi-card.income {
-  border-left: 3px solid var(--color-success);
-}
-.pl-kpi-card.income::after { background: var(--color-success); }
-
-.pl-kpi-card.expense {
-  border-left: 3px solid var(--color-danger);
-}
-.pl-kpi-card.expense::after { background: var(--color-danger); }
-
-.pl-kpi-card.pending {
-  border-left: 3px solid var(--color-warning);
-}
-.pl-kpi-card.pending::after { background: var(--color-warning); }
-
-.pl-kpi-label {
-  font-size: 12px;
-  color: var(--text-tertiary);
-  font-weight: 600;
-  letter-spacing: 0.3px;
-  position: relative;
-  z-index: 1;
-}
-
-.pl-kpi-value {
+.pl-big-card__currency {
   font-family: var(--font-mono);
-  font-size: 20px;
-  font-weight: 700;
-  color: var(--text-primary);
-  font-variant-numeric: tabular-nums;
-  position: relative;
-  z-index: 1;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+  opacity: 0.7;
 }
 
-.pl-kpi-value.success { color: var(--color-success); }
-.pl-kpi-value.danger  { color: var(--color-danger); }
-.pl-kpi-value.warning { color: var(--color-warning); }
+.pl-big-card__amount {
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.pl-big-card__symbol {
+  font-family: var(--font-mono);
+  font-size: 24px;
+  font-weight: 600;
+  opacity: 0.6;
+}
+
+.pl-big-card--income .pl-big-card__symbol { color: var(--color-success); }
+.pl-big-card--expense .pl-big-card__symbol { color: var(--color-danger); }
+
+.pl-big-card__number {
+  font-family: var(--font-mono);
+  font-size: 48px;
+  font-weight: 800;
+  line-height: 1;
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pl-big-card--income .pl-big-card__number { color: var(--color-success); }
+.pl-big-card--expense .pl-big-card__number { color: var(--color-danger); }
+
+.pl-big-card__number--empty {
+  color: var(--text-tertiary);
+  opacity: 0.3;
+}
+
+.pl-big-card__chinese {
+  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  letter-spacing: 2px;
+  margin-bottom: 12px;
+  min-height: 60px;
+}
+
+.pl-big-card__count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+.pl-kpi-status-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+}
+
+.pl-kpi-status__label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 0.3px;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.pl-kpi-status__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.pl-kpi-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  background: var(--bg-subtle);
+}
+
+.pl-kpi-chip__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.pl-kpi-chip__text {
+  color: var(--text-secondary);
+}
+
+.pl-kpi-chip__count {
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  min-width: 14px;
+  text-align: center;
+}
+
+.pl-kpi-chip--paid .pl-kpi-chip__dot { background: var(--color-success); }
+.pl-kpi-chip--pending .pl-kpi-chip__dot { background: #8c8c8c; }
+.pl-kpi-chip--partial .pl-kpi-chip__dot { background: var(--color-warning); }
+.pl-kpi-chip--cancelled .pl-kpi-chip__dot { background: #d9d9d9; }
+
+@media (max-width: 768px) {
+  .pl-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+  .pl-kpi-col__cards {
+    grid-template-columns: 1fr;
+  }
+  .pl-big-card:not(:last-child) {
+    border-right: none;
+    border-bottom: 1px solid rgba(128, 128, 128, 0.08);
+  }
+  .pl-big-card__number {
+    font-size: 36px;
+  }
+  .pl-big-card__chinese {
+    font-size: 15px;
+    min-height: auto;
+  }
+}
 
 /* ── 表格 ── */
 .payment-table .ant-table {
@@ -307,7 +476,8 @@
 
 /* ── 响应式 ── */
 @media (max-width: 1024px) {
-  .pl-kpi-row { grid-template-columns: 1fr 1fr; }
+  .pl-big-card__number { font-size: 38px; }
+  .pl-big-card__chinese { font-size: 18px; }
   .pl-filter-bar { flex-direction: column; align-items: stretch; }
   .pl-search-box { width: 100%; }
 }
@@ -316,5 +486,5 @@
   .payment-list-container {
     padding: 12px;
   }
-  .pl-kpi-row { grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pl-kpi-status-bar { flex-direction: column; align-items: flex-start; gap: 8px; }
 }

@@ -51,6 +51,53 @@ function calcProgress(paid: number, total: number): number {
   return Math.round((paid / total) * 100)
 }
 
+function amountToChinese(amount: number, currency: string): string {
+  if (amount === 0) {
+    const cn = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency
+    return `${cn}零元整`
+  }
+  const digitMap = ['零', '壹', '貳', '叁', '肆', '伍', '陸', '柒', '捌', '玖']
+  const unitMap = ['', '拾', '佰', '仟']
+  const bigUnitMap = ['', '萬', '億']
+  const currencyName = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency === 'USD' ? '美元' : currency
+  const intPart = Math.floor(amount)
+  const fracPart = Math.round((amount - intPart) * 100)
+  let result = ''
+  let intStr = intPart.toString()
+  let unitIdx = 0
+  let bigUnitIdx = 0
+  let hasNonZero = false
+  for (let i = intStr.length - 1; i >= 0; i--) {
+    const digit = parseInt(intStr[i])
+    if (digit !== 0) {
+      result = digitMap[digit] + unitMap[unitIdx] + result
+      hasNonZero = true
+    } else if (hasNonZero) {
+      result = digitMap[0] + result
+      hasNonZero = false
+    }
+    unitIdx++
+    if (unitIdx === 4) {
+      unitIdx = 0
+      bigUnitIdx++
+      if (bigUnitIdx < bigUnitMap.length) {
+        result = bigUnitMap[bigUnitIdx] + result
+      }
+    }
+  }
+  result = result.replace(/零+$/, '')
+  if (!result) result = '零'
+  if (fracPart > 0) {
+    const jiao = Math.floor(fracPart / 10)
+    const fen = fracPart % 10
+    if (jiao > 0) result += digitMap[jiao] + '角'
+    if (fen > 0) result += digitMap[fen] + '分'
+  } else {
+    result += '元整'
+  }
+  return `${currencyName}${result}`
+}
+
 const paymentStatusMap: Record<string, { text: string }> = {
   pending:   { text: '待确认' },
   partial:   { text: '部分支付' },
@@ -365,6 +412,7 @@ export default function ContractDetail() {
             <span className="cd-fn-hero-value">
               {fmt(contract.total_amount, cur)}
             </span>
+            <span className="cd-fn-hero-chinese">{amountToChinese(contract.total_amount, cur)}</span>
             {showCnyHint && (
               <span className="cd-fn-hero-sub">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</span>
             )}
@@ -390,6 +438,7 @@ export default function ContractDetail() {
               <span className="fn-card-label">已收金额</span>
             </div>
             <div className="fn-card-value income">{fmt(contract.paid_amount, cur)}</div>
+            <div className="fn-card-chinese">{amountToChinese(contract.paid_amount, cur)}</div>
             <div className="fn-card-meta">
               <span className="fn-card-tag">{contract.paid_count}笔</span>
               {showCnyHint && (
@@ -407,6 +456,7 @@ export default function ContractDetail() {
             <div className={`fn-card-value ${isRemaining ? 'remaining' : 'cleared'}`}>
               {fmt(contract.remaining_amount, cur)}
             </div>
+            <div className="fn-card-chinese">{amountToChinese(contract.remaining_amount, cur)}</div>
             <div className="fn-card-meta">
               <span className={`fn-card-status ${isRemaining ? 'remaining' : 'cleared'}`}>
                 {isRemaining ? '待收中' : '已结清 ✓'}
@@ -424,6 +474,7 @@ export default function ContractDetail() {
               <span className="fn-card-label">总支出</span>
             </div>
             <div className="fn-card-value expense">{fmt(contract.total_expense || 0, cur)}</div>
+            <div className="fn-card-chinese">{amountToChinese(contract.total_expense || 0, cur)}</div>
             <div className="fn-card-meta">
               {(contract as any).expense_count > 0 && (
                 <span className="fn-card-tag expense">{(contract as any).expense_count}笔</span>
@@ -446,6 +497,7 @@ export default function ContractDetail() {
             <div className={`fn-card-value ${profitCny >= 0 ? 'income' : 'expense'}`}>
               {fmt(profitCny, 'CNY')}
             </div>
+            <div className="fn-card-chinese">{amountToChinese(Math.abs(profitCny), 'CNY')}</div>
             <div className="fn-card-meta">
               {showCnyHint && (
                 <span className="fn-card-cny">折 CNY</span>
@@ -499,35 +551,29 @@ export default function ContractDetail() {
           </div>
           <div className="cd-payment-terms-steps">
             {cd.payment_terms.map((term: any, i: number) => {
-              const isSettled = contract.paid_count > i
               // 兼容历史数据：旧合同存的是 installment_name 而非 name，且无 condition
               const termName = term.name || term.installment_name || `第 ${i + 1} 期`
               const dueDateStr = term.due_date ? String(term.due_date).trim() : ''
               const isIsoDate = /^\d{4}-\d{2}-\d{2}$/.test(dueDateStr)
+              const condText = term.condition
+                ? term.condition
+                : term.due_date
+                  ? (isIsoDate ? `约定付款：${term.due_date}` : `约定：${term.due_date}`)
+                  : null
               return (
-                <div key={i} className={`cd-term-step ${isSettled ? 'settled' : 'pending'}`}>
-                  <div className={`cd-term-step-num ${isSettled ? 'settled' : ''}`}>
-                    {isSettled ? '✓' : i + 1}
-                  </div>
+                <div key={i} className="cd-term-step">
+                  <div className="cd-term-step-num">{i + 1}</div>
                   <div className="cd-term-step-body">
-                    <span className="cd-term-step-name">{termName}</span>
-                    <span className={`cd-term-step-amount ${isSettled ? 'settled' : ''}`}>
+                    <div className="cd-term-step-left">
+                      <span className="cd-term-step-name">{termName}</span>
+                      {condText && (
+                        <span className="cd-term-step-cond">{condText}</span>
+                      )}
+                    </div>
+                    <span className="cd-term-step-amount">
                       {fmt(term.amount, contract.currency)}
                     </span>
-                    <span className={`cd-term-step-status ${isSettled ? 'settled' : 'pending'}`}>
-                      {isSettled ? '已付' : '待付'}
-                    </span>
                   </div>
-                  {term.condition ? (
-                    // 有合同原文 condition（如"第一期：乙方已于2026年5月28日支付定金港币伍万元整"）
-                    // 原样展示，不加 label —— condition 本身已是完整描述
-                    <span className="cd-term-step-cond">{term.condition}</span>
-                  ) : term.due_date ? (
-                    // 回退到 due_date 兜底（旧合同 condition 已丢失）
-                    <span className="cd-term-step-cond">
-                      {isIsoDate ? `约定付款：${term.due_date}` : `约定：${term.due_date}`}
-                    </span>
-                  ) : null}
                 </div>
               )
             })}

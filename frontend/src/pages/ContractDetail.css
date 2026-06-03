@@ -158,6 +158,16 @@
   margin-top: 2px;
 }
 
+.cd-fn-hero-chinese {
+  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  letter-spacing: 2px;
+  margin-top: 4px;
+}
+
 /* 进度条（Hero 右侧） */
 .cd-fn-hero-progress {
   display: flex;
@@ -250,9 +260,9 @@
 
 .fn-card-value {
   font-family: var(--font-mono);
-  font-size: 24px;
+  font-size: 36px;
   font-weight: 700;
-  letter-spacing: -0.5px;
+  letter-spacing: -1px;
   font-variant-numeric: tabular-nums;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -263,6 +273,19 @@
 .fn-card-value.remaining { color: #d97706; }
 .fn-card-value.cleared   { color: #52c41a; }
 .fn-card-value.expense   { color: #dc2626; }
+
+.fn-card-chinese {
+  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  line-height: 1.4;
+  letter-spacing: 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
 
 .fn-card-meta {
   display: flex;
@@ -600,7 +623,7 @@
 
 .cd-term-step {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 12px;
   padding: 12px 14px;
   border-radius: 10px;
@@ -612,89 +635,55 @@
   border-color: var(--border-default);
 }
 
-.cd-term-step.settled {
-  background: var(--color-success-bg);
-  border-color: rgba(13, 148, 136, 0.2);
-}
-
-.cd-term-step.pending {
-  background: var(--bg-surface);
-  border-style: dashed;
-}
-
 .cd-term-step-num {
-  width: 26px;
-  height: 26px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 12px;
+  font-size: 14px;
   font-weight: 600;
   flex-shrink: 0;
   border: 2px solid var(--border-default);
   color: var(--text-tertiary);
 }
 
-.cd-term-step-num.settled {
-  background: #0d9488;
-  border-color: #0d9488;
-  color: white;
-  font-size: 13px;
-}
-
 .cd-term-step-body {
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
-  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 16px;
+  min-width: 0;
+}
+
+.cd-term-step-left {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
   min-width: 0;
 }
 
 .cd-term-step-name {
-  font-size: 13px;
+  font-size: 15px;
   font-weight: 500;
   color: var(--text-primary);
 }
 
 .cd-term-step-amount {
   font-family: var(--font-mono);
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
-  margin-left: auto;
   color: var(--text-secondary);
-}
-
-.cd-term-step-amount.settled {
-  color: #0d9488;
-}
-
-.cd-term-step-status {
-  font-size: 10px;
-  font-weight: 500;
-  padding: 2px 7px;
-  border-radius: 4px;
-}
-
-.cd-term-step-status.settled {
-  background: rgba(13, 148, 136, 0.1);
-  color: #0d9488;
-}
-
-.cd-term-step-status.pending {
-  background: var(--bg-hover);
-  color: var(--text-tertiary);
+  flex-shrink: 0;
 }
 
 .cd-term-step-cond {
-  font-size: 11px;
+  font-size: 13px;
   color: var(--text-tertiary);
-  padding: 2px 8px;
-  background: var(--bg-subtle);
-  border-radius: 4px;
-  white-space: nowrap;
+  line-height: 1.5;
 }
 
 /* 旧付款条款样式移除 */
@@ -940,6 +929,9 @@
   .cd-fn-cards .cd-fn-card:nth-child(2) { border-right: 1px solid var(--border-light); }
   .cd-fn-cards .cd-fn-card:nth-child(3),
   .cd-fn-cards .cd-fn-card:nth-child(4) { border-top: 1px solid var(--border-light); }
+  .fn-card-value { font-size: 28px; }
+  .fn-card-chinese { font-size: 13px; }
+  .cd-fn-hero-chinese { font-size: 18px; }
 }
 
 @media (max-width: 768px) {
@@ -949,14 +941,15 @@
   .cd-info-grid { grid-template-columns: 1fr 1fr; }
 
   .cd-fn-hero-value { font-size: 30px; }
+  .cd-fn-hero-chinese { font-size: 16px; }
   .cd-fn-progress-pct { font-size: 20px; }
   .cd-fn-cards { grid-template-columns: 1fr; }
   .cd-fn-cards .cd-fn-card { border-right: none !important; }
   .cd-fn-cards .cd-fn-card:not(:last-child) { border-bottom: 1px solid var(--border-light); }
+  .fn-card-value { font-size: 24px; }
 
   .cd-payment-row { grid-template-columns: 1fr; }
   .cd-pay-card-amount { font-size: 15px; }
 
-  .cd-term-step-body { flex-direction: column; align-items: flex-start; gap: 4px; }
-  .cd-term-step-amount { margin-left: 0; }
+  .cd-term-step-body { flex-direction: column; align-items: flex-start; gap: 8px; }
 }

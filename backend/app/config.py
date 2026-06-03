@@ -65,11 +65,10 @@ class Settings(BaseSettings):
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"
     
-    # DeepSeek配置（Agent智能体模型）
-    DEEPSEEK_API_KEY: Optional[str] = None
-    DEEPSEEK_BASE_URL: str = "https://api.deepseek.com/v1"
-    DEEPSEEK_MODEL: str = "deepseek-v4-flash"
-    DEEPSEEK_AGENT_MODEL: str = "deepseek-v4-flash"
+    # DeepSeek配置（通过硅基流动平台调用，复用 SILICONFLOW_API_KEY）
+    DEEPSEEK_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    DEEPSEEK_MODEL: str = "deepseek-ai/DeepSeek-V4-Flash"
+    DEEPSEEK_AGENT_MODEL: str = "deepseek-ai/DeepSeek-V4-Flash"
 
     # DeepSeek 重试配置
     DEEPSEEK_MAX_RETRIES: int = 3

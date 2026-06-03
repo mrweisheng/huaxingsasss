@@ -2113,8 +2113,8 @@ class ToolExecutor:
                     full_text = "\n\n".join(all_page_texts)
 
                     if full_text.strip():
-                        # ✅ 有文本 → 用 DeepSeek 文本模型解析（快、稳）
-                        logger.info("PDF文本提取成功，使用DeepSeek文本模型解析: text_len=%d", len(full_text))
+                        # ✅ 有文本 → 用 DeepSeek 文本模型解析（通过硅基流动平台）
+                        logger.info("PDF文本提取成功，使用DeepSeek文本模型(硅基流动)解析: text_len=%d", len(full_text))
                         try:
                             payload = {
                                 "model": settings.DEEPSEEK_AGENT_MODEL,
@@ -2123,7 +2123,7 @@ class ToolExecutor:
                                 "max_tokens": 4096,
                             }
                             headers = {
-                                "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
+                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
                                 "Content-Type": "application/json",
                             }
                             with httpx.Client(timeout=30.0) as client:
