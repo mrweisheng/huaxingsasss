@@ -12,6 +12,7 @@ import uuid
 from datetime import date
 from typing import AsyncGenerator, Optional, List, Dict, Any
 
+import httpx
 import redis as redis_lib
 
 from sqlalchemy.orm import Session
@@ -56,13 +57,21 @@ _TOOL_FRIENDLY_NAMES = {
     "analyze_image": "分析文件",
 }
 
-# 用户确认意图匹配模式（re.IGNORECASE 已覆盖大小写变体，无需重复 OK/Ok/ok）
+# 用户确认意图匹配模式（re.IGNORECASE 已覆盖大小写变体）
+# 严格枚举，不使用 .* 通配符，避免"好的但我需要改一下"被误判为确认
 _CONFIRM_PATTERN = re.compile(
     r'^(好的|确认|没问题|可以|执行|对|是的|ok|yes|好|行|就这样|确认执行|'
-    r'没问题.*|就这样.*|可以.*|好的.*|确认.*|是的.*|可以[的啊吧]|'
-    r'对[的啊吧]|好[的啊吧]|行[的啊吧]|确认[的了]|执行吧|没问题[的了]|'
-    r'是的[的了]|是的吧|没错|对的|好滴|好嘞|必须的|'
-    r'需要的|要[的啊]|要的|当然|当然可以)$',
+    r'可以的|可以啊|可以吧|可以呢|'
+    r'好的啊|好的吧|好的呢|'
+    r'对啊|对的|对呢|'
+    r'好啊|好吧|好呢|'
+    r'行啊|行吧|行呢|'
+    r'确认了|确认啦|执行吧|'
+    r'没问题的|没问题了|没问题啦|'
+    r'是的呢|是的吧|是的啦|'
+    r'没错|好滴|好嘞|好咧|必须的|'
+    r'需要的|要的|要啊|要吧|'
+    r'当然|当然可以|当然好|就这样吧|就这样了)$',
     re.IGNORECASE,
 )
 
@@ -399,6 +408,8 @@ class ContractAgent:
             from app.utils.file_utils import calculate_file_hash
             with open(file_path, "rb") as f:
                 file_hash = calculate_file_hash(f.read())
+            # 缓存 hash 供 create_contract 复用，避免重复读取大文件
+            self.executor._file_hash_cache[file_path] = file_hash
             from app.models.contract import Contract
             existing = self.db.query(Contract).filter(
                 Contract.file_hash == file_hash,
@@ -414,8 +425,83 @@ class ContractAgent:
         except Exception:
             logger.debug("查重跳过: file_id=%s", file_id)
 
-        # 设置文档上下文 + 缓存原文到 Redis
-        # create_contract 可从缓存拿到 raw_text 作为 full_text
+        # ━━━ 调用 LLM 提取结构化数据 ← 保证 create_contract 始终有 payment_terms ━━━
+        logger.info("预分析: 调用百炼DeepSeek-V4-Flash提取合同结构化数据, text_len=%d", len(text))
+        try:
+            from app.services.contract_analyzer import _make_text_extraction_prompt
+
+            actual_prompt = _make_text_extraction_prompt(CONTRACT_ANALYSIS_PROMPT)
+            payload = {
+                "model": settings.DASHSCOPE_AGENT_MODEL,
+                "messages": [{
+                    "role": "user",
+                    "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{text[:8000]}",
+                }],
+                "temperature": 0.1,
+                "max_tokens": 4096,
+            }
+            headers = {
+                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                "Content-Type": "application/json",
+            }
+            with httpx.Client(timeout=120.0) as client:
+                response = client.post(
+                    f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
+                    json=payload, headers=headers,
+                )
+
+            if response.status_code == 200:
+                content = response.json()["choices"][0]["message"]["content"]
+                try:
+                    structured = json.loads(content)
+                except json.JSONDecodeError:
+                    structured = {"raw": content}
+
+                if isinstance(structured, dict):
+                    structured["full_text"] = text
+                    self.executor._document_context = "contract"
+                    self.executor._cache_analysis(file_id, "contract", structured)
+
+                    # 构建结构化摘要返回给 Agent
+                    summary_parts = []
+                    if structured.get("party_b", {}).get("name"):
+                        summary_parts.append(f"客户：{structured['party_b']['name']}")
+                    if structured.get("total_amount"):
+                        cur = structured.get("currency", "")
+                        summary_parts.append(f"金额：{structured['total_amount']} {cur}".strip())
+                    if structured.get("signed_date"):
+                        summary_parts.append(f"签订日期：{structured['signed_date']}")
+                    if structured.get("payment_terms"):
+                        terms_str = "、".join(
+                            f"{t.get('name', t.get('description', '?'))} {t.get('amount', '?')}"
+                            for t in structured["payment_terms"]
+                        )
+                        summary_parts.append(f"付款条款：{terms_str}")
+                    if structured.get("business_description"):
+                        summary_parts.append(f"业务：{structured['business_description']}")
+
+                    summary = "\n".join(summary_parts) if summary_parts else "合同结构化数据已提取"
+                    logger.info("预分析完成: keys=%s", list(structured.keys()))
+                    return (
+                        f"[系统已自动提取合同结构化数据，请勿再调用 analyze_image 工具]\n"
+                        f"文件类型：{file_type_label}\n"
+                        f"file_id：{file_id}\n"
+                        f"提取摘要：\n{summary}\n\n"
+                        f"完整原文（共{len(text)}字符）：\n{text[:2000]}"
+                        f"{'...' if len(text) > 2000 else ''}\n\n"
+                        f"请基于以上摘要向用户展示关键信息（客户、金额、付款条款），询问是否需要创建合同。"
+                    )
+                else:
+                    logger.warning("预分析: LLM 返回非 dict，降级为 raw_text 缓存")
+            else:
+                logger.warning(
+                    "预分析: LLM 调用失败 status=%s body=%s，降级为 raw_text 缓存",
+                    response.status_code, response.text[:200],
+                )
+        except Exception:
+            logger.exception("预分析: LLM 调用异常，降级为 raw_text 缓存")
+
+        # ━━━ 降级路径：LLM 失败时缓存原文（create_contract 需 raw_text）━━━
         self.executor._document_context = "contract"
         self.executor._cache_analysis(file_id, "contract", {
             "raw_text": text,
@@ -423,8 +509,8 @@ class ContractAgent:
         })
 
         # 截断原文给 LLM，完整原文通过缓存供 create_contract 使用
-        context_str = text[:3000]
-        if len(text) > 3000:
+        context_str = text[:8000]
+        if len(text) > 8000:
             context_str += f"\n\n...（共 {len(text)} 字符，已截断）"
 
         return (

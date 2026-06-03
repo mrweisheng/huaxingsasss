@@ -21,8 +21,6 @@ import redis as redis_lib
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
-from dashscope import Generation
-
 from app.config import settings
 from app.core.chinese import search_variants
 from app.models.customer import Customer
@@ -84,6 +82,32 @@ def _escape_ilike(keyword: str) -> str:
     return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
+# 模块级 Redis 连接池，所有 ToolExecutor 实例共享，避免每次请求新建连接
+_redis_pool: Optional[redis_lib.ConnectionPool] = None
+
+
+def _get_redis_pool() -> Optional[redis_lib.ConnectionPool]:
+    """获取或创建模块级 Redis 连接池。返回 None 表示 Redis 不可用。"""
+    global _redis_pool
+    if _redis_pool is not None:
+        return _redis_pool
+    try:
+        _redis_pool = redis_lib.ConnectionPool.from_url(
+            settings.REDIS_URL,
+            socket_connect_timeout=1,
+            socket_timeout=1,
+            decode_responses=True,
+        )
+        # 验证连接可用
+        redis_lib.Redis(connection_pool=_redis_pool).ping()
+        logger.debug("Redis 连接池创建成功")
+        return _redis_pool
+    except Exception:
+        _redis_pool = None
+        logger.debug("Redis 连接池创建失败，将使用内存缓存降级")
+        return None
+
+
 class ToolExecutor:
     """Agent 工具执行器，每个方法返回 JSON 字符串"""
 
@@ -96,23 +120,16 @@ class ToolExecutor:
         self.session_id = session_id
         self._document_context: Optional[str] = None  # "receipt"|"contract"|"general"|None
         self._pending_receipt_path: Optional[str] = None  # 同请求内快速路径
+        self._file_hash_cache: dict = {}  # file_path → sha256 hash，避免 _try_pre_analyze 和 create_contract 重复计算
 
-        # Redis 缓存：跨请求持久化 VL 分析结果
+        # Redis 缓存：使用模块级连接池，跨请求复用连接
         self._redis: Optional[redis_lib.Redis] = None
         # 内存兜底：Redis 不可用时降级
         self._memory_contract: dict = {}
         self._memory_receipt: dict = {}
-        try:
-            self._redis = redis_lib.Redis.from_url(
-                settings.REDIS_URL,
-                socket_connect_timeout=1,
-                socket_timeout=1,
-                decode_responses=True,
-            )
-            self._redis.ping()
-            logger.debug("ToolExecutor Redis 缓存就绪")
-        except Exception:
-            logger.debug("ToolExecutor Redis 不可用，降级内存缓存")
+        pool = _get_redis_pool()
+        if pool is not None:
+            self._redis = redis_lib.Redis(connection_pool=pool)
 
     def _cache_key(self, analysis_type: str, file_id: str) -> str:
         """Redis 缓存 key: vl:{contract|receipt}:{session_id}:{file_id}"""
@@ -1042,7 +1059,10 @@ class ToolExecutor:
         if temp_file_path and os.path.exists(temp_file_path):
             with open(temp_file_path, "rb") as f:
                 content = f.read()
-            file_hash = calculate_file_hash(content)
+            # 复用 _try_pre_analyze 计算的 hash，避免重复读取大文件
+            file_hash = self._file_hash_cache.get(temp_file_path)
+            if not file_hash:
+                file_hash = calculate_file_hash(content)
 
             # 基于文件 hash 检测重复
             existing = self.db.query(Contract).filter(
@@ -1119,7 +1139,7 @@ class ToolExecutor:
             "status": "active",
             # ── 以下字段：kwargs 优先，VL 缓存兜底 ──
             "title":               _resolve("title", "title"),
-            "business_type":       _resolve("business_type", "business_type"),
+            "business_type":       BusinessType.normalize(_resolve("business_type", "business_type")),
             "business_description": _resolve("business_description", "business_description"),
             "currency":            _resolve("currency", "currency", default="CNY"),
             "total_amount":        Decimal(str(_resolve("total_amount", "total_amount", default=0))),
@@ -1948,54 +1968,27 @@ class ToolExecutor:
         return ""  # 不是已知图片格式
 
     def _extract_text_sync(self, file_path: str) -> str:
-        """同步提取 Word/文本文件内容"""
-        # 先尝试 Word
-        try:
-            from docx import Document
-            doc = Document(file_path)
-            paragraphs = [p.text for p in doc.paragraphs if p.text.strip()]
-            if paragraphs:
-                return "Word 文档内容:\n" + "\n".join(paragraphs)[:10000]
-        except ImportError:
-            pass
-        except Exception:
-            pass
+        """同步提取 Word/文本文件内容（委托给 contract_analyzer 统一实现）"""
+        # 优先尝试 Word（.docx）
+        from app.services.contract_analyzer import _extract_word_text
+        result = _extract_word_text(file_path)
+        if result:
+            return result
 
-        # 再尝试纯文本（多种编码）
+        # 降级：纯文本（多种编码）
         for encoding in ("utf-8", "gbk", "gb2312", "utf-16"):
             try:
                 with open(file_path, "r", encoding=encoding) as f:
-                    text = f.read(20000)
-                return "文件内容:\n" + text[:10000]
+                    text = f.read(10000)
+                return text
             except (UnicodeDecodeError, UnicodeError):
                 continue
         return ""
 
     def _extract_excel_sync(self, file_path: str) -> str:
-        """同步提取 Excel 表格数据"""
-        try:
-            import openpyxl
-            wb = openpyxl.load_workbook(file_path, read_only=True, data_only=True)
-            rows = []
-            for sheet_name in wb.sheetnames:
-                ws = wb[sheet_name]
-                rows.append(f"[工作表: {sheet_name}]")
-                count = 0
-                for row in ws.iter_rows():
-                    vals = [str(c.value) if c.value is not None else "" for c in row]
-                    line = "\t".join(vals)
-                    if line.strip():
-                        rows.append(line)
-                        count += 1
-                    if count >= 200:
-                        rows.append(f"... (仅前 200 行)")
-                        break
-            wb.close()
-            return "Excel 表格数据:\n" + "\n".join(rows)[:10000]
-        except ImportError:
-            return ""
-        except Exception:
-            return ".xls 旧格式不受支持，请转换为 .xlsx"
+        """同步提取 Excel 表格数据（委托给 contract_analyzer 统一实现）"""
+        from app.services.contract_analyzer import _extract_excel_text
+        return _extract_excel_text(file_path)
 
     def analyze_image(self, file_id: str, analysis_type: str = "receipt") -> str:
         """分析上传的文件（图片/PDF/Word/Excel/文本），同步调用
@@ -2160,18 +2153,26 @@ class ToolExecutor:
                             # 合同类型：去掉 full_text 转录要求，文本已由 PyMuPDF 提取，节省 ~30s 生成时间
                             from app.services.contract_analyzer import _make_text_extraction_prompt
                             actual_prompt = _make_text_extraction_prompt(prompt) if analysis_type == "contract" else prompt
-                            response = Generation.call(
-                                api_key=settings.DASHSCOPE_API_KEY,
-                                model="deepseek-v4-flash",
-                                messages=[{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
-                                result_format="message",
-                                enable_thinking=True,
-                            )
+                            payload = {
+                                "model": settings.DASHSCOPE_AGENT_MODEL,
+                                "messages": [{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
+                                "temperature": 0.1,
+                                "max_tokens": 4096,
+                            }
+                            headers = {
+                                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                                "Content-Type": "application/json",
+                            }
+                            with httpx.Client(timeout=120.0) as client:
+                                response = client.post(
+                                    f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
+                                    json=payload, headers=headers,
+                                )
                             if response.status_code != 200:
-                                logger.error("百炼DeepSeek API错误: code=%s, message=%s", response.code, response.message)
-                                return json.dumps({"error": f"百炼 DeepSeek API 错误: {response.message}"}, ensure_ascii=False)
+                                logger.error("百炼DeepSeek API错误: status=%s, body=%s", response.status_code, response.text[:500])
+                                return json.dumps({"error": f"百炼 DeepSeek API 错误: {response.text[:200]}"}, ensure_ascii=False)
 
-                            content = response.output.choices[0].message.content
+                            content = response.json()["choices"][0]["message"]["content"]
                             try:
                                 structured = json.loads(content)
                             except json.JSONDecodeError:
@@ -2583,7 +2584,7 @@ TOOL_DEFINITIONS = [
                     "total_amount": {"type": "number", "description": "合同总金额"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "合同币种。从合同原文提取，如 HK$/港币=HKD，¥/人民币=CNY。不清楚时询问用户确认。"},
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
-                    "business_type": {"type": "string", "enum": ["车辆业务", "中港牌业务"], "description": "业务大类：车辆业务（买车卖车）或中港牌业务（办理中港车牌）"},
+                    "business_type": {"type": "string", "enum": ["车辆买卖", "两地牌过户", "年检保险", "其他"], "description": "业务大类：车辆买卖（买车卖车）、两地牌过户（办理中港车牌过户）、年检保险、其他"},
                     "business_description": {"type": "string", "description": "业务具体描述，严格基于合同原文。"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
                     "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},

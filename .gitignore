@@ -64,3 +64,6 @@ migrations/versions/*.pyc
 # 部署脚本（服务器专用，不推送）
 scripts/
 DEPLOY_PLAN.md
+
+# Windows reserved name
+backend/nul
