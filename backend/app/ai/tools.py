@@ -2016,6 +2016,30 @@ class ToolExecutor:
 
         mime = self._detect_image_mime(header)
 
+        # 合同文件重复检测：在 VL/PDF 等昂贵调用前拦截，节省 token 和时间
+        if analysis_type == "contract":
+            file_hash = calculate_file_hash(file_bytes)
+            existing_contract = self.db.query(Contract).filter(
+                Contract.file_hash == file_hash,
+                Contract.is_deleted == False,
+            ).first()
+            if existing_contract:
+                return json.dumps({
+                    "success": True,
+                    "duplicate_detected": True,
+                    "message": "该文件已在系统中存在对应的合同记录，无需重复录入。",
+                    "existing_contract": {
+                        "id": existing_contract.id,
+                        "contract_number": existing_contract.contract_number,
+                        "title": existing_contract.title,
+                        "status": existing_contract.status,
+                        "total_amount": float(existing_contract.total_amount) if existing_contract.total_amount else 0,
+                        "currency": existing_contract.currency,
+                    },
+                    "file_id": file_id,
+                    "analysis_type": analysis_type,
+                }, ensure_ascii=False)
+
         if mime:
             # 是图片 → VL 模型分析
             prompt = {
