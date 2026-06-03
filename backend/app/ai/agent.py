@@ -334,7 +334,8 @@ class ContractAgent:
         return "\n".join(results)
 
     async def _try_pre_analyze(self, file_id: str, file_type: str) -> Optional[str]:
-        """尝试对文件做预分析。文本型 PDF / Word / Excel 直接用文本模型解析，
+        """尝试对文本型文件做轻量提取。
+        文本型 PDF / Word / Excel 仅提取原文传给 LLM（<1s），
         扫描件 PDF 和图片返回 None 交给 LLM 调 analyze_image → VL 模型。"""
         if not file_id:
             return None
@@ -348,7 +349,7 @@ class ContractAgent:
         if not file_path:
             return None
 
-        # 判断是否为文本型文件（可提取文字的）
+        # 读取文件头判断类型
         try:
             with open(file_path, "rb") as f:
                 header = f.read(2000)
@@ -357,60 +358,45 @@ class ContractAgent:
 
         from app.services.contract_analyzer import _is_docx, _is_xlsx
 
-        can_pre_analyze = False
-
+        # 仅处理可提取文字的文件类型
         if header[:4] == b"%PDF":
             # PDF：检测是否有可提取文字
             try:
                 from app.services.contract_analyzer import _extract_pdf_text
                 text = _extract_pdf_text(file_path)
-                if text.strip():
-                    can_pre_analyze = True
-                else:
+                if not text.strip():
                     # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
                     return None
             except Exception:
                 return None
-        elif _is_docx(header) or _is_xlsx(header):
-            can_pre_analyze = True
+            file_type_label = "PDF"
+        elif _is_docx(header):
+            try:
+                from app.services.contract_analyzer import _extract_word_text
+                text = _extract_word_text(file_path)
+            except Exception:
+                return None
+            file_type_label = "Word"
+        elif _is_xlsx(header):
+            try:
+                from app.services.contract_analyzer import _extract_excel_text
+                text = _extract_excel_text(file_path)
+            except Exception:
+                return None
+            file_type_label = "Excel"
         else:
             # 图片或其他格式，交给 LLM 调 analyze_image
             return None
 
-        # 文本型文件：直接调用 ContractAnalyzer
-        try:
-            from app.services.contract_analyzer import ContractAnalyzer
-            result = await asyncio.to_thread(
-                ContractAnalyzer.analyze_file, file_path, self.db, self.user.id
-            )
-        except Exception as e:
-            logger.exception("预分析失败，回退到 LLM 决策: file_id=%s", file_id)
+        if not text or not text.strip():
+            # 无法提取文字，回退到 LLM → analyze_image
             return None
 
-        if not result or not result.get("success"):
-            return None
-
-        if result.get("duplicate_detected"):
-            return (
-                f"[系统预分析结果 - 文件重复]\n"
-                f"该文件已在系统中存在对应的合同记录。\n"
-                f"{result.get('message', '')}"
-            )
-
-        # 缓存分析结果到 executor，后续 create_contract 可直接取用
-        structured = result.get("data", {})
-        self.executor._document_context = "contract"
-        self.executor._cache_analysis(file_id, "contract", structured)
-
-        # 构建给 LLM 的上下文：让 LLM 直接基于分析结果回复用户
-        summary = self.executor._summarize_analysis_for_context(structured)
-        context_str = json.dumps(summary, ensure_ascii=False, indent=2)
-
+        # 直接传提取的文字给 LLM，跳过 _call_text_model API 调用（48s → <1s）
         return (
-            f"[系统已自动完成文件分析，请勿再调用 analyze_image 工具]\n"
-            f"文件类型：{result.get('file_type', 'unknown')}\n"
-            f"分析结果：\n{context_str}\n\n"
-            f"请直接基于以上分析结果向用户展示关键信息，询问是否需要创建合同。"
+            f"[系统已自动提取文件内容，请直接分析以下文本，无需再调用 analyze_image 工具]\n"
+            f"文件类型：{file_type_label}\n"
+            f"提取的文字内容（共 {len(text)} 字符）：\n\n{text[:50000]}"
         )
 
     @staticmethod
