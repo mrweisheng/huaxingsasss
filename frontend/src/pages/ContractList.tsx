@@ -57,6 +57,7 @@ export default function ContractList() {
   const [hoveredCard, setHoveredCard] = useState<number | null>(null)
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
+  const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const loadContracts = useCallback(async () => {
     abortControllerRef.current?.abort()
@@ -65,7 +66,7 @@ export default function ContractList() {
 
     setLoading(true)
     try {
-      const params: any = { page, per_page: 20, keyword: keyword || undefined }
+      const params: any = { page, per_page: 20, customer_name: keyword || undefined }
       if (statusFilter) params.status = statusFilter
       if (dateRange && dateRange[0] && dateRange[1]) {
         params.date_from = dateRange[0].format('YYYY-MM-DD')
@@ -88,12 +89,17 @@ export default function ContractList() {
     loadContracts()
     return () => {
       abortControllerRef.current?.abort()
+      if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     }
   }, [loadContracts])
 
-  const handleSearch = (value: string) => {
-    setKeyword(value)
-    setPage(1)
+  const handleSearch = (e: React.ChangeEvent<HTMLInputElement> | undefined) => {
+    const value = e?.target?.value ?? ''
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
+    searchTimerRef.current = setTimeout(() => {
+      setKeyword(value)
+      setPage(1)
+    }, 400)
   }
 
   const handleStatusChange = (value: string | undefined) => {
@@ -131,10 +137,10 @@ export default function ContractList() {
           </div>
         </div>
         <div className="page-topbar-right">
-          <Input.Search
-            placeholder="搜索合同编号/标题/客户..."
+          <Input
+            placeholder="搜索客户名称..."
             allowClear
-            onSearch={handleSearch}
+            onChange={handleSearch}
             style={{ width: 220 }}
             prefix={<SearchOutlined />}
           />
@@ -182,13 +188,6 @@ export default function ContractList() {
                   onMouseLeave={() => setHoveredCard(null)}
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
-                  <div className="card-header">
-                    <div className="contract-number">{contract.contract_number}</div>
-                    <div className="status-badge" style={{ color: status.color, backgroundColor: status.bg }}>
-                      {status.text}
-                    </div>
-                  </div>
-
                   {contract.business_type && (
                     <div
                       className="business-type-badge"
@@ -198,18 +197,28 @@ export default function ContractList() {
                     </div>
                   )}
 
-                  <div className="card-title">{contract.title || '无标题'}</div>
-
-                  {contract.customer_name && (
-                    <div className="customer-info">
-                      <span className="label">客户</span>
-                      <span className="value">{contract.customer_name}</span>
+                  {/* 客户名称行 — 第二视觉权重，仅次于金额 */}
+                  <div className="customer-name-hero">
+                    <span className="customer-name-text">{contract.customer_name || '未关联客户'}</span>
+                    <div className="status-badge" style={{ color: status.color, backgroundColor: status.bg }}>
+                      {status.text}
                     </div>
-                  )}
+                  </div>
 
-                  {contract.business_description && (
-                    <div className="business-desc">{contract.business_description}</div>
-                  )}
+                  {/* 合同元信息：编号 + 标题 紧凑一行 */}
+                  <div className="contract-meta-row">
+                    <span className="contract-meta-number">{contract.contract_number}</span>
+                    {(contract.title || contract.customer_name) && (
+                      <span className="contract-meta-sep">·</span>
+                    )}
+                    <span className="contract-meta-title">{contract.title || (contract.customer_name ? '合同详情' : '无标题')}</span>
+                  </div>
+
+                  {/* 业务描述 — 固定高度占位，统一卡片节奏 */}
+                  <div className="business-desc">{contract.business_description || ''}</div>
+
+                  {/* 金色语义分割线 — 身份层 / 金额层 */}
+                  <div className="divider-gold card-divider" />
 
                   <div className="amount-section">
                     {/* 总金额 — 视觉锚点 */}

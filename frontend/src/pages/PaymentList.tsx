@@ -30,11 +30,12 @@ function amountToChinese(amount: number, currency: string): string {
 
   let result = ''
   let intStr = intPart.toString()
-  let unitIdx = 0
+  let unitIdx = -1
   let bigUnitIdx = 0
   let hasNonZero = false
 
   for (let i = intStr.length - 1; i >= 0; i--) {
+    unitIdx++
     const digit = parseInt(intStr[i])
     if (digit !== 0) {
       result = digitMap[digit] + unitMap[unitIdx] + result
@@ -43,9 +44,8 @@ function amountToChinese(amount: number, currency: string): string {
       result = digitMap[0] + result
       hasNonZero = false
     }
-    unitIdx++
-    if (unitIdx === 4) {
-      unitIdx = 0
+    if (unitIdx === 3) {
+      unitIdx = -1
       bigUnitIdx++
       if (bigUnitIdx < bigUnitMap.length) {
         result = bigUnitMap[bigUnitIdx] + result
@@ -192,6 +192,7 @@ export default function PaymentList() {
 
   // ── KPI 统计（useMemo 避免重算） ──
   const kpiGroups = useMemo(() => payments.reduce((acc, p) => {
+    if (p.status !== 'paid') return acc
     if (role === 'income' && p.type !== 'income') return acc
     if (role === 'expense' && p.type !== 'expense') return acc
     const key = `${p.type}_${p.currency}`

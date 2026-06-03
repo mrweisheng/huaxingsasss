@@ -8,6 +8,7 @@ export const contractApi = {
     status?: string
     customer_id?: number
     customer_ids?: string
+    customer_name?: string
     keyword?: string
     date_from?: string
     date_to?: string
