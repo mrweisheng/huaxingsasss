@@ -442,9 +442,10 @@ class ContractAnalyzer:
                 structured = _call_vl_model(img_bytes, "image/png", CONTRACT_ANALYSIS_PROMPT)
             file_type = "pdf"
         else:
-            # 尝试 Word / Excel
+            # 尝试 Word / Excel / 纯文本
             text_content = ""
-            # 根据文件扩展名判断（agent/upload 不保留扩展名，所以也尝试内容检测）
+            file_type = ""
+            # 根据文件扩展名或文件头判断（agent/upload 不保留扩展名）
             file_name = os.path.basename(file_path)
             if file_name.endswith(".docx") or _is_docx(file_bytes):
                 text_content = _extract_word_text(file_path)
@@ -452,10 +453,20 @@ class ContractAnalyzer:
             elif file_name.endswith(".xlsx") or _is_xlsx(file_bytes):
                 text_content = _extract_excel_text(file_path)
                 file_type = "excel"
-            else:
-                # 最后尝试纯文本编码检测
-                text_content = _extract_plain_text(file_bytes)
-                file_type = "text"
+
+            # 检测未命中或提取为空 → 暴力回退：逐个尝试所有提取器
+            if not text_content or not text_content.strip():
+                for _extract, _ftype in [
+                    (_extract_word_text, "word"),
+                    (_extract_excel_text, "excel"),
+                ]:
+                    text_content = _extract(file_path)
+                    if text_content and text_content.strip():
+                        file_type = _ftype
+                        break
+                else:
+                    text_content = _extract_plain_text(file_bytes)
+                    file_type = "text"
 
             if not text_content.strip():
                 return {

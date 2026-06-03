@@ -358,7 +358,7 @@ class ContractAgent:
         if not file_path:
             return None
 
-        # 读取文件头判断类型
+        # 读取文件头用于 PDF 检测（Word/Excel 优先用上传端点检测的 file_type）
         try:
             with open(file_path, "rb") as f:
                 header = f.read(2000)
@@ -381,7 +381,9 @@ class ContractAgent:
                 # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
                 return None
             file_type_label = "PDF"
-        elif _is_docx(header):
+        elif file_type == "word" or _is_docx(header):
+            # 优先信任上传端点检测的 file_type（agent upload 已正确识别 .docx）
+            # _is_docx 作为兜底（仅检查前 2000 字节，部分 docx 可能漏检）
             try:
                 from app.services.contract_analyzer import _extract_word_text
                 text = _extract_word_text(file_path)
@@ -390,7 +392,7 @@ class ContractAgent:
             if not text.strip():
                 return None
             file_type_label = "Word"
-        elif _is_xlsx(header):
+        elif file_type == "excel" or _is_xlsx(header):
             try:
                 from app.services.contract_analyzer import _extract_excel_text
                 text = _extract_excel_text(file_path)

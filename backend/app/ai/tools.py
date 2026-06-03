@@ -2010,6 +2010,20 @@ class ToolExecutor:
 
         # ━━━ 合同类型：委托给 ContractAnalyzer（共享逻辑） ━━━
         if analysis_type == "contract":
+            # 优先查缓存：预分析可能已提取并缓存了结构化数据
+            cached = self._get_cached_analysis(file_id, analysis_type)
+            if cached:
+                logger.info("analyze_image contract: 使用缓存结果 file_id=%s", file_id)
+                self._document_context = analysis_type
+                return json.dumps({
+                    "success": True,
+                    "data": self._summarize_analysis_for_context(cached),
+                    "file_id": file_id,
+                    "file_path": f"agent_upload/{file_id}",
+                    "file_type": cached.get("file_type", "document"),
+                    "analysis_type": analysis_type,
+                }, ensure_ascii=False)
+
             from app.services.contract_analyzer import ContractAnalyzer
             try:
                 result = ContractAnalyzer.analyze_file(file_path, self.db, self.user.id)
@@ -2023,6 +2037,16 @@ class ToolExecutor:
                     "duplicate_detected": True,
                     "message": result.get("message", "该文件已在系统中存在对应的合同记录"),
                     "existing_contract": result.get("existing_contract"),
+                    "file_id": file_id,
+                    "analysis_type": analysis_type,
+                }, ensure_ascii=False)
+
+            # 检查 ContractAnalyzer 是否真正成功
+            if not result.get("success", True):
+                logger.warning("analyze_image: ContractAnalyzer 返回失败: %s", result.get("error", ""))
+                return json.dumps({
+                    "success": False,
+                    "error": result.get("error", "合同分析失败"),
                     "file_id": file_id,
                     "analysis_type": analysis_type,
                 }, ensure_ascii=False)
