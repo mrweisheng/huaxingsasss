@@ -28,9 +28,18 @@ class SessionResponse(BaseModel):
     created_at: datetime
     message_count: int = 0
     title: Optional[str] = None
+    mode: str = "chat"
+    context: Optional[dict] = None
 
 
 class UploadResponse(BaseModel):
     file_id: str
     file_name: str
     file_size: int
+
+
+class CreateSessionRequest(BaseModel):
+    """创建会话请求 — 支持指定 mode 和 context"""
+    title: Optional[str] = None
+    mode: str = Field(default="chat", description="会话模式: chat | receipt_income | receipt_expense")
+    context: Optional[dict] = Field(None, description="模式上下文，如 {contract_id, payment_type}")

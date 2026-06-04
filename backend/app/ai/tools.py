@@ -118,6 +118,8 @@ class ToolExecutor:
         self.db = db
         self.user = user
         self.session_id = session_id
+        self.mode: str = "chat"  # 会话模式：chat | receipt_income | receipt_expense
+        self.session_context: Optional[dict] = None  # 模式上下文
         self._document_context: Optional[str] = None  # "receipt"|"contract"|"general"|None
         self._pending_receipt_path: Optional[str] = None  # 同请求内快速路径
         self._file_hash_cache: dict = {}  # file_path → sha256 hash，避免 _try_pre_analyze 和 create_contract 重复计算
@@ -2393,6 +2395,30 @@ class ToolExecutor:
 
         return json.dumps({"error": "无法识别的文件类型，支持：图片、PDF、Word、Excel、文本"}, ensure_ascii=False)
 
+    # 模式级工具白名单：非 chat 模式只能使用白名单内的工具
+    _MODE_ALLOWED_TOOLS = {
+        "receipt_income": {
+            "analyze_image", "create_payment", "update_payment",
+            "get_contract_detail", "query_payments",
+        },
+        "receipt_expense": {
+            "analyze_image", "create_expense", "update_payment",
+            "get_contract_detail", "query_payments",
+        },
+    }
+
+    def _check_mode_guard(self, tool_name: str) -> Optional[str]:
+        """模式级工具白名单。非 chat 模式只能用白名单内的工具。
+        返回 None 放行，返回 JSON 字符串拦截。"""
+        if self.mode == "chat" or self.mode is None:
+            return None
+        allowed = self._MODE_ALLOWED_TOOLS.get(self.mode, set())
+        if tool_name in allowed:
+            return None
+        return json.dumps({
+            "error": f"当前模式下不可使用 {tool_name}，请联系管理员或切换到聊天助手模式",
+        })
+
     # 文档类型 → 禁止的工具集合
     # receipt：上传凭证时，禁止创建合同/客户（凭证不能触发合同录入）
     #         凭证录入已迁移到合同卡片，禁止所有凭证写入操作
@@ -2410,7 +2436,10 @@ class ToolExecutor:
         """文档上下文守卫。返回 None 放行，返回 JSON 字符串拦截。
         仅在「命中拦截」时一次性清空上下文。未命中的工具（如 general→get_customer_contracts
         或 general→update_contract）放行并保留上下文，让后续 update_contract 能识别
-        「群聊识别推断」来源。execute 入口负责在写操作完成后消费上下文。"""
+        「群聊识别推断」来源。execute 入口负责在写操作完成后消费上下文。
+        receipt_income / receipt_expense 模式跳过文档守卫（由模式白名单控制）。"""
+        if self.mode in ("receipt_income", "receipt_expense"):
+            return None
         if self._document_context is None:
             return None
         context = self._document_context
@@ -2440,7 +2469,13 @@ class ToolExecutor:
             return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
 
         args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
-        logger.info("工具调用: %s | 参数: %s", tool_name, args_preview)
+        logger.info("工具调用: %s | mode=%s | 参数: %s", tool_name, self.mode, args_preview)
+
+        # 模式级白名单检查（优先于文档守卫）
+        mode_blocked = self._check_mode_guard(tool_name)
+        if mode_blocked:
+            logger.warning("模式守卫拦截: tool=%s, mode=%s", tool_name, self.mode)
+            return mode_blocked
 
         # 文档上下文守卫：analyze_image 设置的 document_context 按以下规则处理：
         # - 工具命中封锁列表 → 拦截并一次性消费上下文

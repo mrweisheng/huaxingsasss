@@ -14,7 +14,8 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.api.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.agent import ChatRequest, UploadResponse
+from app.models.chat_session import ChatSession
+from app.schemas.agent import ChatRequest, UploadResponse, CreateSessionRequest
 from app.ai.agent import ContractAgent
 from app.config import settings
 
@@ -25,17 +26,33 @@ router = APIRouter()
 
 @router.post("/sessions")
 def create_session(
+    req: CreateSessionRequest = CreateSessionRequest(),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    """创建新会话"""
+    """创建新会话，支持指定 mode（chat/receipt_income/receipt_expense）和 context"""
     session_id = str(uuid.uuid4())
+
+    # 持久化会话元数据
+    chat_session = ChatSession(
+        session_id=session_id,
+        user_id=current_user.id,
+        title=req.title,
+        mode=req.mode,
+        context=req.context,
+    )
+    db.add(chat_session)
+    db.commit()
+
     return {
         "code": 200,
         "data": {
             "session_id": session_id,
             "created_at": None,
             "message_count": 0,
+            "title": req.title,
+            "mode": req.mode,
+            "context": req.context,
         },
     }
 

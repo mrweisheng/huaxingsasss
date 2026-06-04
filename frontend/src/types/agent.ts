@@ -35,6 +35,8 @@ export interface ChatSession {
   createdAt: string | null
   messageCount: number
   title: string | null
+  mode: string
+  context?: Record<string, any> | null
 }
 
 export interface SSEEvent {

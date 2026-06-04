@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.ai.llm_client import DashScopeAgentClient
 from app.ai.prompts import (
     build_system_prompt,
+    RECEIPT_ENTRY_PROMPT,
     RECEIPT_ANALYSIS_PROMPT,
     CONTRACT_ANALYSIS_PROMPT,
     GENERAL_ANALYSIS_PROMPT,
@@ -29,6 +30,7 @@ from app.ai.prompts import (
 from app.ai.tools import ToolExecutor, TOOL_DEFINITIONS
 from app.config import settings
 from app.models.chat_history import ChatHistory
+from app.models.chat_session import ChatSession
 from app.models.user import User
 
 logger = logging.getLogger(__name__)
@@ -82,6 +84,8 @@ class ContractAgent:
         self.user = user
         self.llm = DashScopeAgentClient()
         self.executor = ToolExecutor(db, user)
+        self._mode: str = "chat"
+        self._session_context: Optional[dict] = None
 
     async def chat(
         self,
@@ -103,12 +107,19 @@ class ContractAgent:
         if not session_id:
             session_id = str(uuid.uuid4())
 
+        # 加载 session 元数据（mode / context）
+        self._load_session_meta(session_id)
+
+        # 将 mode 注入 executor，用于工具白名单控制
+        self.executor.mode = self._mode
+        self.executor.session_context = self._session_context
+
         # 将 session_id 注入 executor，供 DB 兜底查询使用
         self.executor.session_id = session_id
 
         logger.info(
-            "Agent会话: session=%s, user=%s(%s), 附件=%d, 消息=%s",
-            session_id[:8], self.user.username, self.user.role,
+            "Agent会话: session=%s, mode=%s, user=%s(%s), 附件=%d, 消息=%s",
+            session_id[:8], self._mode, self.user.username, self.user.role,
             len(attachments) if attachments else 0,
             user_message[:100],
         )
@@ -712,14 +723,17 @@ class ContractAgent:
         summary: Optional[str] = None,
     ) -> List[dict]:
         """构建完整的消息数组"""
-        system = {
-            "role": "system",
-            "content": build_system_prompt(
+        # 按 mode 选择 system prompt
+        if self._mode in ("receipt_income", "receipt_expense"):
+            system_content = self._build_receipt_entry_prompt()
+        else:
+            system_content = build_system_prompt(
                 user_name=self.user.full_name or self.user.username,
                 user_role=self.user.role,
                 current_date=date.today().isoformat(),
-            ),
-        }
+            )
+
+        system = {"role": "system", "content": system_content}
 
         messages = [system]
 
@@ -945,6 +959,57 @@ class ContractAgent:
         self.db.add(record)
         self.db.commit()
 
+    def _load_session_meta(self, session_id: str) -> None:
+        """从 chat_sessions 表加载 mode 和 context，注入到 self._mode / self._session_context"""
+        session_record = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.session_id == session_id)
+            .first()
+        )
+        if session_record:
+            self._mode = session_record.mode or "chat"
+            self._session_context = session_record.context
+        else:
+            self._mode = "chat"
+            self._session_context = None
+
+    def _build_receipt_entry_prompt(self) -> str:
+        """构建凭证录入模式的 system prompt，从 session_context 获取合同信息"""
+        from app.models.contract import Contract
+
+        ctx = self._session_context or {}
+        contract_id = ctx.get("contract_id")
+        contract_no = "未知"
+        customer_name = "未知"
+
+        if contract_id:
+            contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
+            if contract:
+                contract_no = contract.contract_number or "未知"
+                if contract.customer:
+                    customer_name = contract.customer.name or "未知"
+
+        is_income = self._mode == "receipt_income"
+        type_label = "收入" if is_income else "支出"
+        create_tool = "create_payment" if is_income else "create_expense"
+
+        role_desc = {
+            "admin": "管理员",
+            "income": "收入专员",
+            "expense": "支出专员",
+        }.get(self.user.role, self.user.role)
+
+        return RECEIPT_ENTRY_PROMPT.format(
+            type_label=type_label,
+            contract_no=contract_no,
+            customer_name=customer_name,
+            current_date=date.today().isoformat(),
+            user_name=self.user.full_name or self.user.username,
+            role_desc=role_desc,
+            create_tool=create_tool,
+            contract_id=contract_id or 0,
+        )
+
     def get_sessions(self) -> List[dict]:
         """获取用户的所有会话列表（2 次查询替代 N+1）"""
         from sqlalchemy import func as sa_func
@@ -963,7 +1028,18 @@ class ContractAgent:
 
         session_ids = [s.session_id for s in aggregates]
 
-        # Query 2: 取每会话首条用户消息作标题（使用窗口函数）
+        # Query 2: 批量取 chat_sessions 的 mode
+        session_meta_map: dict[str, dict] = {}
+        if session_ids:
+            meta_records = (
+                self.db.query(ChatSession.session_id, ChatSession.mode, ChatSession.title)
+                .filter(ChatSession.session_id.in_(session_ids))
+                .all()
+            )
+            for r in meta_records:
+                session_meta_map[r.session_id] = {"mode": r.mode, "title": r.title}
+
+        # Query 3: 取每会话首条用户消息作标题（使用窗口函数）
         first_msg_map: dict[str, Optional[str]] = {}
         if session_ids:
             subq = (
@@ -992,11 +1068,13 @@ class ContractAgent:
 
         result = []
         for s in aggregates:
+            meta = session_meta_map.get(s.session_id, {})
             result.append({
                 "session_id": s.session_id,
                 "created_at": s.last_activity.isoformat() if s.last_activity else None,
                 "message_count": s.message_count,
-                "title": first_msg_map.get(s.session_id),
+                "title": meta.get("title") or first_msg_map.get(s.session_id),
+                "mode": meta.get("mode", "chat"),
             })
 
         result.sort(key=lambda x: x["created_at"] or "", reverse=True)

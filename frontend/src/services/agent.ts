@@ -13,6 +13,8 @@ function mapSession(raw: any): ChatSession {
     createdAt: raw.created_at ?? null,
     messageCount: raw.message_count ?? 0,
     title: raw.title ?? null,
+    mode: raw.mode ?? 'chat',
+    context: raw.context ?? null,
   }
 }
 
@@ -37,8 +39,12 @@ function mapUploadResult(raw: any): UploadResult {
 }
 
 export const agentApi = {
-  createSession: async (): Promise<ApiBody<ChatSession>> => {
-    const body: any = await api.post(`${API_BASE}/sessions`)
+  createSession: async (options?: {
+    title?: string
+    mode?: string
+    context?: Record<string, any>
+  }): Promise<ApiBody<ChatSession>> => {
+    const body: any = await api.post(`${API_BASE}/sessions`, options || {})
     return { code: body.code, data: mapSession(body.data) }
   },
 

@@ -10,6 +10,7 @@ from app.models.exchange_rate import ExchangeRate
 from app.models.file import File
 from app.models.audit_log import AuditLog
 from app.models.chat_history import ChatHistory
+from app.models.chat_session import ChatSession
 
 __all__ = [
     "Base",
@@ -20,5 +21,6 @@ __all__ = [
     "ExchangeRate",
     "File",
     "AuditLog",
-    "ChatHistory"
+    "ChatHistory",
+    "ChatSession",
 ]

@@ -5,7 +5,7 @@ import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextO
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractUploadWizard from '@/components/ContractUploadWizard'
-import ReceiptPaymentModal from '@/components/ReceiptPaymentModal'
+import ReceiptChatModal from '@/components/ReceiptChatModal'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
 import './ContractList.css'
@@ -420,16 +420,15 @@ export default function ContractList() {
       />
 
       {receiptModal.contract && (
-        <ReceiptPaymentModal
+        <ReceiptChatModal
           open={receiptModal.open}
-          onClose={(success) => {
+          onClose={() => {
             setReceiptModal(prev => ({ ...prev, open: false }))
-            if (success) loadContracts()
+            loadContracts()
           }}
           contractId={receiptModal.contract.id}
           contractNumber={receiptModal.contract.contract_number}
           customerName={receiptModal.contract.customer_name || ''}
-          contractCurrency={receiptModal.contract.currency}
           paymentType={receiptModal.type}
         />
       )}
