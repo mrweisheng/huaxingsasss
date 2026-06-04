@@ -365,7 +365,7 @@ class ContractAgent:
         except OSError:
             return None
 
-        from app.services.contract_analyzer import _is_docx, _is_xlsx
+        from app.utils.file_analysis import is_docx, is_xlsx
 
         text = ""
         file_type_label = ""
@@ -373,29 +373,29 @@ class ContractAgent:
         if header[:4] == b"%PDF":
             # PDF：检测是否有可提取文字
             try:
-                from app.services.contract_analyzer import _extract_pdf_text
-                text = _extract_pdf_text(file_path)
+                from app.utils.file_analysis import extract_pdf_text
+                text = extract_pdf_text(file_path)
             except Exception:
                 return None
             if not text.strip():
                 # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
                 return None
             file_type_label = "PDF"
-        elif file_type == "word" or _is_docx(header):
+        elif file_type == "word" or is_docx(header):
             # 优先信任上传端点检测的 file_type（agent upload 已正确识别 .docx）
-            # _is_docx 作为兜底（仅检查前 2000 字节，部分 docx 可能漏检）
+            # is_docx 作为兜底（仅检查前 2000 字节，部分 docx 可能漏检）
             try:
-                from app.services.contract_analyzer import _extract_word_text
-                text = _extract_word_text(file_path)
+                from app.utils.file_analysis import extract_word_text
+                text = extract_word_text(file_path)
             except Exception:
                 return None
             if not text.strip():
                 return None
             file_type_label = "Word"
-        elif file_type == "excel" or _is_xlsx(header):
+        elif file_type == "excel" or is_xlsx(header):
             try:
-                from app.services.contract_analyzer import _extract_excel_text
-                text = _extract_excel_text(file_path)
+                from app.utils.file_analysis import extract_excel_text
+                text = extract_excel_text(file_path)
             except Exception:
                 return None
             if not text.strip():
@@ -430,9 +430,9 @@ class ContractAgent:
         # ━━━ 调用 LLM 提取结构化数据 ← 保证 create_contract 始终有 payment_terms ━━━
         logger.info("预分析: 调用百炼DeepSeek-V4-Flash提取合同结构化数据, text_len=%d", len(text))
         try:
-            from app.services.contract_analyzer import _make_text_extraction_prompt
+            from app.utils.file_analysis import make_text_extraction_prompt
 
-            actual_prompt = _make_text_extraction_prompt(CONTRACT_ANALYSIS_PROMPT)
+            actual_prompt = make_text_extraction_prompt(CONTRACT_ANALYSIS_PROMPT)
             payload = {
                 "model": settings.DASHSCOPE_AGENT_MODEL,
                 "messages": [{

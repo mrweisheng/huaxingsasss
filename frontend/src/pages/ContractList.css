@@ -383,6 +383,20 @@
   background: var(--color-danger-bg);
 }
 
+.action-icon.income {
+  color: #0d9488;
+}
+.action-icon.income:hover {
+  background: rgba(13, 148, 136, 0.08);
+}
+
+.action-icon.expense {
+  color: #d97706;
+}
+.action-icon.expense:hover {
+  background: rgba(217, 119, 6, 0.08);
+}
+
 /* ── 角标装饰 ── */
 .card-decoration {
   position: absolute;

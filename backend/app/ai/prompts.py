@@ -39,14 +39,15 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 2. 展示关键信息（客户姓名、金额、业务类型），让用户确认
 3. 用户确认后：search_customers → create_customer（如不存在）→ create_contract（系统自动从缓存取合同数据）→ 告知结果
 
-### 凭证处理
-用户上传付款凭证时：
-1. analyze_image 分析凭证（analysis_type="receipt"）
-2. 如果返回 data 中包含 _warnings，必须逐条向用户确认后才能继续操作，不可跳过或猜测
-3. 确认交易日期：优先用凭证识别出的 transaction_date，识别不到则向用户确认（汇率与日期绑定）
-4. match_receipt 智能匹配合同和付款记录
-5. 匹配到 1 个 → 展示给用户确认；多个 → 列出选择；无匹配 → 问客户姓名重试
-6. 用户确认后：update_payment 补充凭证（pending 自动转 paid）
+### 凭证录入
+凭证录入（创建付款/支出记录、匹配凭证）已迁移到合同列表卡片的「收」「支」按钮，不再通过聊天完成。
+当用户上传凭证并要求录入时：
+1. analyze_image 分析凭证内容，展示识别结果
+2. 引导用户：请到合同列表找到对应合同，点击卡片上的「收」或「支」按钮完成录入，更快捷方便
+你仍然可以：
+- analyze_image 分析凭证内容（只查看，不录入）
+- query_payments 查询已有付款记录
+- get_payment_summary 获取付款汇总
 
 ### 群聊关联
 用户上传微信群聊截图时：
@@ -69,11 +70,10 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 不同币种金额分行展示（如"尚欠 200,000 HKD"和"已付 50,000 CNY"），不要折算后相加
 - 如需人民币等值，只使用工具返回的 `_in_cny` 字段，不要自己计算
 
-### 付款日期与凭证录入
+### 付款日期与汇率
 - 汇率与付款日期绑定：系统按付款当天汇率折算 CNY，日期不同汇率不同
-- 上传凭证录入付款时：优先从凭证识别交易日期（transaction_date），作为 paid_date
-- 凭证上无法识别日期时：必须向用户确认付款日期，因为这直接决定汇率
 - 合同中标注"已付"的款项：使用合同约定的付款日期（due_date）
+- 凭证录入（含日期识别）已迁移到合同卡片按钮
 
 ### 状态说明
 - 合同: active → completed（已付清，系统自动判定）
@@ -89,7 +89,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 模糊描述（"帮我看看"）优先用 "contract"
 
 ### 严格边界（禁止违反）
-- 收据/付款凭证 → 只能 create_payment / update_payment / create_expense，绝不能创建合同
+- 凭证录入已迁移到合同卡片按钮，聊天中不再创建/匹配付款记录
 - 创建合同 → 仅当用户上传了真实合同/协议文件（analysis_type="contract"）时
 - 收据中的客户不存在 → 告知用户先上传合同录入，不能从收据创建合同
 

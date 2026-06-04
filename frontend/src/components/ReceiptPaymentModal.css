@@ -1,0 +1,424 @@
+/* ============================================================
+   凭证录入向导 · 专用样式
+   原则：复用 ContractUploadWizard 设计系统 | 批量处理 | 缓存重试
+   ============================================================ */
+
+/* ── 弹窗容器 ── */
+.receipt-modal .ant-modal-content {
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+.receipt-modal .ant-modal-body {
+  padding: 24px 28px;
+  min-height: 440px;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 合同上下文信息条 ── */
+.receipt-modal-context {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.receipt-modal-context-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.receipt-modal-context-item .label {
+  color: var(--text-tertiary);
+}
+
+.receipt-modal-context-item .value {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+/* ── 步骤条 ── */
+.receipt-modal-steps {
+  margin-bottom: 20px;
+  flex-shrink: 0;
+}
+
+.receipt-modal-steps .ant-steps-item-title {
+  font-size: 13px !important;
+}
+
+/* ── 内容区 ── */
+.receipt-modal-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ── 凭证缩略图行 ── */
+.receipt-modal-thumbs {
+  display: flex;
+  gap: 8px;
+  padding: 8px 0;
+  overflow-x: auto;
+  flex-shrink: 0;
+}
+
+.receipt-modal-thumb {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-sm);
+  border: 2px solid var(--border-light);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+  transition: all 0.2s ease;
+}
+
+.receipt-modal-thumb:hover {
+  border-color: var(--border-medium);
+}
+
+.receipt-modal-thumb.active {
+  border-color: var(--brand-primary);
+}
+
+.receipt-modal-thumb.done {
+  border-color: #d9d9d9;
+  opacity: 0.6;
+}
+
+.receipt-modal-thumb.done::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+  color: #52c41a;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.receipt-modal-thumb.error {
+  border-color: #ff4d4f;
+}
+
+.receipt-modal-thumb.error::after {
+  content: '✕';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.8);
+  color: #ff4d4f;
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.receipt-modal-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ── 上传区域 ── */
+.receipt-modal-upload {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px 0 30px;
+}
+
+.receipt-modal-upload .ant-upload-drag {
+  border: 2px dashed var(--border-light);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  transition: all 0.25s ease;
+  width: 100%;
+  max-width: 480px;
+}
+
+.receipt-modal-upload .ant-upload-drag:hover {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary-lighter);
+}
+
+/* ── 分析进度 ── */
+.receipt-modal-analyzing {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.receipt-modal-analyzing-icon {
+  font-size: 52px;
+  color: var(--brand-primary);
+  margin-bottom: 24px;
+  opacity: 0.85;
+}
+
+.receipt-modal-analyzing-text {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 8px;
+}
+
+.receipt-modal-analyzing-hint {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  max-width: 320px;
+  line-height: 1.6;
+}
+
+/* ── Warnings 横幅 ── */
+.receipt-modal-warnings {
+  background: #fffbe6;
+  border: 1px solid #ffe58f;
+  border-radius: var(--radius-md);
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #ad6800;
+}
+
+/* ── 已有记录上下文提示 ── */
+.receipt-modal-existing {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  padding: 10px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── 匹配选择区 ── */
+.receipt-modal-match {
+  margin-bottom: 16px;
+}
+
+.receipt-modal-match-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 10px;
+}
+
+.receipt-modal-match-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  margin-bottom: 6px;
+  background: var(--bg-surface);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.receipt-modal-match-option:hover {
+  border-color: var(--border-medium);
+}
+
+.receipt-modal-match-option.selected {
+  border-color: var(--brand-primary);
+  background: var(--brand-primary-lighter);
+}
+
+.receipt-modal-match-option .ant-radio {
+  margin-right: 0;
+}
+
+.receipt-modal-match-option-info {
+  flex: 1;
+}
+
+.receipt-modal-match-option-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.receipt-modal-match-option-amount {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.receipt-modal-match-option-score {
+  font-size: 11px;
+  color: var(--brand-primary);
+  font-weight: 500;
+}
+
+/* ── 表单区 ── */
+.receipt-modal-form {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.receipt-modal-form .ant-form-item {
+  margin-bottom: 0;
+}
+
+.receipt-modal-form .ant-form-item-label > label {
+  font-size: 13px;
+}
+
+.receipt-modal-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+/* warning 字段高亮 */
+.receipt-modal-form-warning .ant-input,
+.receipt-modal-form-warning .ant-select-selector {
+  border-color: #ff4d4f !important;
+}
+
+/* ── 汇总页 ── */
+.receipt-modal-summary {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.receipt-modal-summary-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.receipt-modal-summary-count {
+  display: flex;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.receipt-modal-summary-count-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.receipt-modal-summary-count-item.success {
+  color: #52c41a;
+}
+
+.receipt-modal-summary-count-item.error {
+  color: #ff4d4f;
+}
+
+.receipt-modal-summary-list {
+  flex: 1;
+  overflow-y: auto;
+  max-height: 280px;
+}
+
+.receipt-modal-summary-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  margin-bottom: 8px;
+}
+
+.receipt-modal-summary-item-status {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  font-size: 12px;
+}
+
+.receipt-modal-summary-item-status.success {
+  background: #f6ffed;
+  color: #52c41a;
+}
+
+.receipt-modal-summary-item-status.error {
+  background: #fff2f0;
+  color: #ff4d4f;
+}
+
+.receipt-modal-summary-item-info {
+  flex: 1;
+}
+
+.receipt-modal-summary-item-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.receipt-modal-summary-item-detail {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+.receipt-modal-summary-item-error {
+  font-size: 12px;
+  color: #ff4d4f;
+}
+
+/* ── 底部按钮栏 ── */
+.receipt-modal-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding-top: 20px;
+  margin-top: 20px;
+  border-top: 1px solid var(--border-light);
+  flex-shrink: 0;
+}
+
+.receipt-modal-footer-right {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── 响应式 ── */
+@media (max-width: 768px) {
+  .receipt-modal {
+    max-width: calc(100vw - 32px) !important;
+  }
+
+  .receipt-modal .ant-modal-body {
+    padding: 16px;
+    min-height: 380px;
+  }
+
+  .receipt-modal-form-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -1,10 +1,11 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Select, DatePicker, Button, Popconfirm, message, Empty } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined } from '@ant-design/icons'
+import { Input, Select, DatePicker, Button, Popconfirm, message, Empty, Tooltip } from 'antd'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, DollarOutlined, AccountBookOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractUploadWizard from '@/components/ContractUploadWizard'
+import ReceiptPaymentModal from '@/components/ReceiptPaymentModal'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
 import './ContractList.css'
@@ -56,6 +57,11 @@ export default function ContractList() {
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
   const [hoveredCard, setHoveredCard] = useState<number | null>(null)
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [receiptModal, setReceiptModal] = useState<{
+    open: boolean
+    contract: Contract | null
+    type: 'income' | 'expense'
+  }>({ open: false, contract: null, type: 'income' })
   const abortControllerRef = useRef<AbortController | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -279,6 +285,28 @@ export default function ContractList() {
                       <span className="footer-value">{formatDate(contract.signed_date)}</span>
                     </div>
                     <div className="footer-actions" onClick={(e) => e.stopPropagation()}>
+                      {(role === 'admin' || role === 'income') && (
+                        <Tooltip title="录入收入">
+                          <DollarOutlined
+                            className="action-icon income"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setReceiptModal({ open: true, contract, type: 'income' })
+                            }}
+                          />
+                        </Tooltip>
+                      )}
+                      {(role === 'admin' || role === 'expense') && (
+                        <Tooltip title="录入支出">
+                          <AccountBookOutlined
+                            className="action-icon expense"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              setReceiptModal({ open: true, contract, type: 'expense' })
+                            }}
+                          />
+                        </Tooltip>
+                      )}
                       <Popconfirm
                         title="确认删除"
                         description={`确定要删除合同 ${contract.contract_number} 吗？`}
@@ -318,6 +346,21 @@ export default function ContractList() {
         open={uploadModalOpen}
         onClose={(created) => { setUploadModalOpen(false); if (created) loadContracts() }}
       />
+
+      {receiptModal.contract && (
+        <ReceiptPaymentModal
+          open={receiptModal.open}
+          onClose={(success) => {
+            setReceiptModal(prev => ({ ...prev, open: false }))
+            if (success) loadContracts()
+          }}
+          contractId={receiptModal.contract.id}
+          contractNumber={receiptModal.contract.contract_number}
+          customerName={receiptModal.contract.customer_name || ''}
+          contractCurrency={receiptModal.contract.currency}
+          paymentType={receiptModal.type}
+        />
+      )}
     </div>
   )
 }

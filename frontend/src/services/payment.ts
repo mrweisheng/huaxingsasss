@@ -1,5 +1,10 @@
 import api from './api'
-import type { Payment, PaginatedResponse } from '@/types'
+import type {
+  Payment,
+  PaginatedResponse,
+  ReceiptAnalyzeResponse,
+  CreateFromReceiptRequest,
+} from '@/types'
 
 export interface PaymentListParams {
   page?: number
@@ -55,4 +60,21 @@ export const paymentApi = {
     const blob = await api.get(`/payments/${id}/receipt`, { responseType: 'blob' })
     return URL.createObjectURL(blob as unknown as Blob)
   },
+
+  analyzeReceipt: (data: {
+    contract_id: number
+    payment_type: string
+    file: File
+  }): Promise<ReceiptAnalyzeResponse> => {
+    const formData = new FormData()
+    formData.append('contract_id', String(data.contract_id))
+    formData.append('payment_type', data.payment_type)
+    formData.append('file', data.file)
+    return api.post('/payments/analyze-receipt', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+  },
+
+  createFromReceipt: (data: CreateFromReceiptRequest): Promise<Payment> =>
+    api.post('/payments/create-from-receipt', data),
 }

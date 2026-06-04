@@ -1988,10 +1988,10 @@ class ToolExecutor:
         return ""  # 不是已知图片格式
 
     def _extract_text_sync(self, file_path: str) -> str:
-        """同步提取 Word/文本文件内容（委托给 contract_analyzer 统一实现）"""
+        """同步提取 Word/文本文件内容（委托给 file_analysis 统一实现）"""
         # 优先尝试 Word（.docx）
-        from app.services.contract_analyzer import _extract_word_text
-        result = _extract_word_text(file_path)
+        from app.utils.file_analysis import extract_word_text
+        result = extract_word_text(file_path)
         if result:
             return result
 
@@ -2006,9 +2006,9 @@ class ToolExecutor:
         return ""
 
     def _extract_excel_sync(self, file_path: str) -> str:
-        """同步提取 Excel 表格数据（委托给 contract_analyzer 统一实现）"""
-        from app.services.contract_analyzer import _extract_excel_text
-        return _extract_excel_text(file_path)
+        """同步提取 Excel 表格数据（委托给 file_analysis 统一实现）"""
+        from app.utils.file_analysis import extract_excel_text
+        return extract_excel_text(file_path)
 
     def analyze_image(self, file_id: str, analysis_type: str = "receipt") -> str:
         """分析上传的文件（图片/PDF/Word/Excel/文本），同步调用
@@ -2198,8 +2198,8 @@ class ToolExecutor:
                         logger.info("PDF文本提取成功，使用百炼DeepSeek-V4-Flash解析: text_len=%d", len(full_text))
                         try:
                             # 合同类型：去掉 full_text 转录要求，文本已由 PyMuPDF 提取，节省 ~30s 生成时间
-                            from app.services.contract_analyzer import _make_text_extraction_prompt
-                            actual_prompt = _make_text_extraction_prompt(prompt) if analysis_type == "contract" else prompt
+                            from app.utils.file_analysis import make_text_extraction_prompt
+                            actual_prompt = make_text_extraction_prompt(prompt) if analysis_type == "contract" else prompt
                             payload = {
                                 "model": settings.DASHSCOPE_AGENT_MODEL,
                                 "messages": [{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
@@ -2395,9 +2395,13 @@ class ToolExecutor:
 
     # 文档类型 → 禁止的工具集合
     # receipt：上传凭证时，禁止创建合同/客户（凭证不能触发合同录入）
+    #         凭证录入已迁移到合同卡片，禁止所有凭证写入操作
     # general：上传非合同图片时，禁止创建新合同（应通过 update_contract 关联已有合同）
     _DOCUMENT_BLOCKED_TOOLS = {
-        "receipt": {"create_contract", "create_customer", "create_expense", "update_contract"},
+        "receipt": {
+            "create_contract", "create_customer", "create_expense", "update_contract",
+            "create_payment", "update_payment", "match_receipt",  # 凭证写入已迁移到卡片
+        },
         "general": {"create_contract", "create_customer", "create_payment", "create_expense", "update_payment"},
         "group_chat": {"create_contract", "create_customer", "create_payment", "create_expense", "update_payment"},
     }
@@ -2418,7 +2422,7 @@ class ToolExecutor:
             context, context
         )
         hint = {
-            "receipt": "凭证只能用于付款操作（match_receipt / create_payment / update_payment）。如需创建/修改合同，请让用户上传合同文件。",
+            "receipt": "凭证录入已迁移到合同列表卡片的「收」「支」按钮。请引导用户在合同列表找到对应合同，点击卡片上的按钮进行凭证录入。如需查询付款信息，仍可使用 query_payments / get_contract_detail。",
             "general": "此类文件应通过 update_contract 关联已有合同（仅修改微信群/备注等元信息），不能用于付款操作。如需创建新合同或记录付款，请让用户上传合同/凭证文件。",
             "group_chat": "群聊截图应通过 update_contract 关联已有合同（仅修改微信群/备注等元信息），不能用于付款操作。如需创建新合同或记录付款，请让用户上传合同/凭证文件。",
         }.get(context, "")

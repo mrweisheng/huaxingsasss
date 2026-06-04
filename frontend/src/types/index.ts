@@ -115,3 +115,51 @@ export interface PaginatedResponse<T> {
     total_pages: number
   }
 }
+
+// ─── 凭证录入 API 类型 ───
+
+export interface ReceiptAnalysisData {
+  amount: number | null
+  currency: string | null
+  transaction_date: string | null
+  payer_name: string | null
+  payee_name: string | null
+  payment_method: string | null
+  confidence: number | null
+  warnings: string[]
+}
+
+export interface PendingMatchItem {
+  payment_id: number
+  installment_number: number
+  installment_name: string | null
+  amount: number
+  currency: string
+  status: string
+  score: number
+  match_reason: string
+}
+
+export interface ReceiptAnalyzeResponse {
+  analysis: ReceiptAnalysisData
+  temp_file_path: string
+  pending_matches: PendingMatchItem[]
+  existing_payment_count: number
+  next_installment_number: number
+}
+
+export interface CreateFromReceiptRequest {
+  contract_id: number
+  payment_type: 'income' | 'expense'
+  temp_file_path: string
+  receipt_data?: ReceiptAnalysisData
+  match_payment_id?: number
+  installment_number?: number
+  installment_name?: string
+  currency: string
+  amount: number
+  paid_date: string
+  payment_method?: string
+  payee_name?: string
+  notes?: string
+}
