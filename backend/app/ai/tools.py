@@ -122,6 +122,7 @@ class ToolExecutor:
         self.session_context: Optional[dict] = None  # 模式上下文
         self._document_context: Optional[str] = None  # "receipt"|"contract"|"general"|None
         self._pending_receipt_path: Optional[str] = None  # 同请求内快速路径
+        self._last_receipt_file_hash: Optional[str] = None  # 凭证去重：最近一次 _ensure_file_in_receipt_dir 计算的 SHA-256
         self._file_hash_cache: dict = {}  # file_path → sha256 hash，避免 _try_pre_analyze 和 create_contract 重复计算
 
         # Redis 缓存：使用模块级连接池，跨请求复用连接
@@ -845,6 +846,7 @@ class ToolExecutor:
         1. TEMP_UPLOAD_DIR/{self.user.id}/{file_id}（新格式）
         2. TEMP_UPLOAD_DIR/{file_id}（旧格式，兼容历史数据）
         """
+        self._last_receipt_file_hash = None
         if not file_path:
             return None
         # 兼容 LLM 传裸 file_id（UUID）的情况：自动补全为 agent_upload/ 格式
@@ -866,6 +868,7 @@ class ToolExecutor:
         try:
             with open(temp_path, "rb") as f:
                 content = f.read()
+            self._last_receipt_file_hash = calculate_file_hash(content)
             ext = self._guess_extension(content)
             year_month = datetime.now().strftime("%Y/%m")
             target_dir = Path(settings.RECEIPT_UPLOAD_DIR) / year_month
@@ -1333,6 +1336,22 @@ class ToolExecutor:
             receipt_path = self._ensure_file_in_receipt_dir(
                 self._get_receipt_image_path(kwargs.get("receipt_image_path"))
             )
+            # 凭证去重：同合同下相同文件哈希的凭证不允许重复录入
+            file_hash = self._last_receipt_file_hash
+            if receipt_path and file_hash:
+                existing = self.db.query(Payment).filter(
+                    Payment.contract_id == kwargs["contract_id"],
+                    Payment.receipt_file_hash == file_hash,
+                ).first()
+                if existing:
+                    info = self._payment_to_dict_lite(existing)
+                    return json.dumps({
+                        "warning": True,
+                        "message": f"该凭证已用于此合同（期数: {existing.installment_name or existing.installment_number}, "
+                                   f"金额: {existing.amount} {existing.currency}, 日期: {existing.paid_date}, "
+                                   f"类型: {existing.type}），请确认是否重复上传。",
+                        "existing_payment": info,
+                    }, ensure_ascii=False)
             logger.info(
                 "Agent创建付款: contract_id=%s, installment=%s, amount=%s %s, receipt=%s, notes=%s",
                 kwargs["contract_id"], kwargs["installment_number"],
@@ -1354,6 +1373,7 @@ class ToolExecutor:
                 type="income",
                 installment_name=kwargs.get("installment_name"),
                 receipt_data=kwargs.get("receipt_data"),
+                receipt_file_hash=file_hash,
             )
             if payment.contract and payment.contract.customer:
                 payment.contract.customer  # ensure loaded
@@ -1383,6 +1403,23 @@ class ToolExecutor:
                 self._get_receipt_image_path(kwargs.get("receipt_image_path"))
             )
 
+            # 凭证去重：同合同下相同文件哈希的凭证不允许重复录入
+            file_hash = self._last_receipt_file_hash
+            if expense_receipt_path and file_hash:
+                existing = self.db.query(Payment).filter(
+                    Payment.contract_id == kwargs["contract_id"],
+                    Payment.receipt_file_hash == file_hash,
+                ).first()
+                if existing:
+                    info = self._payment_to_dict_lite(existing)
+                    return json.dumps({
+                        "warning": True,
+                        "message": f"该凭证已用于此合同（期数: {existing.installment_name or existing.installment_number}, "
+                                   f"金额: {existing.amount} {existing.currency}, 日期: {existing.paid_date}, "
+                                   f"类型: {existing.type}），请确认是否重复上传。",
+                        "existing_payment": info,
+                    }, ensure_ascii=False)
+
             payment = PaymentService.create_payment_with_exchange_rate(
                 db=self.db,
                 contract_id=kwargs["contract_id"],
@@ -1398,6 +1435,7 @@ class ToolExecutor:
                 payee_name=kwargs["payee_name"],
                 installment_name=kwargs.get("installment_name"),
                 receipt_data=kwargs.get("receipt_data"),
+                receipt_file_hash=file_hash,
             )
             result = self._payment_to_dict(payment)
             result["contract_number"] = payment.contract.contract_number if payment.contract else None

@@ -74,5 +74,6 @@ class Payment(BaseModel):
         Index("idx_payments_source", "source"),
         Index("idx_payments_currency", "currency"),
         Index("idx_payments_type", "type"),
+        Index("idx_payments_receipt_hash", "contract_id", "receipt_file_hash"),
         UniqueConstraint("contract_id", "installment_number", "type", name="uq_contract_installment_type"),
     )

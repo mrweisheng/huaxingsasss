@@ -51,6 +51,7 @@ class PaymentService:
         payee_name: str = None,
         installment_name: str = None,
         receipt_data: dict = None,
+        receipt_file_hash: str = None,
     ) -> Payment:
         """
         创建付款记录并自动计算汇率。
@@ -117,6 +118,7 @@ class PaymentService:
             payee_name=payee_name if type == "expense" else None,
             installment_name=installment_name,
             receipt_image_path=receipt_image_path,
+            receipt_file_hash=receipt_file_hash,
             receipt_data=receipt_data,
             notes=notes,
             status='paid' if has_receipt else 'pending',
