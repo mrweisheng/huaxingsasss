@@ -981,11 +981,17 @@ class ContractAgent:
         contract_id = ctx.get("contract_id")
         contract_no = "未知"
         customer_name = "未知"
+        business_type = "未知"
+        total_amount = "--"
+        currency = "CNY"
 
         if contract_id:
             contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
             if contract:
                 contract_no = contract.contract_number or "未知"
+                business_type = contract.business_type or "未知"
+                total_amount = f"{contract.total_amount:,.2f}" if contract.total_amount else "--"
+                currency = contract.currency or "CNY"
                 if contract.customer:
                     customer_name = contract.customer.name or "未知"
 
@@ -1003,6 +1009,9 @@ class ContractAgent:
             type_label=type_label,
             contract_no=contract_no,
             customer_name=customer_name,
+            business_type=business_type,
+            total_amount=total_amount,
+            currency=currency,
             current_date=date.today().isoformat(),
             user_name=self.user.full_name or self.user.username,
             role_desc=role_desc,
