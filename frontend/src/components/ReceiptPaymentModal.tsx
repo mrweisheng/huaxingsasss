@@ -294,15 +294,15 @@ export default function ReceiptPaymentModal({
               </div>
 
               {/* Warnings */}
-              {currentReceipt.analysis.analysis.warnings.length > 0 && (
+              {currentReceipt.analysis.analysis?.warnings?.length > 0 && (
                 <div className="receipt-modal-warnings">
                   <CloseCircleFilled />
-                  {currentReceipt.analysis.analysis.warnings.join('；')}
+                  {currentReceipt.analysis.analysis?.warnings?.join('；')}
                 </div>
               )}
 
               {/* 匹配选择（仅 income） */}
-              {isIncome && currentReceipt.analysis.pending_matches.length > 0 && (
+              {isIncome && currentReceipt.analysis.pending_matches?.length > 0 && (
                 <div className="receipt-modal-match">
                   <div className="receipt-modal-match-title">匹配已有记录</div>
                   <Radio.Group
@@ -342,7 +342,7 @@ export default function ReceiptPaymentModal({
 
               {/* 表单字段 */}
               <div className="receipt-modal-form-row">
-                <div className={currentReceipt.analysis.analysis.currency === null ? 'receipt-modal-form-warning' : ''}>
+                <div className={currentReceipt.analysis.analysis?.currency === null ? 'receipt-modal-form-warning' : ''}>
                   <label>币种</label>
                   <Select
                     value={currentReceipt.formData.currency}
@@ -367,7 +367,7 @@ export default function ReceiptPaymentModal({
               </div>
 
               <div className="receipt-modal-form-row">
-                <div className={currentReceipt.analysis.analysis.transaction_date === null ? 'receipt-modal-form-warning' : ''}>
+                <div className={currentReceipt.analysis.analysis?.transaction_date === null ? 'receipt-modal-form-warning' : ''}>
                   <label>交易日期</label>
                   <DatePicker
                     value={dayjs(currentReceipt.formData.paid_date)}

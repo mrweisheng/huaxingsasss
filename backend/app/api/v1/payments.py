@@ -341,7 +341,9 @@ async def create_from_receipt(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="交易日期不能为空")
 
     # receipt_data 转为 dict（ORM 存 JSON）
-    receipt_data_dict = req.receipt_data.model_dump(by_alias=True) if req.receipt_data else None
+    # 使用 mode='json' 把 Decimal/date 等转成 JSON 兼容类型，
+    # 否则 SQLAlchemy 序列化 JSON 列时会抛 "Object of type Decimal is not JSON serializable"
+    receipt_data_dict = req.receipt_data.model_dump(by_alias=True, mode='json') if req.receipt_data else None
 
     if req.match_payment_id is not None:
         # ── 分支 A：匹配到已有 pending 记录 ──

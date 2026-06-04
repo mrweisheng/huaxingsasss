@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Input, Select, DatePicker, Button, Popconfirm, message, Empty, Tooltip } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, DollarOutlined, AccountBookOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, DollarOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractUploadWizard from '@/components/ContractUploadWizard'
@@ -17,9 +17,41 @@ const statusConfig: Record<string, { color: string; bg: string; text: string }> 
   completed: { color: '#52c41a', bg: '#f6ffed', text: '已完成' },
 }
 
-const businessTypeConfig: Record<string, { bg: string; border: string }> = {
-  '车辆业务': { bg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', border: '#667eea' },
-  '中港牌业务': { bg: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)', border: '#11998e' },
+const businessTypeConfig: Record<string, {
+  accent: string;       /* 左侧色条 */
+  badgeBg: string;      /* 徽章背景 */
+  badgeBorder: string;  /* 徽章边框 */
+  icon: React.ReactNode;/* 前置图标 */
+  shortLabel: string;   /* 徽章显示文字（完整业务名称） */
+  label: string;        /* 完整名称 */
+}> = {
+  '车辆业务': {
+    accent: 'linear-gradient(180deg, #667eea 0%, #764ba2 100%)',
+    badgeBg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+    badgeBorder: '#667eea',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="2" y="6" width="20" height="11" rx="3"/>
+        <circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
+        <line x1="6" y1="11" x2="10" y2="11"/><line x1="14" y1="11" x2="18" y2="11"/>
+      </svg>
+    ),
+    shortLabel: '车辆业务',
+    label: '车辆业务',
+  },
+  '中港牌业务': {
+    accent: 'linear-gradient(180deg, #0d9488 0%, #14b8a6 100%)',
+    badgeBg: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
+    badgeBorder: '#0d9488',
+    icon: (
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/>
+        <line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/>
+      </svg>
+    ),
+    shortLabel: '中港牌业务',
+    label: '中港牌业务',
+  },
 }
 
 const currencySymbol: Record<string, string> = {
@@ -171,6 +203,22 @@ export default function ContractList() {
               上传
             </Button>
           )}
+          <Tooltip title="快速录入当前页合同的收/支">
+            <Button icon={<DollarOutlined />} className="quick-entry-btn" onClick={() => {
+              const firstContract = contracts[0]
+              if (firstContract) {
+                if (role === 'admin' || role === 'income') {
+                  setReceiptModal({ open: true, contract: firstContract, type: 'income' })
+                } else if (role === 'expense') {
+                  setReceiptModal({ open: true, contract: firstContract, type: 'expense' })
+                }
+              } else {
+                message.info('暂无合同可录入')
+              }
+            }}>
+              快速录入
+            </Button>
+          </Tooltip>
         </div>
       </div>
 
@@ -188,27 +236,45 @@ export default function ContractList() {
               return (
                 <div
                   key={contract.id}
-                  className={`contract-card ${isHovered ? 'hovered' : ''}`}
+                  className={`contract-card ${businessType ? `biz-${businessType.shortLabel.toLowerCase()}` : contract.business_type ? 'biz-unknown' : ''} ${isHovered ? 'hovered' : ''}`}
                   onClick={() => navigate(`/contracts/${contract.id}`)}
                   onMouseEnter={() => setHoveredCard(contract.id)}
                   onMouseLeave={() => setHoveredCard(null)}
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
-                  {contract.business_type && (
-                    <div
-                      className="business-type-badge"
-                      style={{ background: businessType?.bg || '#667eea', borderColor: businessType?.border || '#667eea' }}
-                    >
-                      {contract.business_type}
-                    </div>
-                  )}
+                  {/* ── 左侧色条（业务类型视觉标识）── */}
+                  {businessType ? (
+                    <div className="card-accent-bar" style={{ background: businessType.accent }} />
+                  ) : contract.business_type ? (
+                    <div className="card-accent-bar card-accent-bar--fallback" />
+                  ) : null}
+
+                  {/* ── 顶栏：业务类型徽章 + 状态 ── */}
+                  <div className="card-top-row">
+                    {businessType ? (
+                      <span className="biz-badge" style={{ background: businessType.badgeBg }}>
+                        <span className="biz-badge-icon">{businessType.icon}</span>
+                        <span className="biz-badge-label">{businessType.shortLabel}</span>
+                      </span>
+                    ) : contract.business_type ? (
+                      <span className="biz-badge biz-badge--fallback">
+                        <FileTextOutlined className="biz-badge-icon" />
+                        <span className="biz-badge-label">{contract.business_type}</span>
+                      </span>
+                    ) : (
+                      <span className="biz-badge biz-badge--default">
+                        <FileTextOutlined className="biz-badge-icon" />
+                        <span className="biz-badge-label">合同</span>
+                      </span>
+                    )}
+                    <span className="status-badge" style={{ color: status.color, backgroundColor: status.bg }}>
+                      {status.text}
+                    </span>
+                  </div>
 
                   {/* 客户名称行 — 第二视觉权重，仅次于金额 */}
-                  <div className="customer-name-hero">
+                  <div className="customer-name-hero" style={{ paddingTop: '6px' }}>
                     <span className="customer-name-text">{contract.customer_name || '未关联客户'}</span>
-                    <div className="status-badge" style={{ color: status.color, backgroundColor: status.bg }}>
-                      {status.text}
-                    </div>
                   </div>
 
                   {/* 合同元信息：编号 + 标题 紧凑一行 */}
@@ -279,34 +345,40 @@ export default function ContractList() {
                     </div>
                   </div>
 
+                  {/* ── 快速录入栏：收入/支出（核心高频操作）── */}
+                  <div className="card-quick-actions" onClick={(e) => e.stopPropagation()}>
+                    {(role === 'admin' || role === 'income') && (
+                      <div
+                        className="qa-btn qa-btn-income"
+                        onClick={() => setReceiptModal({ open: true, contract, type: 'income' })}
+                      >
+                        <ArrowDownOutlined className="qa-btn-icon" />
+                        <span className="qa-btn-text">录入收入</span>
+                      </div>
+                    )}
+                    {(role === 'admin' || role === 'expense') && (
+                      <div
+                        className="qa-btn qa-btn-expense"
+                        onClick={() => setReceiptModal({ open: true, contract, type: 'expense' })}
+                      >
+                        <ArrowUpOutlined className="qa-btn-icon" />
+                        <span className="qa-btn-text">录入支出</span>
+                      </div>
+                    )}
+                    {/* 已录入笔数提示 */}
+                    {contract.payment_total_count > 0 && (
+                      <span className="qa-count-hint">
+                        {contract.paid_count}/{contract.payment_total_count}笔
+                      </span>
+                    )}
+                  </div>
+
                   <div className="card-footer">
                     <div className="footer-item">
                       <span className="footer-label">签订日期</span>
                       <span className="footer-value">{formatDate(contract.signed_date)}</span>
                     </div>
                     <div className="footer-actions" onClick={(e) => e.stopPropagation()}>
-                      {(role === 'admin' || role === 'income') && (
-                        <Tooltip title="录入收入">
-                          <DollarOutlined
-                            className="action-icon income"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setReceiptModal({ open: true, contract, type: 'income' })
-                            }}
-                          />
-                        </Tooltip>
-                      )}
-                      {(role === 'admin' || role === 'expense') && (
-                        <Tooltip title="录入支出">
-                          <AccountBookOutlined
-                            className="action-icon expense"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              setReceiptModal({ open: true, contract, type: 'expense' })
-                            }}
-                          />
-                        </Tooltip>
-                      )}
                       <Popconfirm
                         title="确认删除"
                         description={`确定要删除合同 ${contract.contract_number} 吗？`}

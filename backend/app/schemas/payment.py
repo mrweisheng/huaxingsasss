@@ -92,7 +92,7 @@ class ReceiptAnalysisData(BaseModel):
     payee_name: Optional[str] = None
     payment_method: Optional[str] = None
     confidence: Optional[float] = None
-    warnings: list[str] = Field(default_factory=list, alias="_warnings")
+    warnings: list[str] = Field(default_factory=list)
 
     model_config = ConfigDict(populate_by_name=True)
 

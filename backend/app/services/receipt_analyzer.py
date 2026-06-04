@@ -31,14 +31,14 @@ class ReceiptAnalyzer:
 
     @staticmethod
     def _inject_receipt_warnings(structured: dict) -> None:
-        """凭证分析结果：检测币种/交易日期缺失，注入 _warnings。"""
+        """凭证分析结果：检测币种/交易日期缺失，注入 warnings。"""
         warnings = []
         if not structured.get("currency"):
             warnings.append("币种未识别")
         if not structured.get("transaction_date"):
             warnings.append("交易日期未识别")
         if warnings:
-            structured["_warnings"] = warnings
+            structured["warnings"] = warnings
 
     @staticmethod
     def analyze_from_file(file_path: str, file_name: str) -> dict:
@@ -54,7 +54,7 @@ class ReceiptAnalyzer:
                 "data": {
                     "amount", "currency", "transaction_date", "payer_name",
                     "payee_name", "payment_method", "confidence",
-                    "_warnings": [...]  # 币种/日期缺失时自动注入
+                    "warnings": [...]  # 币种/日期缺失时自动注入
                 },
                 "file_type": "image" | "pdf" | "document"
             }

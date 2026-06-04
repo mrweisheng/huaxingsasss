@@ -137,14 +137,14 @@ class ToolExecutor:
         return f"vl:{analysis_type}:{sid}:{file_id}"
 
     def _inject_receipt_warnings(self, structured: dict) -> None:
-        """凭证分析结果：检测币种/交易日期缺失，注入 _warnings 强制 LLM 向用户确认。"""
+        """凭证分析结果：检测币种/交易日期缺失，注入 warnings 强制 LLM 向用户确认。"""
         warnings = []
         if not structured.get("currency"):
             warnings.append("⚠️ 币种未识别：请向用户确认这笔付款的币种（CNY/HKD/USD），不可猜测或默认")
         if not structured.get("transaction_date"):
             warnings.append("⚠️ 交易日期未识别：请向用户确认付款日期（汇率与日期绑定，日期不同汇率不同）")
         if warnings:
-            structured["_warnings"] = warnings
+            structured["warnings"] = warnings
 
     def _summarize_analysis_for_context(self, structured: dict) -> dict:
         """压缩 VL 分析结果再返回给 LLM context，剥离大字段（完整数据已缓存供后续工具取用）"""
