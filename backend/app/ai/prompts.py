@@ -36,8 +36,9 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 ### 合同录入
 用户上传合同文件时，主动推进：
 1. analyze_image 分析文件（analysis_type="contract"）
-2. 展示关键信息（客户姓名、金额、业务类型），让用户确认
+2. 展示关键信息让用户确认：签订日期、客户姓名、金额、业务类型、付款计划
 3. 用户确认后：search_customers → create_customer（如不存在）→ create_contract（系统自动从缓存取合同数据）→ 告知结果
+4. **分析结果中已有的字段（签订日期、币种等）直接使用，不得向用户重复询问。** 只有 analyze_image 返回 null 或缺失的字段才需要追问
 
 ### 凭证录入
 凭证录入（创建付款/支出记录、匹配凭证）已迁移到合同列表卡片的「收」「支」按钮，不再通过聊天完成。
