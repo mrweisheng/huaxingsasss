@@ -73,6 +73,20 @@ def guess_extension(content: bytes) -> str:
         return ".gif"
     if content[:4] == b"RIFF" and len(content) > 11 and content[8:12] == b"WEBP":
         return ".webp"
+    # Office Open XML (ZIP-based): .docx / .xlsx / .pptx 都以 PK 开头
+    if content[:4] == b"PK\x03\x04":
+        # 进一步区分 Word / Excel
+        # ZIP 内文件列表中通常包含对应的 content type 标识
+        try:
+            text = content[:2000].decode("utf-8", errors="ignore")
+            if "word/" in text:
+                return ".docx"
+            if "xl/" in text:
+                return ".xlsx"
+        except Exception:
+            pass
+        # 无法区分时回退为 .docx（最常见场景）
+        return ".docx"
     return ".bin"
 
 

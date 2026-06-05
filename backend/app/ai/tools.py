@@ -794,6 +794,17 @@ class ToolExecutor:
             return ".gif"
         if content[:4] == b"RIFF" and len(content) > 11 and content[8:12] == b"WEBP":
             return ".webp"
+        # Office Open XML (ZIP-based): .docx / .xlsx / .pptx 都以 PK\x03\x04 开头
+        if content[:4] == b"PK\x03\x04":
+            try:
+                text = content[:2000].decode("utf-8", errors="ignore")
+                if "word/" in text:
+                    return ".docx"
+                if "xl/" in text:
+                    return ".xlsx"
+            except Exception:
+                pass
+            return ".docx"
         return ".bin"
 
     def _get_receipt_image_path(self, explicit_path: Optional[str] = None) -> Optional[str]:
@@ -1073,10 +1084,20 @@ class ToolExecutor:
             return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
 
         # 处理文件：支持用户隔离路径与旧全局路径
-        candidates = [
-            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id),
-            os.path.join(settings.TEMP_UPLOAD_DIR, file_id),
-        ]
+        # 新版 agent.py 保留扩展名（file_id.docx），旧版无扩展名（file_id），两种都要搜索
+        candidates = []
+        for base_dir in [
+            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id)),
+            settings.TEMP_UPLOAD_DIR,
+        ]:
+            candidates.append(os.path.join(base_dir, file_id))
+            # 也匹配带扩展名的文件（glob 匹配 file_id.*）
+            parent = os.path.dirname(os.path.join(base_dir, file_id))
+            name_prefix = os.path.basename(file_id)
+            if os.path.isdir(base_dir):
+                for f in os.listdir(base_dir):
+                    if f.startswith(name_prefix + ".") or f == name_prefix:
+                        candidates.append(os.path.join(base_dir, f))
         temp_file_path = next((p for p in candidates if os.path.exists(p)), None)
         file_hash = None
         original_file_path = f"agent_upload/{file_id}"

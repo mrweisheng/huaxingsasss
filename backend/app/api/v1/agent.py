@@ -182,7 +182,11 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="文件过大")
 
     file_id = str(uuid.uuid4())
-    file_path = os.path.join(user_dir, file_id)
+    # 保留原始文件扩展名，避免后续 guess_extension 无法识别 Word/Excel 等格式
+    original_ext = ""
+    if file.filename and "." in file.filename:
+        original_ext = "." + file.filename.rsplit(".", 1)[-1].lower()
+    file_path = os.path.join(user_dir, file_id + original_ext)
 
     with open(file_path, "wb") as f:
         f.write(content)

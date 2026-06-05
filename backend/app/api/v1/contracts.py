@@ -436,12 +436,28 @@ def download_contract_file(
     if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同文件已丢失")
 
-    # PDF 直接内联预览，其他文件下载
-    media_type = "application/pdf" if file_path.suffix.lower() == ".pdf" else "application/octet-stream"
+    # 根据扩展名设置 Content-Type
+    suffix = file_path.suffix.lower()
+    content_type_map = {
+        ".pdf": "application/pdf",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".png": "image/png",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+        ".doc": "application/msword",
+        ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ".xls": "application/vnd.ms-excel",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }
+    media_type = content_type_map.get(suffix, "application/octet-stream")
+
+    # 下载文件名：使用 合同编号.扩展名，便于用户识别
+    download_filename = f"{contract.contract_number}{suffix}"
     return FileResponse(
         path=str(file_path),
         media_type=media_type,
-        filename=file_path.name,
+        filename=download_filename,
     )
 
 

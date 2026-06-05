@@ -387,7 +387,7 @@ export default function ContractChatModal({
       open={open}
       onCancel={handleClose}
       footer={null}
-      width={600}
+      width={760}
       destroyOnHidden
       className="contract-chat-modal"
       styles={{ body: { padding: 0, height: '70vh', display: 'flex', flexDirection: 'column' } }}

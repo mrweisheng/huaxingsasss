@@ -279,11 +279,18 @@ class ContractAnalyzer:
 
     @staticmethod
     def resolve_file_path(file_id: str, user_id: int) -> Optional[str]:
-        """解析文件路径：优先用户隔离路径，回退全局路径。"""
-        candidates = [
-            os.path.join(settings.TEMP_UPLOAD_DIR, str(user_id), file_id),
-            os.path.join(settings.TEMP_UPLOAD_DIR, file_id),
-        ]
+        """解析文件路径：优先用户隔离路径，回退全局路径。
+        支持新版（带扩展名 file_id.docx）和旧版（无扩展名 file_id）两种格式。"""
+        candidates = []
+        for base_dir in [
+            os.path.join(settings.TEMP_UPLOAD_DIR, str(user_id)),
+            settings.TEMP_UPLOAD_DIR,
+        ]:
+            candidates.append(os.path.join(base_dir, file_id))
+            if os.path.isdir(base_dir):
+                for f in os.listdir(base_dir):
+                    if f.startswith(file_id + ".") or f == file_id:
+                        candidates.append(os.path.join(base_dir, f))
         return next((p for p in candidates if os.path.exists(p)), None)
 
     @staticmethod
