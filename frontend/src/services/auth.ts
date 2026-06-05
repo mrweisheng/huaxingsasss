@@ -6,15 +6,6 @@ export interface LoginData {
   password: string
 }
 
-export interface RegisterData {
-  username: string
-  password: string
-  email?: string
-  full_name?: string
-  role?: string
-  department?: string
-}
-
 export interface PublicChangePasswordData {
   username: string
   old_password: string
@@ -32,10 +23,7 @@ export const authApi = {
   login: (data: LoginData): Promise<TokenResponse> =>
     api.post('/auth/login', data),
 
-  register: (data: RegisterData): Promise<User> =>
-    api.post('/auth/register', data),
-
-  refreshToken: (refreshToken: string): Promise<{ access_token: string; expires_in: number }> =>
+  refreshToken: (refreshToken: string): Promise<{ access_token: string; expires_in: number; user?: User }> =>
     api.post('/auth/refresh', { refresh_token: refreshToken }),
 
   getCurrentUser: (): Promise<User> =>

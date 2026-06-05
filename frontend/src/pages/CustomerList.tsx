@@ -10,6 +10,7 @@ import {
   EyeOutlined,
   FileTextOutlined,
 } from '@ant-design/icons'
+import { useDebounce } from '@/hooks/useDebounce'
 import { customerApi } from '@/services/customer'
 import { contractApi } from '@/services/contract'
 import type { Customer, Contract } from '@/types'
@@ -110,10 +111,10 @@ export default function CustomerList() {
     }
   }, [loadCustomers])
 
-  const handleSearch = (value: string) => {
+  const handleSearch = useDebounce((value: string) => {
     setKeyword(value)
     setPage(1)
-  }
+  }, 400)
 
   const handleDelete = async (id: number, _name: string) => {
     try {
@@ -140,10 +141,10 @@ export default function CustomerList() {
           </div>
         </div>
         <div className="page-topbar-right">
-          <Input.Search
+          <Input
             placeholder="搜索客户名称/联系人/电话..."
             allowClear
-            onSearch={handleSearch}
+            onChange={e => handleSearch(e.target.value)}
             style={{ width: 220 }}
             prefix={<SearchOutlined />}
           />

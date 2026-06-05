@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout as AntLayout, Menu, Avatar, Dropdown, Typography, Space, Modal, Form, Input, Button, message } from 'antd'
+import { Layout as AntLayout, Menu, Avatar, Dropdown, Typography, Space, Modal, Form, Input, Button, message, Drawer, Grid } from 'antd'
 import {
   FileTextOutlined,
   DollarOutlined,
@@ -9,12 +9,15 @@ import {
   TeamOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  MenuOutlined,
   UserOutlined,
   KeyOutlined,
   PieChartOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '@/store/useAuthStore'
 import { userApi } from '@/services/user'
+import MobileNav from './MobileNav'
 
 const { Header, Sider, Content } = AntLayout
 const { Text } = Typography
@@ -27,6 +30,11 @@ export default function Layout() {
   const [passwordModalOpen, setPasswordModalOpen] = useState(false)
   const [passwordLoading, setPasswordLoading] = useState(false)
   const [passwordForm] = Form.useForm()
+  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
+
+  // 移动端断点检测 — 默认 desktop，避免首次渲染闪烁
+  const screens = Grid.useBreakpoint()
+  const isMobile = !(screens.md ?? true)
 
   const role = user?.role || ''
 
@@ -128,6 +136,7 @@ export default function Layout() {
 
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
+      {!isMobile && (
       <Sider
         width={240}
         collapsedWidth={68}
@@ -279,8 +288,9 @@ export default function Layout() {
           </div>
         )}
       </Sider>
+      )}
 
-      <AntLayout style={{ marginLeft: collapsed ? 68 : 240, transition: 'margin-left 0.2s' }}>
+      <AntLayout style={{ marginLeft: isMobile ? 0 : (collapsed ? 68 : 240), transition: 'margin-left 0.2s' }}>
         <Header
           style={{
             display: 'flex',
@@ -299,23 +309,40 @@ export default function Layout() {
           }}
         >
           <Space>
-            <div
-              onClick={() => setCollapsed(!collapsed)}
-              style={{
-                cursor: 'pointer',
-                fontSize: 16,
-                color: 'var(--text-secondary)',
-                padding: '4px 8px',
-                borderRadius: 6,
-                transition: 'all 0.2s',
-                display: 'flex',
-                alignItems: 'center',
-              }}
-              onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
-              onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
-            >
-              {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
-            </div>
+            {isMobile ? (
+              <div
+                onClick={() => setMobileDrawerOpen(true)}
+                style={{
+                  cursor: 'pointer',
+                  fontSize: 20,
+                  color: 'var(--text-secondary)',
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+              >
+                <MenuOutlined />
+              </div>
+            ) : (
+              <div
+                onClick={() => setCollapsed(!collapsed)}
+                style={{
+                  cursor: 'pointer',
+                  fontSize: 16,
+                  color: 'var(--text-secondary)',
+                  padding: '4px 8px',
+                  borderRadius: 6,
+                  transition: 'all 0.2s',
+                  display: 'flex',
+                  alignItems: 'center',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--bg-hover)' }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent' }}
+              >
+                {collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />}
+              </div>
+            )}
             <span style={{ fontSize: 13, color: 'var(--text-tertiary)', marginLeft: 4 }}>
               {selectedKey
                 ? menuItems.find((m) => m.key === selectedKey)?.label as string
@@ -338,17 +365,139 @@ export default function Layout() {
               >
                 {userInitial}
               </Avatar>
-              <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
+              {!isMobile && <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 500 }}>
                 {userName}
-              </span>
+              </span>}
             </Space>
           </Dropdown>
         </Header>
 
-        <Content style={{ padding: 0, minHeight: 'calc(100vh - 56px)' }}>
+        <Content style={{ padding: 0, minHeight: 'calc(100vh - 56px)', paddingBottom: isMobile ? 'calc(56px + env(safe-area-inset-bottom, 0px))' : 0 }}>
           <Outlet />
         </Content>
       </AntLayout>
+
+      {/* 移动端：底部导航栏 */}
+      {isMobile && <MobileNav role={role} />}
+
+      {/* 移动端：侧边抽屉导航（完整菜单） */}
+      <Drawer
+        title={
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+            <div
+              style={{
+                width: 28,
+                height: 28,
+                borderRadius: 6,
+                background: 'linear-gradient(135deg, #c9952b 0%, #e8b84b 100%)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#0f1a2e',
+                fontWeight: 700,
+                fontSize: 12,
+                fontFamily: "'Noto Serif SC', serif",
+                flexShrink: 0,
+              }}
+            >
+              华
+            </div>
+            <span style={{ fontWeight: 700, fontSize: 16, color: '#0f172a', fontFamily: "'Noto Serif SC', serif" }}>
+              华星资源
+            </span>
+          </div>
+        }
+        placement="left"
+        onClose={() => setMobileDrawerOpen(false)}
+        open={isMobile && mobileDrawerOpen}
+        width={280}
+        styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column' } }}
+        closeIcon={<CloseOutlined style={{ fontSize: 14, color: 'var(--text-tertiary)' }} />}
+      >
+        {/* 用户信息 */}
+        <div
+          style={{
+            padding: '16px 20px',
+            borderBottom: '1px solid var(--border-light)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+          }}
+        >
+          <Avatar
+            style={{
+              background: 'linear-gradient(135deg, #1e3a5f, #c9952b)',
+              fontSize: 14,
+            }}
+            size={36}
+          >
+            {userInitial}
+          </Avatar>
+          <div style={{ lineHeight: 1.3 }}>
+            <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--text-primary)' }}>{userName}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-tertiary)', marginTop: 2 }}>
+              {role === 'admin' ? '管理员' : role === 'income' ? '收入专员' : role === 'expense' ? '支出专员' : role}
+            </div>
+          </div>
+        </div>
+
+        {/* 导航菜单 */}
+        <Menu
+          mode="inline"
+          selectedKeys={[selectedKey]}
+          items={menuItems}
+          onClick={({ key }) => {
+            navigate(key)
+            setMobileDrawerOpen(false)
+          }}
+          style={{ border: 'none', flex: 1 }}
+        />
+
+        {/* 底部操作 */}
+        <div
+          style={{
+            borderTop: '1px solid var(--border-light)',
+            padding: '12px 8px',
+          }}
+        >
+          <Button
+            type="text"
+            icon={<KeyOutlined />}
+            block
+            style={{
+              justifyContent: 'flex-start',
+              textAlign: 'left',
+              height: 44,
+              paddingLeft: 16,
+              color: 'var(--text-secondary)',
+            }}
+            onClick={() => {
+              setPasswordModalOpen(true)
+              setMobileDrawerOpen(false)
+            }}
+          >
+            修改密码
+          </Button>
+          <Button
+            type="text"
+            icon={<LogoutOutlined />}
+            danger
+            block
+            style={{
+              justifyContent: 'flex-start',
+              textAlign: 'left',
+              height: 44,
+              paddingLeft: 16,
+            }}
+            onClick={() => {
+              handleLogout()
+              setMobileDrawerOpen(false)
+            }}
+          >
+            退出登录
+          </Button>
+        </div>
+      </Drawer>
 
       {/* 修改密码 Modal */}
       <Modal

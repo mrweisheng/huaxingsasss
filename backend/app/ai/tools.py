@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.core.chinese import search_variants
+from app.core.permissions import Role, is_admin as _perm_is_admin, can_view_income as _perm_can_view_income, can_view_expense as _perm_can_view_expense, can_create_contract as _perm_can_create_contract
 from app.models.customer import Customer
 from app.models.contract import Contract
 from app.models.payment import Payment
@@ -37,7 +38,7 @@ from app.core.business_types import BusinessType
 from app.services.contract_service import ContractService
 from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
-from app.utils.file_utils import calculate_file_hash
+from app.utils.file_utils import calculate_file_hash, validate_file_id_in_dir
 
 logger = logging.getLogger(__name__)
 
@@ -221,23 +222,23 @@ class ToolExecutor:
         merged_data["payment_terms"] = normalized
 
     def _can_access_contract(self, contract: Contract) -> bool:
-        if self.user.role == "admin":
+        if self.user.role == Role.ADMIN:
             return True
-        if self.user.role == "expense":
+        if self.user.role == Role.EXPENSE:
             return True  # expense 可查看所有合同（用于关联支出）
         return contract.sales_person_id == self.user.id
 
     def _is_admin(self) -> bool:
-        return self.user.role == "admin"
+        return _perm_is_admin(self.user)
 
     def _can_view_income(self) -> bool:
-        return self.user.role in ("admin", "income")
+        return _perm_can_view_income(self.user)
 
     def _can_view_expense(self) -> bool:
-        return self.user.role in ("admin", "expense")
+        return _perm_can_view_expense(self.user)
 
     def _can_create_contract(self) -> bool:
-        return self.user.role in ("admin", "income")
+        return _perm_can_create_contract(self.user)
 
     def _contract_to_dict(self, c: Contract) -> dict:
         return {
@@ -477,7 +478,7 @@ class ToolExecutor:
 
     def search_contracts(self, **kwargs) -> str:
         sales_person_id = None
-        if self.user.role == "income":
+        if self.user.role == Role.INCOME:
             sales_person_id = self.user.id
 
         # 判断是否无筛选条件
@@ -543,9 +544,9 @@ class ToolExecutor:
 
         try:
             # 按角色过滤：income 只看收入，expense 只看支出，admin 看全部
-            if self.user.role == "income":
+            if self.user.role == Role.INCOME:
                 type_filter = "income"
-            elif self.user.role == "expense":
+            elif self.user.role == Role.EXPENSE:
                 type_filter = "expense"
             else:
                 type_filter = None
@@ -597,7 +598,7 @@ class ToolExecutor:
                 零结果时自动回退到全量展示，避免空数据误导。
         """
         sales_person_id = None
-        if self.user.role == "income":
+        if self.user.role == Role.INCOME:
             sales_person_id = self.user.id
 
         normalized = BusinessType.normalize(business_type) if business_type else None
@@ -663,10 +664,10 @@ class ToolExecutor:
             query = query.filter(Payment.type == kwargs["type"])
 
         # 角色权限：income 只看收入+自己合同，expense 只看支出+自己创建的
-        if self.user.role == "income":
+        if self.user.role == Role.INCOME:
             query = query.filter(Payment.type == "income")
             query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
-        elif self.user.role == "expense":
+        elif self.user.role == Role.EXPENSE:
             query = query.filter(Payment.type == "expense")
             query = query.filter(Payment.created_by == self.user.id)
 
@@ -868,17 +869,26 @@ class ToolExecutor:
             else:
                 return file_path
         file_id = file_path[len("agent_upload/"):]
+        # 路径穿越防御：校验 file_id
+        safe_file_id = validate_file_id_in_dir(file_id, settings.TEMP_UPLOAD_DIR)
+        if not safe_file_id:
+            logger.warning("凭证文件路径校验失败: file_id=%s", file_id)
+            return None
         # 兼容新旧两种命名：file_id（旧版无扩展名）和 file_id.ext（新版带扩展名）
         candidates = []
         for base_dir in [
             os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id)),
             settings.TEMP_UPLOAD_DIR,
         ]:
-            candidates.append(os.path.join(base_dir, file_id))
-            if os.path.isdir(base_dir):
+            safe_path = validate_file_id_in_dir(file_id, base_dir)
+            if safe_path:
+                candidates.append(safe_path)
+            if safe_path and os.path.isdir(base_dir):
                 for f in os.listdir(base_dir):
                     if f == file_id or f.startswith(file_id + "."):
-                        candidates.append(os.path.join(base_dir, f))
+                        candidate = os.path.join(base_dir, f)
+                        if os.path.realpath(candidate).startswith(os.path.realpath(base_dir) + os.sep):
+                            candidates.append(candidate)
         temp_path = next((p for p in candidates if os.path.exists(p)), None)
         if not temp_path:
             logger.warning("凭证文件复制跳过: 临时文件不存在 file_id=%s, user=%s", file_id, self.user.id)
@@ -1355,7 +1365,7 @@ class ToolExecutor:
         if missing:
             return json.dumps({"error": f"缺少必填参数: {', '.join(missing)}"}, ensure_ascii=False)
 
-        if self.user.role == "income":
+        if self.user.role == Role.INCOME:
             contract = self.db.query(Contract).filter(Contract.id == kwargs["contract_id"]).first()
             if not contract or contract.sales_person_id != self.user.id:
                 return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
@@ -1490,7 +1500,7 @@ class ToolExecutor:
                 return json.dumps({"error": "当前角色无权更新收入记录"}, ensure_ascii=False)
 
         # income 角色校验合同所有权
-        if self.user.role == "income" and payment.contract and payment.contract.sales_person_id != self.user.id:
+        if self.user.role == Role.INCOME and payment.contract and payment.contract.sales_person_id != self.user.id:
             return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
 
         # 可更新字段白名单
@@ -1633,7 +1643,7 @@ class ToolExecutor:
                 Payment.type == "income",
                 Payment.is_deleted == False,
             )
-            if self.user.role == "income":
+            if self.user.role == Role.INCOME:
                 pending_query = pending_query.join(Contract).filter(
                     Contract.sales_person_id == self.user.id
                 )
@@ -1705,7 +1715,7 @@ class ToolExecutor:
             query = query.filter(Contract.id == contract_id)
 
         # 角色权限：income 只看自己合同的全文
-        if self.user.role == "income":
+        if self.user.role == Role.INCOME:
             query = query.filter(Contract.sales_person_id == self.user.id)
 
         # ILIKE 模糊搜索
@@ -1802,7 +1812,7 @@ class ToolExecutor:
             Payment.type == "expense",
         )
 
-        if self.user.role == "expense":
+        if self.user.role == Role.EXPENSE:
             query = query.filter(Payment.created_by == self.user.id)
 
         if kwargs.get("contract_id"):
@@ -1848,17 +1858,17 @@ class ToolExecutor:
         query = self.db.query(Payment).filter(Payment.is_deleted == False)
 
         # 角色权限：income 只看收入，expense 只看支出
-        if self.user.role == "income":
+        if self.user.role == Role.INCOME:
             query = query.filter(Payment.type == "income")
-        elif self.user.role == "expense":
+        elif self.user.role == Role.EXPENSE:
             query = query.filter(Payment.type == "expense")
         elif kwargs.get("type"):
             query = query.filter(Payment.type == kwargs["type"])
 
-        need_contract_join = self.user.role == "income" or kwargs.get("customer_name")
+        need_contract_join = self.user.role == Role.INCOME or kwargs.get("customer_name")
         if need_contract_join:
             query = query.join(Contract)
-            if self.user.role == "income":
+            if self.user.role == Role.INCOME:
                 query = query.filter(Contract.sales_person_id == self.user.id)
             if kwargs.get("customer_name"):
                 query = query.join(Customer).filter(
@@ -1941,7 +1951,7 @@ class ToolExecutor:
         if status:
             query = query.filter(Contract.status == status)
 
-        if self.user.role == "income":
+        if self.user.role == Role.INCOME:
             query = query.filter(Contract.sales_person_id == self.user.id)
 
         contracts = query.order_by(Contract.end_date).all()
@@ -2090,16 +2100,19 @@ class ToolExecutor:
         global_dir = settings.TEMP_UPLOAD_DIR
         file_path = None
         for base_dir in [user_dir, global_dir]:
-            direct = os.path.join(base_dir, file_id)
-            if os.path.exists(direct):
-                file_path = direct
+            # 路径穿越防御：校验 file_id
+            safe_path = validate_file_id_in_dir(file_id, base_dir)
+            if safe_path and os.path.exists(safe_path):
+                file_path = safe_path
                 break
-            # glob 匹配带扩展名的文件
-            if os.path.isdir(base_dir):
+            # glob 匹配带扩展名的文件（file_id 已校验不含路径成分）
+            if safe_path and os.path.isdir(base_dir):
                 for f in os.listdir(base_dir):
                     if f.startswith(file_id + "."):
-                        file_path = os.path.join(base_dir, f)
-                        break
+                        candidate = os.path.join(base_dir, f)
+                        if os.path.realpath(candidate).startswith(os.path.realpath(base_dir) + os.sep):
+                            file_path = candidate
+                            break
             if file_path:
                 break
         if not file_path:

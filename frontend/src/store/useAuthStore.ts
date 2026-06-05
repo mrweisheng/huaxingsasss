@@ -49,6 +49,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     
     const response = await authApi.refreshToken(refreshToken)
     localStorage.setItem('access_token', response.access_token)
-    set({ accessToken: response.access_token })
+    if (response.user) {
+      localStorage.setItem('user', JSON.stringify(response.user))
+      set({ accessToken: response.access_token, user: response.user as User })
+    } else {
+      set({ accessToken: response.access_token })
+    }
   },
 }))

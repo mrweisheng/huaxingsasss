@@ -23,6 +23,7 @@ from app.schemas.payment import (
 )
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user
+from app.core.permissions import Role, is_admin, can_view_income, can_view_expense
 from app.models.user import User
 from app.models.payment import Payment
 from app.models.contract import Contract
@@ -72,10 +73,10 @@ def list_payments(
         query = query.filter(Payment.paid_date <= date_to)
 
     # 角色权限：income 只看收入+自己合同，expense 只看支出+自己创建的，admin 全量
-    if current_user.role == "income":
+    if current_user.role == Role.INCOME:
         query = query.filter(Payment.type == "income")
         query = query.filter(Contract.sales_person_id == current_user.id)
-    elif current_user.role == "expense":
+    elif current_user.role == Role.EXPENSE:
         query = query.filter(Payment.type == "expense")
         query = query.filter(Payment.created_by == current_user.id)
 
@@ -122,9 +123,9 @@ async def upload_receipt(
 ):
     """上传付款凭证并登记"""
     # 角色强制 type 一致
-    if current_user.role == "income" and payment_type != "income":
+    if current_user.role == Role.INCOME and payment_type != "income":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="income角色只能创建收入记录")
-    if current_user.role == "expense" and payment_type != "expense":
+    if current_user.role == Role.EXPENSE and payment_type != "expense":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色只能创建支出记录")
 
     receipt_path = None
@@ -202,16 +203,16 @@ async def analyze_receipt(
 ):
     """上传凭证文件 + 合同上下文 → AI 分析 + 匹配建议"""
     # 角色强制 type 一致
-    if current_user.role == "income" and payment_type != "income":
+    if current_user.role == Role.INCOME and payment_type != "income":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="income角色只能分析收入凭证")
-    if current_user.role == "expense" and payment_type != "expense":
+    if current_user.role == Role.EXPENSE and payment_type != "expense":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色只能分析支出凭证")
 
     # 校验合同存在 + 权限
     contract = db.query(Contract).filter(Contract.id == contract_id).first()
     if not contract:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
-    if current_user.role == "income" and contract.sales_person_id != current_user.id:
+    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此合同")
 
     # 读取文件并验证大小
@@ -322,16 +323,16 @@ async def create_from_receipt(
     payment_type = req.payment_type
 
     # 角色强制 type 一致
-    if current_user.role == "income" and payment_type != "income":
+    if current_user.role == Role.INCOME and payment_type != "income":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="income角色只能创建收入记录")
-    if current_user.role == "expense" and payment_type != "expense":
+    if current_user.role == Role.EXPENSE and payment_type != "expense":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色只能创建支出记录")
 
     # 校验合同存在 + 权限
     contract = db.query(Contract).filter(Contract.id == req.contract_id).first()
     if not contract:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
-    if current_user.role == "income" and contract.sales_person_id != current_user.id:
+    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此合同")
 
     # 服务端二次校验必填字段
@@ -407,9 +408,16 @@ def get_contract_payments(
     db: Session = Depends(get_db)
 ):
     """获取合同的付款记录（按角色过滤类型）"""
-    if current_user.role == "income":
+    # P1-3: 校验合同存在 + income 角色归属
+    contract = db.query(Contract).filter(Contract.id == contract_id).first()
+    if not contract:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
+
+    if current_user.role == Role.INCOME:
         type_filter = "income"
-    elif current_user.role == "expense":
+        if contract.sales_person_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此合同")
+    elif current_user.role == Role.EXPENSE:
         type_filter = "expense"
     else:
         type_filter = None
@@ -436,9 +444,9 @@ def get_receipt_image(
 
     # 权限检查：admin 全量，income 只看自己合同，expense 只看自己创建的
     contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
-    if current_user.role == "income" and contract and contract.sales_person_id != current_user.id:
+    if current_user.role == Role.INCOME and contract and contract.sales_person_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
-    if current_user.role == "expense" and payment.created_by != current_user.id:
+    if current_user.role == Role.EXPENSE and payment.created_by != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
 
     if not payment.receipt_image_path:
@@ -465,7 +473,7 @@ def delete_payment(
     db: Session = Depends(get_db)
 ):
     """删除付款记录"""
-    if current_user.role != "admin":
+    if not is_admin(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="仅管理员可删除付款记录"

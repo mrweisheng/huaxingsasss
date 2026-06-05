@@ -24,7 +24,7 @@ class Customer(BaseModel):
     wechat_group_name = Column(String(200), index=True, comment="微信群名称")
     remarks = Column(Text, comment="备注")
     
-    created_by = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), comment="创建者ID")
+    created_by = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), comment="创建者ID")
     
     # 关系
     contracts = relationship("Contract", back_populates="customer")

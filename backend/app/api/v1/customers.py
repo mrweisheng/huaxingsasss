@@ -13,6 +13,7 @@ from app.models.customer import Customer
 from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerResponse
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
+from app.core.permissions import Role, is_admin, can_view_income
 from app.models.user import User
 from app.services.customer_service import CustomerService
 
@@ -36,9 +37,9 @@ def list_customers(
     query = db.query(Customer).filter(Customer.is_deleted == False)
 
     # admin/income 可查看全部，expense 不可查看客户
-    if current_user.role == "expense":
+    if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权查看客户")
-    if current_user.role == "income":
+    if current_user.role == Role.INCOME:
         query = query.filter(Customer.created_by == current_user.id)
     
     # 关键词搜索
@@ -84,7 +85,7 @@ def create_customer(
 ):
     """创建客户"""
     # expense 角色不可创建客户
-    if current_user.role == "expense":
+    if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权创建客户")
     # 校验：至少提供电话或邮箱
     if not customer_data.phone and not customer_data.email:
@@ -154,9 +155,9 @@ def get_customer(
         )
     
     # 权限检查
-    if current_user.role == "expense":
+    if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权查看客户")
-    if current_user.role == "income" and customer.created_by != current_user.id:
+    if current_user.role == Role.INCOME and customer.created_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权访问此客户"
@@ -185,9 +186,9 @@ def update_customer(
         )
 
     # 权限检查
-    if current_user.role == "expense":
+    if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改客户")
-    if current_user.role == "income" and customer.created_by != current_user.id:
+    if current_user.role == Role.INCOME and customer.created_by != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权修改此客户"
@@ -219,7 +220,7 @@ def delete_customer(
 ):
     """删除客户（软删除）"""
     # 权限检查（仅管理员可删除）
-    if current_user.role != "admin":
+    if not is_admin(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="仅管理员可删除客户"

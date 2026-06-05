@@ -20,6 +20,7 @@ from app.schemas.contract import (
 )
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
+from app.core.permissions import Role, is_admin, can_create_contract
 from app.models.user import User
 from app.services.contract_service import ContractService
 from app.utils.file_utils import save_uploaded_file, calculate_file_hash
@@ -44,7 +45,7 @@ def list_contracts(
 ):
     """获取合同列表"""
     # admin/expense 可查看全部，income 只看自己负责的
-    if current_user.role == "income":
+    if current_user.role == Role.INCOME:
         sales_person_id = current_user.id
     else:
         sales_person_id = None
@@ -86,7 +87,7 @@ def analyze_file(
     db: Session = Depends(get_db),
 ):
     """分析已上传的合同文件（同步），返回 AI 提取的结构化数据 + 重复检测。"""
-    if current_user.role not in ("admin", "income"):
+    if not can_create_contract(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅 admin 或 income 角色可分析合同")
 
     from app.services.contract_analyzer import ContractAnalyzer
@@ -114,7 +115,7 @@ def resolve_customer(
     db: Session = Depends(get_db),
 ):
     """从 AI 分析结果自动关联或创建客户。"""
-    if current_user.role not in ("admin", "income"):
+    if not can_create_contract(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅 admin 或 income 角色可操作")
 
     from app.services.customer_service import CustomerService
@@ -158,7 +159,7 @@ def create_from_analysis(
     db: Session = Depends(get_db),
 ):
     """根据 AI 分析结果（经用户确认/编辑后）创建合同 + 自动付款记录。"""
-    if current_user.role not in ("admin", "income"):
+    if not can_create_contract(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅 admin 或 income 角色可创建合同")
 
     from app.services.contract_analyzer import ContractAnalyzer, auto_create_payments_from_terms
@@ -283,7 +284,7 @@ async def upload_and_parse_contract(
 ):
     """上传合同并启动AI解析"""
     # 仅 admin/income 可创建合同
-    if current_user.role not in ("admin", "income"):
+    if not can_create_contract(current_user):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅admin或income角色可创建合同")
     # 验证文件类型
     allowed_types = ['image/jpeg', 'image/png', 'image/jpg', 'application/pdf']
@@ -406,7 +407,7 @@ def get_contract(
         contract.customer_name = customer.name if customer else None
     
     # 权限检查：income 只能看自己合同，expense/admin 可看所有
-    if current_user.role == "income" and contract.sales_person_id != current_user.id:
+    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权访问此合同"
@@ -426,7 +427,7 @@ def download_contract_file(
     if not contract:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
 
-    if current_user.role == "income" and contract.sales_person_id != current_user.id:
+    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此合同")
 
     if not contract.original_file_path:
@@ -478,9 +479,9 @@ def update_contract(
         )
     
     # 权限检查：income 只能改自己合同，expense 不可修改
-    if current_user.role == "expense":
+    if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改合同")
-    if current_user.role == "income" and contract.sales_person_id != current_user.id:
+    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权修改此合同"
@@ -526,7 +527,7 @@ def delete_contract(
         )
     
     # 权限检查（仅管理员可删除）
-    if current_user.role != "admin":
+    if not is_admin(current_user):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="仅管理员可删除合同"
@@ -566,9 +567,9 @@ def confirm_parsed_data(
         )
     
     # 权限检查：income 只能操作自己合同，expense 不可操作
-    if current_user.role == "expense":
+    if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权操作合同")
-    if current_user.role == "income" and contract.sales_person_id != current_user.id:
+    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="无权操作此合同"

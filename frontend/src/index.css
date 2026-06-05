@@ -93,7 +93,7 @@ body {
   background: transparent !important;
 }
 
-/* 侧边栏品牌覆写 */
+/* ── 侧边栏品牌覆写 ── */
 .ant-layout-sider {
   background: linear-gradient(180deg, #0f1a2e 0%, #162240 100%) !important;
 }
@@ -102,12 +102,116 @@ body {
   background: transparent !important;
 }
 
-.ant-menu-dark .ant-menu-item-selected {
-  background: rgba(255, 255, 255, 0.1) !important;
+/* ═══════════════════════════════════════════════
+   侧边栏菜单 · 重新设计
+   字号放大 + 品牌金色点缀 + 更好间距
+   ═══════════════════════════════════════════════ */
+
+/* ── 菜单容器：增加内边距让呼吸感更强 ── */
+.ant-layout-sider .ant-menu.ant-menu-root {
+  padding: 6px 8px !important;
 }
 
-.ant-menu-dark .ant-menu-item:hover {
-  background: rgba(255, 255, 255, 0.06) !important;
+/* ── 每个菜单项：增大尺寸 ── */
+.ant-layout-sider .ant-menu-dark .ant-menu-item {
+  height: 48px !important;
+  line-height: 48px !important;
+  margin-block: 4px !important;
+  padding-inline: 14px !important;
+  border-radius: 10px !important;
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.3px !important;
+  color: rgba(255, 255, 255, 0.65) !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* ── 菜单图标：与增大文字保持比例 ── */
+.ant-layout-sider .ant-menu-dark .ant-menu-item .ant-menu-item-icon {
+  font-size: 18px !important;
+  min-width: 18px !important;
+  width: 18px !important;
+  height: 18px !important;
+  line-height: 1 !important;
+  vertical-align: middle !important;
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+/* ── 菜单标签文字 ── */
+.ant-layout-sider .ant-menu-dark .ant-menu-item .ant-menu-title-content {
+  margin-inline-start: 12px !important;
+  font-size: 15px !important;
+  vertical-align: middle !important;
+}
+
+/* ── Hover 态：微亮 ── */
+.ant-layout-sider .ant-menu-dark .ant-menu-item:hover {
+  background: rgba(255, 255, 255, 0.07) !important;
+  color: rgba(255, 255, 255, 0.85) !important;
+}
+
+.ant-layout-sider .ant-menu-dark .ant-menu-item:hover .ant-menu-item-icon {
+  color: var(--brand-gold) !important;
+}
+
+/* ── 选中态：左侧金色竖条 + 金色渐变背景 ── */
+.ant-layout-sider .ant-menu-dark .ant-menu-item-selected {
+  position: relative !important;
+  background: linear-gradient(
+    90deg,
+    rgba(201, 149, 43, 0.15) 0%,
+    rgba(201, 149, 43, 0.06) 100%
+  ) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+}
+
+/* 选中态：左侧金条装饰 */
+.ant-layout-sider .ant-menu-dark .ant-menu-item-selected::before {
+  content: '' !important;
+  position: absolute !important;
+  left: 0 !important;
+  top: 8px !important;
+  bottom: 8px !important;
+  width: 3px !important;
+  background: var(--brand-gold) !important;
+  border-radius: 0 2px 2px 0 !important;
+  box-shadow: 0 0 8px rgba(201, 149, 43, 0.4) !important;
+}
+
+.ant-layout-sider .ant-menu-dark .ant-menu-item-selected .ant-menu-item-icon {
+  color: var(--brand-gold) !important;
+}
+
+/* ── 折叠态：图标居中且更大 ── */
+.ant-layout-sider.ant-layout-sider-collapsed .ant-menu.ant-menu-root {
+  padding: 6px 4px !important;
+}
+
+.ant-layout-sider.ant-layout-sider-collapsed .ant-menu-dark .ant-menu-item {
+  height: 48px !important;
+  line-height: 48px !important;
+  padding-inline: 0 !important;
+  text-align: center !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+
+.ant-layout-sider.ant-layout-sider-collapsed .ant-menu-dark .ant-menu-item .ant-menu-item-icon {
+  font-size: 20px !important;
+  min-width: 20px !important;
+  width: 20px !important;
+  height: 20px !important;
+}
+
+.ant-layout-sider.ant-layout-sider-collapsed .ant-menu-dark .ant-menu-item .ant-menu-title-content {
+  display: none !important;
+}
+
+.ant-layout-sider.ant-layout-sider-collapsed .ant-menu-dark .ant-menu-item-selected::before {
+  top: 6px !important;
+  bottom: 6px !important;
 }
 
 /* 按钮风格 — 确保白色文字在深色背景上有足够对比度 */
@@ -547,5 +651,147 @@ body {
   .page-topbar-right {
     flex-wrap: wrap;
     justify-content: flex-start;
+  }
+}
+
+/* ═══════════════════════════════════════════════
+   移动端优化
+   品牌延续：深海军蓝 + 金色点缀
+   ═══════════════════════════════════════════════ */
+
+/* ── 移动端：Drawer 菜单品牌化 ── */
+@media (max-width: 767px) {
+  /* 移动端 Drawer 中的菜单项 */
+  .ant-drawer-body .ant-menu-item {
+    height: 48px !important;
+    line-height: 48px !important;
+    margin-block: 2px !important;
+    border-radius: 10px !important;
+    font-size: 15px !important;
+    padding-inline: 20px !important;
+  }
+
+  .ant-drawer-body .ant-menu-item .ant-menu-item-icon {
+    font-size: 18px !important;
+  }
+
+  .ant-drawer-body .ant-menu-item-selected {
+    background: linear-gradient(
+      90deg,
+      rgba(201, 149, 43, 0.12) 0%,
+      rgba(201, 149, 43, 0.04) 100%
+    ) !important;
+    color: var(--brand-primary) !important;
+    font-weight: 600 !important;
+  }
+
+  .ant-drawer-body .ant-menu-item-selected .ant-menu-item-icon {
+    color: var(--brand-gold) !important;
+  }
+
+  /* ── 移动端：Header 紧凑化 ── */
+  .ant-layout-header {
+    padding: 0 12px !important;
+    height: 48px !important;
+  }
+
+  .page-title-icon {
+    width: 30px !important;
+    height: 30px !important;
+    font-size: 14px !important;
+  }
+
+  .page-title-text {
+    font-size: 17px !important;
+  }
+
+  .page-title-count {
+    font-size: 11px !important;
+  }
+
+  /* ── 移动端：卡片优化（触摸友好） ── */
+  .card-premium {
+    border-radius: 10px !important;
+  }
+
+  .card-premium:hover {
+    transform: none !important;
+    box-shadow: var(--shadow-sm) !important;
+  }
+
+  .card-premium:active {
+    transform: scale(0.98) !important;
+    transition: transform 0.1s ease !important;
+  }
+
+  /* ── 移动端：按钮全宽化 ── */
+  .mobile-full-width {
+    width: 100%;
+  }
+
+  /* ── 移动端：搜索框全宽 ── */
+  .search-box .ant-input-search {
+    width: 100% !important;
+  }
+
+  /* ── 移动端：分页紧凑化 ── */
+  .page-footer {
+    flex-direction: column;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .page-footer-actions {
+    width: 100%;
+    justify-content: center;
+  }
+
+  /* ── 移动端：空状态缩紧 ── */
+  .empty-state {
+    padding: 48px 0 !important;
+  }
+}
+
+/* ── 移动端：模态框全屏化 ── */
+@media (max-width: 576px) {
+  .ant-modal {
+    max-width: 100vw !important;
+    margin: 0 !important;
+    top: auto !important;
+    bottom: 0 !important;
+    position: absolute !important;
+  }
+
+  .ant-modal-content {
+    border-radius: 16px 16px 0 0 !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
+  }
+}
+
+/* ── iOS 安全区适配 ── */
+@supports (padding-bottom: env(safe-area-inset-bottom)) {
+  .mobile-bottom-nav {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* ── 禁用文本选择（移动端触摸优化） ── */
+@media (max-width: 767px) {
+  .ant-btn,
+  .ant-menu-item,
+  .card-premium {
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+}
+
+/* ── 防止移动端表单缩放 ── */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important; /* 防止 iOS 自动缩放 */
   }
 }

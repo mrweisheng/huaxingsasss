@@ -42,6 +42,7 @@ function isAuthEndpoint(url: string): boolean {
 interface RefreshTokenResponse {
   access_token: string
   expires_in: number
+  user?: { id: number; username: string; role: string; full_name: string | null }
 }
 
 // 响应拦截器 - 401时自动尝试刷新token（含递归保护）
@@ -87,6 +88,11 @@ api.interceptors.response.use(
         // @ts-expect-error: 响应拦截器已解包 response.data，返回 body 本身
         const newToken = response.access_token
         localStorage.setItem('access_token', newToken)
+        // @ts-expect-error: refresh 响应可能包含 user
+        if (response.user) {
+          // @ts-expect-error: refresh 响应可能包含 user
+          localStorage.setItem('user', JSON.stringify(response.user))
+        }
         processQueue(newToken)
         originalRequest.headers.Authorization = `Bearer ${newToken}`
         return api(originalRequest)

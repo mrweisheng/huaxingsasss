@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Table, Button, Select, Input, DatePicker, Empty, Popconfirm, message, Image, Tabs, Tooltip } from 'antd'
 import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
+import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
 import type { Payment } from '@/types'
 import './PaymentList.css'
@@ -86,7 +87,7 @@ function receiptDataSummary(data: Record<string, any> | undefined): string | nul
 }
 
 const statusMap: Record<string, { color: string; text: string }> = {
-  pending: { color: '#8c8c8c', text: '待支付' },
+  pending: { color: '#8c8c8c', text: '待确认' },
   partial: { color: '#d97706', text: '部分支付' },
   paid: { color: '#0d9488', text: '已确认' },
   cancelled: { color: '#8c8c8c', text: '已取消' },
@@ -155,10 +156,10 @@ export default function PaymentList() {
     }
   }, [loadPayments])
 
-  const handleSearch = (value: string) => {
+  const handleSearch = useDebounce((value: string) => {
     setKeyword(value || undefined)
     setPage(1)
-  }
+  }, 400)
 
   const handleDateChange = (_: any, dateStrings: [string, string]) => {
     if (dateStrings[0] && dateStrings[1]) {
@@ -271,6 +272,7 @@ export default function PaymentList() {
       title: '业务说明',
       key: 'description',
       width: 260,
+      responsive: ['md' as const],
       render: (_: unknown, record: Payment) => (
         <span className="pl-cell-desc">{record.description || '-'}</span>
       ),
@@ -315,6 +317,7 @@ export default function PaymentList() {
       key: 'paid_date',
       width: 100,
       minWidth: 80,
+      responsive: ['md' as const],
       render: (v: string) => v || '-',
     },
     // 方式 — 改用小标签
@@ -323,6 +326,7 @@ export default function PaymentList() {
       dataIndex: 'payment_method',
       key: 'payment_method',
       width: 80,
+      responsive: ['md' as const],
       render: (v: string) => {
         const label = methodMap[v] || v || '-'
         return <span className="pl-method-tag">{label}</span>
@@ -418,17 +422,17 @@ export default function PaymentList() {
               <DollarOutlined />
             </div>
             <span className="page-title-text">
-              {role === 'expense' ? '支出管理' : role === 'income' ? '收入管理' : '收付管理'}
+              {role === 'expense' ? '支出管理' : role === 'income' ? '收入管理' : activeTab === 'income' ? '收入管理' : activeTab === 'expense' ? '支出管理' : '收付管理'}
             </span>
             <span className="page-title-count">{total} 条记录</span>
           </div>
         </div>
         <div className="page-topbar-right">
           <div className="pl-filter-bar">
-            <Input.Search
+            <Input
               placeholder="搜索合同编号/客户"
               allowClear
-              onSearch={handleSearch}
+              onChange={e => handleSearch(e.target.value)}
               className="pl-search-box"
               prefix={<SearchOutlined style={{ color: 'var(--text-tertiary)' }} />}
             />
@@ -462,6 +466,7 @@ export default function PaymentList() {
       {payments.length > 0 && (
         <div className="pl-kpi-section">
           <div className="pl-kpi-grid">
+            {(activeTab === 'all' || activeTab === 'income') && (
             <div className="pl-kpi-col pl-kpi-col--income">
               <div className="pl-kpi-col__header">
                 <svg className="pl-kpi-col__arrow" viewBox="0 0 24 24" fill="none">
@@ -496,7 +501,9 @@ export default function PaymentList() {
                 })}
               </div>
             </div>
+            )}
 
+            {(activeTab === 'all' || activeTab === 'expense') && (
             <div className="pl-kpi-col pl-kpi-col--expense">
               <div className="pl-kpi-col__header">
                 <svg className="pl-kpi-col__arrow" viewBox="0 0 24 24" fill="none">
@@ -531,6 +538,7 @@ export default function PaymentList() {
                 })}
               </div>
             </div>
+            )}
           </div>
 
           <div className="pl-kpi-status-bar">
@@ -552,7 +560,7 @@ export default function PaymentList() {
       )}
 
       {payments.length === 0 && !loading ? (
-        <Empty description="暂无付款记录" className="empty-state" />
+        <Empty description={activeTab === 'income' ? '暂无收入记录' : activeTab === 'expense' ? '暂无支出记录' : '暂无付款记录'} className="empty-state" />
       ) : (
         <Table
           columns={columns}
@@ -563,30 +571,77 @@ export default function PaymentList() {
           expandable={{
             expandedRowRender: (record) => (
               <div className="pl-expand-notes">
-                {record.notes ? (
-                  <><strong>备注：</strong>{record.notes}</>
-                ) : (
-                  <span style={{ color: 'var(--text-tertiary)' }}>暂无备注</span>
-                )}
-                {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
-                  <div style={{ marginTop: 8 }}>
-                    <strong>折算 CNY：</strong>
-                    {fmt(record.paid_amount_in_cny, 'CNY')}
-                    {record.exchange_rate && (
-                      <span style={{ color: 'var(--text-tertiary)', marginLeft: 8 }}>
-                        （汇率：{record.exchange_rate}）
-                      </span>
-                    )}
+                {/* 手机端完整信息行 */}
+                <div className="pl-expand-mobile-only">
+                  <div className="pl-expand-row">
+                    <span className="pl-expand-label">业务说明</span>
+                    <span className="pl-expand-value">{record.description || '-'}</span>
+                  </div>
+                  <div className="pl-expand-row">
+                    <span className="pl-expand-label">付款日期</span>
+                    <span className="pl-expand-value">{record.paid_date || '-'}</span>
+                  </div>
+                  <div className="pl-expand-row">
+                    <span className="pl-expand-label">付款方式</span>
+                    <span className="pl-expand-value">{methodMap[record.payment_method as string] || record.payment_method || '-'}</span>
+                  </div>
+                  <div className="pl-expand-row">
+                    <span className="pl-expand-label">期数</span>
+                    <span className="pl-expand-value">{record.installment_number ? `第${record.installment_number}期` : '-'}</span>
+                  </div>
+                  {record.type === 'expense' && record.payee_name && (
+                    <div className="pl-expand-row">
+                      <span className="pl-expand-label">收款方</span>
+                      <span className="pl-expand-value">{record.payee_name}</span>
+                    </div>
+                  )}
+                </div>
+                {/* 凭证图片预览 */}
+                {record.receipt_image_path && (
+                  <div className="pl-expand-row" style={{ marginBottom: 8 }}>
+                    <span className="pl-expand-label">凭证</span>
+                    <span className="pl-expand-value">
+                      <Button type="link" size="small" icon={<EyeOutlined />}
+                        onClick={async () => {
+                          try {
+                            const url = await paymentApi.getReceiptUrl(record.id)
+                            setPreviewUrl(url)
+                          } catch {
+                            message.error('加载凭证失败')
+                          }
+                        }}
+                      >查看凭证</Button>
+                    </span>
                   </div>
                 )}
-                {record.receipt_data && (
+                {record.notes ? (
+                  <div style={{ padding: '8px 0' }}>
+                    <span className="pl-expand-label" style={{ display: 'inline-block', marginBottom: 4 }}>备注</span>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{record.notes}</div>
+                  </div>
+                ) : null}
+                {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
+                  <div style={{ paddingTop: 8, borderTop: '1px solid var(--border-light)' }}>
+                    <span className="pl-expand-label" style={{ display: 'inline-block', marginBottom: 4 }}>折算 CNY</span>
+                    <div style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 600 }}>
+                      {fmt(record.paid_amount_in_cny, 'CNY')}
+                      {record.exchange_rate && (
+                        <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>
+                          汇率：{record.exchange_rate}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {record.receipt_data && !record.receipt_image_path && (
                   <div style={{ marginTop: 8 }}>
-                    <strong>凭证数据：</strong>{receiptDataSummary(record.receipt_data)}
+                    <span className="pl-expand-label" style={{ display: 'inline-block', marginBottom: 4 }}>凭证数据</span>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: 13 }}>{receiptDataSummary(record.receipt_data)}</div>
                   </div>
                 )}
               </div>
             ),
-            rowExpandable: (record) => !!(record.notes || (record.paid_amount_in_cny != null && record.currency !== 'CNY') || record.receipt_data),
+            rowExpandable: (_record) => true,
             expandedRowKeys,
             onExpandedRowsChange: (keys: readonly Key[]) => setExpandedRowKeys([...keys]),
           }}

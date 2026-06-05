@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useDebounce } from '@/hooks/useDebounce'
 import {
   Table,
   Button,
@@ -96,10 +97,10 @@ export default function UserList() {
     }
   }, [loadUsers])
 
-  const handleSearch = (value: string) => {
+  const handleSearch = useDebounce((value: string) => {
     setKeyword(value)
     setPage(1)
-  }
+  }, 400)
 
   // Create user
   const handleCreate = async () => {
@@ -312,10 +313,10 @@ export default function UserList() {
           <Tag>{total} 人</Tag>
         </Space>
         <Space style={isMobile ? { width: '100%' } : undefined}>
-          <Input.Search
+          <Input
             placeholder="搜索用户名、姓名、邮箱、部门"
             allowClear
-            onSearch={handleSearch}
+            onChange={e => handleSearch(e.target.value)}
             style={isMobile ? { width: '100%' } : { width: 280 }}
             prefix={<SearchOutlined />}
           />

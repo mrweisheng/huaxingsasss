@@ -2,12 +2,12 @@
 认证API路由
 """
 import logging
-from typing import Optional
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException, status, Body, Request
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.config import settings
 from app.core.security import (
     verify_password,
     get_password_hash,
@@ -16,59 +16,13 @@ from app.core.security import (
     decode_refresh_token
 )
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse, PublicChangePasswordRequest
+from app.schemas.user import UserLogin, TokenResponse, UserResponse, PublicChangePasswordRequest
 from app.api.dependencies import get_current_user
 from app.utils.rate_limiter import login_rate_limiter
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, deprecated=True)
-def register(
-    user_data: UserCreate,
-    admin_token: Optional[str] = None,
-    db: Session = Depends(get_db)
-):
-    """已废弃：请使用 POST /users（管理员用户管理）代替。保留仅为兼容旧客户端。"""
-    from app.core.security import decode_access_token
-
-    role = "income"
-    if admin_token:
-        payload = decode_access_token(admin_token)
-        if payload:
-            admin_user = db.query(User).filter(User.id == int(payload.get("sub", 0))).first()
-            if admin_user and admin_user.role == "admin" and admin_user.is_active:
-                role = user_data.role
-
-    if db.query(User).filter(User.username == user_data.username).first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="用户名已存在"
-        )
-
-    if user_data.email and db.query(User).filter(User.email == user_data.email).first():
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="邮箱已被使用"
-        )
-
-    user = User(
-        username=user_data.username,
-        email=user_data.email,
-        full_name=user_data.full_name,
-        password_hash=get_password_hash(user_data.password),
-        role=role,
-        department=user_data.department,
-        is_active=True
-    )
-
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-
-    return user
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -158,7 +112,7 @@ async def login(request: Request, login_data: UserLogin, db: Session = Depends(g
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
-        expires_in=3600,
+        expires_in=settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         user=UserResponse.model_validate(user)
     )
 
@@ -188,7 +142,8 @@ def refresh_token(refresh_token: str = Body(..., embed=True), db: Session = Depe
 
     return {
         "access_token": new_access_token,
-        "expires_in": 3600
+        "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        "user": UserResponse.model_validate(user).model_dump(),
     }
 
 
@@ -209,7 +164,8 @@ async def change_password_public(
     if forwarded:
         client_ip = forwarded.split(",")[0].strip()
 
-    await login_rate_limiter.check(f"change_pwd:{client_ip}")
+    # P0-1: 限流双键 — 同一用户名+IP 独立计数，不同用户名不互相连坐
+    await login_rate_limiter.check(f"change_pwd:{data.username}:{client_ip}")
 
     from app.services.user_service import UserService
 

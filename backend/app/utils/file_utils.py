@@ -85,3 +85,31 @@ def validate_file_type(filename: str, allowed_types: list[str]) -> bool:
     """验证文件类型"""
     ext = get_file_extension(filename)
     return ext in allowed_types
+
+
+def validate_file_id_in_dir(file_id: str, base_dir: str) -> str | None:
+    """校验 file_id 并返回安全路径，防止路径穿越。
+
+    file_id 应为 UUID 格式（可带扩展名如 UUID.docx），
+    不允许包含 / \\ .. 等路径成分。
+
+    Args:
+        file_id: 文件 ID（UUID 或 UUID.ext）
+        base_dir: 基目录
+
+    Returns:
+        安全路径字符串，或 None（file_id 非法时）
+    """
+    # 拒绝含路径成分的 file_id
+    if "/" in file_id or "\\" in file_id or ".." in file_id:
+        return None
+
+    candidate = os.path.join(base_dir, file_id)
+    resolved = os.path.realpath(candidate)
+    allowed_prefix = os.path.realpath(base_dir)
+
+    # 确保解析后路径在允许目录内
+    if not resolved.startswith(allowed_prefix + os.sep) and resolved != allowed_prefix:
+        return None
+
+    return resolved

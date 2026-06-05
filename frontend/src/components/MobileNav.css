@@ -1,0 +1,81 @@
+/* ═══════════════════════════════════════════════
+   MobileNav · 底部导航栏
+   品牌延续：深海军蓝 + 金色点缀
+   ═══════════════════════════════════════════════ */
+
+.mobile-bottom-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  height: 56px;
+  background: #ffffff;
+  border-top: 1px solid var(--border-light);
+  box-shadow: 0 -2px 12px rgba(15, 23, 42, 0.06);
+  padding-bottom: 0;
+  /* iOS safe area */
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  height: calc(56px + env(safe-area-inset-bottom, 0px));
+}
+
+.mobile-nav-item {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  flex: 1;
+  height: 100%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 8px;
+  -webkit-tap-highlight-color: transparent;
+  transition: all 0.2s ease;
+  min-height: 44px; /* WCAG touch target */
+}
+
+.mobile-nav-item:active {
+  transform: scale(0.95);
+}
+
+.mobile-nav-icon {
+  font-size: 20px;
+  line-height: 1;
+  color: var(--text-tertiary);
+  transition: color 0.2s ease;
+}
+
+.mobile-nav-item.active .mobile-nav-icon {
+  color: var(--brand-gold);
+}
+
+.mobile-nav-label {
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1;
+  color: var(--text-tertiary);
+  transition: color 0.2s ease;
+}
+
+.mobile-nav-item.active .mobile-nav-label {
+  color: var(--brand-primary);
+  font-weight: 600;
+}
+
+.mobile-nav-indicator {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 20px;
+  height: 2px;
+  background: var(--brand-gold);
+  border-radius: 0 0 2px 2px;
+  box-shadow: 0 0 6px rgba(201, 149, 43, 0.3);
+}

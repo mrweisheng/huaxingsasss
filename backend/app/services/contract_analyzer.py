@@ -18,7 +18,7 @@ from app.config import settings
 from app.models.contract import Contract
 from app.models.user import User
 from app.ai.prompts import CONTRACT_ANALYSIS_PROMPT
-from app.utils.file_utils import calculate_file_hash
+from app.utils.file_utils import calculate_file_hash, validate_file_id_in_dir
 from app.utils.file_analysis import (
     compress_image,
     detect_image_mime,
@@ -280,17 +280,22 @@ class ContractAnalyzer:
     @staticmethod
     def resolve_file_path(file_id: str, user_id: int) -> Optional[str]:
         """解析文件路径：优先用户隔离路径，回退全局路径。
-        支持新版（带扩展名 file_id.docx）和旧版（无扩展名 file_id）两种格式。"""
+        支持新版（带扩展名 file_id.docx）和旧版（无扩展名 file_id）两种格式。
+        带路径穿越防御。"""
         candidates = []
         for base_dir in [
             os.path.join(settings.TEMP_UPLOAD_DIR, str(user_id)),
             settings.TEMP_UPLOAD_DIR,
         ]:
-            candidates.append(os.path.join(base_dir, file_id))
-            if os.path.isdir(base_dir):
+            safe_path = validate_file_id_in_dir(file_id, base_dir)
+            if safe_path:
+                candidates.append(safe_path)
+            if safe_path and os.path.isdir(base_dir):
                 for f in os.listdir(base_dir):
                     if f.startswith(file_id + ".") or f == file_id:
-                        candidates.append(os.path.join(base_dir, f))
+                        candidate = os.path.join(base_dir, f)
+                        if os.path.realpath(candidate).startswith(os.path.realpath(base_dir) + os.sep):
+                            candidates.append(candidate)
         return next((p for p in candidates if os.path.exists(p)), None)
 
     @staticmethod
