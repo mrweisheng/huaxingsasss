@@ -64,6 +64,11 @@ class Payment(BaseModel):
     
     # 关系
     contract = relationship("Contract", back_populates="payments")
+
+    # 动态字段（不存储到数据库，仅用于 API 响应填充）
+    customer_name: str = None  # type: ignore[assignment]
+    contract_number: str = None  # type: ignore[assignment]
+    contract_business_description: str = None  # type: ignore[assignment]
     
     # 索引和约束
     __table_args__ = (

@@ -86,11 +86,12 @@ def list_payments(
         .limit(per_page)\
         .all()
 
-    # 填充 contract_number 和 customer_name
+    # 填充 contract_number、customer_name、contract_business_description
     for item in items:
         contract = db.query(Contract).filter(Contract.id == item.contract_id).first()
         if contract:
             item.contract_number = contract.contract_number
+            item.contract_business_description = contract.business_description
             if contract.customer_id:
                 customer = db.query(Customer).filter(Customer.id == contract.customer_id).first()
                 item.customer_name = customer.name if customer else None

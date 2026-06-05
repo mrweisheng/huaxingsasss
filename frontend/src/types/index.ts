@@ -65,6 +65,7 @@ export interface Payment {
   contract_id: number
   contract_number?: string
   customer_name?: string
+  contract_business_description?: string
   installment_number: number
   installment_name?: string
   type: string

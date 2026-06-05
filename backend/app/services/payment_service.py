@@ -23,17 +23,16 @@ class PaymentService:
     """付款服务类"""
 
     @staticmethod
-    def _generate_description(contract, payment_type, installment_number, payee_name=None):
-        """根据合同信息自动生成付款的可读描述"""
-        parts = [
-            contract.contract_number or "",
-            getattr(contract.customer, 'name', None) or "未知客户",
-            contract.business_description or "",
-        ]
-        prefix = " ".join(p for p in parts if p)
+    def _generate_description(contract, payment_type, installment_number, payee_name=None, installment_name=None):
+        """生成付款说明：优先用期数名称（如"定金"、"保险费用"），否则用合同业务描述兜底"""
+        if installment_name:
+            return installment_name
+        biz = contract.business_description or ""
+        if biz:
+            return biz
         if payment_type == "income":
-            return f"{prefix} 第{installment_number}期收款"
-        return f"{prefix} 第{installment_number}期支出→{payee_name or '未知'}"
+            return f"第{installment_number}期收款"
+        return f"第{installment_number}期支出→{payee_name or '未知'}"
 
     @staticmethod
     def create_payment_with_exchange_rate(
@@ -52,6 +51,7 @@ class PaymentService:
         installment_name: str = None,
         receipt_data: dict = None,
         receipt_file_hash: str = None,
+        description: str = None,
     ) -> Payment:
         """
         创建付款记录并自动计算汇率。
@@ -113,9 +113,9 @@ class PaymentService:
             created_by=created_by,
         )
 
-        # 自动生成可读描述
-        payment.description = PaymentService._generate_description(
-            contract, type, installment_number, payee_name
+        # 生成可读描述：优先使用自定义描述，否则用期数名称或合同业务描述兜底
+        payment.description = description or PaymentService._generate_description(
+            contract, type, installment_number, payee_name, installment_name
         )
 
         db.add(payment)

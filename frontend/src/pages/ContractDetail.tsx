@@ -80,7 +80,7 @@ function amountToChinese(amount: number, currency: string): string {
     if (unitIdx === 4) {
       unitIdx = 0
       bigUnitIdx++
-      if (bigUnitIdx < bigUnitMap.length) {
+      if (bigUnitIdx < bigUnitMap.length && i > 0) {
         result = bigUnitMap[bigUnitIdx] + result
       }
     }
@@ -88,6 +88,7 @@ function amountToChinese(amount: number, currency: string): string {
   result = result.replace(/零+$/, '')
   if (!result) result = '零'
   if (fracPart > 0) {
+    result += '元'
     const jiao = Math.floor(fracPart / 10)
     const fen = fracPart % 10
     if (jiao > 0) result += digitMap[jiao] + '角'

@@ -48,7 +48,7 @@ function amountToChinese(amount: number, currency: string): string {
     if (unitIdx === 3) {
       unitIdx = -1
       bigUnitIdx++
-      if (bigUnitIdx < bigUnitMap.length) {
+      if (bigUnitIdx < bigUnitMap.length && i > 0) {
         result = bigUnitMap[bigUnitIdx] + result
       }
     }
@@ -58,6 +58,7 @@ function amountToChinese(amount: number, currency: string): string {
   if (!result) result = '零'
 
   if (fracPart > 0) {
+    result += '元'
     const jiao = Math.floor(fracPart / 10)
     const fen = fracPart % 10
     if (jiao > 0) result += digitMap[jiao] + '角'
@@ -236,19 +237,14 @@ export default function PaymentList() {
       key: 'customer',
       width: 110,
       render: (_: unknown, record: Payment) => (
-        <div className="pl-cell-compound">
-          <span className="pl-cell-customer-main">{record.customer_name || '-'}</span>
-          {record.type === 'expense' && record.payee_name && (
-            <span className="pl-cell-payee">收款：{record.payee_name}</span>
-          )}
-        </div>
+        <span className="pl-cell-customer-main">{record.customer_name || '-'}</span>
       ),
     },
     // 关联合同
     {
       title: '关联合同',
       key: 'contract',
-      width: 150,
+      width: 200,
       render: (_: unknown, record: Payment) => (
         <div className="pl-cell-compound">
           {record.contract_number ? (
@@ -261,9 +257,9 @@ export default function PaymentList() {
           ) : (
             <span className="pl-cell-contract-link">-</span>
           )}
-          <span className="pl-cell-installment">
-            第{record.installment_number}期{record.type === 'income' ? '收款' : '支出'}
-          </span>
+          {record.contract_business_description && (
+            <span className="pl-cell-business-brief">{record.contract_business_description}</span>
+          )}
         </div>
       ),
     },
@@ -479,7 +475,7 @@ export default function PaymentList() {
                   const group = incomeGroups.find(g => g.currency === curr)
                   return (
                     <div key={curr} className="pl-big-card pl-big-card--income">
-                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr} {curr}</div>
+                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr}</div>
                       <div className="pl-big-card__amount">
                         {group ? (
                           <>
@@ -516,7 +512,7 @@ export default function PaymentList() {
                   const group = expenseGroups.find(g => g.currency === curr)
                   return (
                     <div key={curr} className="pl-big-card pl-big-card--expense">
-                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr} {curr}</div>
+                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr}</div>
                       <div className="pl-big-card__amount">
                         {group ? (
                           <>

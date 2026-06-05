@@ -1412,6 +1412,7 @@ class ToolExecutor:
                 installment_name=kwargs.get("installment_name"),
                 receipt_data=kwargs.get("receipt_data"),
                 receipt_file_hash=file_hash,
+                description=kwargs.get("description"),
             )
             if payment.contract and payment.contract.customer:
                 payment.contract.customer  # ensure loaded
@@ -1474,6 +1475,7 @@ class ToolExecutor:
                 installment_name=kwargs.get("installment_name"),
                 receipt_data=kwargs.get("receipt_data"),
                 receipt_file_hash=file_hash,
+                description=kwargs.get("description"),
             )
             result = self._payment_to_dict(payment)
             result["contract_number"] = payment.contract.contract_number if payment.contract else None
@@ -2763,7 +2765,7 @@ TOOL_DEFINITIONS = [
                     "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "合同币种。从合同原文提取，如 HK$/港币=HKD，¥/人民币=CNY。不清楚时询问用户确认。"},
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
                     "business_type": {"type": "string", "enum": ["车辆买卖", "两地牌过户", "年检保险", "其他"], "description": "业务大类：车辆买卖（买车卖车）、两地牌过户（办理中港车牌过户）、年检保险、其他"},
-                    "business_description": {"type": "string", "description": "业务具体描述，严格基于合同原文。"},
+                    "business_description": {"type": "string", "description": "极简业务描述，只说做了什么业务（买什么车/办什么牌/哪个口岸），不要包含金额和付款条件。如：购买现牌 粤Z7N80港（深圳湾口岸）"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
                     "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},
                     "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入 analyze_image 返回的 file_path。系统会自动保存到凭证目录。"},
@@ -2814,6 +2816,7 @@ TOOL_DEFINITIONS = [
                     },
                     "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
                     "notes": {"type": "string", "description": "备注"},
+                    "description": {"type": "string", "description": "本次付款的简短业务说明（如：30系埃尔法定金、港车保险、现牌定金），从凭证或对话中提取，不超过30字"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象，包含document_type/amount/payer_name/transaction_id等）"},
                 },
             },
@@ -2844,6 +2847,7 @@ TOOL_DEFINITIONS = [
                     },
                     "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
                     "notes": {"type": "string", "description": "备注"},
+                    "description": {"type": "string", "description": "本次支出的简短业务说明（如：港车保险费、代办车牌渠道费），从凭证或对话中提取，不超过30字"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
                 },
             },

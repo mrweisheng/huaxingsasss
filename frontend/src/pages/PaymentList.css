@@ -374,6 +374,17 @@
   color: var(--text-tertiary);
 }
 
+.pl-cell-business-brief {
+  display: block;
+  font-size: 11px;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}
+
 /* ── 业务说明列 ── */
 .pl-cell-desc {
   font-size: 12px;
