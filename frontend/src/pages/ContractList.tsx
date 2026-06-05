@@ -4,7 +4,7 @@ import { Input, Select, DatePicker, Button, Popconfirm, message, Empty } from 'a
 import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
-import ContractUploadWizard from '@/components/ContractUploadWizard'
+import ContractChatModal from '@/components/ContractChatModal'
 import ReceiptChatModal from '@/components/ReceiptChatModal'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
@@ -398,7 +398,7 @@ export default function ContractList() {
         </>
       )}
 
-      <ContractUploadWizard
+      <ContractChatModal
         open={uploadModalOpen}
         onClose={(created) => { setUploadModalOpen(false); if (created) loadContracts() }}
       />

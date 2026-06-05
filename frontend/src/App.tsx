@@ -6,7 +6,6 @@ import CustomerList from './pages/CustomerList'
 import CustomerDetail from './pages/CustomerDetail'
 import ContractList from './pages/ContractList'
 import ContractDetail from './pages/ContractDetail'
-import ContractUpload from './pages/ContractUpload'
 import PaymentList from './pages/PaymentList'
 import AgentChat from './pages/AgentChat'
 import UserList from './pages/UserList'
@@ -31,7 +30,6 @@ function App() {
           <Route path="contracts">
             <Route index element={<ProtectedRoute allowedRoles={['admin', 'income']}><ContractList /></ProtectedRoute>} />
             <Route path=":id" element={<ContractDetail />} />
-            <Route path="upload" element={<ProtectedRoute allowedRoles={['admin', 'income']}><ContractUpload /></ProtectedRoute>} />
           </Route>
           <Route path="payments">
             <Route index element={<PaymentList />} />
