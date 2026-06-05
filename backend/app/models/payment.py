@@ -16,7 +16,7 @@ class Payment(BaseModel):
     
     # 付款期数信息
     installment_number = Column(Integer, nullable=False, comment="第几期")
-    installment_name = Column(String(50), comment="期数名称")
+    installment_name = Column(String(100), comment="期数名称")
 
     # 收入/支出类型
     type = Column(String(20), nullable=False, default="income", index=True, comment="类型: income/expense")

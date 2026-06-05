@@ -11,7 +11,7 @@ class PaymentBase(BaseModel):
     """付款基础模型"""
 
     installment_number: int = Field(..., ge=1, description="期数")
-    installment_name: Optional[str] = Field(None, max_length=50, description="期数名称")
+    installment_name: Optional[str] = Field(None, max_length=100, description="期数名称")
     type: str = Field(default="income", description="类型: income/expense")
     currency: str = Field(default="CNY", description="付款币种")
     amount: Decimal = Field(..., gt=0, description="金额")
@@ -70,7 +70,7 @@ class PaymentPlanItem(BaseModel):
     """付款计划单期"""
 
     installment_number: int = Field(..., ge=1, description="期数序号")
-    installment_name: str = Field(..., max_length=50, description="期数名称")
+    installment_name: str = Field(..., max_length=100, description="期数名称")
     amount: Decimal = Field(..., gt=0, description="应付金额")
     due_date: Optional[date] = Field(None, description="应付款日期")
 
