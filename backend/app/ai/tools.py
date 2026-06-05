@@ -868,10 +868,17 @@ class ToolExecutor:
             else:
                 return file_path
         file_id = file_path[len("agent_upload/"):]
-        candidates = [
-            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id),
-            os.path.join(settings.TEMP_UPLOAD_DIR, file_id),
-        ]
+        # 兼容新旧两种命名：file_id（旧版无扩展名）和 file_id.ext（新版带扩展名）
+        candidates = []
+        for base_dir in [
+            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id)),
+            settings.TEMP_UPLOAD_DIR,
+        ]:
+            candidates.append(os.path.join(base_dir, file_id))
+            if os.path.isdir(base_dir):
+                for f in os.listdir(base_dir):
+                    if f == file_id or f.startswith(file_id + "."):
+                        candidates.append(os.path.join(base_dir, f))
         temp_path = next((p for p in candidates if os.path.exists(p)), None)
         if not temp_path:
             logger.warning("凭证文件复制跳过: 临时文件不存在 file_id=%s, user=%s", file_id, self.user.id)
@@ -2078,15 +2085,24 @@ class ToolExecutor:
         用户隔离由 api/v1/agent.py 的 /upload 端点写入路径决定。
         为兼容旧全局路径与新用户隔离路径，这里两路都尝试。
         """
-        # 新格式：用户隔离路径
-        user_scoped_path = os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id)
-        # 旧格式：全局路径（历史数据兼容）
-        legacy_path = os.path.join(settings.TEMP_UPLOAD_DIR, file_id)
-        if os.path.exists(user_scoped_path):
-            file_path = user_scoped_path
-        elif os.path.exists(legacy_path):
-            file_path = legacy_path
-        else:
+        # 新格式：用户隔离路径，文件名可能带扩展名（UUID.docx）也可能没有（旧版 UUID）
+        user_dir = os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id))
+        global_dir = settings.TEMP_UPLOAD_DIR
+        file_path = None
+        for base_dir in [user_dir, global_dir]:
+            direct = os.path.join(base_dir, file_id)
+            if os.path.exists(direct):
+                file_path = direct
+                break
+            # glob 匹配带扩展名的文件
+            if os.path.isdir(base_dir):
+                for f in os.listdir(base_dir):
+                    if f.startswith(file_id + "."):
+                        file_path = os.path.join(base_dir, f)
+                        break
+            if file_path:
+                break
+        if not file_path:
             return json.dumps({"error": f"文件不存在: {file_id}"}, ensure_ascii=False)
 
         # ━━━ 合同类型：委托给 ContractAnalyzer（共享逻辑） ━━━
