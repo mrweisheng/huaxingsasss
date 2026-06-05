@@ -1360,7 +1360,7 @@ class ToolExecutor:
         if not self._can_view_income():
             return json.dumps({"error": "当前角色无权创建收入记录"}, ensure_ascii=False)
 
-        required = ["contract_id", "installment_number", "amount", "currency", "paid_date"]
+        required = ["contract_id", "amount", "currency", "paid_date"]
         missing = [r for r in required if not kwargs.get(r)]
         if missing:
             return json.dumps({"error": f"缺少必填参数: {', '.join(missing)}"}, ensure_ascii=False)
@@ -1369,6 +1369,28 @@ class ToolExecutor:
             contract = self.db.query(Contract).filter(Contract.id == kwargs["contract_id"]).first()
             if not contract or contract.sales_person_id != self.user.id:
                 return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
+
+        # 期数处理：LLM 指定 → 检查碰撞；未指定 → 自动计算
+        installment_number = kwargs.get("installment_number")
+        if installment_number:
+            existing = self.db.query(Payment).filter(
+                Payment.contract_id == kwargs["contract_id"],
+                Payment.installment_number == installment_number,
+                Payment.type == "income",
+                Payment.is_deleted == False,
+            ).first()
+            if existing:
+                return json.dumps({
+                    "warning": True,
+                    "message": f"第{installment_number}期收入记录已存在（状态: {existing.status}, "
+                               f"金额: {existing.amount} {existing.currency}），"
+                               f"请使用 update_payment 更新已有记录。",
+                    "existing_payment": self._payment_to_dict_lite(existing),
+                }, ensure_ascii=False)
+        else:
+            installment_number = PaymentService.get_next_installment_number(
+                self.db, kwargs["contract_id"], "income"
+            )
 
         try:
             receipt_path = self._ensure_file_in_receipt_dir(
@@ -1392,7 +1414,7 @@ class ToolExecutor:
                     }, ensure_ascii=False)
             logger.info(
                 "Agent创建付款: contract_id=%s, installment=%s, amount=%s %s, receipt=%s, notes=%s",
-                kwargs["contract_id"], kwargs["installment_number"],
+                kwargs["contract_id"], installment_number,
                 kwargs["amount"], kwargs.get("currency"),
                 receipt_path or "无",
                 kwargs.get("notes", "无"),
@@ -1400,7 +1422,7 @@ class ToolExecutor:
             payment = PaymentService.create_payment_with_exchange_rate(
                 db=self.db,
                 contract_id=kwargs["contract_id"],
-                installment_number=kwargs["installment_number"],
+                installment_number=installment_number,
                 currency=kwargs["currency"],
                 amount=Decimal(str(kwargs["amount"])),
                 paid_date=date.fromisoformat(kwargs["paid_date"]),
@@ -2795,14 +2817,14 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建收入付款记录（客户向公司付款）。无凭证时创建为 pending 状态（不参与结算），有凭证时创建为 paid 状态（自动参与结算）。同币种不折算，混币种按付款日实时汇率自动结算。仅用于手动录入或凭证上传场景——合同录入时系统会自动创建已付款项的记录，不需要手动调用。",
+            "description": "为合同创建收入付款记录（客户向公司付款）。无凭证时创建为 pending 状态（不参与结算），有凭证时创建为 paid 状态（自动参与结算）。同币种不折算，混币种按付款日实时汇率自动结算。仅用于手动录入或凭证上传场景——合同录入时系统会自动创建已付款项的记录，不需要手动调用。如果该期数已有记录会返回已有记录信息，此时应改用 update_payment。",
             "parameters": {
                 "type": "object",
-                "required": ["contract_id", "installment_number", "amount", "currency", "paid_date"],
+                "required": ["contract_id", "amount", "currency", "paid_date"],
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
-                    "installment_number": {"type": "integer", "description": "第几期（1, 2, 3...）"},
-                    "installment_name": {"type": "string", "description": "期数名称（如「定金」、「首期」、「尾款」），从合同原文提取"},
+                    "installment_number": {"type": "integer", "description": "第几期（1, 2, 3...）。通常无需指定，系统自动计算。仅在你明确知道期数时传入"},
+                    "installment_name": {"type": "string", "description": "期数名称（如「定金」、「首期」、「尾款」），从合同原文或用户描述提取"},
                     "amount": {"type": "number", "description": "付款金额"},
                     "currency": {
                         "type": "string", "enum": ["CNY", "HKD", "USD"],
