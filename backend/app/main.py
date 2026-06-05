@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api.v1 import auth, customers, contracts, payments, agent, files, exchange_rates, users
+from app.api.v1 import auth, customers, contracts, payments, agent, files, exchange_rates, users, stats
 from app.core.exceptions import AppException
 from app.core.middleware import RequestLoggingMiddleware, AuditLogMiddleware
 from app.core.logging import setup_logging
@@ -62,6 +62,7 @@ app.include_router(agent.router, prefix=f"{settings.API_V1_STR}/agent", tags=["�
 app.include_router(files.router, prefix=f"{settings.API_V1_STR}/files", tags=["文件管理"])
 app.include_router(exchange_rates.router, prefix=f"{settings.API_V1_STR}/exchange-rates", tags=["汇率管理"])
 app.include_router(users.router, prefix=f"{settings.API_V1_STR}/users", tags=["用户管理"])
+app.include_router(stats.router, prefix=f"{settings.API_V1_STR}/stats", tags=["财务统计"])
 
 
 @app.get("/health")

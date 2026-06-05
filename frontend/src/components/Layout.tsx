@@ -11,6 +11,7 @@ import {
   MenuUnfoldOutlined,
   UserOutlined,
   KeyOutlined,
+  PieChartOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '@/store/useAuthStore'
 import { userApi } from '@/services/user'
@@ -59,6 +60,14 @@ export default function Layout() {
     icon: <DollarOutlined />,
     label: paymentLabel,
   })
+
+  if (role === 'admin') {
+    menuItems.push({
+      key: '/financial-overview',
+      icon: <PieChartOutlined />,
+      label: '财务总览',
+    })
+  }
   menuItems.push({
     key: '/agent',
     icon: <RobotOutlined />,
@@ -120,8 +129,8 @@ export default function Layout() {
   return (
     <AntLayout style={{ minHeight: '100vh' }}>
       <Sider
-        width={220}
-        collapsedWidth={64}
+        width={240}
+        collapsedWidth={68}
         collapsible
         collapsed={collapsed}
         onCollapse={setCollapsed}
@@ -202,7 +211,8 @@ export default function Layout() {
           selectedKeys={[selectedKey]}
           items={menuItems}
           onClick={handleMenuClick}
-          style={{ marginTop: 8, borderInlineEnd: 'none' }}
+          className="sider-menu"
+          style={{ marginTop: 4, borderInlineEnd: 'none' }}
         />
 
         {!collapsed && (
@@ -270,7 +280,7 @@ export default function Layout() {
         )}
       </Sider>
 
-      <AntLayout style={{ marginLeft: collapsed ? 64 : 220, transition: 'margin-left 0.2s' }}>
+      <AntLayout style={{ marginLeft: collapsed ? 68 : 240, transition: 'margin-left 0.2s' }}>
         <Header
           style={{
             display: 'flex',

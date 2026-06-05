@@ -7,15 +7,22 @@ import CustomerDetail from './pages/CustomerDetail'
 import ContractList from './pages/ContractList'
 import ContractDetail from './pages/ContractDetail'
 import PaymentList from './pages/PaymentList'
+import FinancialOverview from './pages/FinancialOverview'
 import AgentChat from './pages/AgentChat'
 import UserList from './pages/UserList'
 import { useAuthStore } from './store/useAuthStore'
+
+const ROLE_DEFAULT_PATH: Record<string, string> = {
+  admin: '/customers',
+  income: '/customers',
+  expense: '/payments',
+}
 
 function App() {
   const role = useAuthStore((s) => s.user?.role) || ''
 
   // 根据角色决定默认跳转页
-  const defaultPath = (role === 'admin' || role === 'income') ? '/customers' : '/payments'
+  const defaultPath = ROLE_DEFAULT_PATH[role] || '/customers'
 
   return (
     <BrowserRouter>
@@ -34,6 +41,7 @@ function App() {
           <Route path="payments">
             <Route index element={<PaymentList />} />
           </Route>
+          <Route path="financial-overview" element={<ProtectedRoute allowedRoles={['admin']}><FinancialOverview /></ProtectedRoute>} />
           <Route path="users">
             <Route index element={<ProtectedRoute allowedRoles={['admin']}><UserList /></ProtectedRoute>} />
           </Route>
