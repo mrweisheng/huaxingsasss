@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Select, DatePicker, Button, Popconfirm, message, Empty, Tooltip } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, DollarOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
+import { Input, Select, DatePicker, Button, Popconfirm, message, Empty } from 'antd'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractUploadWizard from '@/components/ContractUploadWizard'
@@ -203,22 +203,6 @@ export default function ContractList() {
               上传
             </Button>
           )}
-          <Tooltip title="快速录入当前页合同的收/支">
-            <Button icon={<DollarOutlined />} className="quick-entry-btn" onClick={() => {
-              const firstContract = contracts[0]
-              if (firstContract) {
-                if (role === 'admin' || role === 'income') {
-                  setReceiptModal({ open: true, contract: firstContract, type: 'income' })
-                } else if (role === 'expense') {
-                  setReceiptModal({ open: true, contract: firstContract, type: 'expense' })
-                }
-              } else {
-                message.info('暂无合同可录入')
-              }
-            }}>
-              快速录入
-            </Button>
-          </Tooltip>
         </div>
       </div>
 

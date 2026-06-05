@@ -2,7 +2,6 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Input, Button, Popconfirm, message, Empty } from 'antd'
 import {
-  PlusOutlined,
   SearchOutlined,
   TeamOutlined,
   UserOutlined,
@@ -148,9 +147,6 @@ export default function CustomerList() {
             style={{ width: 220 }}
             prefix={<SearchOutlined />}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => navigate('/customers/new')}>
-            新增客户
-          </Button>
         </div>
       </div>
 
