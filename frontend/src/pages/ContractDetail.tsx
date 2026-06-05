@@ -15,6 +15,7 @@ import {
   PhoneOutlined,
   EnvironmentOutlined,
   ClockCircleFilled,
+  LoadingOutlined,
 } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { paymentApi } from '@/services/payment'
@@ -140,6 +141,7 @@ export default function ContractDetail() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [completing, setCompleting] = useState(false)
+  const [receiptLoading, setReceiptLoading] = useState<number | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const handleComplete = async () => {
@@ -185,7 +187,7 @@ export default function ContractDetail() {
     return () => { controller.abort() }
   }, [id])
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin tip="加载中..." /></div>
+  if (loading) return <div className="app-loading-page"><Spin tip="加载中..." /></div>
   if (error)    return <Alert type="error" message={error} showIcon />
   if (!contract) return <Alert type="warning" message="合同不存在" showIcon />
 
@@ -252,12 +254,28 @@ export default function ContractDetail() {
                   </span>
                 )}
                 {payment.receipt_image_path ? (
-                  <span className="cd-pay-card-receipt" onClick={async (e) => {
-                    e.stopPropagation()
-                    try { const url = await paymentApi.getReceiptUrl(payment.id); window.open(url, '_blank') }
-                    catch { message.error('加载凭证失败') }
-                  }}>
-                    <EyeOutlined style={{ marginRight: 2 }} />凭证
+                  <span
+                    className="cd-pay-card-receipt"
+                    onClick={async (e) => {
+                      e.stopPropagation()
+                      if (receiptLoading) return
+                      setReceiptLoading(payment.id)
+                      try {
+                        const url = await paymentApi.getReceiptUrl(payment.id)
+                        window.open(url, '_blank')
+                      } catch {
+                        message.error('加载凭证失败')
+                      } finally {
+                        setReceiptLoading(null)
+                      }
+                    }}
+                  >
+                    {receiptLoading === payment.id ? (
+                      <LoadingOutlined style={{ marginRight: 2 }} spin />
+                    ) : (
+                      <EyeOutlined style={{ marginRight: 2 }} />
+                    )}
+                    凭证
                   </span>
                 ) : payment.receipt_data ? (
                   <Tooltip title={receiptSummary(payment.receipt_data)}>

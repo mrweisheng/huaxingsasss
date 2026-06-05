@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Form, Input, Button, Card, message, Space, Grid } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
@@ -7,14 +8,18 @@ export default function CustomerNew() {
   const navigate = useNavigate()
   const isMobile = !(Grid.useBreakpoint().md ?? true)
   const [form] = Form.useForm()
+  const [submitting, setSubmitting] = useState(false)
 
   const onFinish = async (values: any) => {
+    setSubmitting(true)
     try {
       await customerApi.create(values)
       message.success('客户创建成功')
       navigate('/customers')
     } catch (error: any) {
       message.error(error.response?.data?.detail || '创建失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -85,10 +90,10 @@ export default function CustomerNew() {
 
           <Form.Item>
             <Space style={isMobile ? { width: '100%', display: 'flex', gap: 8 } : undefined}>
-              <Button type="primary" htmlType="submit" block={isMobile}>
+              <Button type="primary" htmlType="submit" block={isMobile} loading={submitting}>
                 创建客户
               </Button>
-              <Button onClick={() => navigate('/customers')} block={isMobile}>
+              <Button onClick={() => navigate('/customers')} block={isMobile} disabled={submitting}>
                 取消
               </Button>
             </Space>

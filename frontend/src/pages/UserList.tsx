@@ -64,6 +64,7 @@ export default function UserList() {
   const [editModalOpen, setEditModalOpen] = useState(false)
   const [editingUser, setEditingUser] = useState<User | null>(null)
   const [submitLoading, setSubmitLoading] = useState(false)
+  const [actionLoading, setActionLoading] = useState<number | null>(null)
 
   const [createForm] = Form.useForm()
   const [editForm] = Form.useForm()
@@ -175,22 +176,28 @@ export default function UserList() {
 
   // Toggle active
   const handleToggleActive = async (user: User) => {
+    setActionLoading(user.id)
     try {
       await userApi.toggleActive(user.id)
       message.success(user.is_active ? '已禁用用户' : '已启用用户')
       loadUsers()
     } catch (error: any) {
       message.error(error.response?.data?.detail || '操作失败')
+    } finally {
+      setActionLoading(null)
     }
   }
 
   // Reset password
   const handleResetPassword = async (user: User) => {
+    setActionLoading(user.id)
     try {
       await userApi.resetPassword(user.id)
       message.success('密码已重置为 123456')
     } catch (error: any) {
       message.error(error.response?.data?.detail || '重置密码失败')
+    } finally {
+      setActionLoading(null)
     }
   }
 
@@ -271,7 +278,12 @@ export default function UserList() {
                 okText="确认"
                 cancelText="取消"
               >
-                <Button type="link" size="small" danger={record.is_active}>
+                <Button
+                  type="link"
+                  size="small"
+                  danger={record.is_active}
+                  loading={actionLoading === record.id}
+                >
                   {record.is_active ? '禁用' : '启用'}
                 </Button>
               </Popconfirm>
@@ -283,7 +295,12 @@ export default function UserList() {
               okText="确认"
               cancelText="取消"
             >
-              <Button type="link" size="small" icon={<LockOutlined />}>
+              <Button
+                type="link"
+                size="small"
+                icon={<LockOutlined />}
+                loading={actionLoading === record.id}
+              >
                 {isMobile ? null : '重置密码'}
               </Button>
             </Popconfirm>

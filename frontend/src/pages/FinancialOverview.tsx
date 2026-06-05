@@ -24,7 +24,7 @@ export default function FinancialOverview() {
 
   if (loading) {
     return (
-      <div className="fo-loading">
+      <div className="app-loading-section">
         <Spin size="large" />
       </div>
     )
@@ -32,7 +32,7 @@ export default function FinancialOverview() {
 
   if (!data) {
     return (
-      <div className="fo-loading">
+      <div className="app-loading-section">
         <Empty description="暂无数据" />
       </div>
     )

@@ -86,7 +86,7 @@ export default function CustomerDetail() {
     }
   }, [id])
 
-  if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin tip="加载中..." /></div>
+  if (loading) return <div className="app-loading-page"><Spin tip="加载中..." /></div>
   if (!customer) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>客户不存在</div>
 
   // 合同汇总统计 — 检测是否单币种

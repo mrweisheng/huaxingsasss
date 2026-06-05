@@ -113,6 +113,7 @@ export default function PaymentList() {
   const [dateRange, setDateRange] = useState<[string, string] | null>(null)
   const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [previewLoading, setPreviewLoading] = useState(false)
+  const [expandPreviewLoading, setExpandPreviewLoading] = useState<number | null>(null)
   const [expandedRowKeys, setExpandedRowKeys] = useState<Key[]>([])
   const abortControllerRef = useRef<AbortController | null>(null)
   const user = useAuthStore((s) => s.user)
@@ -597,13 +598,20 @@ export default function PaymentList() {
                   <div className="pl-expand-row" style={{ marginBottom: 8 }}>
                     <span className="pl-expand-label">凭证</span>
                     <span className="pl-expand-value">
-                      <Button type="link" size="small" icon={<EyeOutlined />}
+                      <Button
+                        type="link"
+                        size="small"
+                        icon={<EyeOutlined />}
+                        loading={expandPreviewLoading === record.id}
                         onClick={async () => {
+                          setExpandPreviewLoading(record.id)
                           try {
                             const url = await paymentApi.getReceiptUrl(record.id)
                             setPreviewUrl(url)
                           } catch {
                             message.error('加载凭证失败')
+                          } finally {
+                            setExpandPreviewLoading(null)
                           }
                         }}
                       >查看凭证</Button>
