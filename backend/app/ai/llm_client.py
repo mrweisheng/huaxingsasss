@@ -210,7 +210,7 @@ class DashScopeAgentClient:
         max_tokens: int = 4096,
     ) -> AsyncGenerator[dict, None]:
         """
-        流式调用 DashScope Agent 模型（兼容模式），支持函数调用和指数退避重试。
+        流式调用 SiliconFlow Agent 模型，支持函数调用和指数退避重试。
         逐个 yield 解析后的 SSE 事件。
 
         重试条件：429（限流）、5xx（服务端错误）、TimeoutException、ConnectError
@@ -237,16 +237,26 @@ class DashScopeAgentClient:
         }
 
         last_error = None
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        timeout_config = httpx.Timeout(connect=15.0, read=120.0, write=30.0, pool=15.0)
+        async with httpx.AsyncClient(timeout=timeout_config) as client:
             for attempt in range(self.max_retries):
                 yielded_count = 0
                 try:
+                    logger.info(
+                        "SiliconFlow Agent 请求: model=%s, base_url=%s, attempt=%d/%d",
+                        self.model, self.base_url, attempt + 1, self.max_retries,
+                    )
                     async with client.stream(
                         "POST",
                         f"{self.base_url}/chat/completions",
                         json=payload,
                         headers=headers,
                     ) as response:
+                        logger.info(
+                            "SiliconFlow Agent 响应状态: %d, content_type=%s",
+                            response.status_code,
+                            response.headers.get("content-type", "unknown"),
+                        )
                         if response.status_code == 429:
                             try:
                                 retry_after = float(response.headers.get("retry-after", ""))
@@ -254,7 +264,7 @@ class DashScopeAgentClient:
                                 retry_after = self.retry_base_delay * (2 ** attempt)
                             retry_after = max(retry_after, self.retry_base_delay)
                             logger.warning(
-                                "DashScope Agent 限流 429，%.1fs 后重试 (attempt %d/%d)",
+                                "SiliconFlow Agent 限流 429，%.1fs 后重试 (attempt %d/%d)",
                                 retry_after, attempt + 1, self.max_retries,
                             )
                             await response.aread()
@@ -264,7 +274,7 @@ class DashScopeAgentClient:
                         if response.status_code >= 500:
                             delay = self.retry_base_delay * (2 ** attempt)
                             logger.warning(
-                                "DashScope Agent 服务端错误 %d，%.1fs 后重试 (attempt %d/%d)",
+                                "SiliconFlow Agent 服务端错误 %d，%.1fs 后重试 (attempt %d/%d)",
                                 response.status_code, delay, attempt + 1, self.max_retries,
                             )
                             await response.aread()
@@ -274,17 +284,22 @@ class DashScopeAgentClient:
                         if response.status_code >= 400:
                             error_body = await response.aread()
                             raise Exception(
-                                f"DashScope Agent API error {response.status_code}: {error_body.decode()}"
+                                f"SiliconFlow Agent API error {response.status_code}: {error_body.decode()}"
                             )
 
                         # 成功：处理 SSE 流
                         current_tool_calls: dict = {}
+                        sse_line_count = 0
 
                         async for line in response.aiter_lines():
+                            sse_line_count += 1
+                            if sse_line_count <= 3:
+                                logger.debug("SiliconFlow Agent SSE line #%d: %s", sse_line_count, line[:200] if len(line) > 200 else line)
                             if not line.startswith("data: "):
                                 continue
                             data = line[6:]
                             if data == "[DONE]":
+                                logger.info("SiliconFlow Agent SSE 流结束, 共 %d 行", sse_line_count)
                                 for tc in current_tool_calls.values():
                                     yield {
                                         "type": "tool_call",
@@ -350,7 +365,7 @@ class DashScopeAgentClient:
                             if finish_reason == "length":
                                 if current_tool_calls:
                                     logger.warning(
-                                        "DashScope Agent 流式返回 length 截断且含 tool_calls，"
+                                        "SiliconFlow Agent 流式返回 length 截断且含 tool_calls，"
                                         "已强制 flush %d 个工具调用",
                                         len(current_tool_calls),
                                     )
@@ -383,21 +398,21 @@ class DashScopeAgentClient:
                 except (httpx.TimeoutException, httpx.ConnectError) as e:
                     if yielded_count > 0:
                         logger.error(
-                            "DashScope Agent 流传输中途断开（已 yield %d 个事件），放弃重试: %s",
+                            "SiliconFlow Agent 流传输中途断开（已 yield %d 个事件），放弃重试: %s",
                             yielded_count, type(e).__name__,
                         )
                         raise
                     last_error = e
                     delay = self.retry_base_delay * (2 ** attempt)
                     logger.warning(
-                        "DashScope Agent 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
+                        "SiliconFlow Agent 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
                         type(e).__name__, delay, attempt + 1, self.max_retries,
                     )
                     await asyncio.sleep(delay)
                     continue
 
         raise Exception(
-            f"DashScope Agent API 在 {self.max_retries} 次重试后仍失败: {last_error}"
+            f"SiliconFlow Agent API 在 {self.max_retries} 次重试后仍失败: {last_error}"
         )
 
     async def analyze_image_with_vl(
