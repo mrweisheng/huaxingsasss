@@ -65,6 +65,8 @@ class Payment(BaseModel):
     # 关系
     contract = relationship("Contract", back_populates="payments")
 
+    __allow_unmapped__ = True
+
     # 动态字段（不存储到数据库，仅用于 API 响应填充）
     customer_name: str = None  # type: ignore[assignment]
     contract_number: str = None  # type: ignore[assignment]
