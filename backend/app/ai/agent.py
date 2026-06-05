@@ -448,7 +448,7 @@ class ContractAgent:
 
             actual_prompt = make_text_extraction_prompt(CONTRACT_ANALYSIS_PROMPT)
             payload = {
-                "model": settings.DASHSCOPE_AGENT_MODEL,
+                "model": settings.SILICONFLOW_AGENT_MODEL,
                 "messages": [{
                     "role": "user",
                     "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{text[:8000]}",
@@ -457,12 +457,12 @@ class ContractAgent:
                 "max_tokens": 4096,
             }
             headers = {
-                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
                 "Content-Type": "application/json",
             }
             async with httpx.AsyncClient(timeout=120.0) as client:
                 response = await client.post(
-                    f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
+                    f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
                     json=payload, headers=headers,
                 )
 
@@ -935,7 +935,7 @@ class ContractAgent:
             role=role,
             tool_calls=tool_calls,
             extra_metadata=metadata or {},
-            llm_model=settings.DASHSCOPE_AGENT_MODEL,
+            llm_model=settings.SILICONFLOW_AGENT_MODEL,
             tokens_used=tokens_used or None,
         )
         self.db.add(record)
@@ -957,7 +957,7 @@ class ContractAgent:
             role="tool",
             intent_type=tool_name,
             extra_metadata={"tool_call_id": tool_call_id},
-            llm_model=settings.DASHSCOPE_AGENT_MODEL,
+            llm_model=settings.SILICONFLOW_AGENT_MODEL,
         )
         self.db.add(record)
         self.db.commit()

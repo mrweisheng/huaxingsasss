@@ -189,16 +189,16 @@ class SiliconFlowClient:
 
 
 class DashScopeAgentClient:
-    """阿里云百炼 DashScope Agent 推理客户端（deepseek-v4-flash）
-    
-    通过兼容模式 API 调用，支持流式输出、函数调用和指数退避重试。
-    复用 DASHSCOPE_API_KEY（与 qwen3-vl-flash 共用）。
+    """Agent 推理客户端（硅基流动 SiliconFlow DeepSeek-V4-Flash）
+
+    通过 OpenAI 兼容 API 调用，支持流式输出、函数调用和指数退避重试。
+    使用 SILICONFLOW_* 配置，与视觉模型（DASHSCOPE_*）独立。
     """
 
     def __init__(self):
-        self.api_key = settings.DASHSCOPE_API_KEY
-        self.base_url = settings.DASHSCOPE_BASE_URL
-        self.model = settings.DASHSCOPE_AGENT_MODEL
+        self.api_key = settings.SILICONFLOW_API_KEY
+        self.base_url = settings.SILICONFLOW_BASE_URL
+        self.model = settings.SILICONFLOW_AGENT_MODEL
         self.max_retries = getattr(settings, 'AGENT_MAX_RETRIES', 3)
         self.retry_base_delay = getattr(settings, 'AGENT_RETRY_BASE_DELAY', 1.0)
 

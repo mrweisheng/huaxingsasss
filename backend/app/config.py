@@ -54,20 +54,18 @@ class Settings(BaseSettings):
     CELERY_BROKER_URL: str = "redis://localhost:6379/1"
     CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
     
-    # AI服务配置（SiliconFlow - 纯文本任务）
+    # AI服务配置（SiliconFlow - Agent 推理模型）
     SILICONFLOW_API_KEY: str = ""
     SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
     SILICONFLOW_VISION_MODEL: str = "Qwen/Qwen3-VL-32B-Instruct"
     SILICONFLOW_TEXT_MODEL: str = "Qwen/Qwen3-VL-8B-Instruct"
+    SILICONFLOW_AGENT_MODEL: str = "deepseek-ai/DeepSeek-V4-Flash"
 
     # AI服务配置（阿里云百炼 - 视觉模型）
     DASHSCOPE_API_KEY: str = ""
     DASHSCOPE_BASE_URL: str = "https://dashscope.aliyuncs.com/compatible-mode/v1"
     DASHSCOPE_VISION_MODEL: str = "qwen3-vl-flash"
     DASHSCOPE_TEXT_MODEL: str = "qwen-plus"  # 文本模型，用于合同结构化提取
-    
-    # Agent 推理模型配置（阿里云百炼 DeepSeek-V4-Flash，复用 DASHSCOPE_API_KEY）
-    DASHSCOPE_AGENT_MODEL: str = "deepseek-v4-flash"
 
     # Agent 重试配置
     AGENT_MAX_RETRIES: int = 3

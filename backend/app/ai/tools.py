@@ -2325,18 +2325,18 @@ class ToolExecutor:
                             from app.utils.file_analysis import make_text_extraction_prompt
                             actual_prompt = make_text_extraction_prompt(prompt) if analysis_type == "contract" else prompt
                             payload = {
-                                "model": settings.DASHSCOPE_AGENT_MODEL,
+                                "model": settings.SILICONFLOW_AGENT_MODEL,
                                 "messages": [{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
                                 "temperature": 0.1,
                                 "max_tokens": 4096,
                             }
                             headers = {
-                                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
                                 "Content-Type": "application/json",
                             }
                             with httpx.Client(timeout=120.0) as client:
                                 response = client.post(
-                                    f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
+                                    f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
                                     json=payload, headers=headers,
                                 )
                             if response.status_code != 200:
