@@ -227,6 +227,7 @@ class DashScopeAgentClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
             "stream": True,
+            "enable_thinking": False,  # 关闭推理模式，函数调用必须关闭
         }
         if tools:
             payload["tools"] = tools
