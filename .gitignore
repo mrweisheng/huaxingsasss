@@ -67,3 +67,6 @@ DEPLOY_PLAN.md
 
 # Windows reserved name
 backend/nul
+
+# Claude / Agent 工具数据目录
+.claude/

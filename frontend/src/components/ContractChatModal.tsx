@@ -1,16 +1,15 @@
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import {
   Modal, Input, Button, Avatar, Upload, Tag, Spin, message,
 } from 'antd'
 import {
   SendOutlined, RobotOutlined, UserOutlined, PaperClipOutlined,
-  StopOutlined, InboxOutlined, CheckCircleOutlined, ExclamationCircleOutlined,
-  ToolOutlined, FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
+  StopOutlined, InboxOutlined,
+  FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
-import type { ChatMessage, FileType, ToolCall } from '@/types/agent'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import type { ChatMessage, FileType } from '@/types/agent'
+import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
 import './ContractChatModal.css'
 
 interface ContractChatModalProps {
@@ -27,40 +26,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_contract_detail: '合同详情',
 }
 
-function ToolCallView({ toolCall }: { toolCall: ToolCall }) {
-  const label = TOOL_LABELS[toolCall.name] || toolCall.name
-  const hasResult = !!toolCall.result
-  return (
-    <Tag
-      color={hasResult ? 'green' : 'orange'}
-      icon={hasResult ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />}
-      style={{ marginBottom: 4, borderRadius: 4 }}
-    >
-      <ToolOutlined /> {label}
-    </Tag>
-  )
-}
-
-function MarkdownRenderer({ content }: { content: string }) {
-  return (
-    <div className="contract-chat-markdown">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          p: ({ children }) => <p style={{ margin: '4px 0', lineHeight: 1.7 }}>{children}</p>,
-          strong: ({ children }) => <strong style={{ color: 'var(--brand-primary)' }}>{children}</strong>,
-          ul: ({ children }) => <ul style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ul>,
-          ol: ({ children }) => <ol style={{ margin: '4px 0', paddingLeft: 18 }}>{children}</ol>,
-          li: ({ children }) => <li style={{ margin: '2px 0' }}>{children}</li>,
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  )
-}
-
-function MessageBubble({ msg }: { msg: ChatMessage }) {
+const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: ChatMessage; streaming?: boolean }) {
   if (msg.role === 'user') {
     return (
       <div className="contract-chat-msg contract-chat-msg-user">
@@ -94,33 +60,35 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   }
 
   if (msg.role === 'assistant') {
+    const hasThoughts = msg.thoughts && msg.thoughts.length > 0
+    const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
+    const hasContent = !!msg.content
+    const isThinking = !hasContent && hasThoughts && msg.thoughts!.some(t => t.status === 'running')
+
     return (
       <div className="contract-chat-msg contract-chat-msg-assistant">
         <Avatar icon={<RobotOutlined />} className="contract-chat-avatar-bot" size={32} />
         <div className="contract-chat-msg-content contract-chat-msg-bot-content">
-          {msg.toolCalls && msg.toolCalls.length > 0 && (
-            <div className="contract-chat-tool-calls">
-              {msg.toolCalls.map((tc, i) => <ToolCallView key={i} toolCall={tc} />)}
-            </div>
-          )}
-          {msg.content ? (
+          {hasThoughts && <ThoughtStepIndicator thoughts={msg.thoughts!} />}
+          {hasToolCalls && <ToolCallBlock toolCalls={msg.toolCalls!} toolLabels={TOOL_LABELS} />}
+          {hasContent ? (
             <div className="contract-chat-bubble contract-chat-bubble-bot">
-              <MarkdownRenderer content={msg.content} />
+              <MarkdownRenderer content={msg.content} streaming={streaming} className="contract-chat-markdown" />
             </div>
-          ) : (msg as any)._thinking ? (
+          ) : isThinking ? (
             <div className="contract-chat-thinking">
               <Spin size="small" />
-              {(msg as any)._thinking}
+              <span>{msg.thoughts![msg.thoughts!.length - 1].message}</span>
             </div>
-          ) : msg.toolCalls?.length ? (
+          ) : (
             <Spin size="small" style={{ marginTop: 8 }} />
-          ) : null}
+          )}
         </div>
       </div>
     )
   }
   return null
-}
+})
 
 export default function ContractChatModal({
   open, onClose,
@@ -237,8 +205,8 @@ export default function ContractChatModal({
       role: 'assistant',
       content: '',
       toolCalls: [],
+      thoughts: [],
       createdAt: new Date().toISOString(),
-      _thinking: '准备中...',
     }
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
@@ -251,7 +219,7 @@ export default function ContractChatModal({
         uploaded.push({ file_id: res.data.fileId, file_type: local.fileType, fileName: local.file.name, preview: local.preview })
       } catch {
         setMessages(prev => prev.map(m =>
-          m.id === assistantId ? { ...m, content: '', _thinking: undefined } : m
+          m.id === assistantId ? { ...m, content: '' } : m
         ))
         setIsStreaming(false)
         return
@@ -260,7 +228,7 @@ export default function ContractChatModal({
 
     // SSE
     abortRef.current = new AbortController()
-    let fullContent = ''
+    let thoughtStepId = 0
 
     try {
       const response = await agentApi.chatStream(text, activeSessionId, uploaded)
@@ -273,6 +241,7 @@ export default function ContractChatModal({
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+        if (abortRef.current?.signal.aborted) break
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -287,16 +256,15 @@ export default function ContractChatModal({
             const eventData = event.data
 
             if (event.event === 'text') {
-              fullContent += eventData.content || ''
+              const chunk = eventData.content || ''
               setMessages(prev => prev.map(m =>
-                m.id === assistantId ? { ...m, content: fullContent, _thinking: undefined } : m
+                m.id === assistantId ? { ...m, content: m.content + chunk } : m
               ))
             } else if (event.event === 'tool_call') {
               setMessages(prev => prev.map(m =>
                 m.id === assistantId ? {
                   ...m,
-                  _thinking: undefined,
-                  toolCalls: [...(m.toolCalls || []), { id: '', name: eventData.name, arguments: eventData.arguments }],
+                  toolCalls: [...(m.toolCalls || []), { id: eventData.id || `tc_${Date.now()}`, name: eventData.name, arguments: eventData.arguments }],
                 } : m
               ))
             } else if (event.event === 'tool_result') {
@@ -315,12 +283,30 @@ export default function ContractChatModal({
                   }
                 } catch { /* ignore */ }
               }
-            } else if (event.event === 'thinking') {
-              setMessages(prev => prev.map(m =>
-                m.id === assistantId ? { ...m, _thinking: eventData.message || '思考中...' } : m
-              ))
+            } else if (event.event === 'done') {
+              setMessages(prev => prev.map(m => {
+                if (m.id !== assistantId || !m.thoughts?.length) return m
+                const thoughts = [...m.thoughts]
+                const last = thoughts[thoughts.length - 1]
+                if (last && last.status === 'running') {
+                  thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
+                }
+                return { ...m, thoughts }
+              }))
             } else if (event.event === 'error') {
               message.error(eventData.message || '对话出错')
+            } else if (event.event === 'thinking') {
+              const msgText = eventData.message || '思考中...'
+              const stepId = `thought_${thoughtStepId++}`
+              setMessages(prev => prev.map(m => {
+                if (m.id !== assistantId) return m
+                const thoughts = [...(m.thoughts || [])]
+                if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
+                  thoughts[thoughts.length - 1] = { ...thoughts[thoughts.length - 1], status: 'done' as const }
+                }
+                thoughts.push({ id: stepId, message: msgText, status: 'running' })
+                return { ...m, thoughts }
+              }))
             }
           } catch { /* skip */ }
         }
@@ -422,13 +408,13 @@ export default function ContractChatModal({
           <>
             {messages
               .filter(m => m.role === 'user' || m.role === 'assistant')
-              .map(msg => <MessageBubble key={msg.id} msg={msg} />)}
-            {isStreaming && !messages.some(m => m.role === 'assistant' && !m.content && !(m.toolCalls?.length)) && (
-              <div className="contract-chat-msg contract-chat-msg-assistant">
-                <Avatar icon={<RobotOutlined />} className="contract-chat-avatar-bot" size={32} />
-                <Spin size="small" style={{ marginTop: 10 }} />
-              </div>
-            )}
+              .map((msg, idx, arr) => (
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
+                />
+              ))}
           </>
         )}
       </div>

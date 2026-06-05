@@ -114,9 +114,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
     }
 
-    // 立即显示用户消息（用本地预览，无需等上传）
+    // 一次性添加用户消息 + 助手占位消息（避免两次 set 之间出现双头像）
+    const userMsgId = Date.now()
     const userMessage: ChatMessage = {
-      id: Date.now(),
+      id: userMsgId,
       sessionId: sessionId,
       role: 'user',
       content: content,
@@ -128,23 +129,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       })),
       createdAt: new Date().toISOString(),
     }
-    set((state) => ({
-      messages: [...state.messages, userMessage],
-    }))
-
-    // 立即显示助手占位消息（显示"思考中"状态）
-    const assistantId = Date.now() + 1
+    const assistantId = userMsgId + 1
     const assistantMessage: ChatMessage = {
       id: assistantId,
       sessionId: sessionId,
       role: 'assistant',
       content: '',
       toolCalls: [],
+      thoughts: [],
       createdAt: new Date().toISOString(),
-      _thinking: '准备中...',
     }
     set((state) => ({
-      messages: [...state.messages, assistantMessage],
+      messages: [...state.messages, userMessage, assistantMessage],
     }))
 
     // 后台上传附件，获取服务端 file_id（用户已看到消息，不会感知等待）
@@ -168,7 +164,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     // SSE 流式读取
     abortController = new AbortController()
-    let fullContent = ''
+    let thoughtStepId = 0
 
     try {
       const response = await agentApi.chatStream(content, sessionId, uploadedAttachments)
@@ -184,6 +180,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       while (true) {
         const { done, value } = await reader.read()
         if (done) break
+        if (abortController.signal.aborted) break
 
         buffer += decoder.decode(value, { stream: true })
         const lines = buffer.split('\n')
@@ -199,10 +196,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
             const eventData = event.data
 
             if (event.event === 'text') {
-              fullContent += eventData.content || ''
+              // 逐字流式追加（typewriter effect）
+              const chunk = eventData.content || ''
               set((state) => ({
                 messages: state.messages.map((m) =>
-                  m.id === assistantId ? { ...m, content: fullContent } : m,
+                  m.id === assistantId ? { ...m, content: m.content + chunk } : m,
                 ),
               }))
             } else if (event.event === 'tool_call') {
@@ -214,7 +212,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                         toolCalls: [
                           ...(m.toolCalls || []),
                           {
-                            id: '',
+                            id: eventData.id || `tc_${Date.now()}`,
                             name: eventData.name,
                             arguments: eventData.arguments,
                           },
@@ -224,7 +222,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                 ),
               }))
             } else if (event.event === 'tool_result') {
-              // 更新最后一个工具调用的结果
               set((state) => ({
                 messages: state.messages.map((m) => {
                   if (m.id !== assistantId || !m.toolCalls?.length) return m
@@ -237,21 +234,38 @@ export const useAgentStore = create<AgentState>((set, get) => ({
                 }),
               }))
             } else if (event.event === 'done') {
-              // 如果有 session_id 更新
+              // 标记最后一个 thought 为 done
+              set((state) => ({
+                messages: state.messages.map((m) => {
+                  if (m.id !== assistantId || !m.thoughts?.length) return m
+                  const thoughts = [...m.thoughts]
+                  const last = thoughts[thoughts.length - 1]
+                  if (last && last.status === 'running') {
+                    thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
+                  }
+                  return { ...m, thoughts }
+                }),
+              }))
               if (eventData.session_id && !get().currentSessionId) {
                 set({ currentSessionId: eventData.session_id })
               }
             } else if (event.event === 'error') {
               set({ error: eventData.message })
             } else if (event.event === 'thinking') {
-              // 显示中间状态（文件分析、数据查询等）
-              const thinkingMsg = eventData.message || '思考中...'
+              // 累积式思考步骤，不替换
+              const msg = eventData.message || '思考中...'
+              const stepId = `thought_${thoughtStepId++}`
               set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === assistantId
-                    ? { ...m, content: m.content || '', _thinking: thinkingMsg }
-                    : m,
-                ),
+                messages: state.messages.map((m) => {
+                  if (m.id !== assistantId) return m
+                  const thoughts = [...(m.thoughts || [])]
+                  // 如果上一步是 running，标记为 done
+                  if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
+                    thoughts[thoughts.length - 1] = { ...thoughts[thoughts.length - 1], status: 'done' as const }
+                  }
+                  thoughts.push({ id: stepId, message: msg, status: 'running' })
+                  return { ...m, thoughts }
+                }),
               }))
             }
           } catch {

@@ -1,11 +1,10 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback, useRef, useEffect, memo } from 'react'
 import {
   Input,
   Button,
   Avatar,
   Tag,
   Upload,
-  Tooltip,
   message,
   Spin,
   Modal,
@@ -21,9 +20,6 @@ import {
   PlusOutlined,
   StopOutlined,
   DeleteOutlined,
-  ToolOutlined,
-  CheckCircleOutlined,
-  ExclamationCircleOutlined,
   FilePdfOutlined,
   FileWordOutlined,
   FileExcelOutlined,
@@ -33,9 +29,8 @@ import {
   MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import { useAgentStore } from '@/store/useAgentStore'
-import type { ChatMessage, ToolCall } from '@/types/agent'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
+import type { ChatMessage } from '@/types/agent'
+import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
 
 const { Text } = Typography
 
@@ -68,72 +63,8 @@ function formatTime(iso: string | null | undefined): string {
   return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
-/* ── 工具调用标签 ── */
-function ToolCallView({ toolCall }: { toolCall: ToolCall }) {
-  const label = TOOL_LABELS[toolCall.name] || toolCall.name
-  const hasResult = !!toolCall.result
-
-  return (
-    <Tooltip title={!hasResult ? '历史记录中该工具结果未保存，返回查看时请重新对话获取最新信息' : undefined}>
-      <Tag
-        color={hasResult ? 'green' : 'orange'}
-        icon={hasResult ? <CheckCircleOutlined /> : <ExclamationCircleOutlined />}
-        style={{ marginBottom: 4, cursor: hasResult ? 'default' : 'help', borderRadius: 4 }}
-      >
-        <ToolOutlined /> {label}
-      </Tag>
-    </Tooltip>
-  )
-}
-
-/* ── Markdown 渲染 ── */
-function MarkdownRenderer({ content }: { content: string }) {
-  return (
-    <div className="markdown-content">
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        components={{
-          table: ({ children }) => (
-            <div style={{ overflowX: 'auto', margin: '8px 0' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>{children}</table>
-            </div>
-          ),
-          thead: ({ children }) => <thead style={{ background: 'var(--bg-subtle)' }}>{children}</thead>,
-          th: ({ children }) => (
-            <th style={{ border: '1px solid var(--border-light)', padding: '6px 10px', textAlign: 'left', fontWeight: 600, color: 'var(--text-primary)' }}>
-              {children}
-            </th>
-          ),
-          td: ({ children }) => (
-            <td style={{ border: '1px solid var(--border-light)', padding: '6px 10px', color: 'var(--text-secondary)' }}>
-              {children}
-            </td>
-          ),
-          strong: ({ children }) => <strong style={{ color: 'var(--brand-primary)' }}>{children}</strong>,
-          p: ({ children }) => <p style={{ margin: '6px 0', lineHeight: 1.7 }}>{children}</p>,
-          ol: ({ children }) => <ol style={{ margin: '6px 0', paddingLeft: 20 }}>{children}</ol>,
-          ul: ({ children }) => <ul style={{ margin: '6px 0', paddingLeft: 20 }}>{children}</ul>,
-          li: ({ children }) => <li style={{ margin: '4px 0' }}>{children}</li>,
-          code: ({ inline, children }: any) =>
-            inline ? (
-              <code style={{ background: 'var(--bg-hover)', padding: '2px 6px', borderRadius: 4, fontSize: 12, color: '#d63384' }}>
-                {children}
-              </code>
-            ) : (
-              <pre style={{ background: '#1e293b', color: '#e2e8f0', padding: 14, borderRadius: 8, overflow: 'auto', fontSize: 12, margin: '8px 0', lineHeight: 1.5 }}>
-                <code>{children}</code>
-              </pre>
-            ),
-        }}
-      >
-        {content}
-      </ReactMarkdown>
-    </div>
-  )
-}
-
-/* ── 消息气泡 ── */
-function MessageBubble({ msg }: { msg: ChatMessage }) {
+/* ── 消息气泡（memo 防止已完成消息重复渲染） ── */
+const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: ChatMessage; streaming?: boolean }) {
   if (msg.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
@@ -187,6 +118,11 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   }
 
   if (msg.role === 'assistant') {
+    const hasThoughts = msg.thoughts && msg.thoughts.length > 0
+    const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
+    const hasContent = !!msg.content
+    const isThinking = !hasContent && hasThoughts && msg.thoughts!.some(t => t.status === 'running')
+
     return (
       <div style={{ display: 'flex', marginBottom: 20 }}>
         <Avatar
@@ -200,14 +136,14 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
           size={36}
         />
         <div style={{ maxWidth: '72%' }}>
-          {msg.toolCalls && msg.toolCalls.length > 0 && (
-            <div style={{ marginBottom: 6, display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {msg.toolCalls.map((tc, i) => (
-                <ToolCallView key={i} toolCall={tc} />
-              ))}
-            </div>
-          )}
-          {msg.content ? (
+          {/* 思考步骤指示器 */}
+          {hasThoughts && <ThoughtStepIndicator thoughts={msg.thoughts!} />}
+
+          {/* 工具调用可折叠区块 */}
+          {hasToolCalls && <ToolCallBlock toolCalls={msg.toolCalls!} toolLabels={TOOL_LABELS} />}
+
+          {/* 最终回答内容 */}
+          {hasContent ? (
             <div
               style={{
                 background: 'var(--bg-surface)',
@@ -218,12 +154,13 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
                 boxShadow: '0 1px 4px rgba(0,0,0,0.03)',
               }}
             >
-              <MarkdownRenderer content={msg.content} />
+              <MarkdownRenderer content={msg.content} streaming={streaming} />
             </div>
-          ) : (msg as any)._thinking ? (
+          ) : isThinking ? (
             <div
               style={{
-                background: 'var(--bg-surface)', padding: '8px 16px',
+                background: 'var(--bg-surface)',
+                padding: '8px 16px',
                 borderRadius: '14px 14px 14px 4px',
                 display: 'flex', alignItems: 'center', gap: 8,
                 color: 'var(--text-tertiary)', fontSize: 13,
@@ -231,17 +168,17 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
               }}
             >
               <Spin size="small" />
-              {(msg as any)._thinking}
+              <span>{msg.thoughts![msg.thoughts!.length - 1].message}</span>
             </div>
-          ) : msg.toolCalls?.length ? (
+          ) : (
             <Spin size="small" style={{ marginTop: 8 }} />
-          ) : null}
+          )}
         </div>
       </div>
     )
   }
   return null
-}
+})
 
 /* ── 快捷建议 ── */
 const suggestions = [
@@ -729,17 +666,13 @@ export default function AgentChat() {
             <>
               {messages
                 .filter((m) => m.role === 'user' || m.role === 'assistant')
-                .map((msg) => <MessageBubble key={msg.id} msg={msg} />)}
-              {isStreaming && !messages.some((m) => m.role === 'assistant' && !m.content && !(m.toolCalls?.length)) && (
-                <div style={{ display: 'flex', marginBottom: 16 }}>
-                  <Avatar
-                    icon={<RobotOutlined />}
-                    style={{ background: 'linear-gradient(135deg, var(--brand-gold), #e8b84b)', marginRight: 10, color: '#0f1a2e' }}
-                    size={36}
+                .map((msg, idx, arr) => (
+                  <MessageBubble
+                    key={msg.id}
+                    msg={msg}
+                    streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
                   />
-                  <Spin size="small" style={{ marginTop: 10 }} />
-                </div>
-              )}
+                ))}
             </>
           )}
         </div>

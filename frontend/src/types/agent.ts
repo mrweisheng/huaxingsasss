@@ -11,6 +11,12 @@ export interface AttachmentItem {
   preview?: string // 图片 base64 预览
 }
 
+export interface ThoughtStep {
+  id: string
+  message: string
+  status: 'running' | 'done'
+}
+
 export interface ToolCall {
   id: string
   name: string
@@ -25,9 +31,9 @@ export interface ChatMessage {
   content: string
   attachments?: AttachmentItem[]
   toolCalls?: ToolCall[]
+  thoughts?: ThoughtStep[]
   intentType?: string
   createdAt: string
-  _thinking?: string
 }
 
 export interface ChatSession {
