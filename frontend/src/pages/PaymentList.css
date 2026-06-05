@@ -487,4 +487,38 @@
     padding: 12px;
   }
   .pl-kpi-status-bar { flex-direction: column; align-items: flex-start; gap: 8px; }
+
+  /* ── 展开行移动端详情样式 ── */
+  .pl-expand-mobile-only {
+    display: flex !important;
+    flex-direction: column;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .pl-expand-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+  }
+
+  .pl-expand-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    min-width: 60px;
+    flex-shrink: 0;
+  }
+
+  .pl-expand-value {
+    font-size: 13px;
+    color: var(--text-primary);
+    word-break: break-all;
+  }
+}
+
+@media (min-width: 769px) {
+  .pl-expand-mobile-only {
+    display: none !important;
+  }
 }

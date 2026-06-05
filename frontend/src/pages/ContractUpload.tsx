@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Upload, Button, message, Card, Steps, Progress } from 'antd'
+import { Upload, Button, message, Card, Steps, Progress, Grid } from 'antd'
 import { InboxOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 
@@ -8,6 +8,7 @@ const { Dragger } = Upload
 
 export default function ContractUpload() {
   const navigate = useNavigate()
+  const isMobile = !(Grid.useBreakpoint().md ?? true)
   const [uploading, setUploading] = useState(false)
   const [contractId, setContractId] = useState<number | null>(null)
   const [parsing, setParsing] = useState(false)
@@ -59,27 +60,32 @@ export default function ContractUpload() {
 
   if (contractId) {
     return (
-      <Card title="上传合同">
-        <Steps
-          current={parsing ? 1 : 2}
-          items={[
-            { title: '上传文件', description: '已完成' },
-            { title: 'AI 解析', description: parsing ? '解析中...' : '已完成' },
-            { title: '完成' },
-          ]}
-          style={{ marginBottom: 24 }}
-        />
-        {parsing && <Progress percent={parseProgress} status="active" />}
-        <div style={{ marginTop: 16, textAlign: 'center' }}>
-          <Button onClick={() => navigate('/contracts')}>返回合同列表</Button>
-          <Button type="link" onClick={() => navigate(`/contracts/${contractId}`)}>查看合同</Button>
-        </div>
-      </Card>
+      <div style={{ padding: isMobile ? '12px' : undefined }}>
+        <Card title="上传合同">
+          <Steps
+            current={parsing ? 1 : 2}
+            size={isMobile ? 'small' : 'default'}
+            direction={isMobile ? 'vertical' : 'horizontal'}
+            items={[
+              { title: '上传文件', description: '已完成' },
+              { title: 'AI 解析', description: parsing ? '解析中...' : '已完成' },
+              { title: '完成' },
+            ]}
+            style={{ marginBottom: 24 }}
+          />
+          {parsing && <Progress percent={parseProgress} status="active" />}
+          <div style={{ marginTop: 16, textAlign: 'center', display: 'flex', gap: 8, justifyContent: 'center', flexWrap: 'wrap' }}>
+            <Button onClick={() => navigate('/contracts')}>返回合同列表</Button>
+            <Button type="link" onClick={() => navigate(`/contracts/${contractId}`)}>查看合同</Button>
+          </div>
+        </Card>
+      </div>
     )
   }
 
   return (
-    <Card title="上传合同">
+    <div style={{ padding: isMobile ? '12px' : undefined }}>
+      <Card title="上传合同">
       <Dragger
         accept="image/jpeg,image/png,image/jpg,.pdf"
         maxCount={1}
@@ -92,5 +98,6 @@ export default function ContractUpload() {
         <p className="ant-upload-hint">支持 JPG/PNG 图片和 PDF 格式，最大 50MB</p>
       </Dragger>
     </Card>
+    </div>
   )
 }

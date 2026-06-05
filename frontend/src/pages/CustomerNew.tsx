@@ -1,10 +1,11 @@
 import { useNavigate } from 'react-router-dom'
-import { Form, Input, Button, Card, message, Space } from 'antd'
+import { Form, Input, Button, Card, message, Space, Grid } from 'antd'
 import { ArrowLeftOutlined } from '@ant-design/icons'
 import { customerApi } from '@/services/customer'
 
 export default function CustomerNew() {
   const navigate = useNavigate()
+  const isMobile = !(Grid.useBreakpoint().md ?? true)
   const [form] = Form.useForm()
 
   const onFinish = async (values: any) => {
@@ -18,7 +19,7 @@ export default function CustomerNew() {
   }
 
   return (
-    <div>
+    <div style={{ padding: isMobile ? '12px' : undefined }}>
       <Button icon={<ArrowLeftOutlined />} onClick={() => navigate('/customers')} style={{ marginBottom: 16 }}>
         返回列表
       </Button>
@@ -27,7 +28,7 @@ export default function CustomerNew() {
           form={form}
           layout="vertical"
           onFinish={onFinish}
-          style={{ maxWidth: 600 }}
+          style={{ maxWidth: 600, margin: '0 auto' }}
         >
           <Form.Item
             name="name"
@@ -83,11 +84,11 @@ export default function CustomerNew() {
           </Form.Item>
 
           <Form.Item>
-            <Space>
-              <Button type="primary" htmlType="submit">
+            <Space style={isMobile ? { width: '100%', display: 'flex', gap: 8 } : undefined}>
+              <Button type="primary" htmlType="submit" block={isMobile}>
                 创建客户
               </Button>
-              <Button onClick={() => navigate('/customers')}>
+              <Button onClick={() => navigate('/customers')} block={isMobile}>
                 取消
               </Button>
             </Space>

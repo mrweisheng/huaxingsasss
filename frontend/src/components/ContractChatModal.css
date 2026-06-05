@@ -377,3 +377,51 @@
 .contract-chat-markdown strong {
   color: var(--type-color) !important;
 }
+
+/* ═══════════════════════════════════════════════
+   移动端适配
+   ═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .contract-chat-header {
+    padding: 10px 14px;
+    gap: 8px;
+  }
+
+  .contract-chat-header-title {
+    font-size: 13px;
+  }
+
+  .contract-chat-messages {
+    padding: 12px 14px;
+  }
+
+  .contract-chat-msg-content {
+    max-width: 85%;
+  }
+
+  .contract-chat-bubble {
+    padding: 8px 12px;
+    font-size: 13px;
+  }
+
+  .contract-chat-input-area {
+    padding: 8px 12px 10px;
+  }
+
+  .contract-chat-input-row {
+    padding: 4px 6px 4px 10px;
+  }
+
+  .contract-chat-drop-zone {
+    padding: 28px 16px;
+  }
+
+  .contract-chat-drop-icon {
+    font-size: 32px !important;
+  }
+
+  .contract-chat-attachment-img {
+    max-width: 120px;
+    max-height: 120px;
+  }
+}

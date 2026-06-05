@@ -13,6 +13,7 @@ import {
   Space,
   Alert,
   Typography,
+  Grid,
 } from 'antd'
 import {
   PlusOutlined,
@@ -49,6 +50,7 @@ const ROLE_LABEL: Record<string, string> = {
 
 export default function UserList() {
   const currentUser = useAuthStore((s) => s.user)
+  const isMobile = !(Grid.useBreakpoint().md ?? true)
   const [users, setUsers] = useState<User[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
@@ -207,6 +209,7 @@ export default function UserList() {
       title: '角色',
       dataIndex: 'role',
       width: 100,
+      responsive: ['md'],
       render: (role: string) => (
         <Tag color={ROLE_TAG_COLOR[role] || 'default'}>
           {ROLE_LABEL[role] || role}
@@ -217,12 +220,14 @@ export default function UserList() {
       title: '部门',
       dataIndex: 'department',
       width: 100,
+      responsive: ['lg'],
       render: (val: string) => val || '-',
     },
     {
       title: '邮箱',
       dataIndex: 'email',
       width: 180,
+      responsive: ['lg'],
       render: (val: string) => val || '-',
     },
     {
@@ -240,11 +245,12 @@ export default function UserList() {
       title: '最后登录',
       dataIndex: 'last_login_at',
       width: 160,
+      responsive: ['md'],
       render: (val: string) => val ? dayjs(val).format('YYYY-MM-DD HH:mm') : '从未登录',
     },
     {
       title: '操作',
-      width: 220,
+      width: isMobile ? 100 : 220,
       render: (_: unknown, record: User) => {
         const isSelf = record.id === currentUser?.id
         return (
@@ -255,7 +261,7 @@ export default function UserList() {
               icon={<EditOutlined />}
               onClick={() => openEdit(record)}
             >
-              编辑
+              {isMobile ? null : '编辑'}
             </Button>
             {!isSelf && (
               <Popconfirm
@@ -277,7 +283,7 @@ export default function UserList() {
               cancelText="取消"
             >
               <Button type="link" size="small" icon={<LockOutlined />}>
-                重置密码
+                {isMobile ? null : '重置密码'}
               </Button>
             </Popconfirm>
           </Space>
@@ -287,7 +293,7 @@ export default function UserList() {
   ]
 
   return (
-    <div style={{ padding: '24px 32px' }}>
+    <div className="page-container" style={isMobile ? { padding: 12 } : undefined}>
       {/* Top bar */}
       <div
         style={{
@@ -295,6 +301,8 @@ export default function UserList() {
           justifyContent: 'space-between',
           alignItems: 'center',
           marginBottom: 20,
+          flexDirection: isMobile ? 'column' : 'row',
+          gap: isMobile ? 12 : 0,
         }}
       >
         <Space>
@@ -303,12 +311,12 @@ export default function UserList() {
           </Text>
           <Tag>{total} 人</Tag>
         </Space>
-        <Space>
+        <Space style={isMobile ? { width: '100%' } : undefined}>
           <Input.Search
             placeholder="搜索用户名、姓名、邮箱、部门"
             allowClear
             onSearch={handleSearch}
-            style={{ width: 280 }}
+            style={isMobile ? { width: '100%' } : { width: 280 }}
             prefix={<SearchOutlined />}
           />
           <Button

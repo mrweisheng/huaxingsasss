@@ -10,6 +10,8 @@ import {
   Spin,
   Modal,
   Typography,
+  Drawer,
+  Grid,
 } from 'antd'
 import {
   SendOutlined,
@@ -256,6 +258,11 @@ export default function AgentChat() {
   const messageListRef = useRef<HTMLDivElement>(null)
   const [hoveredSession, setHoveredSession] = useState<string | null>(null)
 
+  // 移动端断点检测
+  const screens = Grid.useBreakpoint()
+  const isMobile = !(screens.md ?? true)
+  const [mobileSessionOpen, setMobileSessionOpen] = useState(false)
+
   const {
     sessions,
     currentSessionId,
@@ -337,6 +344,7 @@ export default function AgentChat() {
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 56px)' }}>
       {/* ════════ 左侧：会话列表 ════════ */}
+      {!isMobile && (
       <div
         style={{
           width: leftCollapsed ? 0 : 290,
@@ -498,6 +506,74 @@ export default function AgentChat() {
           </Button>
         </div>
       </div>
+      )}
+
+      {/* 移动端：会话历史 Drawer */}
+      {isMobile && (
+        <Drawer
+          title={
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <HistoryOutlined style={{ fontSize: 16, color: 'var(--brand-primary)' }} />
+              <span style={{ fontWeight: 600, fontSize: 15 }}>会话列表</span>
+              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', background: 'var(--bg-subtle)', padding: '0 6px', borderRadius: 4 }}>
+                {sessions.length}
+              </span>
+            </div>
+          }
+          placement="left"
+          onClose={() => setMobileSessionOpen(false)}
+          open={mobileSessionOpen}
+          width={300}
+          styles={{ body: { padding: '8px 10px' } }}
+          extra={
+            <Button type="primary" size="small" icon={<PlusOutlined />} onClick={() => { handleNewSession(); setMobileSessionOpen(false) }}>
+              新会话
+            </Button>
+          }
+        >
+          {sessions.length === 0 ? (
+            <div style={{ textAlign: 'center', paddingTop: 60 }}>
+              <RobotOutlined style={{ fontSize: 28, color: 'var(--text-tertiary)', opacity: 0.3 }} />
+              <div style={{ marginTop: 12, fontSize: 13, color: 'var(--text-tertiary)' }}>暂无会话</div>
+            </div>
+          ) : (
+            sessions.map((session) => {
+              const isActive = session.sessionId === currentSessionId
+              return (
+                <div
+                  key={session.sessionId}
+                  onClick={() => { switchSession(session.sessionId); setMobileSessionOpen(false) }}
+                  style={{
+                    padding: '10px 12px',
+                    borderRadius: 8,
+                    cursor: 'pointer',
+                    marginBottom: 4,
+                    background: isActive ? 'var(--brand-primary-lighter)' : 'transparent',
+                    border: isActive ? '1px solid rgba(30,58,95,0.15)' : '1px solid transparent',
+                    transition: 'all 0.15s',
+                  }}
+                >
+                  <Text style={{
+                    fontSize: 13,
+                    fontWeight: isActive ? 600 : 500,
+                    color: isActive ? 'var(--brand-primary)' : 'var(--text-primary)',
+                    display: 'block',
+                    overflow: 'hidden',
+                    textOverflow: 'ellipsis',
+                    whiteSpace: 'nowrap',
+                  }}>
+                    {session.title || '新会话'}
+                  </Text>
+                  <div style={{ display: 'flex', gap: 10, marginTop: 4 }}>
+                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{formatTime(session.createdAt)}</span>
+                    <span style={{ fontSize: 11, color: 'var(--text-tertiary)' }}>{session.messageCount} 条消息</span>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </Drawer>
+      )}
 
       {/* ════════ 右侧：聊天主区域 ════════ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
@@ -516,9 +592,18 @@ export default function AgentChat() {
             flexShrink: 0,
           }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            {/* 展开按钮（左侧收起时） */}
-            {leftCollapsed && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            {/* 移动端：历史会话按钮 */}
+            {isMobile && (
+              <Button
+                type="text"
+                icon={<HistoryOutlined />}
+                onClick={() => setMobileSessionOpen(true)}
+                style={{ color: 'var(--text-tertiary)', marginRight: 2, fontSize: 18 }}
+              />
+            )}
+            {/* 桌面端：展开按钮（左侧收起时） */}
+            {!isMobile && leftCollapsed && (
               <Button
                 type="text"
                 icon={<MenuUnfoldOutlined />}
@@ -560,7 +645,7 @@ export default function AgentChat() {
           style={{
             flex: 1,
             overflow: 'auto',
-            padding: hasMessages ? '20px 24px' : 0,
+            padding: hasMessages ? (isMobile ? '12px 14px' : '20px 24px') : 0,
             background: 'linear-gradient(180deg, var(--bg-page) 0%, #f0f2f5 100%)',
           }}
         >
@@ -611,7 +696,7 @@ export default function AgentChat() {
               <Text style={{ fontSize: 13, color: 'var(--text-tertiary)', marginBottom: 28, textAlign: 'center', maxWidth: 400 }}>
                 查询合同付款 · 上传凭证登记 · 查看收支统计 · 合同条款问答
               </Text>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: 320 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, width: isMobile ? '100%' : 320, maxWidth: 360, margin: '0 auto' }}>
                 {suggestions.map((text, i) => (
                   <div
                     key={i}
@@ -663,7 +748,7 @@ export default function AgentChat() {
         {currentSessionId && (
           <div
             style={{
-              padding: '12px 24px 16px',
+              padding: isMobile ? '8px 12px 12px' : '12px 24px 16px',
               background: 'var(--bg-surface)',
               borderTop: '1px solid var(--border-light)',
               flexShrink: 0,

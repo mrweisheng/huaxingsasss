@@ -210,3 +210,43 @@
     grid-template-columns: 1fr;
   }
 }
+
+@media (max-width: 768px) {
+  .fo-container {
+    padding: 12px;
+  }
+
+  .fo-kpi-row {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+  }
+
+  .fo-kpi-card {
+    padding: 14px;
+  }
+
+  .fo-kpi-card__value {
+    font-size: 18px;
+  }
+
+  .fo-kpi-card__icon {
+    width: 30px;
+    height: 30px;
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+
+  .fo-kpi-card__label {
+    font-size: 11px;
+  }
+
+  .fo-chart-card {
+    padding: 14px;
+  }
+}
+
+@media (max-width: 480px) {
+  .fo-kpi-row {
+    grid-template-columns: 1fr;
+  }
+}

@@ -138,8 +138,8 @@ export default function Login() {
       >
         <div
           style={{
-            width: 420,
-            padding: '40px 40px 32px',
+            width: 'min(420px, 90vw)',
+            padding: '40px 32px 32px',
             borderRadius: 24,
             background: 'rgba(15,26,46,0.50)',
             backdropFilter: 'blur(32px)',
