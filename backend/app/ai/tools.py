@@ -425,6 +425,12 @@ class ToolExecutor:
     ) -> str:
         query = self.db.query(Customer).filter(Customer.is_deleted == False)
 
+        # 权限过滤：参照 REST API customers.py 的逻辑
+        if self.user.role == Role.EXPENSE:
+            return json.dumps({"error": "当前角色无权查看客户"}, ensure_ascii=False)
+        if self.user.role == Role.INCOME:
+            query = query.filter(Customer.created_by == self.user.id)
+
         has_filter = bool(name or phone or wechat_group)
 
         if name:
@@ -749,6 +755,10 @@ class ToolExecutor:
         ).first()
         if not customer:
             return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
+
+        # income 角色只能修改自己创建的客户
+        if self.user.role == Role.INCOME and customer.created_by != self.user.id:
+            return json.dumps({"error": "无权修改其他用户创建的客户"}, ensure_ascii=False)
 
         updatable = ["phone", "email", "id_card_number", "wechat_group_name", "address", "remarks"]
         updated = {}
