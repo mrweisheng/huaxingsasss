@@ -29,6 +29,7 @@ from app.ai.prompts import (
 )
 from app.ai.tools import ToolExecutor, TOOL_DEFINITIONS
 from app.config import settings
+from app.utils.file_utils import validate_file_id_in_dir
 from app.models.chat_history import ChatHistory
 from app.models.chat_session import ChatSession
 from app.models.user import User
@@ -145,6 +146,7 @@ class ContractAgent:
             history = self._ensure_trailing_pair_intact(history)
 
         # 4. 确认意图快捷路径：检测用户是否在确认上一轮提出的操作
+        original_user_message = user_message
         if (
             not file_context  # 没有新附件
             and not attachments
@@ -243,7 +245,7 @@ class ContractAgent:
 
                 self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
                 # 助手消息落库成功后才落库用户消息，避免孤儿 user 消息
-                self._save_message(session_id, "user", user_message, metadata=pending_user_metadata)
+                self._save_message(session_id, "user", original_user_message, metadata=pending_user_metadata)
                 yield {
                     "event": "done",
                     "data": {
@@ -274,7 +276,7 @@ class ContractAgent:
             # 注意：首轮写库时同步把用户消息也入库，确保 user/assistant 配对一致
             self._save_message(session_id, "assistant", full_text or "", tool_calls=tool_calls_serialized)
             if iteration == 0 and not getattr(self, "_user_msg_persisted", False):
-                self._save_message(session_id, "user", user_message, metadata=pending_user_metadata)
+                self._save_message(session_id, "user", original_user_message, metadata=pending_user_metadata)
                 self._user_msg_persisted = True
 
             for tc in tool_calls:
@@ -330,7 +332,7 @@ class ContractAgent:
         full_text += "\n\n[系统提示：对话轮次已达上限，如果问题尚未解决，请继续提问。]"
         self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
         if not getattr(self, "_user_msg_persisted", False):
-            self._save_message(session_id, "user", user_message, metadata=pending_user_metadata)
+            self._save_message(session_id, "user", original_user_message, metadata=pending_user_metadata)
             self._user_msg_persisted = True
         yield {
             "event": "done",
@@ -360,12 +362,13 @@ class ContractAgent:
         if not file_id:
             return None
 
-        # 解析文件路径（与 ContractAnalyzer.resolve_file_path 一致）
+        # 解析文件路径（带路径穿越防御）
+        user_dir = os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id))
         candidates = [
-            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id), file_id),
-            os.path.join(settings.TEMP_UPLOAD_DIR, file_id),
+            validate_file_id_in_dir(file_id, user_dir),
+            validate_file_id_in_dir(file_id, settings.TEMP_UPLOAD_DIR),
         ]
-        file_path = next((p for p in candidates if os.path.exists(p)), None)
+        file_path = next((p for p in candidates if p and os.path.exists(p)), None)
         if not file_path:
             return None
 
