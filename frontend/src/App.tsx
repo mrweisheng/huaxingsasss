@@ -10,6 +10,7 @@ import ContractDetail from './pages/ContractDetail'
 import ContractUpload from './pages/ContractUpload'
 import PaymentList from './pages/PaymentList'
 import AgentChat from './pages/AgentChat'
+import UserList from './pages/UserList'
 import { useAuthStore } from './store/useAuthStore'
 
 function App() {
@@ -36,6 +37,9 @@ function App() {
           </Route>
           <Route path="payments">
             <Route index element={<PaymentList />} />
+          </Route>
+          <Route path="users">
+            <Route index element={<ProtectedRoute allowedRoles={['admin']}><UserList /></ProtectedRoute>} />
           </Route>
           <Route path="agent" element={<AgentChat />} />
         </Route>

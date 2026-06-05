@@ -1,50 +1,188 @@
 /* ReceiptChatModal 对话式凭证录入 */
 
+/* ═══════════════════════════════════════════════
+   类型色系 Token — 收入(income) / 支出(expense)
+   与合同卡片快速录入按钮色彩完全对齐
+   ═══════════════════════════════════════════════ */
+
+/* 默认值（兜底） */
+.receipt-chat-modal {
+  --type-color: #1e3a5f;
+  --type-color-soft: rgba(30, 58, 95, 0.08);
+  --type-color-bg: #e8edf5;
+  --type-color-light: #2d5080;
+  --type-color-deep: #0f1a2e;
+  --type-shadow: rgba(30, 58, 95, 0.20);
+  --type-shadow-soft: rgba(30, 58, 95, 0.08);
+  --type-glow: rgba(30, 58, 95, 0.12);
+}
+
+/* 收入 — 绿潮（teal/emerald） */
+.receipt-chat-modal--income {
+  --type-color: #0d9488;
+  --type-color-soft: rgba(13, 148, 136, 0.10);
+  --type-color-bg: #edfaf8;
+  --type-color-light: #14b8a6;
+  --type-color-deep: #0f766e;
+  --type-shadow: rgba(13, 148, 136, 0.22);
+  --type-shadow-soft: rgba(13, 148, 136, 0.10);
+  --type-glow: rgba(13, 148, 136, 0.14);
+}
+
+/* 支出 — 金流（amber/warm） */
+.receipt-chat-modal--expense {
+  --type-color: #d97706;
+  --type-color-soft: rgba(217, 119, 6, 0.10);
+  --type-color-bg: #fffbeb;
+  --type-color-light: #f59e0b;
+  --type-color-deep: #b45309;
+  --type-shadow: rgba(217, 119, 6, 0.22);
+  --type-shadow-soft: rgba(217, 119, 6, 0.10);
+  --type-glow: rgba(217, 119, 6, 0.14);
+}
+
 .receipt-chat-modal .ant-modal-content {
   border-radius: 16px;
   overflow: hidden;
   padding: 0;
+  position: relative;
 }
 
 .receipt-chat-modal .ant-modal-body {
   padding: 0 !important;
 }
 
-/* 头部 */
+/* ── 顶部类型色条（视觉锚点，3px 高）── */
+.receipt-chat-modal--income .ant-modal-content::before,
+.receipt-chat-modal--expense .ant-modal-content::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 5;
+  background: linear-gradient(90deg,
+    var(--type-color) 0%,
+    var(--type-color-light) 50%,
+    var(--type-color) 100%);
+}
+
+/* ── 头部 ── */
 .receipt-chat-header {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 14px 20px;
   border-bottom: 1px solid var(--border-light);
   background: var(--bg-surface);
+  position: relative;
+}
+
+/* 头部左侧色条（呼应顶部色带，强化类型识别） */
+.receipt-chat-header::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--type-color);
+  opacity: 0.6;
 }
 
 .receipt-chat-header-avatar {
-  background: linear-gradient(135deg, var(--brand-gold), #e8b84b) !important;
-  color: #0f1a2e !important;
+  background: linear-gradient(135deg, var(--type-color) 0%, var(--type-color-light) 100%) !important;
+  color: #fff !important;
   flex-shrink: 0;
+  margin-top: 2px;
+  box-shadow: 0 2px 8px var(--type-shadow);
+}
+
+.receipt-chat-header-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.receipt-chat-header-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .receipt-chat-header-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  line-height: 1.3;
 }
 
-.receipt-chat-header-sub {
+.receipt-chat-header-number {
+  font-size: 12px;
+  color: var(--text-tertiary);
+  font-family: monospace;
+}
+
+.receipt-chat-header-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+}
+
+.receipt-chat-header-status.active {
+  background: #e6f7ff;
+  color: #1890ff;
+}
+
+.receipt-chat-header-status.completed {
+  background: #f6ffed;
+  color: #52c41a;
+}
+
+.receipt-chat-header-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  flex-wrap: wrap;
+}
+
+/* 类型标签：跟随类型色（核心区分点之一） */
+.receipt-chat-header-type {
+  font-size: 11px;
+  color: var(--type-color) !important;
+  background: var(--type-color-soft) !important;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  border: 1px solid transparent;
+}
+
+.receipt-chat-header-amount {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--type-color) !important;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.receipt-chat-header-contract-title {
   font-size: 11px;
   color: var(--text-tertiary);
-  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
-/* 消息区域 */
+/* ── 消息区域 ── */
 .receipt-chat-messages {
   flex: 1;
   overflow: auto;
   padding: 16px 20px;
-  background: linear-gradient(180deg, var(--bg-page) 0%, #f0f2f5 100%);
+  background: linear-gradient(180deg, var(--bg-page) 0%, var(--type-color-bg) 100%);
 }
 
 .receipt-chat-empty {
@@ -61,17 +199,18 @@
 
 .receipt-chat-drop-icon {
   font-size: 40px !important;
-  color: var(--text-tertiary);
-  opacity: 0.3;
+  color: var(--type-color) !important;
+  opacity: 0.45;
 }
 
 .receipt-chat-drop-text {
   margin-top: 12px;
   font-size: 14px;
   color: var(--text-secondary);
+  font-weight: 500;
 }
 
-/* 消息 */
+/* ── 消息 ── */
 .receipt-chat-msg {
   display: flex;
   margin-bottom: 16px;
@@ -99,23 +238,23 @@
   align-items: flex-start;
 }
 
-/* 头像 */
+/* ── 头像 ── */
 .receipt-chat-avatar-user {
-  background: linear-gradient(135deg, var(--brand-primary-light), var(--brand-primary)) !important;
+  background: linear-gradient(135deg, var(--type-color-light) 0%, var(--type-color) 100%) !important;
   margin-left: 8px !important;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(30, 58, 95, 0.15);
+  box-shadow: 0 2px 6px var(--type-shadow);
 }
 
 .receipt-chat-avatar-bot {
-  background: linear-gradient(135deg, var(--brand-gold), #e8b84b) !important;
-  color: #0f1a2e !important;
+  background: linear-gradient(135deg, var(--type-color) 0%, var(--type-color-light) 100%) !important;
+  color: #fff !important;
   margin-right: 8px !important;
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(201, 149, 43, 0.15);
+  box-shadow: 0 2px 6px var(--type-shadow);
 }
 
-/* 气泡 */
+/* ── 气泡 ── */
 .receipt-chat-bubble {
   border-radius: 14px;
   word-break: break-word;
@@ -123,11 +262,12 @@
   line-height: 1.6;
 }
 
+/* 用户气泡：跟随类型色（核心区分点） */
 .receipt-chat-bubble-user {
-  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-light) 100%);
-  color: #fff;
+  background: linear-gradient(135deg, var(--type-color) 0%, var(--type-color-light) 100%) !important;
+  color: #fff !important;
   border-radius: 14px 14px 4px 14px;
-  box-shadow: 0 2px 8px rgba(30, 58, 95, 0.15);
+  box-shadow: 0 2px 8px var(--type-shadow);
   white-space: pre-wrap;
 }
 
@@ -138,7 +278,7 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
 }
 
-/* 附件 */
+/* ── 附件 ── */
 .receipt-chat-attachments {
   display: flex;
   gap: 6px;
@@ -152,11 +292,11 @@
   max-height: 160px;
   border-radius: 10px;
   object-fit: cover;
-  border: 2px solid var(--brand-primary);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+  border: 2px solid var(--type-color) !important;
+  box-shadow: 0 2px 8px var(--type-shadow);
 }
 
-/* 工具调用 */
+/* ── 工具调用 ── */
 .receipt-chat-tool-calls {
   margin-bottom: 6px;
   display: flex;
@@ -164,7 +304,7 @@
   gap: 4px;
 }
 
-/* 思考中 */
+/* ── 思考中 ── */
 .receipt-chat-thinking {
   background: var(--bg-surface);
   padding: 8px 14px;
@@ -177,7 +317,11 @@
   border: 1px solid var(--border-light);
 }
 
-/* 输入区 */
+.receipt-chat-thinking .ant-spin-dot-item {
+  background-color: var(--type-color) !important;
+}
+
+/* ── 输入区 ── */
 .receipt-chat-input-area {
   border-top: 1px solid var(--border-light);
   background: var(--bg-surface);
@@ -186,8 +330,8 @@
 }
 
 .receipt-chat-pending-files {
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
+  background: var(--type-color-bg) !important;
+  border: 1px solid var(--type-color-soft) !important;
   border-bottom: none;
   border-radius: 10px 10px 0 0;
   padding: 8px 12px;
@@ -208,7 +352,7 @@
   width: 36px;
   border-radius: 6px;
   object-fit: cover;
-  border: 1px solid var(--border-default);
+  border: 1px solid var(--type-color-soft);
 }
 
 .receipt-chat-pending-remove {
@@ -233,12 +377,12 @@
   border: 1px solid var(--border-default);
   border-radius: 10px;
   padding: 6px 8px 6px 12px;
-  transition: border-color 0.2s;
+  transition: all 0.2s;
 }
 
 .receipt-chat-input-row:focus-within {
-  border-color: var(--brand-primary);
-  box-shadow: 0 0 0 2px rgba(30, 58, 95, 0.08);
+  border-color: var(--type-color) !important;
+  box-shadow: 0 0 0 2px var(--type-glow) !important;
 }
 
 .receipt-chat-attach-btn {
@@ -249,7 +393,8 @@
 }
 
 .receipt-chat-attach-btn:hover {
-  color: var(--brand-primary) !important;
+  color: var(--type-color) !important;
+  background: var(--type-color-bg) !important;
 }
 
 .receipt-chat-textarea {
@@ -259,7 +404,35 @@
   resize: none !important;
 }
 
-.receipt-chat-send-btn {
+.receipt-chat-textarea:focus {
+  box-shadow: none !important;
+}
+
+/* 发送按钮：跟随类型色（核心区分点） */
+.receipt-chat-send-btn.ant-btn.ant-btn-primary {
+  background: linear-gradient(135deg, var(--type-color) 0%, var(--type-color-light) 100%) !important;
+  border-color: var(--type-color) !important;
+  box-shadow: 0 2px 8px var(--type-shadow) !important;
+  border-radius: 8px !important;
+  height: 36px !important;
+  padding: 0 16px !important;
+  flex-shrink: 0;
+}
+
+.receipt-chat-send-btn.ant-btn.ant-btn-primary:hover:not(:disabled),
+.receipt-chat-send-btn.ant-btn.ant-btn-primary:focus:not(:disabled) {
+  background: linear-gradient(135deg, var(--type-color-deep) 0%, var(--type-color) 100%) !important;
+  border-color: var(--type-color-deep) !important;
+  box-shadow: 0 4px 12px var(--type-shadow) !important;
+}
+
+.receipt-chat-send-btn.ant-btn.ant-btn-primary:disabled {
+  background: var(--bg-hover) !important;
+  border-color: var(--border-default) !important;
+  box-shadow: none !important;
+}
+
+.receipt-chat-send-btn.ant-btn.ant-btn-dangerous {
   border-radius: 8px !important;
   height: 36px !important;
   padding: 0 16px !important;
@@ -273,7 +446,23 @@
   margin-top: 6px;
 }
 
-/* Markdown */
+/* ── Markdown ── */
 .receipt-chat-markdown p:last-child {
   margin-bottom: 0;
+}
+
+.receipt-chat-markdown strong {
+  color: var(--type-color) !important;
+}
+
+/* ═══════════════════════════════════════════════
+   响应式微调
+   ═══════════════════════════════════════════════ */
+@media (max-width: 768px) {
+  .receipt-chat-header-amount {
+    font-size: 12px;
+  }
+  .receipt-chat-header-type {
+    font-size: 10px;
+  }
 }

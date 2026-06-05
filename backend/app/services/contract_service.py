@@ -338,6 +338,10 @@ class ContractService:
         if 'business_description' in contract_data:
             contract.business_description = contract_data['business_description']
 
+        # 提取币种（AI 可识别 HKD/USD/CNY）
+        if 'currency' in contract_data and contract_data['currency']:
+            contract.currency = contract_data['currency']
+
         validity = contract_data.get('validity_period')
         if isinstance(validity, dict):
             if validity.get('start_date'):
@@ -358,7 +362,25 @@ class ContractService:
         
         # 解析完成直接设为执行中（人工确认路径，不按置信度分级）
         contract.status = 'active'
-        
+
+        # 非 CNY 合同：按签订日汇率计算/重算 _in_cny 字段
+        if contract.currency != "CNY" and contract.total_amount > 0:
+            rate_date = contract.signed_date or date.today()
+            try:
+                exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
+                    db, contract.total_amount, contract.currency, rate_date
+                )
+                contract.total_amount_in_cny = total_in_cny
+                contract.paid_amount_in_cny = contract.paid_amount_in_cny or 0
+                contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
+                logger.info(
+                    "AI解析后重算CNY等值: contract_id=%d, %s %s → %s CNY (汇率=%s)",
+                    contract.id, contract.total_amount, contract.currency,
+                    total_in_cny, exchange_rate,
+                )
+            except Exception as e:
+                logger.warning("AI解析后CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
+
         db.commit()
         db.refresh(contract)
         

@@ -68,30 +68,18 @@ class PaymentService:
         if not contract:
             raise ValueError(f"合同不存在：{contract_id}")
 
-        # 以合同货币为基准：同币种不换算，混币种按实时汇率换算
-        # 同币种非 CNY（如港币合同付港币）：仍计算 CNY 等值，用于全局统计和利润计算
         if currency == "CNY" and contract.currency == "CNY":
-            # 都是人民币，无需任何换算
+            # 纯人民币：无需任何换算
             exchange_rate = None
             amount_in_cny = None
-        elif currency != contract.currency:
-            # 混币种：付款币种 ≠ 合同币种，按付款日汇率折算 CNY
-            exchange_rate, amount_in_cny = ExchangeRateService.convert_to_cny(
-                db, amount, currency, paid_date
-            )
-            logger.info(
-                "混币种付款: payment=%s %s, contract=%s %s, rate=%s, amount_in_cny=%s CNY",
-                amount, currency, contract.total_amount, contract.currency,
-                exchange_rate, amount_in_cny,
-            )
         else:
-            # 同币种且非 CNY（如港币合同付港币）：计算 CNY 等值
+            # 非纯 CNY：计算 CNY 等值（同币种用于全局统计，混币种还用于折算）
             exchange_rate, amount_in_cny = ExchangeRateService.convert_to_cny(
                 db, amount, currency, paid_date
             )
             logger.info(
-                "同币种非CNY付款: payment=%s %s, rate=%s, amount_in_cny=%s CNY",
-                amount, currency, exchange_rate, amount_in_cny,
+                "付款 CNY 等值: %s %s → %s CNY, rate=%s",
+                amount, currency, amount_in_cny, exchange_rate,
             )
 
         has_receipt = bool(receipt_image_path)
@@ -162,11 +150,11 @@ class PaymentService:
         if currency == contract.currency:
             contract.paid_amount += amount
         else:
-            contract_rate, _ = ExchangeRateService.convert_to_cny(
-                db, Decimal('1'), contract.currency, paid_date
+            # 混币种：直接折算成合同币种
+            _, converted = ExchangeRateService.convert_currency(
+                db, amount, currency, contract.currency, paid_date
             )
-            if contract_rate:
-                contract.paid_amount += (amount_in_cny / contract_rate).quantize(Decimal('0.01'))
+            contract.paid_amount += converted
 
         # 仅当 amount_in_cny 存在时才更新 CNY 汇总字段（混币种才有）
         if amount_in_cny is not None:
@@ -188,13 +176,11 @@ class PaymentService:
         if currency == contract.currency:
             contract.total_expense = (contract.total_expense or 0) + amount
         else:
-            contract_rate, _ = ExchangeRateService.convert_to_cny(
-                db, Decimal('1'), contract.currency, paid_date
+            # 混币种：直接折算成合同币种
+            _, converted = ExchangeRateService.convert_currency(
+                db, amount, currency, contract.currency, paid_date
             )
-            if contract_rate:
-                contract.total_expense = (contract.total_expense or 0) + (amount_in_cny / contract_rate).quantize(Decimal('0.01'))
-            else:
-                contract.total_expense = (contract.total_expense or 0) + amount_in_cny
+            contract.total_expense = (contract.total_expense or 0) + converted
 
         # 仅当 amount_in_cny 存在时才更新 CNY 汇总字段
         if amount_in_cny is not None:
@@ -202,10 +188,17 @@ class PaymentService:
 
     @staticmethod
     def _subtract_from_contract_expense(
-        db: Session, contract: Contract, amount: Decimal, amount_in_cny: Decimal
+        db: Session, contract: Contract, amount: Decimal,
+        currency: str, amount_in_cny: Decimal, paid_date: date
     ):
         """删除支出时扣减合同支出汇总，保底为 0"""
-        contract.total_expense = max((contract.total_expense or 0) - amount, 0)
+        if currency == contract.currency:
+            contract.total_expense = max((contract.total_expense or 0) - amount, 0)
+        else:
+            _, converted = ExchangeRateService.convert_currency(
+                db, amount, currency, contract.currency, paid_date
+            )
+            contract.total_expense = max((contract.total_expense or 0) - converted, 0)
         contract.total_expense_in_cny = max((contract.total_expense_in_cny or 0) - amount_in_cny, 0)
 
     @staticmethod
@@ -229,8 +222,13 @@ class PaymentService:
         income_payments = [p for p in all_payments if p.type == "income"]
         expense_payments = [p for p in all_payments if p.type == "expense"]
 
-        total_paid_cny = sum(p.paid_amount_in_cny or 0 for p in income_payments if p.status == 'paid')
-        total_expense_cny = sum(p.paid_amount_in_cny or 0 for p in expense_payments if p.status == 'paid')
+        # CNY 合同的 _in_cny 字段全为 None，直接用原值（原值即 CNY）
+        if contract.currency == "CNY":
+            total_paid_cny = sum(p.paid_amount or 0 for p in income_payments if p.status == 'paid')
+            total_expense_cny = sum(p.paid_amount or 0 for p in expense_payments if p.status == 'paid')
+        else:
+            total_paid_cny = sum(p.paid_amount_in_cny or 0 for p in income_payments if p.status == 'paid')
+            total_expense_cny = sum(p.paid_amount_in_cny or 0 for p in expense_payments if p.status == 'paid')
 
         from app.schemas.payment import PaymentResponse
         income_data = [PaymentResponse.model_validate(p).model_dump() for p in income_payments]
@@ -328,22 +326,20 @@ class PaymentService:
         if contract and payment.status == 'paid' and payment.paid_amount:
             if payment.type == "expense":
                 PaymentService._subtract_from_contract_expense(
-                    db, contract, payment.paid_amount, payment.paid_amount_in_cny or 0
+                    db, contract, payment.paid_amount, payment.currency,
+                    payment.paid_amount_in_cny or 0, payment.paid_date
                 )
             else:
-                # 收入扣减：必须按币种/汇率折算扣减 paid_amount，避免跨币种时 paid_amount 与 paid_amount_in_cny 失同步
+                # 收入扣减：按币种折算扣减 paid_amount
                 contract.paid_amount_in_cny = (contract.paid_amount_in_cny or 0) - (payment.paid_amount_in_cny or 0)
                 if payment.currency == contract.currency:
                     contract.paid_amount = (contract.paid_amount or 0) - (payment.paid_amount or 0)
                 else:
-                    # 跨币种：用付款日汇率反算回合同币种
-                    if payment.paid_date and payment.paid_amount_in_cny and payment.paid_amount:
-                        contract_rate, _ = ExchangeRateService.convert_to_cny(
-                            db, Decimal('1'), contract.currency, payment.paid_date
-                        )
-                        if contract_rate:
-                            contract.paid_amount = (contract.paid_amount or 0) - \
-                                (payment.paid_amount_in_cny / contract_rate).quantize(Decimal('0.01'))
+                    _, converted = ExchangeRateService.convert_currency(
+                        db, payment.paid_amount, payment.currency,
+                        contract.currency, payment.paid_date
+                    )
+                    contract.paid_amount = (contract.paid_amount or 0) - converted
                 # 保底为 0，避免历史脏数据导致负数
                 contract.paid_amount = max(contract.paid_amount or 0, Decimal('0'))
                 contract.paid_amount_in_cny = max(contract.paid_amount_in_cny or 0, Decimal('0'))

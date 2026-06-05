@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
-import { Layout as AntLayout, Menu, Avatar, Dropdown, Typography, Space } from 'antd'
+import { Layout as AntLayout, Menu, Avatar, Dropdown, Typography, Space, Modal, Form, Input, Button, message } from 'antd'
 import {
   FileTextOutlined,
   DollarOutlined,
@@ -9,8 +9,11 @@ import {
   TeamOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
+  UserOutlined,
+  KeyOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '@/store/useAuthStore'
+import { userApi } from '@/services/user'
 
 const { Header, Sider, Content } = AntLayout
 const { Text } = Typography
@@ -20,6 +23,9 @@ export default function Layout() {
   const location = useLocation()
   const { user, logout } = useAuthStore()
   const [collapsed, setCollapsed] = useState(false)
+  const [passwordModalOpen, setPasswordModalOpen] = useState(false)
+  const [passwordLoading, setPasswordLoading] = useState(false)
+  const [passwordForm] = Form.useForm()
 
   const role = user?.role || ''
 
@@ -35,6 +41,14 @@ export default function Layout() {
       key: '/contracts',
       icon: <FileTextOutlined />,
       label: '合同管理',
+    })
+  }
+
+  if (role === 'admin') {
+    menuItems.push({
+      key: '/users',
+      icon: <UserOutlined />,
+      label: '用户管理',
     })
   }
 
@@ -66,6 +80,27 @@ export default function Layout() {
     navigate('/login')
   }
 
+  const handleChangePassword = async (values: { old_password: string; new_password: string; confirm_password: string }) => {
+    if (values.new_password !== values.confirm_password) {
+      message.error('两次输入的新密码不一致')
+      return
+    }
+    setPasswordLoading(true)
+    try {
+      await userApi.changePassword({
+        old_password: values.old_password,
+        new_password: values.new_password,
+      })
+      message.success('密码修改成功')
+      setPasswordModalOpen(false)
+      passwordForm.resetFields()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '密码修改失败')
+    } finally {
+      setPasswordLoading(false)
+    }
+  }
+
   const userName = user?.full_name || user?.username || '用户'
   const userInitial = userName.charAt(0).toUpperCase()
 
@@ -73,10 +108,12 @@ export default function Layout() {
     items: [
       { key: 'info', label: `${userName} · ${role === 'admin' ? '管理员' : role === 'income' ? '收入专员' : '支出专员'}`, disabled: true },
       { type: 'divider' as const },
+      { key: 'changePassword', icon: <KeyOutlined />, label: '修改密码' },
       { key: 'logout', icon: <LogoutOutlined />, label: '退出登录', danger: true },
     ],
     onClick: ({ key }: { key: string }) => {
       if (key === 'logout') handleLogout()
+      else if (key === 'changePassword') setPasswordModalOpen(true)
     },
   }
 
@@ -302,6 +339,74 @@ export default function Layout() {
           <Outlet />
         </Content>
       </AntLayout>
+
+      {/* 修改密码 Modal */}
+      <Modal
+        title="修改密码"
+        open={passwordModalOpen}
+        onCancel={() => {
+          setPasswordModalOpen(false)
+          passwordForm.resetFields()
+        }}
+        footer={null}
+        destroyOnClose
+      >
+        <Form
+          form={passwordForm}
+          layout="vertical"
+          onFinish={handleChangePassword}
+          style={{ marginTop: 16 }}
+        >
+          <Form.Item
+            name="old_password"
+            label="旧密码"
+            rules={[{ required: true, message: '请输入旧密码' }]}
+          >
+            <Input.Password placeholder="请输入旧密码" />
+          </Form.Item>
+          <Form.Item
+            name="new_password"
+            label="新密码"
+            rules={[
+              { required: true, message: '请输入新密码' },
+              { min: 6, message: '密码至少 6 个字符' },
+            ]}
+          >
+            <Input.Password placeholder="请输入新密码（至少6位）" />
+          </Form.Item>
+          <Form.Item
+            name="confirm_password"
+            label="确认新密码"
+            dependencies={['new_password']}
+            rules={[
+              { required: true, message: '请确认新密码' },
+              ({ getFieldValue }) => ({
+                validator(_, value) {
+                  if (!value || getFieldValue('new_password') === value) {
+                    return Promise.resolve()
+                  }
+                  return Promise.reject(new Error('两次输入的密码不一致'))
+                },
+              }),
+            ]}
+          >
+            <Input.Password placeholder="请再次输入新密码" />
+          </Form.Item>
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Space>
+              <Button onClick={() => {
+                setPasswordModalOpen(false)
+                passwordForm.resetFields()
+              }}>
+                取消
+              </Button>
+              <Button type="primary" htmlType="submit" loading={passwordLoading}>
+                确认修改
+              </Button>
+            </Space>
+          </Form.Item>
+        </Form>
+      </Modal>
     </AntLayout>
   )
 }

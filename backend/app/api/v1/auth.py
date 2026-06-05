@@ -16,7 +16,7 @@ from app.core.security import (
     decode_refresh_token
 )
 from app.models.user import User
-from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse
+from app.schemas.user import UserCreate, UserLogin, TokenResponse, UserResponse, PublicChangePasswordRequest
 from app.api.dependencies import get_current_user
 from app.utils.rate_limiter import login_rate_limiter
 
@@ -25,12 +25,13 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED, deprecated=True)
 def register(
     user_data: UserCreate,
     admin_token: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
+    """已废弃：请使用 POST /users（管理员用户管理）代替。保留仅为兼容旧客户端。"""
     from app.core.security import decode_access_token
 
     role = "income"
@@ -194,3 +195,34 @@ def refresh_token(refresh_token: str = Body(..., embed=True), db: Session = Depe
 @router.get("/me", response_model=UserResponse)
 def get_current_user_info(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.post("/change-password")
+async def change_password_public(
+    request: Request,
+    data: PublicChangePasswordRequest,
+    db: Session = Depends(get_db),
+):
+    """公开修改密码端点（无需登录，复用登录限流器防暴力破解）"""
+    client_ip = request.client.host if request.client else "unknown"
+    forwarded = request.headers.get("X-Forwarded-For")
+    if forwarded:
+        client_ip = forwarded.split(",")[0].strip()
+
+    await login_rate_limiter.check(f"change_pwd:{client_ip}")
+
+    from app.services.user_service import UserService
+
+    try:
+        UserService.change_password_by_username(
+            db,
+            username=data.username,
+            old_password=data.old_password,
+            new_password=data.new_password,
+        )
+        return {"message": "密码修改成功"}
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="用户名或密码错误",
+        )

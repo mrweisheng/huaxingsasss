@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom'
 import { Form, Input, Button, Typography, message } from 'antd'
 import { UserOutlined, LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons'
 import { useAuthStore } from '@/store/useAuthStore'
-import type { LoginData } from '@/services/auth'
+import { authApi } from '@/services/auth'
+import type { LoginData, PublicChangePasswordData } from '@/services/auth'
 
 const { Text, Title } = Typography
 
@@ -13,6 +14,9 @@ export default function Login() {
   const [loading, setLoading] = useState(false)
   const [mounted, setMounted] = useState(false)
   const [shake, setShake] = useState(false)
+  const [showChangePassword, setShowChangePassword] = useState(false)
+  const [changePasswordLoading, setChangePasswordLoading] = useState(false)
+  const [changePasswordForm] = Form.useForm()
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setMounted(true))
@@ -30,6 +34,28 @@ export default function Login() {
       setShake(true)
       setTimeout(() => setShake(false), 500)
       message.error(error.response?.data?.detail || '登录失败，请检查用户名和密码')
+    }
+  }
+
+  const onChangePassword = async (values: PublicChangePasswordData & { confirm_password: string }) => {
+    if (values.new_password !== values.confirm_password) {
+      message.error('两次输入的新密码不一致')
+      return
+    }
+    setChangePasswordLoading(true)
+    try {
+      await authApi.changePasswordPublic({
+        username: values.username,
+        old_password: values.old_password,
+        new_password: values.new_password,
+      })
+      message.success('密码修改成功，请使用新密码登录')
+      setShowChangePassword(false)
+      changePasswordForm.resetFields()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '密码修改失败')
+    } finally {
+      setChangePasswordLoading(false)
     }
   }
 
@@ -251,95 +277,264 @@ export default function Login() {
               ...A('l2StaggerUp', '0.4s', 0.75),
             }}
           >
-            登录系统
+            {showChangePassword ? '修改密码' : '登录系统'}
           </Text>
 
-          {/* 表单 */}
-          <Form
-            name="login"
-            onFinish={onFinish}
-            autoComplete="off"
-            layout="vertical"
-            size="large"
-            requiredMark={false}
-            className="l2-login-form"
-          >
-            {/* 用户名 */}
-            <Form.Item
-              name="username"
-              rules={[{ required: true, message: '请输入用户名' }]}
-              style={{
-                marginBottom: 18,
-                ...A('l2StaggerUp', '0.4s', 0.8),
-              }}
+          {/* 登录表单 */}
+          {!showChangePassword && (
+            <Form
+              name="login"
+              onFinish={onFinish}
+              autoComplete="off"
+              layout="vertical"
+              size="large"
+              requiredMark={false}
+              className="l2-login-form"
             >
-              <div className="l2-glass-input">
-                <Input
-                  prefix={<UserOutlined />}
-                  placeholder="用户名"
-                  style={{ height: 48, paddingLeft: 12 }}
-                />
-              </div>
-            </Form.Item>
-
-            {/* 密码 */}
-            <Form.Item
-              name="password"
-              rules={[{ required: true, message: '请输入密码' }]}
-              style={{
-                marginBottom: 24,
-                ...A('l2StaggerUp', '0.4s', 0.85),
-              }}
-            >
-              <div className="l2-glass-input">
-                <Input.Password
-                  prefix={<LockOutlined />}
-                  placeholder="密码"
-                  style={{ height: 48, paddingLeft: 12 }}
-                />
-              </div>
-            </Form.Item>
-
-            {/* 登录按钮 */}
-            <Form.Item
-              style={{
-                marginBottom: 14,
-                ...A('l2StaggerUp', '0.4s', 0.9),
-              }}
-            >
-              <Button
-                type="primary"
-                htmlType="submit"
-                loading={loading}
-                block
-                className="l2-btn-gold"
+              {/* 用户名 */}
+              <Form.Item
+                name="username"
+                rules={[{ required: true, message: '请输入用户名' }]}
                 style={{
-                  height: 48, borderRadius: 12,
-                  fontSize: 16, fontWeight: 600, letterSpacing: 3,
-                  background: 'linear-gradient(135deg, #c9952b 0%, #e8b84b 100%)',
-                  border: 'none',
-                  color: '#0f1a2e',
+                  marginBottom: 18,
+                  ...A('l2StaggerUp', '0.4s', 0.8),
                 }}
               >
-                登 录
-              </Button>
-            </Form.Item>
+                <div className="l2-glass-input">
+                  <Input
+                    prefix={<UserOutlined />}
+                    placeholder="用户名"
+                    style={{ height: 48, paddingLeft: 12 }}
+                  />
+                </div>
+              </Form.Item>
 
-            {/* 安全提示 */}
-            <div
-              style={{
-                textAlign: 'center',
-                ...A('l2StaggerUp', '0.4s', 0.95),
-              }}
+              {/* 密码 */}
+              <Form.Item
+                name="password"
+                rules={[{ required: true, message: '请输入密码' }]}
+                style={{
+                  marginBottom: 24,
+                  ...A('l2StaggerUp', '0.4s', 0.85),
+                }}
+              >
+                <div className="l2-glass-input">
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder="密码"
+                    style={{ height: 48, paddingLeft: 12 }}
+                  />
+                </div>
+              </Form.Item>
+
+              {/* 登录按钮 */}
+              <Form.Item
+                style={{
+                  marginBottom: 14,
+                  ...A('l2StaggerUp', '0.4s', 0.9),
+                }}
+              >
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={loading}
+                  block
+                  className="l2-btn-gold"
+                  style={{
+                    height: 48, borderRadius: 12,
+                    fontSize: 16, fontWeight: 600, letterSpacing: 3,
+                    background: 'linear-gradient(135deg, #c9952b 0%, #e8b84b 100%)',
+                    border: 'none',
+                    color: '#0f1a2e',
+                  }}
+                >
+                  登 录
+                </Button>
+              </Form.Item>
+
+              {/* 修改密码链接 */}
+              <div style={{ textAlign: 'center', marginBottom: 14 }}>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => setShowChangePassword(true)}
+                  style={{ color: 'rgba(201,149,43,0.7)', fontSize: 13, padding: 0 }}
+                >
+                  修改密码
+                </Button>
+              </div>
+
+              {/* 安全提示 */}
+              <div
+                style={{
+                  textAlign: 'center',
+                  ...A('l2StaggerUp', '0.4s', 0.95),
+                }}
+              >
+                <SafetyCertificateOutlined
+                  style={{ color: 'rgba(255,255,255,0.12)', marginRight: 6, fontSize: 11 }}
+                />
+                <span style={{ color: 'rgba(255,255,255,0.12)', fontSize: 11 }}>
+                  安全登录 · 数据加密传输
+                </span>
+              </div>
+            </Form>
+          )}
+
+          {/* 修改密码表单 */}
+          {showChangePassword && (
+            <Form
+              form={changePasswordForm}
+              name="changePassword"
+              onFinish={onChangePassword}
+              autoComplete="off"
+              layout="vertical"
+              size="large"
+              requiredMark={false}
+              className="l2-login-form"
             >
-              <SafetyCertificateOutlined
-                style={{ color: 'rgba(255,255,255,0.12)', marginRight: 6, fontSize: 11 }}
-              />
-              <span style={{ color: 'rgba(255,255,255,0.12)', fontSize: 11 }}>
-                安全登录 · 数据加密传输
-              </span>
-            </div>
-          </Form>
+              {/* 用户名 */}
+              <Form.Item
+                name="username"
+                rules={[{ required: true, message: '请输入用户名' }]}
+                style={{
+                  marginBottom: 14,
+                  ...A('l2StaggerUp', '0.4s', 0.8),
+                }}
+              >
+                <div className="l2-glass-input">
+                  <Input
+                    prefix={<UserOutlined />}
+                    placeholder="用户名"
+                    style={{ height: 48, paddingLeft: 12 }}
+                  />
+                </div>
+              </Form.Item>
+
+              {/* 旧密码 */}
+              <Form.Item
+                name="old_password"
+                rules={[{ required: true, message: '请输入旧密码' }]}
+                style={{
+                  marginBottom: 14,
+                  ...A('l2StaggerUp', '0.4s', 0.85),
+                }}
+              >
+                <div className="l2-glass-input">
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder="旧密码"
+                    style={{ height: 48, paddingLeft: 12 }}
+                  />
+                </div>
+              </Form.Item>
+
+              {/* 新密码 */}
+              <Form.Item
+                name="new_password"
+                rules={[
+                  { required: true, message: '请输入新密码' },
+                  { min: 6, message: '密码至少 6 个字符' },
+                ]}
+                style={{
+                  marginBottom: 14,
+                  ...A('l2StaggerUp', '0.4s', 0.9),
+                }}
+              >
+                <div className="l2-glass-input">
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder="新密码（至少6位）"
+                    style={{ height: 48, paddingLeft: 12 }}
+                  />
+                </div>
+              </Form.Item>
+
+              {/* 确认新密码 */}
+              <Form.Item
+                name="confirm_password"
+                dependencies={['new_password']}
+                rules={[
+                  { required: true, message: '请确认新密码' },
+                  ({ getFieldValue }) => ({
+                    validator(_, value) {
+                      if (!value || getFieldValue('new_password') === value) {
+                        return Promise.resolve()
+                      }
+                      return Promise.reject(new Error('两次输入的密码不一致'))
+                    },
+                  }),
+                ]}
+                style={{
+                  marginBottom: 20,
+                  ...A('l2StaggerUp', '0.4s', 0.95),
+                }}
+              >
+                <div className="l2-glass-input">
+                  <Input.Password
+                    prefix={<LockOutlined />}
+                    placeholder="确认新密码"
+                    style={{ height: 48, paddingLeft: 12 }}
+                  />
+                </div>
+              </Form.Item>
+
+              {/* 提交按钮 */}
+              <Form.Item
+                style={{
+                  marginBottom: 14,
+                  ...A('l2StaggerUp', '0.4s', 1.0),
+                }}
+              >
+                <Button
+                  type="primary"
+                  htmlType="submit"
+                  loading={changePasswordLoading}
+                  block
+                  className="l2-btn-gold"
+                  style={{
+                    height: 48, borderRadius: 12,
+                    fontSize: 16, fontWeight: 600, letterSpacing: 3,
+                    background: 'linear-gradient(135deg, #c9952b 0%, #e8b84b 100%)',
+                    border: 'none',
+                    color: '#0f1a2e',
+                  }}
+                >
+                  确认修改
+                </Button>
+              </Form.Item>
+
+              {/* 返回登录链接 */}
+              <div style={{ textAlign: 'center', marginBottom: 14 }}>
+                <Button
+                  type="link"
+                  size="small"
+                  onClick={() => {
+                    setShowChangePassword(false)
+                    changePasswordForm.resetFields()
+                  }}
+                  style={{ color: 'rgba(201,149,43,0.7)', fontSize: 13, padding: 0 }}
+                >
+                  返回登录
+                </Button>
+              </div>
+
+              {/* 安全提示 */}
+              <div
+                style={{
+                  textAlign: 'center',
+                  ...A('l2StaggerUp', '0.4s', 1.05),
+                }}
+              >
+                <SafetyCertificateOutlined
+                  style={{ color: 'rgba(255,255,255,0.12)', marginRight: 6, fontSize: 11 }}
+                />
+                <span style={{ color: 'rgba(255,255,255,0.12)', fontSize: 11 }}>
+                  安全登录 · 数据加密传输
+                </span>
+              </div>
+            </Form>
+          )}
         </div>
       </div>
 

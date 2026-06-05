@@ -6,6 +6,8 @@ export interface User {
   role: string
   department?: string
   is_active: boolean
+  created_at?: string
+  last_login_at?: string
 }
 
 export interface Customer {

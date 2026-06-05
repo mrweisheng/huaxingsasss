@@ -197,11 +197,11 @@ export default function ContractDetail() {
   const statusInfo = statusMap[contract.status] || { text: contract.status, cls: '' }
   const isRemaining = contract.remaining_amount > 0
 
-  // 利润计算（后台接口未就绪时使用演示数据验证UI，上线后删除硬编码）
-  const totalIncomeCny  = summary?.income?.total_paid_in_cny   || contract.paid_amount_in_cny   || 50000
-  const totalExpenseCny = summary?.expense?.total_expense_in_cny || contract.total_expense_in_cny || 15000
+  // 利润计算 — 以合同主要币种为基准
+  const profitMain = (contract.paid_amount || 0) - (contract.total_expense || 0)
+  const totalIncomeCny  = summary?.income?.total_paid_in_cny   || contract.paid_amount_in_cny   || 0
+  const totalExpenseCny = summary?.expense?.total_expense_in_cny || contract.total_expense_in_cny || 0
   const profitCny = summary?.profit_in_cny ?? (totalIncomeCny - totalExpenseCny)
-  const isProfitDemo = !summary?.income?.total_paid_in_cny && !contract.paid_amount_in_cny
 
   // CNY 折算副文字（仅非 CNY 合同显示）
   const showCnyHint = cur !== 'CNY'
@@ -485,22 +485,19 @@ export default function ContractDetail() {
             </div>
           </div>
 
-          {/* 净利润 */}
+          {/* 净利润 — 以合同币种为主，CNY 折算小字 */}
           <div className={`cd-fn-card fn-profit`}>
             <div className="fn-card-header">
-              <span className={`fn-card-dot ${profitCny >= 0 ? 'income' : 'expense'}`} />
+              <span className={`fn-card-dot ${profitMain >= 0 ? 'income' : 'expense'}`} />
               <span className="fn-card-label">净利润</span>
-              {isProfitDemo && (
-                <span className="fn-card-demo-tag">演示</span>
-              )}
             </div>
-            <div className={`fn-card-value ${profitCny >= 0 ? 'income' : 'expense'}`}>
-              {fmt(profitCny, 'CNY')}
+            <div className={`fn-card-value ${profitMain >= 0 ? 'income' : 'expense'}`}>
+              {fmt(profitMain, cur)}
             </div>
-            <div className="fn-card-chinese">{amountToChinese(Math.abs(profitCny), 'CNY')}</div>
+            <div className="fn-card-chinese">{amountToChinese(Math.abs(profitMain), cur)}</div>
             <div className="fn-card-meta">
-              {showCnyHint && (
-                <span className="fn-card-cny">折 CNY</span>
+              {showCnyHint && profitCny !== 0 && (
+                <span className="fn-card-cny">{fmtCny(profitCny)}</span>
               )}
             </div>
           </div>

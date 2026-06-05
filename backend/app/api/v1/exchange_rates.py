@@ -52,7 +52,7 @@ def get_latest_rate(
 @router.post("", response_model=ResponseModel, status_code=status.HTTP_201_CREATED)
 def create_exchange_rate(
     rate_data: ExchangeRateCreate,
-    current_user: User = Depends(require_role("admin", "finance")),
+    current_user: User = Depends(require_role("admin")),
     db: Session = Depends(get_db)
 ):
     """手动录入汇率（管理员/财务权限）"""

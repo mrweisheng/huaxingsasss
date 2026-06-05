@@ -15,6 +15,12 @@ export interface RegisterData {
   department?: string
 }
 
+export interface PublicChangePasswordData {
+  username: string
+  old_password: string
+  new_password: string
+}
+
 export interface TokenResponse {
   access_token: string
   refresh_token: string
@@ -34,4 +40,7 @@ export const authApi = {
 
   getCurrentUser: (): Promise<User> =>
     api.get('/auth/me'),
+
+  changePasswordPublic: (data: PublicChangePasswordData): Promise<{ message: string }> =>
+    api.post('/auth/change-password', data),
 }

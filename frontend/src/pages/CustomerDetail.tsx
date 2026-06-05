@@ -18,9 +18,17 @@ const BUSINESS_TYPE_MAP: Record<string, string> = {
   '办两地牌': '办两地牌',
 }
 
-function formatAmount(amount: number, currency: string) {
-  const formatted = amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  return `${formatted} ${currency}`
+const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
+
+function fmt(amount: number | undefined | null, currency: string): string {
+  if (amount === undefined || amount === null) return '-'
+  const symbol = currencySymbol[currency] || '¥'
+  return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function fmtCny(amount: number | undefined | null): string {
+  if (amount === undefined || amount === null || amount === 0) return ''
+  return `≈ ¥${Math.round(amount).toLocaleString('zh-CN')}`
 }
 
 export default function CustomerDetail() {
@@ -81,9 +89,20 @@ export default function CustomerDetail() {
   if (loading) return <div style={{ textAlign: 'center', padding: 80 }}><Spin tip="加载中..." /></div>
   if (!customer) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>客户不存在</div>
 
-  // 合同汇总统计
-  const totalAmount = contracts.reduce((sum, c) => sum + (c.total_amount_in_cny || c.total_amount), 0)
-  const totalPaid = contracts.reduce((sum, c) => sum + (c.paid_amount_in_cny || c.paid_amount), 0)
+  // 合同汇总统计 — 检测是否单币种
+  const currencies = [...new Set(contracts.map(c => c.currency))]
+  const singleCurrency = currencies.length === 1 ? currencies[0] : null
+
+  // 单币种时：用原币汇总；多币种时：用 CNY 汇总
+  const totalAmount = singleCurrency
+    ? contracts.reduce((sum, c) => sum + (c.total_amount || 0), 0)
+    : contracts.reduce((sum, c) => sum + (c.total_amount_in_cny || c.total_amount), 0)
+  const totalPaid = singleCurrency
+    ? contracts.reduce((sum, c) => sum + (c.paid_amount || 0), 0)
+    : contracts.reduce((sum, c) => sum + (c.paid_amount_in_cny || c.paid_amount), 0)
+  const totalAmountCny = contracts.reduce((sum, c) => sum + (c.total_amount_in_cny || c.total_amount), 0)
+  const totalPaidCny = contracts.reduce((sum, c) => sum + (c.paid_amount_in_cny || c.paid_amount), 0)
+  const summaryCur = singleCurrency || 'CNY'
 
   const columns = [
     {
@@ -109,7 +128,7 @@ export default function CustomerDetail() {
       align: 'right' as const,
       render: (val: number, record: Contract) => (
         <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-          {formatAmount(val, record.currency)}
+          {fmt(val, record.currency)}
         </span>
       ),
     },
@@ -118,14 +137,18 @@ export default function CustomerDetail() {
       dataIndex: 'paid_amount',
       width: 120,
       align: 'right' as const,
-      render: (val: number, record: Contract) => {
-        const paid = record.paid_amount_in_cny || val
-        return (
+      render: (val: number, record: Contract) => (
+        <div>
           <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-success)' }}>
-            ¥{paid.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            {fmt(val, record.currency)}
           </span>
-        )
-      },
+          {record.currency !== 'CNY' && record.paid_amount_in_cny != null && (
+            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+              {fmtCny(record.paid_amount_in_cny)}
+            </div>
+          )}
+        </div>
+      ),
     },
     {
       title: '剩余',
@@ -133,13 +156,18 @@ export default function CustomerDetail() {
       width: 120,
       align: 'right' as const,
       render: (val: number, record: Contract) => {
-        const remaining = record.remaining_amount_in_cny || val
+        if (val <= 0) return <span style={{ color: 'var(--text-tertiary)' }}>已结清</span>
         return (
-          <span style={{ fontFamily: 'var(--font-mono)', color: remaining > 0 ? 'var(--color-danger)' : 'var(--text-tertiary)' }}>
-            {remaining > 0
-              ? `¥${remaining.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-              : '已结清'}
-          </span>
+          <div>
+            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-danger)' }}>
+              {fmt(val, record.currency)}
+            </span>
+            {record.currency !== 'CNY' && record.remaining_amount_in_cny != null && (
+              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
+                {fmtCny(record.remaining_amount_in_cny)}
+              </div>
+            )}
+          </div>
         )
       },
     },
@@ -275,19 +303,31 @@ export default function CustomerDetail() {
             </div>
           </div>
           <div className="cd-kpi-card income">
-            <div className="cd-kpi-label">合同总额（CNY）</div>
-            <div className="cd-kpi-value success">
-              ¥{totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            <div className="cd-kpi-label">
+              合同总额{!singleCurrency ? '（CNY）' : ''}
             </div>
-            <div className="cd-kpi-sub">全量合同金额汇总</div>
+            <div className="cd-kpi-value success">
+              {fmt(totalAmount, summaryCur)}
+            </div>
+            <div className="cd-kpi-sub">
+              全量合同金额汇总
+              {singleCurrency && singleCurrency !== 'CNY' && (
+                <span style={{ marginLeft: 6, opacity: 0.65 }}>{fmtCny(totalAmountCny)}</span>
+              )}
+            </div>
           </div>
           <div className="cd-kpi-card expense">
-            <div className="cd-kpi-label">已付总额（CNY）</div>
+            <div className="cd-kpi-label">
+              已付总额{!singleCurrency ? '（CNY）' : ''}
+            </div>
             <div className="cd-kpi-value" style={{ color: totalPaid >= totalAmount ? 'var(--color-success)' : 'var(--brand-primary)' }}>
-              ¥{totalPaid.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              {fmt(totalPaid, summaryCur)}
             </div>
             <div className="cd-kpi-sub">
               {totalAmount > 0 ? `${Math.round((totalPaid / totalAmount) * 100)}% 已支付` : '-'}
+              {singleCurrency && singleCurrency !== 'CNY' && (
+                <span style={{ marginLeft: 6, opacity: 0.65 }}>{fmtCny(totalPaidCny)}</span>
+              )}
             </div>
           </div>
         </div>

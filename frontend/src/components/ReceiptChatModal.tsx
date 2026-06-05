@@ -18,6 +18,10 @@ interface ReceiptChatModalProps {
   contractId: number
   contractNumber: string
   customerName: string
+  contractTitle?: string
+  totalAmount?: number
+  currency?: string
+  status?: string
   paymentType: 'income' | 'expense'
   onClose: () => void
 }
@@ -127,55 +131,41 @@ function MessageBubble({ msg }: { msg: ChatMessage }) {
   return null
 }
 
+const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
+
 export default function ReceiptChatModal({
-  open, contractId, contractNumber, customerName, paymentType, onClose,
+  open, contractId, contractNumber, customerName,
+  contractTitle, totalAmount, currency = 'CNY', status,
+  paymentType, onClose,
 }: ReceiptChatModalProps) {
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
-  const [isInitializing, setIsInitializing] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
+  const sessionCreatingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const typeLabel = TYPE_LABELS[paymentType]
-  const title = `录入${typeLabel} · ${contractNumber} ${customerName}`
 
-  // 打开时创建 session
+  // 打开时立即渲染 UI，不再阻塞等待 createSession
+  // session 改为懒创建：用户首次发送时才创建
   useEffect(() => {
     if (!open) return
-    let cancelled = false
-    setIsInitializing(true)
     setMessages([])
     setInputText('')
     setPendingFiles([])
+    setSessionId(null)
+    sessionCreatingRef.current = false
 
-    agentApi.createSession({
-      title,
-      mode: paymentType === 'income' ? 'receipt_income' : 'receipt_expense',
-      context: { contract_id: contractId, payment_type: paymentType },
-    }).then((res) => {
-      if (!cancelled) {
-        setSessionId(res.data.sessionId)
-        setIsInitializing(false)
-        // 添加欢迎消息
-        setMessages([{
-          id: Date.now(),
-          sessionId: res.data.sessionId,
-          role: 'assistant',
-          content: `请上传${typeLabel}凭证（图片或 PDF），我来帮你分析并录入。`,
-          createdAt: new Date().toISOString(),
-        }])
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        setIsInitializing(false)
-        message.error('创建会话失败')
-      }
-    })
-
-    return () => { cancelled = true }
+    setMessages([{
+      id: Date.now(),
+      sessionId: '',
+      role: 'assistant',
+      content: `请上传${typeLabel}凭证（图片或 PDF），我来帮你分析并录入。`,
+      createdAt: new Date().toISOString(),
+    }])
   }, [open, contractId, paymentType])
 
   // 自动滚到底部
@@ -197,7 +187,29 @@ export default function ReceiptChatModal({
 
   // SSE 流式发送
   const doSend = useCallback(async (text: string, files?: File[]) => {
-    if (!sessionId) return
+    // 懒创建 session：没有 sessionId 时先建一个
+    let activeSessionId = sessionId
+    if (!activeSessionId) {
+      if (sessionCreatingRef.current) {
+        message.warning('会话创建中，请稍候...')
+        return
+      }
+      sessionCreatingRef.current = true
+      try {
+        const res = await agentApi.createSession({
+          title: `录入${typeLabel} · ${contractNumber} ${customerName}`,
+          mode: paymentType === 'income' ? 'receipt_income' : 'receipt_expense',
+          context: { contract_id: contractId, payment_type: paymentType },
+        })
+        activeSessionId = res.data.sessionId
+        setSessionId(activeSessionId)
+      } catch (e: any) {
+        message.error(e?.response?.data?.detail || '创建会话失败，请重试')
+        return
+      } finally {
+        sessionCreatingRef.current = false
+      }
+    }
     setIsStreaming(true)
 
     // 本地附件预览
@@ -221,7 +233,7 @@ export default function ReceiptChatModal({
     const userMsgId = Date.now()
     const userMsg: ChatMessage = {
       id: userMsgId,
-      sessionId,
+      sessionId: activeSessionId,
       role: 'user',
       content: text,
       attachments: localAttachments.map(a => ({
@@ -237,7 +249,7 @@ export default function ReceiptChatModal({
     const assistantId = userMsgId + 1
     const assistantMsg: ChatMessage = {
       id: assistantId,
-      sessionId,
+      sessionId: activeSessionId,
       role: 'assistant',
       content: '',
       toolCalls: [],
@@ -267,7 +279,7 @@ export default function ReceiptChatModal({
     let fullContent = ''
 
     try {
-      const response = await agentApi.chatStream(text, sessionId, uploaded)
+      const response = await agentApi.chatStream(text, activeSessionId, uploaded)
       if (!response.ok || !response.body) throw new Error(`请求失败: ${response.status}`)
 
       const reader = response.body.getReader()
@@ -382,15 +394,33 @@ export default function ReceiptChatModal({
       footer={null}
       width={600}
       destroyOnHidden
-      className="receipt-chat-modal"
+      className={`receipt-chat-modal receipt-chat-modal--${paymentType}`}
       styles={{ body: { padding: 0, height: '70vh', display: 'flex', flexDirection: 'column' } }}
     >
-      {/* 头部 */}
+      {/* 头部 — 合同信息 + 操作描述 */}
       <div className="receipt-chat-header">
         <Avatar icon={<RobotOutlined />} className="receipt-chat-header-avatar" size={28} />
-        <div>
-          <div className="receipt-chat-header-title">{title}</div>
-          <div className="receipt-chat-header-sub">对话式智能录入</div>
+        <div className="receipt-chat-header-info">
+          <div className="receipt-chat-header-row">
+            <span className="receipt-chat-header-title">{customerName}</span>
+            <span className="receipt-chat-header-number">{contractNumber}</span>
+            {status && (
+              <span className={`receipt-chat-header-status ${status}`}>
+                {status === 'active' ? '执行中' : status === 'completed' ? '已完成' : status}
+              </span>
+            )}
+          </div>
+          <div className="receipt-chat-header-meta">
+            <span className="receipt-chat-header-type">录入{typeLabel}</span>
+            {totalAmount != null && (
+              <span className="receipt-chat-header-amount">
+                {currencySymbol[currency] || '¥'}{totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            )}
+            {contractTitle && (
+              <span className="receipt-chat-header-contract-title">{contractTitle}</span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -401,12 +431,7 @@ export default function ReceiptChatModal({
         onDrop={handleDrop}
         onDragOver={handleDragOver}
       >
-        {isInitializing ? (
-          <div className="receipt-chat-empty">
-            <Spin size="large" />
-            <div style={{ marginTop: 12, color: 'var(--text-tertiary)' }}>正在初始化...</div>
-          </div>
-        ) : !hasMessages ? (
+        {!hasMessages ? (
           <div className="receipt-chat-empty receipt-chat-drop-zone">
             <InboxOutlined className="receipt-chat-drop-icon" />
             <div className="receipt-chat-drop-text">拖拽凭证文件到此处</div>
@@ -430,7 +455,7 @@ export default function ReceiptChatModal({
       </div>
 
       {/* 输入区 */}
-      {!isInitializing && sessionId && (
+      {(
         <div className="receipt-chat-input-area">
           {pendingFiles.length > 0 && (
             <div className="receipt-chat-pending-files">

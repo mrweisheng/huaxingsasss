@@ -204,20 +204,56 @@ class ExchangeRateService:
     ) -> Tuple[Decimal, Decimal]:
         """
         将金额转换为CNY
-        
+
         Returns:
             (汇率, 折算后CNY金额)
         """
         exchange_rate = ExchangeRateService.get_exchange_rate(
             db, from_currency, 'CNY', rate_date
         )
-        
+
         if exchange_rate is None:
             raise ValueError(f"无法获取 {from_currency} 兑 CNY 的汇率（日期：{rate_date}）")
-        
+
         amount_in_cny = amount * exchange_rate
-        
+
         return exchange_rate, amount_in_cny
+
+    @staticmethod
+    def convert_currency(
+        db: Session,
+        amount: Decimal,
+        from_currency: str,
+        to_currency: str,
+        rate_date: date
+    ) -> Tuple[Decimal, Decimal]:
+        """
+        将金额从一种货币直接折算为另一种货币。
+        同币种返回原值，不同币种通过 CNY 交叉汇率一步完成。
+
+        Returns:
+            (交叉汇率, 折算后金额)
+            交叉汇率 = 1 单位 from_currency 可兑换多少 to_currency
+        """
+        if from_currency == to_currency:
+            return Decimal('1.0'), amount
+
+        from_to_cny = ExchangeRateService.get_exchange_rate(
+            db, from_currency, 'CNY', rate_date
+        )
+        if from_to_cny is None:
+            raise ValueError(f"无法获取 {from_currency} 兑 CNY 的汇率（日期：{rate_date}）")
+
+        to_to_cny = ExchangeRateService.get_exchange_rate(
+            db, to_currency, 'CNY', rate_date
+        )
+        if to_to_cny is None:
+            raise ValueError(f"无法获取 {to_currency} 兑 CNY 的汇率（日期：{rate_date}）")
+
+        cross_rate = from_to_cny / to_to_cny
+        converted = (amount * cross_rate).quantize(Decimal('0.01'))
+
+        return cross_rate, converted
     
     @staticmethod
     def update_exchange_rate(
