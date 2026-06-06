@@ -107,8 +107,11 @@ async def finalize_node(state: RootState) -> dict:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def general_chat_start_node(state: GeneralChatState) -> dict:
-    """通用对话入口：不做任何处理，直接标记结束。
-    Phase 1 通用对话仍走旧 agent.py ReAct 循环。
+    """通用对话入口：Phase 1 占位节点。
+
+    ⚠️ 当前不会触发：endpoint 的 use_langgraph 判断只对 pdf/word/excel 附件
+    走 LangGraph 路径。纯文本消息仍走旧 agent.py ReAct 循环。
+    Phase 2 将替换此占位为完整的 call_model → execute_tool ReAct 子图。
     """
     return {
         "should_end": True,

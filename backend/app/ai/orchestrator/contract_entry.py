@@ -18,13 +18,11 @@ Phase 1 核心交付：10 个节点 + 路由函数 + 条件边。
 import asyncio
 import json
 import logging
-import os
 import uuid
 from typing import Optional, Literal
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
-from langgraph.config import get_config
 
 from app.ai.orchestrator.state import ContractEntryState
 from app.ai.tools import ToolExecutor
@@ -99,12 +97,10 @@ class ContractEntrySubgraph:
     # 节点 2：展示预览（无 LLM，纯数据组装）
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-    def _extract_contract_data(self, file_context: str) -> dict:
+    def _extract_contract_data(self, file_context: str, file_id: str = "") -> dict:
         """从 file_context 中提取合同结构化数据（VL 缓存优先，文本兜底）"""
-        # 先查 Redis 缓存（file_id 从 attachments 拿）
-        attachments = getattr(self, "_cached_attachments", [])
-        if attachments:
-            file_id = attachments[0].get("file_id", "") if isinstance(attachments[0], dict) else ""
+        # 先查 Redis 缓存
+        if file_id:
             cached = self.executor._get_cached_analysis(file_id, "contract")
             if cached and isinstance(cached, dict):
                 return cached
@@ -121,11 +117,12 @@ class ContractEntrySubgraph:
 
     async def show_preview_node(self, state: ContractEntryState) -> dict:
         """组装合同预览信息，无 LLM 调用"""
+        attachments = state.get("attachments", [])
+        file_id = attachments[0].get("file_id", "") if attachments else ""
 
-        # 缓存 attachments 供后续节点使用
-        self._cached_attachments = state.get("attachments", [])
-
-        contract_data = self._extract_contract_data(state.get("file_context", ""))
+        contract_data = self._extract_contract_data(
+            state.get("file_context", ""), file_id
+        )
 
         # 合并 state 传入的可能字段
         if not contract_data:
@@ -334,11 +331,10 @@ class ContractEntrySubgraph:
     async def auto_create_payments_node(self, state: ContractEntryState) -> dict:
         """
         从合同 payment_terms 自动创建付款记录。
-        复用 tools.py 的 _auto_create_payments_from_terms 逻辑。
 
-        注意：create_contract_node 已经调用了 tools.py 的 create_contract，
-        其中包含 _auto_create_payments_from_terms 调用，此处作为独立节点
-        提供幂等兜底（已创建的不会重复创建）。
+        注意：实际付款创建已在 create_contract_node 调用 tools.py:create_contract()
+        时完成（内含 _auto_create_payments_from_terms）。本节点仅读取 state 中的
+        auto_payments 结果，作为独立节点提供幂等兜底和可观测性。
         """
         auto_payments = state.get("auto_payments", [])
         return {

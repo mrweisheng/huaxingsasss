@@ -143,6 +143,10 @@ async def chat(
             use_langgraph = False
 
             if request.resume:
+                # 中断恢复：校验 interrupt_id（Phase 1 基础校验，完整 checkpoint 校验待 Phase 2）
+                if not request.interrupt_id or not isinstance(request.interrupt_id, str):
+                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '中断恢复缺少有效的 interrupt_id'}}, ensure_ascii=False)}\n\n"
+                    return
                 # 中断恢复：走 LangGraph
                 use_langgraph = True
             elif request.attachments and any(
