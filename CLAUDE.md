@@ -176,6 +176,7 @@ npm run build      # TypeScript 检查 + Vite 构建
 - `DASHSCOPE_BASE_URL` — DashScope API 地址，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
 - `DASHSCOPE_VISION_MODEL` — 视觉模型名，默认 `qwen3-vl-flash`
 - `DASHSCOPE_AGENT_MODEL` — Agent 推理模型名，默认 `deepseek-v4-flash`
+- `AGENT_ORCHESTRATOR` — Agent 编排引擎，`langgraph`（默认）或 `legacy`（紧急回滚）
 - `AGENT_MAX_ITERATIONS` — Agent 最大迭代次数，默认 8
 - `AGENT_HISTORY_WINDOW` — 历史消息窗口，默认 100
 - `AGENT_MAX_SUMMARY_MESSAGES` — 摘要触发阈值，默认 10

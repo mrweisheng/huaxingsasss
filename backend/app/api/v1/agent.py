@@ -139,21 +139,31 @@ async def chat(
             from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream
             from app.ai.orchestrator.checkpointer import get_checkpointer
 
-            # 检测是否应走 LangGraph 路径
+            # 检测是否应走 LangGraph 路径（支持 AGENT_ORCHESTRATOR 环境变量回滚）
+            # 设计文档 §9.3：AGENT_ORCHESTRATOR=legacy 时全量回退到旧 ReAct，5 分钟回滚
             use_langgraph = False
 
             if request.resume:
-                # 中断恢复：校验 interrupt_id（Phase 1 基础校验，完整 checkpoint 校验待 Phase 2）
+                # 中断恢复：校验 interrupt_id（完整 checkpoint 校验在下方 LangGraph 块内）
                 if not request.interrupt_id or not isinstance(request.interrupt_id, str):
                     yield f"data: {json.dumps({'event': 'error', 'data': {'message': '中断恢复缺少有效的 interrupt_id'}}, ensure_ascii=False)}\n\n"
                     return
-                # 中断恢复：走 LangGraph
+                # 中断恢复：必须走 LangGraph（旧 ReAct 无 checkpoint 概念）
+                if settings.AGENT_ORCHESTRATOR == "legacy":
+                    logger.warning(
+                        "AGENT_ORCHESTRATOR=legacy 但收到 resume 请求，无法恢复中断会话: session_id=%s",
+                        request.session_id,
+                    )
+                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '系统正在维护中，请稍后重试'}}, ensure_ascii=False)}\n\n"
+                    return
                 use_langgraph = True
             elif request.attachments and any(
                 a.file_type in ("pdf", "word", "excel") for a in request.attachments
             ):
-                # 文档附件 → 合同录入子图
-                use_langgraph = True
+                # 文档附件 → 合同录入子图（受环境变量控制）
+                # 已知限制：图片附件（JPEG/PNG）不触发 LangGraph，走旧 ReAct。
+                # Phase 2 通用对话子图完成后统一走 LangGraph，届时移除此限制。
+                use_langgraph = settings.AGENT_ORCHESTRATOR != "legacy"
 
             if use_langgraph:
                 try:
