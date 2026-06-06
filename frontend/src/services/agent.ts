@@ -79,19 +79,39 @@ export const agentApi = {
     sessionId?: string | null,
     attachments?: { file_id: string; file_type: string }[],
   ): Promise<Response> => {
-    const token = localStorage.getItem('access_token')
-
-    return fetch(`${API_BASE_URL}${API_BASE}/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      body: JSON.stringify({
-        question,
-        session_id: sessionId || null,
-        attachments: attachments || null,
-      }),
+    return _chatRequest({
+      question,
+      session_id: sessionId || null,
+      attachments: attachments || null,
     })
   },
+
+  /**
+   * 中断恢复：前端按钮点击后发送 Command(resume=...) 载荷。
+   */
+  resumeInterrupt: async (
+    sessionId: string,
+    resume: Record<string, any>,
+    interruptId: string,
+  ): Promise<Response> => {
+    return _chatRequest({
+      question: '',
+      session_id: sessionId,
+      attachments: [],
+      resume,
+      interrupt_id: interruptId,
+    })
+  },
+}
+
+function _chatRequest(body: Record<string, any>): Promise<Response> {
+  const token = localStorage.getItem('access_token')
+  return fetch(`${API_BASE_URL}${API_BASE}/chat`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify(body),
+  })
 }

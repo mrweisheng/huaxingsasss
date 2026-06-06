@@ -45,8 +45,21 @@ export interface ChatSession {
   context?: Record<string, any> | null
 }
 
+export interface InterruptOption {
+  label: string
+  value: Record<string, any>
+}
+
+export interface InterruptInfo {
+  type: 'contract_confirmation'
+  message: string
+  preview?: Record<string, any>
+  options: InterruptOption[]
+  interrupt_id: string
+}
+
 export interface SSEEvent {
-  event: 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'done' | 'error'
+  event: 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'done' | 'error' | 'interrupt'
   data: Record<string, any>
 }
 

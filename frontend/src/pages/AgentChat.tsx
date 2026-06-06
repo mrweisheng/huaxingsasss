@@ -206,11 +206,14 @@ export default function AgentChat() {
     messages,
     isStreaming,
     error,
+    interruptInfo,
     loadSessions,
     createSession,
     switchSession,
     deleteSession,
     sendMessage,
+    resumeInterrupt,
+    dismissInterrupt,
     stopGeneration,
     clearError,
   } = useAgentStore()
@@ -735,6 +738,63 @@ export default function AgentChat() {
               </div>
             )}
 
+            {/* 中断确认面板 */}
+            {interruptInfo && (
+              <div style={{
+                margin: '0 0 12px', padding: 16,
+                background: 'var(--bg-elevated)',
+                border: '1px solid var(--border-primary)',
+                borderRadius: 12,
+                boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
+              }}>
+                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
+                  确认操作
+                </div>
+                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
+                  {interruptInfo.message}
+                </div>
+                {interruptInfo.preview && (
+                  <div style={{
+                    padding: '8px 12px', borderRadius: 8,
+                    background: 'var(--bg-secondary)',
+                    marginBottom: 12, fontSize: 12, color: 'var(--text-tertiary)',
+                    display: 'flex', flexWrap: 'wrap', gap: '4px 16px',
+                  }}>
+                    {interruptInfo.preview.customer_name && (
+                      <span>客户：<strong>{interruptInfo.preview.customer_name}</strong></span>
+                    )}
+                    {interruptInfo.preview.total_amount && (
+                      <span>金额：<strong>{interruptInfo.preview.total_amount} {interruptInfo.preview.currency || ''}</strong></span>
+                    )}
+                    {interruptInfo.preview.business_type && (
+                      <span>类型：<strong>{interruptInfo.preview.business_type}</strong></span>
+                    )}
+                  </div>
+                )}
+                <div style={{ display: 'flex', gap: 8 }}>
+                  {interruptInfo.options.map((opt, i) => (
+                    <Button
+                      key={i}
+                      type={i === 0 ? 'primary' : 'default'}
+                      loading={isStreaming}
+                      onClick={() => {
+                        const confirmed = opt.value.confirmed ?? false
+                        if (confirmed) {
+                          resumeInterrupt(true)
+                        } else {
+                          dismissInterrupt()
+                          message.info('已取消操作')
+                        }
+                      }}
+                      style={{ borderRadius: 8 }}
+                    >
+                      {opt.label}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {/* 输入框 */}
             <div
               style={{
@@ -760,7 +820,7 @@ export default function AgentChat() {
                 <Button
                   type="text"
                   icon={<PaperClipOutlined style={{ fontSize: 18 }} />}
-                  disabled={isStreaming}
+                  disabled={isStreaming || !!interruptInfo}
                   style={{
                     padding: '8px', borderRadius: 8,
                     color: pendingFiles.length > 0 ? 'var(--brand-primary)' : 'var(--text-tertiary)',
@@ -774,23 +834,24 @@ export default function AgentChat() {
                 onKeyDown={handleKeyDown}
                 placeholder={pendingFiles.length > 0 ? '添加说明（可选）...' : '输入你的问题...'}
                 autoSize={{ minRows: 1, maxRows: 5 }}
-                disabled={isStreaming}
+                disabled={isStreaming || !!interruptInfo}
                 bordered={false}
                 style={{ flex: 1, fontSize: 14, lineHeight: '22px', padding: '6px 0', resize: 'none', color: 'var(--text-primary)' }}
               />
-              {isStreaming ? (
+              {(isStreaming || !!interruptInfo) ? (
                 <Button
                   danger size="large" icon={<StopOutlined />}
                   onClick={stopGeneration}
+                  disabled={!!interruptInfo}
                   style={{ borderRadius: 8, height: 40, padding: '0 16px', flexShrink: 0 }}
                 >
-                  停止
+                  {interruptInfo ? '等待确认' : '停止'}
                 </Button>
               ) : (
                 <Button
                   type="primary" size="large" icon={<SendOutlined />}
                   onClick={handleSend}
-                  disabled={!inputText.trim() && pendingFiles.length === 0}
+                  disabled={(!inputText.trim() && pendingFiles.length === 0)}
                   style={{ borderRadius: 8, height: 40, padding: '0 20px', flexShrink: 0 }}
                 >
                   发送
