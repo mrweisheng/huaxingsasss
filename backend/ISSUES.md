@@ -1,5 +1,7 @@
 # 已知问题与待办事项
 
+> 最后更新：2026-06-06
+
 ## 测试套件已知问题
 
 ### 1. bcrypt 5.0 与 passlib 不兼容
@@ -30,6 +32,7 @@
 - [ ] 前端 SSE 连接清理
 - [ ] 前端 Token 刷新防循环
 - [ ] 前端 PaymentList 类型安全
+- [ ] **LangGraph 迁移 Phase 1.2**（合同录入子图 + 前端 interrupt UI）— 详见 `docs/2026-06-06-langgraph-agent-orchestration.md`
 
 ### 中优先级
 - [ ] 测试套件通过（需解决 bcrypt 版本问题）
@@ -39,3 +42,5 @@
 - [ ] Pydantic v2 `class Config` 弃用警告 → 改用 `model_config = ConfigDict(...)`
 - [ ] Celery worker 的健康检查与重启策略
 - [ ] Redis 连接池配置优化
+- [ ] tools.py:2151 遗留注释清理（AGENT_AUDIT A4 残留）
+- [ ] `SiliconFlowClient` / `DashScopeAgentClient` 类名反转（历史遗留，可不改）

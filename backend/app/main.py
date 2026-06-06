@@ -72,35 +72,17 @@ def health_check():
 
 @app.on_event("startup")
 async def on_startup():
-    _run_migrations()
+    # Phase 1 重构：放弃 alembic，表结构由 scripts/init_db.py 一次性建好
+    # LangGraph checkpoint 表由 init_checkpointer() 内部 setup() 自动创建
+    from app.ai.orchestrator.checkpointer import init_checkpointer
+    await init_checkpointer()
     logger.info("app_starting: app=%s, env=%s", settings.APP_NAME, settings.APP_ENV)
-
-
-def _run_migrations():
-    import os
-    from alembic.config import Config
-    from alembic import command
-
-    try:
-        backend_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        migrations_dir = os.path.join(backend_dir, "migrations")
-        alembic_cfg_path = os.path.join(migrations_dir, "alembic.ini")
-
-        alembic_cfg = Config(alembic_cfg_path)
-        alembic_cfg.set_main_option("script_location", migrations_dir)
-        # 阻止 alembic env.py 调用 fileConfig() 覆盖我们的 root logger
-        alembic_cfg.config_file_name = None
-
-        logger.info("running_database_migrations: dir=%s", migrations_dir)
-        command.upgrade(alembic_cfg, "head")
-        logger.info("database_migrations_applied")
-    except Exception as e:
-        logger.error("database_migration_failed: %s", str(e), exc_info=True)
-        raise
 
 
 @app.on_event("shutdown")
 async def on_shutdown():
+    from app.ai.orchestrator.checkpointer import close_checkpointer
+    await close_checkpointer()
     logger.info("app_shutting_down")
 
 

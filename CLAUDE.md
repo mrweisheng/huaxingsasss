@@ -94,7 +94,7 @@ npm run build      # TypeScript 检查 + Vite 构建
 - **`models/`** — SQLAlchemy ORM 模型（10 个模型文件），全部继承 `BaseModel`（提供 `id`, `created_at`, `updated_at`）。`models/__init__.py` 导入所有模型以确保 Alembic autogenerate 能发现。
 - **`schemas/`** — Pydantic v2 模型（7 个 schema 模块），请求/响应数据校验。使用 `from_attributes = True` 配合 ORM。
 - **`ai/`** — AI 智能体模块：
-  - `agent.py` — `ContractAgent` ReAct 循环引擎，SSE 流式输出，多轮对话管理。含历史消息摘要（`_summarize_history()`）和确认意图检测（`_is_confirmation()`）。
+  - `agent.py` — `ContractAgent` ReAct 循环引擎，SSE 流式输出，多轮对话管理。含历史消息摘要（`_summarize_history()`）、VL 图片预分析（`_pre_analyze_image()`）、文本内容分析（`_analyze_text_content()`）。
   - `tools.py` — `ToolExecutor` 工具执行器（20 个工具）+ `TOOL_DEFINITIONS`（OpenAI function calling 格式）。含文档上下文守卫（receipt/contract/general/group_chat 阻断不匹配的工具调用）和 VL 结果 Redis 缓存。
   - `prompts.py` — 系统提示词（含角色权限描述）、凭证/合同/群聊分析提示词模板。
   - `llm_client.py` — `SiliconFlowClient`（VL 视觉模型，历史遗留包装）+ `DashScopeAgentClient`（Agent 推理模型，流式函数调用）。主用 DashScope qwen3-vl-flash 做视觉分析，deepseek-v4-flash 做 Agent 推理。
@@ -143,7 +143,7 @@ npm run build      # TypeScript 检查 + Vite 构建
 5. 工具调用现有 Service 层（ContractService、PaymentService 等），权限按 user.role 过滤
 6. 图片分析：主用 DashScope VL 模型（qwen3-vl-flash）识别凭证/合同内容，含图片压缩（最大 1600px）和 Redis 缓存（30 分钟 TTL）
 7. 支持 PDF 多策略分析：有文字 → 百炼 DeepSeek-V4-Flash 文本模型；扫描 PDF → 渲染为图片 → VL 模型。同时支持 Word (.docx) 和 Excel (.xlsx)。
-8. 历史消息超限时自动摘要（`_summarize_history()`），确认意图快捷路径（`_is_confirmation()`）
+8. 历史消息超限时自动摘要（`_summarize_history()`）
 
 群聊识别流程：
 1. 用户上传微信群截图 → `analyze_image(analysis_type="group_chat")` → 提取群名、业务类型、成员列表
@@ -212,7 +212,7 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 **禁止创建 alembic 迁移脚本。** 当 ORM 模型变更涉及表结构改动（新增列、修改列类型、新增表等）时，只提供纯 SQL DDL/DML 语句给用户手动执行，不要生成 `migrations/versions/` 下的迁移文件。
 
-`main.py` 的 `on_startup` 中有 `_run_migrations()` 调用（执行 `alembic upgrade head`），这是历史遗留逻辑。新增的表结构变更应通过提供 SQL 语句由用户手动执行。
+`main.py` 的 `on_startup` 直接调用 `init_checkpointer()`（创建 LangGraph checkpoint 表），不再使用 alembic。新增的表结构变更应通过提供 SQL 语句由用户手动执行。
 
 `chat_history` 表存储 Agent 对话消息，每行一条消息（role: user/assistant/tool），通过 `session_id` 分组为会话。包含 `tool_calls`（JSON）和 `metadata`（JSON）列支持函数调用和附件。
 

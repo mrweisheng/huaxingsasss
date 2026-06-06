@@ -45,6 +45,14 @@ dependencies = [
     "dashscope>=1.25.0",
     "openai>=1.57.0",
 
+    # LangGraph 编排（Phase 1 重构）
+    # ADR #2: 不引入 langchain-openai，继续用现有 DashScopeAgentClient
+    # ADR #5: 直接用 PostgresSaver，不分三阶段演进
+    "langgraph>=1.2.0,<2.0.0",
+    "langchain-core>=1.0.0",
+    "langgraph-checkpoint-postgres>=2.0.0",
+    "psycopg[binary,pool]>=3.1.0",
+
     # 日志与监控
     "structlog>=24.4.0",
 

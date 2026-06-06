@@ -206,24 +206,29 @@ class ContractService:
         db.commit()
         db.refresh(contract)
 
-        # 非 CNY 合同：按签订日汇率计算 total_amount_in_cny
-        if contract.currency != "CNY" and contract.total_amount > 0:
-            rate_date = contract.signed_date or date.today()
-            try:
-                exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
-                    db, contract.total_amount, contract.currency, rate_date
-                )
-                contract.total_amount_in_cny = total_in_cny
-                contract.remaining_amount_in_cny = total_in_cny  # paid_amount=0, 所以 remaining = total
-                db.commit()
-                db.refresh(contract)
-                logger.info(
-                    "合同CNY等值计算: contract_id=%d, %s %s → %s CNY (汇率=%s, 日期=%s)",
-                    contract.id, contract.total_amount, contract.currency,
-                    total_in_cny, exchange_rate, rate_date,
-                )
-            except Exception as e:
-                logger.warning("合同CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
+        # 所有合同统一维护 _in_cny 字段（CNY 合同为原值，非 CNY 合同按汇率折算）
+        if contract.total_amount > 0:
+            if contract.currency == "CNY":
+                contract.total_amount_in_cny = contract.total_amount
+                contract.remaining_amount_in_cny = contract.total_amount
+                logger.info("合同CNY等值: contract_id=%d, CNY 1:1, amount=%s", contract.id, contract.total_amount)
+            else:
+                rate_date = contract.signed_date or date.today()
+                try:
+                    exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
+                        db, contract.total_amount, contract.currency, rate_date
+                    )
+                    contract.total_amount_in_cny = total_in_cny
+                    contract.remaining_amount_in_cny = total_in_cny  # paid_amount=0, 所以 remaining = total
+                    logger.info(
+                        "合同CNY等值计算: contract_id=%d, %s %s → %s CNY (汇率=%s, 日期=%s)",
+                        contract.id, contract.total_amount, contract.currency,
+                        total_in_cny, exchange_rate, rate_date,
+                    )
+                except Exception as e:
+                    logger.warning("合同CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
+            db.commit()
+            db.refresh(contract)
 
         return contract
     
@@ -363,23 +368,29 @@ class ContractService:
         # 解析完成直接设为执行中（人工确认路径，不按置信度分级）
         contract.status = 'active'
 
-        # 非 CNY 合同：按签订日汇率计算/重算 _in_cny 字段
-        if contract.currency != "CNY" and contract.total_amount > 0:
-            rate_date = contract.signed_date or date.today()
-            try:
-                exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
-                    db, contract.total_amount, contract.currency, rate_date
-                )
-                contract.total_amount_in_cny = total_in_cny
+        # 所有合同统一维护 _in_cny 字段（CNY 合同为原值，非 CNY 合同按汇率折算）
+        if contract.total_amount > 0:
+            if contract.currency == "CNY":
+                contract.total_amount_in_cny = contract.total_amount
                 contract.paid_amount_in_cny = contract.paid_amount_in_cny or 0
                 contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
-                logger.info(
-                    "AI解析后重算CNY等值: contract_id=%d, %s %s → %s CNY (汇率=%s)",
-                    contract.id, contract.total_amount, contract.currency,
-                    total_in_cny, exchange_rate,
-                )
-            except Exception as e:
-                logger.warning("AI解析后CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
+                logger.info("AI解析后CNY等值: contract_id=%d, CNY 1:1, amount=%s", contract.id, contract.total_amount)
+            else:
+                rate_date = contract.signed_date or date.today()
+                try:
+                    exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
+                        db, contract.total_amount, contract.currency, rate_date
+                    )
+                    contract.total_amount_in_cny = total_in_cny
+                    contract.paid_amount_in_cny = contract.paid_amount_in_cny or 0
+                    contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
+                    logger.info(
+                        "AI解析后重算CNY等值: contract_id=%d, %s %s → %s CNY (汇率=%s)",
+                        contract.id, contract.total_amount, contract.currency,
+                        total_in_cny, exchange_rate,
+                    )
+                except Exception as e:
+                    logger.warning("AI解析后CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
 
         db.commit()
         db.refresh(contract)

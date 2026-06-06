@@ -1,7 +1,8 @@
 """
 合同模型
 """
-from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DECIMAL, Date, JSON, Index, text
+from sqlalchemy import Column, String, Text, Integer, Boolean, ForeignKey, DECIMAL, Date, Index, text
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from app.core.business_types import BusinessType, LEGACY_VALUES
 from app.models.base import BaseModel
@@ -46,8 +47,8 @@ class Contract(BaseModel):
     original_file_path = Column(String(500), nullable=False, comment="原始合同文件路径")
     file_hash = Column(String(64), index=True, comment="文件SHA256哈希")
     
-    # AI解析的结构化数据
-    contract_data = Column(JSON, nullable=False, server_default=text("'{}'::json"), comment="AI解析的结构化数据")
+    # AI解析的结构化数据（JSONB：支持 GIN 索引，比 JSON 性能更好）
+    contract_data = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), comment="AI解析的结构化数据")
 
     # 合同全文内容（AI从图片/PDF提取的完整文本，用于知识库问答）
     contract_text = Column(Text, comment="合同全文内容")

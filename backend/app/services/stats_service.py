@@ -179,12 +179,19 @@ class StatsService:
 
     @staticmethod
     def _build_business_type_distribution(db: Session) -> list:
-        """按业务类型分布"""
+        """按业务类型分布（统一折算 CNY）"""
+        income_cny = func.sum(
+            func.coalesce(func.nullif(Contract.paid_amount_in_cny, 0), Contract.paid_amount)
+        ).label("income")
+        expense_cny = func.sum(
+            func.coalesce(func.nullif(Contract.total_expense_in_cny, 0), Contract.total_expense)
+        ).label("expense")
+
         rows = db.query(
             Contract.business_type,
             func.count(Contract.id).label("contract_count"),
-            func.sum(Contract.paid_amount).label("income"),
-            func.sum(Contract.total_expense).label("expense"),
+            income_cny,
+            expense_cny,
         ).filter(
             Contract.is_deleted == False,
         ).group_by(Contract.business_type).all()
@@ -197,25 +204,31 @@ class StatsService:
             result.append({
                 "business_type": bt,
                 "contract_count": row.contract_count,
-                "total_amount": Decimal("0"),  # 后续按币种聚合比较复杂，暂跳过
+                "total_amount": Decimal("0"),
                 "income": inc,
                 "expense": exp,
                 "profit": inc - exp,
             })
 
-        # 按利润降序
         result.sort(key=lambda x: x["profit"], reverse=True)
         return result
 
     @staticmethod
     def _build_top_customers(db: Session, limit: int = 10) -> list:
-        """按客户收入排名"""
+        """按客户收入排名（统一折算 CNY）"""
+        income_cny = func.sum(
+            func.coalesce(func.nullif(Contract.paid_amount_in_cny, 0), Contract.paid_amount)
+        ).label("total_income")
+        expense_cny = func.sum(
+            func.coalesce(func.nullif(Contract.total_expense_in_cny, 0), Contract.total_expense)
+        ).label("total_expense")
+
         rows = db.query(
             Customer.id.label("customer_id"),
             Customer.name.label("customer_name"),
             func.count(Contract.id).label("contract_count"),
-            func.sum(Contract.paid_amount).label("total_income"),
-            func.sum(Contract.total_expense).label("total_expense"),
+            income_cny,
+            expense_cny,
         ).join(
             Contract, Contract.customer_id == Customer.id
         ).filter(
@@ -224,7 +237,7 @@ class StatsService:
         ).group_by(
             Customer.id, Customer.name,
         ).order_by(
-            func.sum(Contract.paid_amount).desc(),
+            income_cny.desc(),
         ).limit(limit).all()
 
         return [

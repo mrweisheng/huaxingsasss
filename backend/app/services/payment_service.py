@@ -69,9 +69,9 @@ class PaymentService:
             raise ValueError(f"合同不存在：{contract_id}")
 
         if currency == "CNY" and contract.currency == "CNY":
-            # 纯人民币：无需任何换算
-            exchange_rate = None
-            amount_in_cny = None
+            # 纯人民币：汇率 1:1，CNY 等值即原值（统一 _in_cny 字段，方便上层汇总）
+            exchange_rate = Decimal('1.0')
+            amount_in_cny = amount
         else:
             # 非纯 CNY：计算 CNY 等值（同币种用于全局统计，混币种还用于折算）
             exchange_rate, amount_in_cny = ExchangeRateService.convert_to_cny(
@@ -146,7 +146,7 @@ class PaymentService:
         db: Session, contract: Contract, amount: Decimal,
         currency: str, amount_in_cny: Decimal, paid_date: date
     ):
-        """将一笔收入加入合同的已付金额。amount_in_cny 为 None 时跳过 CNY 字段更新。"""
+        """将一笔收入加入合同的已付金额。amount_in_cny 始终有值（CNY 合同为原值，非 CNY 合同为折算值）。"""
         if currency == contract.currency:
             contract.paid_amount += amount
         else:
@@ -156,10 +156,9 @@ class PaymentService:
             )
             contract.paid_amount += converted
 
-        # 仅当 amount_in_cny 存在时才更新 CNY 汇总字段（混币种才有）
-        if amount_in_cny is not None:
-            contract.paid_amount_in_cny = (contract.paid_amount_in_cny or 0) + amount_in_cny
-            contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
+        # 统一更新 CNY 汇总字段（所有合同均维护 _in_cny，方便跨币种统计）
+        contract.paid_amount_in_cny = (contract.paid_amount_in_cny or 0) + amount_in_cny
+        contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
 
         contract.remaining_amount = contract.total_amount - contract.paid_amount
 
@@ -172,7 +171,7 @@ class PaymentService:
         db: Session, contract: Contract, amount: Decimal,
         currency: str, amount_in_cny: Decimal, paid_date: date
     ):
-        """将一笔支出加入合同的支出汇总（不影响合同完成状态）。amount_in_cny 为 None 时跳过 CNY 字段更新。"""
+        """将一笔支出加入合同的支出汇总（不影响合同完成状态）。amount_in_cny 始终有值。"""
         if currency == contract.currency:
             contract.total_expense = (contract.total_expense or 0) + amount
         else:
@@ -182,9 +181,8 @@ class PaymentService:
             )
             contract.total_expense = (contract.total_expense or 0) + converted
 
-        # 仅当 amount_in_cny 存在时才更新 CNY 汇总字段
-        if amount_in_cny is not None:
-            contract.total_expense_in_cny = (contract.total_expense_in_cny or 0) + amount_in_cny
+        # 统一更新 CNY 汇总字段
+        contract.total_expense_in_cny = (contract.total_expense_in_cny or 0) + amount_in_cny
 
     @staticmethod
     def _subtract_from_contract_expense(
@@ -290,7 +288,7 @@ class PaymentService:
             payment.status = 'paid'
             contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
             if contract:
-                amount_in_cny = payment.paid_amount_in_cny  # 仅 CNY 合同+CNY 付款时为 None，_add_to_* 会跳过 CNY 更新
+                amount_in_cny = payment.paid_amount_in_cny or payment.paid_amount  # 旧 CNY 数据 paid_amount_in_cny 为 None，原值即 CNY
                 if payment.type == "expense":
                     PaymentService._add_to_contract_expense(
                         db, contract, payment.paid_amount, payment.currency,
@@ -345,7 +343,7 @@ class PaymentService:
                 contract.paid_amount_in_cny = max(contract.paid_amount_in_cny or 0, Decimal('0'))
                 contract.remaining_amount = (contract.total_amount or 0) - (contract.paid_amount or 0)
                 contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
-                if contract.status == 'completed' and contract.paid_amount_in_cny < contract.total_amount_in_cny:
+                if contract.status == 'completed' and contract.total_amount_in_cny is not None and contract.paid_amount_in_cny < contract.total_amount_in_cny:
                     contract.status = 'active'
 
         db.delete(payment)

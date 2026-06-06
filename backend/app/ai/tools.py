@@ -305,6 +305,7 @@ class ToolExecutor:
             "currency": p.currency,
             "amount": float(p.amount) if p.amount else 0,
             "paid_amount": float(p.paid_amount) if p.paid_amount else 0,
+            "paid_amount_in_cny": float(p.paid_amount_in_cny) if p.paid_amount_in_cny else 0,
             "status": p.status,
             "due_date": str(p.due_date) if p.due_date else None,
             "paid_date": str(p.paid_date) if p.paid_date else None,
@@ -1768,12 +1769,14 @@ class ToolExecutor:
 
         payments = query.all()
 
-        total_paid = sum(float(p.paid_amount or 0) for p in payments if p.status == "paid")
-        total_pending = sum(float(p.amount or 0) for p in payments if p.status == "pending")
+        total_paid = sum(float(p.paid_amount_in_cny or 0) for p in payments if p.status == "paid")
+        total_pending = sum(float(p.amount_in_cny or 0) for p in payments if p.status == "pending")
 
         summary = {
             "total_paid": total_paid,
             "total_pending": total_pending,
+            "total_paid_unit": "CNY",
+            "total_pending_unit": "CNY",
             "payment_count": len(payments),
         }
 
@@ -1786,12 +1789,13 @@ class ToolExecutor:
                     groups[cid] = {
                         "contract_id": cid,
                         "contract_number": p.contract.contract_number if p.contract else None,
+                        "currency": p.contract.currency if p.contract else None,
                         "paid": 0, "pending": 0,
                     }
                 if p.status == "paid":
-                    groups[cid]["paid"] += float(p.paid_amount or 0)
+                    groups[cid]["paid"] += float(p.paid_amount_in_cny or 0)
                 elif p.status == "pending":
-                    groups[cid]["pending"] += float(p.amount or 0)
+                    groups[cid]["pending"] += float(p.amount_in_cny or 0)
             summary["groups"] = list(groups.values())
         elif group_by == "customer":
             groups = {}
@@ -1803,9 +1807,9 @@ class ToolExecutor:
                         "paid": 0, "pending": 0, "contract_count": 0,
                     }
                 if p.status == "paid":
-                    groups[customer_name]["paid"] += float(p.paid_amount or 0)
+                    groups[customer_name]["paid"] += float(p.paid_amount_in_cny or 0)
                 elif p.status == "pending":
-                    groups[customer_name]["pending"] += float(p.amount or 0)
+                    groups[customer_name]["pending"] += float(p.amount_in_cny or 0)
             for p in payments:
                 customer_name = p.contract.customer.name if p.contract and p.contract.customer else "未知"
                 if customer_name in groups:
