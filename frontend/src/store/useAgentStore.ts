@@ -16,7 +16,7 @@ interface AgentState {
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   sendMessage: (content: string, attachments?: File[]) => Promise<void>
-  resumeInterrupt: (confirmed: boolean) => Promise<void>
+  resumeInterrupt: (resumeValue: Record<string, any>) => Promise<void>
   dismissInterrupt: () => void
   stopGeneration: () => void
   clearError: () => void
@@ -425,7 +425,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  dismissInterrupt: () => set({ interruptInfo: null }),
+  dismissInterrupt: async () => {
+    // 通知后端 LangGraph 取消（发送 confirmed: false），让图正常走完
+    // summarize_cancel_node → finalize_node → END，避免 checkpoint 残留。
+    // 不 await：后端响应期间前端已清除面板，用户无需等待。
+    const { currentSessionId, interruptInfo } = get()
+    if (currentSessionId && interruptInfo) {
+      get().resumeInterrupt({ confirmed: false })
+    } else {
+      set({ interruptInfo: null })
+    }
+  },
 
   stopGeneration: () => {
     if (abortController) {

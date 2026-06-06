@@ -786,6 +786,8 @@ export default function AgentChat() {
                         loading={isStreaming}
                         onClick={() => {
                           if (isCancel) {
+                            // dismissInterrupt 内部会发送 resumeInterrupt({confirmed: false})
+                            // 通知后端 LangGraph 走完取消流程，然后清除面板
                             dismissInterrupt()
                             message.info('已取消操作')
                           } else {
