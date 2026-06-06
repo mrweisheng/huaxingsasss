@@ -52,6 +52,9 @@ class RootState(TypedDict, total=False):
     executor_mode: str          # "chat" | "receipt_income" | "receipt_expense"
     session_context: dict       # 会话上下文，透传给 ToolExecutor 供 DB 兜底查询
 
+    # ── 幂等性防护（finalize_node 用，防止重复执行导致 chat_history 重复入库） ──
+    _finalized: bool
+
 
 class ContractEntryState(RootState, total=False):
     """合同录入子图状态"""

@@ -100,7 +100,15 @@ def route_by_intent(state: RootState) -> Literal[
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def make_finalize_node(agent):
-    """通过 closure 注入 agent，使 finalize_node 能调用 _save_message 落库"""
+    """通过 closure 注入 agent，使 finalize_node 能调用 _save_message 落库。
+
+    ⚠️ 幂等性契约（finalize_node 只应在单次图执行中调用一次）：
+    当前架构保证 finalize_node 在所有子图完成后只执行一次，不存在重复入库风险。
+    但如果未来重构导致 finalize_node 被多次调用（例如 Root Graph 加了循环边），
+    state["messages"] 中的消息会被重复写入 chat_history，产生重复消息。
+    此时应在 _save_message 中增加幂等性检查（如基于 content hash 去重），
+    或在 finalize_node 中引入 state["_finalized"] 标记跳过二次执行。
+    """
     async def _finalize_node(state: RootState) -> dict:
         """结束节点：chat_history 落库（ADR #6）+ 清理 interrupt_info。
 
@@ -110,6 +118,18 @@ def make_finalize_node(agent):
           tool    → role="tool"       (save_tool_message)
           system  → 跳过不入库
         """
+        # 幂等性防护：如果 _finalized 标记已存在，跳过落库（防止重构引入的重复执行）
+        if state.get("_finalized"):
+            logger.warning(
+                "finalize_node 检测到重复执行，跳过 chat_history 落库: session_id=%s",
+                state.get("session_id", ""),
+            )
+            return {
+                "should_end": True,
+                "interrupt_info": None,
+                "current_node": "finalize_node",
+            }
+
         session_id = state.get("session_id", "")
         for msg in state.get("messages", []):
             msg_type = getattr(msg, "type", None)
@@ -145,6 +165,7 @@ def make_finalize_node(agent):
             "should_end": True,
             "interrupt_info": None,
             "current_node": "finalize_node",
+            "_finalized": True,  # 幂等性标记：防止重复执行导致 chat_history 重复入库
         }
     return _finalize_node
 
