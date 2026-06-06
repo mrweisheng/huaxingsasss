@@ -24,6 +24,181 @@ interface AgentState {
 
 let abortController: AbortController | null = null
 
+/**
+ * 通用 SSE 流读取器 — 消除 sendMessage / resumeInterrupt 中的重复代码。
+ * 从 Response body 逐行解析 SSE 事件，通过 AsyncGenerator 对外暴露。
+ */
+async function* readSSEStream(
+  response: Response,
+  signal: AbortSignal | null,
+): AsyncGenerator<SSEEvent> {
+  if (!response.body) return
+
+  const reader = response.body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (signal?.aborted) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      buffer = lines.pop() || ''
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue
+        const raw = line.slice(6).trim()
+        if (!raw) continue
+
+        try {
+          const event: SSEEvent = JSON.parse(raw)
+          yield event
+        } catch {
+          // JSON parse error, skip
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+}
+
+/**
+ * SSE 事件分发器。sendMessage 和 resumeInterrupt 共用。
+ *
+ * 行为：
+ *  - text           → 追加到指定 assistant 消息 content
+ *  - tool_call      → 追加到 toolCalls
+ *  - tool_result    → 回填到最后一个 toolCall
+ *  - thinking       → 累积式思考步骤，thoughtStepId 自增
+ *  - interrupt      → 写入 interruptInfo 并清 streaming
+ *  - done (interrupted) → 维持中断面板，仅同步 session_id
+ *  - done (正常)    → 收尾 thought 步骤 + 同步 session_id
+ *  - error          → 写入 error
+ *
+ * 返回 [action, nextThoughtId]，action 让调用方决定是否提前退出循环。
+ */
+type DispatchAction = 'continue' | 'interrupt' | 'done-interrupted' | 'done-normal' | 'error'
+
+function dispatchSSEEvent(
+  event: SSEEvent,
+  assistantId: number,
+  thoughtStepId: number,
+  set: (partial: Partial<AgentState> | ((state: AgentState) => Partial<AgentState>)) => void,
+  get: () => AgentState,
+): [DispatchAction, number] {
+  const eventData = event.data
+
+  if (event.event === 'text') {
+    const chunk = eventData.content || ''
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === assistantId ? { ...m, content: m.content + chunk } : m,
+      ),
+    }))
+    return ['continue', thoughtStepId]
+  }
+
+  if (event.event === 'tool_call') {
+    set((state) => ({
+      messages: state.messages.map((m) =>
+        m.id === assistantId
+          ? {
+              ...m,
+              toolCalls: [
+                ...(m.toolCalls || []),
+                {
+                  id: eventData.id || `tc_${Date.now()}`,
+                  name: eventData.name,
+                  arguments: eventData.arguments,
+                },
+              ],
+            }
+          : m,
+      ),
+    }))
+    return ['continue', thoughtStepId]
+  }
+
+  if (event.event === 'tool_result') {
+    set((state) => ({
+      messages: state.messages.map((m) => {
+        if (m.id !== assistantId || !m.toolCalls?.length) return m
+        const calls = [...m.toolCalls]
+        calls[calls.length - 1] = {
+          ...calls[calls.length - 1],
+          result: eventData.result,
+        }
+        return { ...m, toolCalls: calls }
+      }),
+    }))
+    return ['continue', thoughtStepId]
+  }
+
+  if (event.event === 'thinking') {
+    const msg = eventData.message || '思考中...'
+    const stepId = `thought_${thoughtStepId}`
+    set((state) => ({
+      messages: state.messages.map((m) => {
+        if (m.id !== assistantId) return m
+        const thoughts = [...(m.thoughts || [])]
+        if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
+          thoughts[thoughts.length - 1] = { ...thoughts[thoughts.length - 1], status: 'done' as const }
+        }
+        thoughts.push({ id: stepId, message: msg, status: 'running' })
+        return { ...m, thoughts }
+      }),
+    }))
+    return ['continue', thoughtStepId + 1]
+  }
+
+  if (event.event === 'interrupt') {
+    const info: InterruptInfo = {
+      type: eventData.type || 'contract_confirmation',
+      message: eventData.message || '',
+      preview: eventData.preview,
+      options: eventData.options || [],
+      interrupt_id: eventData.interrupt_id || '',
+    }
+    set({ interruptInfo: info, isStreaming: false })
+    return ['interrupt', thoughtStepId]
+  }
+
+  if (event.event === 'done') {
+    if (eventData.interrupted) {
+      if (eventData.session_id && !get().currentSessionId) {
+        set({ currentSessionId: eventData.session_id })
+      }
+      return ['done-interrupted', thoughtStepId]
+    }
+    set((state) => ({
+      messages: state.messages.map((m) => {
+        if (m.id !== assistantId || !m.thoughts?.length) return m
+        const thoughts = [...m.thoughts]
+        const last = thoughts[thoughts.length - 1]
+        if (last && last.status === 'running') {
+          thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
+        }
+        return { ...m, thoughts }
+      }),
+    }))
+    if (eventData.session_id && !get().currentSessionId) {
+      set({ currentSessionId: eventData.session_id })
+    }
+    return ['done-normal', thoughtStepId]
+  }
+
+  if (event.event === 'error') {
+    set({ error: eventData.message })
+    return ['error', thoughtStepId]
+  }
+
+  return ['continue', thoughtStepId]
+}
+
 export const useAgentStore = create<AgentState>((set, get) => ({
   sessions: [],
   currentSessionId: null,
@@ -177,122 +352,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         throw new Error(`请求失败: ${response.status}`)
       }
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        if (abortController.signal.aborted) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const raw = line.slice(6).trim()
-          if (!raw) continue
-
-          try {
-            const event: SSEEvent = JSON.parse(raw)
-            const eventData = event.data
-
-            if (event.event === 'text') {
-              // 逐字流式追加（typewriter effect）
-              const chunk = eventData.content || ''
-              set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === assistantId ? { ...m, content: m.content + chunk } : m,
-                ),
-              }))
-            } else if (event.event === 'tool_call') {
-              set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === assistantId
-                    ? {
-                        ...m,
-                        toolCalls: [
-                          ...(m.toolCalls || []),
-                          {
-                            id: eventData.id || `tc_${Date.now()}`,
-                            name: eventData.name,
-                            arguments: eventData.arguments,
-                          },
-                        ],
-                      }
-                    : m,
-                ),
-              }))
-            } else if (event.event === 'tool_result') {
-              set((state) => ({
-                messages: state.messages.map((m) => {
-                  if (m.id !== assistantId || !m.toolCalls?.length) return m
-                  const calls = [...m.toolCalls]
-                  calls[calls.length - 1] = {
-                    ...calls[calls.length - 1],
-                    result: eventData.result,
-                  }
-                  return { ...m, toolCalls: calls }
-                }),
-              }))
-            } else if (event.event === 'interrupt') {
-              // LangGraph interrupt → 显示确认面板
-              const info: InterruptInfo = {
-                type: eventData.type || 'contract_confirmation',
-                message: eventData.message || '',
-                preview: eventData.preview,
-                options: eventData.options || [],
-                interrupt_id: eventData.interrupt_id || '',
-              }
-              set({ interruptInfo: info, isStreaming: false })
-            } else if (event.event === 'done') {
-              // 被中断的 done 已在 interrupt 事件中处理，跳过重复 set
-              if (eventData.interrupted) {
-                if (eventData.session_id && !get().currentSessionId) {
-                  set({ currentSessionId: eventData.session_id })
-                }
-                // isStreaming 已在 interrupt 事件中设置 false
-                return
-              }
-              // 标记最后一个 thought 为 done
-              set((state) => ({
-                messages: state.messages.map((m) => {
-                  if (m.id !== assistantId || !m.thoughts?.length) return m
-                  const thoughts = [...m.thoughts]
-                  const last = thoughts[thoughts.length - 1]
-                  if (last && last.status === 'running') {
-                    thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
-                  }
-                  return { ...m, thoughts }
-                }),
-              }))
-              if (eventData.session_id && !get().currentSessionId) {
-                set({ currentSessionId: eventData.session_id })
-              }
-            } else if (event.event === 'error') {
-              set({ error: eventData.message })
-            } else if (event.event === 'thinking') {
-              // 累积式思考步骤，不替换
-              const msg = eventData.message || '思考中...'
-              const stepId = `thought_${thoughtStepId++}`
-              set((state) => ({
-                messages: state.messages.map((m) => {
-                  if (m.id !== assistantId) return m
-                  const thoughts = [...(m.thoughts || [])]
-                  // 如果上一步是 running，标记为 done
-                  if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
-                    thoughts[thoughts.length - 1] = { ...thoughts[thoughts.length - 1], status: 'done' as const }
-                  }
-                  thoughts.push({ id: stepId, message: msg, status: 'running' })
-                  return { ...m, thoughts }
-                }),
-              }))
-            }
-          } catch {
-            // JSON parse error, skip
-          }
+      for await (const event of readSSEStream(response, abortController.signal)) {
+        const [action, nextThoughtId] = dispatchSSEEvent(event, assistantId, thoughtStepId, set, get)
+        thoughtStepId = nextThoughtId
+        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+          return
         }
       }
     } catch (e: any) {
@@ -305,7 +369,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  resumeInterrupt: async (confirmed: boolean) => {
+  resumeInterrupt: async (resumeValue: Record<string, any>) => {
     const { currentSessionId, interruptInfo } = get()
     if (!currentSessionId || !interruptInfo) return
 
@@ -324,12 +388,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set((state) => ({ messages: [...state.messages, assistantMessage] }))
 
     abortController = new AbortController()
+    // 起始计数器为 1，因为初始 'resume_0' 思考步骤已占用 0
     let thoughtStepId = 1
 
     try {
+      // 透传整段 opt.value：当前是 {confirmed: bool}，
+      // Phase 2 扩展为 {customer_id, customer_name} / {business_type} / {currency} / {date} 等
+      // 时不需要再改 store，只需 InterruptPanel 传不同 shape
       const response = await agentApi.resumeInterrupt(
         currentSessionId,
-        { confirmed },
+        resumeValue,
         interruptInfo.interrupt_id,
       )
 
@@ -337,70 +405,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         throw new Error(`请求失败: ${response.status}`)
       }
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        if (abortController?.signal.aborted) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const raw = line.slice(6).trim()
-          if (!raw) continue
-
-          try {
-            const event: SSEEvent = JSON.parse(raw)
-            const eventData = event.data
-
-            if (event.event === 'text') {
-              set((state) => ({
-                messages: state.messages.map((m) =>
-                  m.id === assistantId ? { ...m, content: m.content + (eventData.content || '') } : m,
-                ),
-              }))
-            } else if (event.event === 'thinking') {
-              const msg = eventData.message || '思考中...'
-              const stepId = `thought_${thoughtStepId++}`
-              set((state) => ({
-                messages: state.messages.map((m) => {
-                  if (m.id !== assistantId) return m
-                  const thoughts = [...(m.thoughts || [])]
-                  if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
-                    thoughts[thoughts.length - 1] = { ...thoughts[thoughts.length - 1], status: 'done' as const }
-                  }
-                  thoughts.push({ id: stepId, message: msg, status: 'running' })
-                  return { ...m, thoughts }
-                }),
-              }))
-            } else if (event.event === 'done') {
-              if (eventData.interrupted) {
-                set({ isStreaming: false })
-                return
-              }
-              set((state) => ({
-                messages: state.messages.map((m) => {
-                  if (m.id !== assistantId || !m.thoughts?.length) return m
-                  const thoughts = [...m.thoughts]
-                  const last = thoughts[thoughts.length - 1]
-                  if (last && last.status === 'running') {
-                    thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
-                  }
-                  return { ...m, thoughts }
-                }),
-              }))
-            } else if (event.event === 'error') {
-              set({ error: eventData.message })
-            }
-          } catch {
-            // JSON parse error, skip
-          }
+      for await (const event of readSSEStream(response, abortController.signal)) {
+        const [action, nextThoughtId] = dispatchSSEEvent(event, assistantId, thoughtStepId, set, get)
+        thoughtStepId = nextThoughtId
+        // interrupt / done-interrupted / error 任一都退出循环
+        // 注意：resume 过程中可能再次触发 interrupt（多步交互），dispatcher 会写入
+        // 新 interruptInfo 并返回 'interrupt'，UI 自动展示新面板
+        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+          return
         }
       }
     } catch (e: any) {

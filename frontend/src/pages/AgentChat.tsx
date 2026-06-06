@@ -772,25 +772,32 @@ export default function AgentChat() {
                   </div>
                 )}
                 <div style={{ display: 'flex', gap: 8 }}>
-                  {interruptInfo.options.map((opt, i) => (
-                    <Button
-                      key={i}
-                      type={i === 0 ? 'primary' : 'default'}
-                      loading={isStreaming}
-                      onClick={() => {
-                        const confirmed = opt.value.confirmed ?? false
-                        if (confirmed) {
-                          resumeInterrupt(true)
-                        } else {
-                          dismissInterrupt()
-                          message.info('已取消操作')
-                        }
-                      }}
-                      style={{ borderRadius: 8 }}
-                    >
-                      {opt.label}
-                    </Button>
-                  ))}
+                  {interruptInfo.options.map((opt, i) => {
+                    // 按钮样式：第 1 个 primary（主推选项），其余 default。
+                    // 阶段判断：仅当有 "取消" 字样时才走 dismissInterrupt（向后兼容
+                    // contract_confirmation 的 confirmed: false 场景）；其他 option
+                    // 全部透传 opt.value 给 resumeInterrupt，由后端 LangGraph 决定
+                    // 路由。Phase 2 扩展为多选 interrupt（ask_*_node）时无需再改前端。
+                    const isCancel = /取消|cancel/i.test(opt.label)
+                    return (
+                      <Button
+                        key={i}
+                        type={i === 0 ? 'primary' : 'default'}
+                        loading={isStreaming}
+                        onClick={() => {
+                          if (isCancel) {
+                            dismissInterrupt()
+                            message.info('已取消操作')
+                          } else {
+                            resumeInterrupt(opt.value)
+                          }
+                        }}
+                        style={{ borderRadius: 8 }}
+                      >
+                        {opt.label}
+                      </Button>
+                    )
+                  })}
                 </div>
               </div>
             )}
