@@ -110,7 +110,7 @@ class ContractEntrySubgraph:
         """从 file_context 中提取合同结构化数据（VL 缓存优先，文本兜底）"""
         # 先查 Redis 缓存
         if file_id:
-            cached = self.executor._get_cached_analysis(file_id, "contract")
+            cached = self.executor.get_cached_analysis(file_id, "contract")
             if cached and isinstance(cached, dict):
                 return cached
 

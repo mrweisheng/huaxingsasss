@@ -167,6 +167,14 @@ class ToolExecutor:
         elif analysis_type == "receipt":
             self._memory_receipt[file_id] = data
 
+    def get_cached_analysis(self, file_id: str, analysis_type: str) -> Optional[dict]:
+        """公共接口：从缓存获取 VL/文本分析结果（优先 Redis，降级内存）。
+
+        供 orchestrator 子图等外部模块调用，避免直接访问私有方法。
+        参数和返回值与 _get_cached_analysis 完全一致。
+        """
+        return self._get_cached_analysis(file_id, analysis_type)
+
     def _get_cached_analysis(self, file_id: str, analysis_type: str) -> Optional[dict]:
         """从缓存获取 VL 分析结果，优先 Redis，降级内存，都无则返回 None"""
         if self._redis:
