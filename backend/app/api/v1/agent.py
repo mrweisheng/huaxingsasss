@@ -133,6 +133,85 @@ async def chat(
 
     async def event_generator():
         try:
+            # ━━━ Phase 1：中断恢复 + 合同录入 LangGraph 路径 ━━━
+            from app.ai.orchestrator.graph import build_root_graph
+            from app.ai.orchestrator.contract_entry import ContractEntrySubgraph
+            from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream
+            from app.ai.orchestrator.checkpointer import get_checkpointer
+
+            # 检测是否应走 LangGraph 路径
+            use_langgraph = False
+
+            if request.resume:
+                # 中断恢复：走 LangGraph
+                use_langgraph = True
+            elif request.attachments and any(
+                a.file_type in ("pdf", "word", "excel") for a in request.attachments
+            ):
+                # 文档附件 → 合同录入子图
+                use_langgraph = True
+
+            if use_langgraph:
+                try:
+                    cp = get_checkpointer()
+                except RuntimeError:
+                    cp = None
+
+                # 构建子图 + 根图
+                contract_entry = ContractEntrySubgraph(db, current_user, agent)
+                contract_app = contract_entry.build(checkpointer=cp)
+                root_app = build_root_graph(contract_app, checkpointer=cp)
+
+                # 加载 session 元数据
+                agent._load_session_meta(request.session_id)
+                agent.executor.mode = agent._mode
+                agent.executor.session_context = agent._session_context
+
+                config = {
+                    "configurable": {"thread_id": request.session_id or str(uuid.uuid4())},
+                }
+
+                # 构造 initial_state
+                from langchain_core.messages import HumanMessage
+                initial_state = {
+                    "messages": [HumanMessage(content=question)],
+                    "user_id": current_user.id,
+                    "user_role": current_user.role,
+                    "session_id": request.session_id or config["configurable"]["thread_id"],
+                    "attachments": [a.model_dump() for a in request.attachments] if request.attachments else [],
+                    "executor_mode": agent._mode,
+                    "session_context": agent._session_context or {},
+                }
+
+                session_id = initial_state["session_id"]
+
+                if request.resume:
+                    # 中断恢复
+                    from langgraph.types import Command
+                    async for sse_line in adapt_langgraph_stream(
+                        root_app.astream_events(
+                            Command(resume=request.resume),
+                            config, version="v2",
+                        ),
+                        session_id,
+                    ):
+                        if http_request and await http_request.is_disconnected():
+                            return
+                        yield sse_line
+                else:
+                    # 正常流
+                    async for sse_line in adapt_langgraph_stream(
+                        root_app.astream_events(
+                            initial_state, config, version="v2",
+                        ),
+                        session_id,
+                    ):
+                        if http_request and await http_request.is_disconnected():
+                            return
+                        yield sse_line
+                return
+
+            # ━━━ 旧路径：ReAct 循环（Phase 2 替换为通用对话子图） ━━━
             async for event in agent.chat(
                 session_id=request.session_id,
                 user_message=question,
