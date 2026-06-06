@@ -518,8 +518,13 @@ class ContractAgent:
 
                     # 构建结构化摘要返回给 Agent
                     summary_parts = []
-                    if structured.get("party_b", {}).get("name"):
-                        summary_parts.append(f"客户：{structured['party_b']['name']}")
+                    party_b = structured.get("party_b") or {}
+                    if party_b.get("name"):
+                        summary_parts.append(f"客户：{party_b['name']}")
+                    if party_b.get("phone"):
+                        summary_parts.append(f"联系电话：{party_b['phone']}")
+                    if party_b.get("id_number"):
+                        summary_parts.append(f"证件号码：{party_b['id_number']}")
                     if structured.get("total_amount"):
                         cur = structured.get("currency", "")
                         summary_parts.append(f"金额：{structured['total_amount']} {cur}".strip())
@@ -543,7 +548,8 @@ class ContractAgent:
                         f"提取摘要：\n{summary}\n\n"
                         f"完整原文（共{len(text)}字符）：\n{text[:2000]}"
                         f"{'...' if len(text) > 2000 else ''}\n\n"
-                        f"请基于以上摘要向用户展示关键信息（客户、金额、付款条款），询问是否需要创建合同。"
+                        f"请基于以上摘要向用户展示关键信息（客户姓名、联系电话、证件号码、金额、付款条款），"
+                        f"询问是否需要创建合同。创建客户时必须使用摘要中的姓名和电话等信息。"
                     )
                 else:
                     logger.warning("预分析: LLM 返回非 dict，降级为 raw_text 缓存")
