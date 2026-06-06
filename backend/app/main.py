@@ -72,7 +72,7 @@ def health_check():
 
 @app.on_event("startup")
 async def on_startup():
-    # Phase 1 重构：放弃 alembic，表结构由 scripts/init_db.py 一次性建好
+    # 业务表由用户手动执行 SQL 维护（禁止 alembic 自动迁移）
     # LangGraph checkpoint 表由 init_checkpointer() 内部 setup() 自动创建
     from app.ai.orchestrator.checkpointer import init_checkpointer
     await init_checkpointer()
