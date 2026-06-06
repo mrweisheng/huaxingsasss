@@ -30,6 +30,27 @@ async def adapt_langgraph_stream(
     async for event in agen:
         kind = event.get("event", "")
 
+        # interrupt 已触发后：仅监听"新的 interrupt 事件"（多步流程），
+        # 跳过 on_chain_start / on_chat_model_stream / on_chat_model_end 等
+        # 收尾/干扰事件，避免脏数据污染确认面板。
+        # 多步 interrupt 的标准实现：第一次 interrupt → 用户 resume → LangGraph
+        # 在新的 astream_events 调用中 emit 第二个 interrupt；同一个 stream 内
+        # 不会连续触发两个 interrupt。所以此处 `continue` 是为了理论完备性，
+        # 实际单步/多步流程的行为相同。
+        if interrupt_emitted:
+            if kind == "on_chain_end":
+                next_output = event.get("data", {}).get("output", {})
+                if isinstance(next_output, dict) and next_output.get("interrupt_info"):
+                    yield _sse_encode({
+                        "event": "interrupt",
+                        "data": next_output["interrupt_info"],
+                    })
+                    yield _sse_encode({
+                        "event": "done",
+                        "data": {"session_id": session_id, "interrupted": True},
+                    })
+            continue
+
         if kind == "on_chain_start":
             node_name = event.get("name", "")
             sse = {
@@ -42,7 +63,8 @@ async def adapt_langgraph_stream(
             node_name = event.get("name", "")
             output = event.get("data", {}).get("output", {})
             if isinstance(output, dict) and output.get("interrupt_info"):
-                # interrupt 触发 → 推送 interrupt 事件 + done(interrupted=true)
+                # interrupt 触发 → 推送 interrupt 事件 + done(interrupted=true)，
+                # 然后进入"仅监听新 interrupt"模式
                 sse_interrupt = {
                     "event": "interrupt",
                     "data": output["interrupt_info"],
