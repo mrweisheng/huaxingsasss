@@ -125,12 +125,14 @@ class ContractAgent:
             user_message[:100],
         )
 
-        # 1. 处理附件
+        # 1. 处理附件（_process_attachments 为 AsyncGenerator，yield SSE 进度事件和最终结果）
         file_context = ""
         if attachments:
-            yield {"event": "thinking", "data": {"message": f"正在分析 {len(attachments)} 个文件..."}}
-            file_context = await self._process_attachments(attachments)
-            yield {"event": "thinking", "data": {"message": "文件分析完成"}}
+            async for item in self._process_attachments(attachments):
+                if isinstance(item, dict):
+                    yield item  # SSE 进度事件
+                else:
+                    file_context = item  # 最终结果字符串
 
         # 2. 加载历史（当前消息还未保存，不会出现在历史中）
         history = self._load_history(session_id)
@@ -280,9 +282,13 @@ class ContractAgent:
                 self._user_msg_persisted = True
 
             for tc in tool_calls:
-                # 工具执行前通知前端
+                # 工具执行前通知前端（analyze_image 给出更明确的等待提示）
                 _friendly = _TOOL_FRIENDLY_NAMES.get(tc["name"], tc["name"])
-                yield {"event": "thinking", "data": {"message": f"正在{_friendly}..."}}
+                if tc["name"] == "analyze_image":
+                    _progress_msg = "正在调用 AI 识别文件内容，可能需要 5-30 秒..."
+                else:
+                    _progress_msg = f"正在{_friendly}..."
+                yield {"event": "thinking", "data": {"message": _progress_msg}}
 
                 yield {
                     "event": "tool_call",
@@ -339,26 +345,56 @@ class ContractAgent:
             "data": {"session_id": session_id, "tokens_used": total_tokens},
         }
 
-    async def _process_attachments(self, attachments: List[dict]) -> str:
-        """处理附件：对文本型 PDF 直接预分析（跳过 LLM 决策层），其余返回文件标识交给 LLM 调 analyze_image。"""
+    async def _process_attachments(self, attachments: List[dict]) -> AsyncGenerator:
+        """处理附件，yield SSE 进度事件和最终结果字符串。
+
+        yield 约定：dict（含 event 键）→ SSE 进度事件；str → 最终结果。
+        文本型文件（PDF/Word/Excel）：准备 → AI 结构化提取。
+        图片：直接调 VL 预分析，省掉 ReAct 循环的一轮 LLM 推理。
+        """
+        yield {"event": "thinking", "data": {"message": f"正在分析 {len(attachments)} 个文件..."}}
+
         results = []
         for att in attachments:
             file_id = att.get("file_id", "")
             file_type = att.get("file_type", "")
 
-            # 尝试预分析：文本型 PDF / Word / Excel 可直接用文本模型，不需要 LLM 中转
-            pre_analyzed = await self._try_pre_analyze(file_id, file_type)
-            if pre_analyzed:
-                results.append(pre_analyzed)
+            # ── 阶段 1：文件准备（快，< 1s）──
+            yield {"event": "thinking", "data": {"message": "正在读取文件内容..."}}
+            prep = await self._prepare_file(file_id, file_type)
+
+            if prep is None:
+                # 图片或其他不可提取文本的格式 → 尝试 VL 预分析
+                result = await self._pre_analyze_image(file_id)
+                if result:
+                    results.append(result)
+                    continue
+                results.append(f"用户上传了文件（file_id: {file_id}）")
+                continue
+
+            if prep.get("skip"):
+                # 重复文件
+                results.append(prep["message"])
+                continue
+
+            # ── 阶段 2：AI 结构化提取（慢，5-12s）──
+            yield {"event": "thinking", "data": {"message": "正在调用 AI 识别合同关键信息..."}}
+            result = await self._analyze_text_content(file_id, prep["file_type_label"], prep["text"])
+            if result:
+                results.append(result)
             else:
                 results.append(f"用户上传了文件（file_id: {file_id}）")
 
-        return "\n".join(results)
+        yield {"event": "thinking", "data": {"message": "文件分析完成"}}
+        yield "\n".join(results)
 
-    async def _try_pre_analyze(self, file_id: str, file_type: str) -> Optional[str]:
-        """快速提取文本型文件内容（<1s），跳过慢的 ContractAnalyzer API 调用。
-        文本型 PDF / Word / Excel：提取原文 → 查重 → 缓存 → 返回给 LLM。
-        扫描件 PDF / 图片：返回 None，交给 LLM 调 analyze_image → VL 模型。"""
+    async def _prepare_file(self, file_id: str, file_type: str) -> Optional[dict]:
+        """快速提取文件文本内容（< 1s）。
+
+        返回 {'text': str, 'file_type_label': str}，
+        或 {'skip': True, 'message': str}（重复文件），
+        或 None（图片/不可读/扫描件）。
+        """
         if not file_id:
             return None
 
@@ -385,19 +421,15 @@ class ContractAgent:
         file_type_label = ""
 
         if header[:4] == b"%PDF":
-            # PDF：检测是否有可提取文字
             try:
                 from app.utils.file_analysis import extract_pdf_text
                 text = extract_pdf_text(file_path)
             except Exception:
                 return None
             if not text.strip():
-                # 扫描件 PDF，交给 LLM 调 analyze_image → VL 模型
                 return None
             file_type_label = "PDF"
         elif file_type == "word" or is_docx(header):
-            # 优先信任上传端点检测的 file_type（agent upload 已正确识别 .docx）
-            # is_docx 作为兜底（仅检查前 2000 字节，部分 docx 可能漏检）
             try:
                 from app.utils.file_analysis import extract_word_text
                 text = extract_word_text(file_path)
@@ -416,10 +448,10 @@ class ContractAgent:
                 return None
             file_type_label = "Excel"
         else:
-            # 图片或其他格式，交给 LLM 调 analyze_image
+            # 图片或其他格式，交给 VL 预分析
             return None
 
-        # 快速查重：计算 hash + DB 查询（复用 ContractAnalyzer 的 hash 算法）
+        # 快速查重：计算 hash + DB 查询
         try:
             from app.utils.file_utils import calculate_file_hash
             with open(file_path, "rb") as f:
@@ -432,17 +464,23 @@ class ContractAgent:
                 Contract.is_deleted == False,
             ).first()
             if existing:
-                return (
-                    f"[系统预分析结果 - 文件重复]\n"
-                    f"该文件已在系统中存在对应的合同记录。\n"
-                    f"合同编号：{existing.contract_number}，客户：{existing.title or '未知'}，"
-                    f"状态：{existing.status}。"
-                )
+                return {
+                    "skip": True,
+                    "message": (
+                        f"[系统预分析结果 - 文件重复]\n"
+                        f"该文件已在系统中存在对应的合同记录。\n"
+                        f"合同编号：{existing.contract_number}，客户：{existing.title or '未知'}，"
+                        f"状态：{existing.status}。"
+                    ),
+                }
         except Exception:
             logger.debug("查重跳过: file_id=%s", file_id)
 
-        # ━━━ 调用 LLM 提取结构化数据 ← 保证 create_contract 始终有 payment_terms ━━━
-        logger.info("预分析: 调用百炼DeepSeek-V4-Flash提取合同结构化数据, text_len=%d", len(text))
+        return {"text": text, "file_type_label": file_type_label}
+
+    async def _analyze_text_content(self, file_id: str, file_type_label: str, text: str) -> Optional[str]:
+        """调用 LLM 提取结构化数据（5-12s），缓存结果并返回摘要给 LLM。"""
+        logger.info("预分析: 调用LLM提取合同结构化数据, text_len=%d", len(text))
         try:
             from app.utils.file_analysis import make_text_extraction_prompt
 
@@ -536,6 +574,56 @@ class ContractAgent:
             f"提取内容：\n{context_str}\n\n"
             f"请直接基于以上内容向用户展示关键信息，询问是否需要创建合同。"
         )
+
+    async def _pre_analyze_image(self, file_id: str) -> Optional[str]:
+        """图片预分析：直接调 VL 模型，省掉 ReAct 循环的一轮 LLM 推理。
+
+        复用现有 analyze_image 同步方法（通过 asyncio.to_thread），
+        VL 结果自动缓存到 Redis。失败时返回 None，交给 ReAct 循环处理。
+        """
+        try:
+            logger.info("图片预分析: file_id=%s", file_id)
+            result_str = await asyncio.to_thread(
+                self.executor.analyze_image, file_id, "contract"
+            )
+            result_data = json.loads(result_str)
+            if not result_data.get("success"):
+                logger.warning("图片预分析失败: file_id=%s, error=%s", file_id, result_data.get("error", ""))
+                return None
+
+            # 从 VL 结果中提取关键字段，构建摘要给 LLM
+            data = result_data.get("data", {})
+            if not isinstance(data, dict):
+                return None
+
+            summary_parts = []
+            if data.get("party_b", {}).get("name"):
+                summary_parts.append(f"客户：{data['party_b']['name']}")
+            if data.get("total_amount"):
+                cur = data.get("currency", "")
+                summary_parts.append(f"金额：{data['total_amount']} {cur}".strip())
+            if data.get("signed_date"):
+                summary_parts.append(f"签订日期：{data['signed_date']}")
+            if data.get("payment_terms"):
+                terms_str = "、".join(
+                    f"{t.get('name', t.get('description', '?'))} {t.get('amount', '?')}"
+                    for t in data["payment_terms"]
+                )
+                summary_parts.append(f"付款条款：{terms_str}")
+            if data.get("business_description"):
+                summary_parts.append(f"业务：{data['business_description']}")
+
+            summary = "\n".join(summary_parts) if summary_parts else "图片内容已识别"
+            logger.info("图片预分析完成: file_id=%s", file_id)
+            return (
+                f"[系统已自动分析图片文件，请勿再调用 analyze_image 工具]\n"
+                f"file_id：{file_id}\n"
+                f"分析摘要：\n{summary}\n\n"
+                f"请基于以上摘要向用户展示关键信息，询问是否需要创建合同。"
+            )
+        except Exception:
+            logger.warning("图片预分析异常: file_id=%s", file_id, exc_info=True)
+            return None
 
     @staticmethod
     def _is_confirmation(user_message: str) -> bool:
