@@ -1029,16 +1029,27 @@ class ContractAgent:
 
         session_ids = [s.session_id for s in aggregates]
 
-        # Query 2: 批量取 chat_sessions 的 mode
+        # Query 2: 批量取 chat_sessions 的 mode / title / context / created_at
         session_meta_map: dict[str, dict] = {}
         if session_ids:
             meta_records = (
-                self.db.query(ChatSession.session_id, ChatSession.mode, ChatSession.title)
+                self.db.query(
+                    ChatSession.session_id,
+                    ChatSession.mode,
+                    ChatSession.title,
+                    ChatSession.context,
+                    ChatSession.created_at,
+                )
                 .filter(ChatSession.session_id.in_(session_ids))
                 .all()
             )
             for r in meta_records:
-                session_meta_map[r.session_id] = {"mode": r.mode, "title": r.title}
+                session_meta_map[r.session_id] = {
+                    "mode": r.mode,
+                    "title": r.title,
+                    "context": r.context,
+                    "created_at": r.created_at,
+                }
 
         # Query 3: 取每会话首条用户消息作标题（使用窗口函数）
         first_msg_map: dict[str, Optional[str]] = {}
@@ -1070,12 +1081,15 @@ class ContractAgent:
         result = []
         for s in aggregates:
             meta = session_meta_map.get(s.session_id, {})
+            # 优先用 chat_sessions.created_at（真实创建时间），fallback 到 last_activity
+            created = meta.get("created_at") or s.last_activity
             result.append({
                 "session_id": s.session_id,
-                "created_at": s.last_activity.isoformat() if s.last_activity else None,
+                "created_at": created.isoformat() if created else None,
                 "message_count": s.message_count,
                 "title": meta.get("title") or first_msg_map.get(s.session_id),
                 "mode": meta.get("mode", "chat"),
+                "context": meta.get("context"),
             })
 
         result.sort(key=lambda x: x["created_at"] or "", reverse=True)

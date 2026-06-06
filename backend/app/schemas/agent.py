@@ -28,7 +28,9 @@ class ChatRequest(BaseModel):
 
     @model_validator(mode="after")
     def check_resume_consistency(self) -> "ChatRequest":
-        """resume 与 question/attachments 互斥"""
+        """resume / interrupt_id 配套出现，且与 question/attachments 互斥"""
+        if self.resume is None and self.interrupt_id is not None:
+            raise ValueError("interrupt_id 必须与 resume 一起提供")
         if self.resume is not None:
             if self.question or self.attachments:
                 raise ValueError("resume 非空时，question 和 attachments 必须为空")

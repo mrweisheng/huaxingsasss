@@ -158,22 +158,52 @@ async def chat(
             if use_langgraph:
                 try:
                     cp = get_checkpointer()
-                except RuntimeError:
-                    cp = None
+                except RuntimeError as e:
+                    # checkpointer 缺失是部署故障，抛 503 比静默降级更安全
+                    logger.error("checkpointer 未初始化: %s", e)
+                    raise HTTPException(
+                        status_code=503,
+                        detail="LangGraph checkpointer 未初始化，请联系管理员",
+                    )
 
-                # 构建子图 + 根图
-                contract_entry = ContractEntrySubgraph(db, current_user, agent)
-                contract_app = contract_entry.build(checkpointer=cp)
-                root_app = build_root_graph(contract_app, checkpointer=cp)
-
-                # 加载 session 元数据
+                # 加载 session 元数据（mode / session_context 用于 ToolExecutor 守卫）
                 agent._load_session_meta(request.session_id)
-                agent.executor.mode = agent._mode
-                agent.executor.session_context = agent._session_context
 
                 config = {
                     "configurable": {"thread_id": request.session_id or str(uuid.uuid4())},
                 }
+                session_id = config["configurable"]["thread_id"]
+
+                # ━━━ 中断恢复：校验 interrupt_id 与 checkpoint 匹配 ━━━
+                if request.resume:
+                    try:
+                        state_snapshot = await cp.aget(config)
+                        pending_ids = [
+                            i.id for i in (state_snapshot.interrupts or [])
+                        ]
+                        if request.interrupt_id not in pending_ids:
+                            logger.warning(
+                                "interrupt_id 不匹配: received=%s pending=%s thread=%s",
+                                request.interrupt_id, pending_ids, session_id,
+                            )
+                            yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断'}}, ensure_ascii=False)}\n\n"
+                            return
+                    except Exception as e:
+                        logger.error("checkpoint 查询失败: %s", e)
+                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': '无法验证中断状态，请稍后重试'}}, ensure_ascii=False)}\n\n"
+                        return
+
+                # 构建子图 + 根图。mode / session_context 通过构造函数注入到子图闭包
+                # 内的 ToolExecutor，而不是修改 agent.executor（那是另一个实例）。
+                # agent 注入 finalize_node 用于 chat_history 落库（ADR #6）。
+                contract_entry = ContractEntrySubgraph(
+                    db, current_user, agent,
+                    mode=agent._mode,
+                    session_context=agent._session_context,
+                    session_id=session_id,
+                )
+                contract_app = contract_entry.build(checkpointer=cp)
+                root_app = build_root_graph(contract_app, checkpointer=cp, agent=agent)
 
                 # 构造 initial_state
                 from langchain_core.messages import HumanMessage
@@ -181,16 +211,14 @@ async def chat(
                     "messages": [HumanMessage(content=question)],
                     "user_id": current_user.id,
                     "user_role": current_user.role,
-                    "session_id": request.session_id or config["configurable"]["thread_id"],
+                    "session_id": session_id,
                     "attachments": [a.model_dump() for a in request.attachments] if request.attachments else [],
                     "executor_mode": agent._mode,
                     "session_context": agent._session_context or {},
                 }
 
-                session_id = initial_state["session_id"]
-
                 if request.resume:
-                    # 中断恢复
+                    # 中断恢复（校验已在上方完成）
                     from langgraph.types import Command
                     async for sse_line in adapt_langgraph_stream(
                         root_app.astream_events(
