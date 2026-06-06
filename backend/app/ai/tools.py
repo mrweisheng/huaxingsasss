@@ -140,16 +140,6 @@ class ToolExecutor:
         sid = self.session_id or "nosession"
         return f"vl:{analysis_type}:{sid}:{file_id}"
 
-    def _inject_receipt_warnings(self, structured: dict) -> None:
-        """凭证分析结果：检测币种/交易日期缺失，注入 warnings 强制 LLM 向用户确认。"""
-        warnings = []
-        if not structured.get("currency"):
-            warnings.append("⚠️ 币种未识别：请向用户确认这笔付款的币种（CNY/HKD/USD），不可猜测或默认")
-        if not structured.get("transaction_date"):
-            warnings.append("⚠️ 交易日期未识别：请向用户确认付款日期（汇率与日期绑定，日期不同汇率不同）")
-        if warnings:
-            structured["warnings"] = warnings
-
     def _summarize_analysis_for_context(self, structured: dict) -> dict:
         """压缩 VL 分析结果再返回给 LLM context，剥离大字段（完整数据已缓存供后续工具取用）"""
         if not isinstance(structured, dict):
@@ -320,100 +310,6 @@ class ToolExecutor:
             "paid_date": str(p.paid_date) if p.paid_date else None,
         }
 
-    def format_result_summary(self, result_json: str) -> Optional[str]:
-        """从工具结果 JSON 生成人类可读的摘要（供 agent 兜底回复使用）。
-        返回 None 表示无法生成摘要。"""
-        if not result_json or not result_json.strip():
-            return None
-        try:
-            data = json.loads(result_json)
-        except (json.JSONDecodeError, TypeError):
-            preview = result_json[:500]
-            if len(result_json) > 500:
-                preview += "..."
-            return f"工具执行完成，返回结果：\n{preview}"
-
-        if not isinstance(data, dict):
-            preview = result_json[:500]
-            return f"工具执行完成，返回结果：\n{preview}"
-
-        # analyze_image 成功返回
-        if data.get("success"):
-            d = data.get("data", {})
-            if isinstance(d, dict):
-                if "document_type" in d:
-                    parts = ["文件分析完成，以下是提取的关键信息："]
-                    if d.get("document_type"):
-                        parts.append(f"凭证类型: {d['document_type']}")
-                    if d.get("amount"):
-                        cur = d.get("currency", "")
-                        parts.append(f"金额: {d['amount']} {cur}".strip())
-                    if d.get("transaction_date"):
-                        parts.append(f"日期: {d['transaction_date']}")
-                    if d.get("payer_name"):
-                        parts.append(f"付款人: {d['payer_name']}")
-                    if d.get("payee_name"):
-                        parts.append(f"收款人: {d['payee_name']}")
-                    return "\n".join(parts)
-                if "content" in d and isinstance(d["content"], str):
-                    return f"文件分析完成，内容摘要：\n{d['content'][:1000]}"
-                if "contract_number" in d or "title" in d:
-                    parts = ["合同分析完成，以下是提取的关键信息："]
-                    if d.get("title"):
-                        parts.append(f"合同标题: {d['title']}")
-                    if d.get("contract_number"):
-                        parts.append(f"合同编号: {d['contract_number']}")
-                    if isinstance(d.get("party_b"), dict) and d["party_b"].get("name"):
-                        parts.append(f"客户: {d['party_b']['name']}")
-                    if d.get("total_amount"):
-                        cur = d.get("currency", "")
-                        parts.append(f"总金额: {d['total_amount']} {cur}".strip())
-                    return "\n".join(parts)
-                # group_name 场景
-                if d.get("group_name"):
-                    parts = [f"群聊分析完成：{d['group_name']}"]
-                    if d.get("business_type"):
-                        parts.append(f"业务类型: {d['business_type']}")
-                    return "\n".join(parts)
-
-        # match_receipt 结果
-        if "matches" in data:
-            parts = ["已找到可能的匹配项："]
-            message = data.get("message", "")
-            if message:
-                parts.append(message)
-            for m in data["matches"][:3]:
-                customer = m.get("customer_name", "未知")
-                contract_no = m.get("contract_number", "")
-                installment = m.get("installment_name", "")
-                amount = m.get("amount", "")
-                currency = m.get("currency", "")
-                parts.append(
-                    f"• {customer} — {contract_no} "
-                    f"({installment}): {amount} {currency}"
-                )
-            if len(data["matches"]) > 3:
-                parts.append(f"  ...及其他 {len(data['matches'])-3} 条匹配")
-            return "\n".join(parts)
-
-        # 其他成功结果
-        if data.get("success") and data.get("contract"):
-            c = data["contract"]
-            return f"操作成功：合同 {c.get('contract_number', '')} 已更新"
-
-        if data.get("success") and data.get("customer"):
-            c = data["customer"]
-            return f"操作成功：客户 {c.get('name', '')} 已创建/更新"
-
-        if data.get("success") and data.get("payment"):
-            return "操作成功：付款记录已创建/更新"
-
-        # 通用兜底
-        preview = result_json[:500]
-        if len(result_json) > 500:
-            preview += "..."
-        return f"工具执行完成，返回结果：\n{preview}"
-
     # ── 查询工具 ──
 
     def search_customers(
@@ -477,7 +373,6 @@ class ToolExecutor:
             return json.dumps({
                 "summary": {"total_customers": total_count, "returned": len(results)},
                 "customers": results,
-                "hint": "以上为最近创建的客户。如需查找特定客户，请提供姓名、电话或微信群名。如需查看更多，可指定 limit 参数。",
             }, ensure_ascii=False)
 
         return json.dumps({"customers": results, "total": len(results)}, ensure_ascii=False)
@@ -531,7 +426,6 @@ class ToolExecutor:
                     "returned": len(contracts),
                 },
                 "contracts": contracts,
-                "hint": "以上为最近创建的合同。如需查找特定合同，请提供客户名、合同号或状态筛选。",
             }, ensure_ascii=False)
 
         return json.dumps({"contracts": contracts, "total": total}, ensure_ascii=False)
@@ -600,62 +494,28 @@ class ToolExecutor:
         Args:
             customer_id: 客户 ID。
             business_type: 业务类型过滤（车辆买卖/两地牌过户/年检保险/其他）。
-                传入时仅返回该类型合同（NULL 存量合同兜底包含）；
-                零结果时自动回退到全量展示，避免空数据误导。
+                传入时仅返回该类型合同。
         """
         sales_person_id = None
         if self.user.role == Role.INCOME:
             sales_person_id = self.user.id
 
         normalized = BusinessType.normalize(business_type) if business_type else None
-        filter_applied = normalized is not None
-        fallback_to_all = False
 
-        if filter_applied:
-            # 带过滤：先在 Service 层用 business_type 过滤
-            items, total = ContractService.get_contracts(
-                self.db,
-                customer_id=customer_id,
-                sales_person_id=sales_person_id,
-                business_type=normalized,
-                per_page=50,
-            )
-            if total == 0:
-                # 零结果兜底：再查全量
-                logger.info(
-                    "get_customer_contracts: business_type=%s 零结果，回退到全量 customer_id=%d",
-                    normalized, customer_id,
-                )
-                items, total = ContractService.get_contracts(
-                    self.db,
-                    customer_id=customer_id,
-                    sales_person_id=sales_person_id,
-                    per_page=50,
-                )
-                fallback_to_all = True
-        else:
-            items, total = ContractService.get_contracts(
-                self.db,
-                customer_id=customer_id,
-                sales_person_id=sales_person_id,
-                per_page=50,
-            )
+        items, total = ContractService.get_contracts(
+            self.db,
+            customer_id=customer_id,
+            sales_person_id=sales_person_id,
+            business_type=normalized,
+            per_page=50,
+        )
 
         contracts = [self._contract_to_dict_lite(c) for c in items]
-        result = {
+        return json.dumps({
             "contracts": contracts,
             "total": total,
-            "filter": {
-                "business_type": normalized,
-                "applied": filter_applied,
-                "fallback_to_all": fallback_to_all,
-            },
-        }
-        if filter_applied and fallback_to_all:
-            result["message"] = (
-                f"按业务类型「{normalized}」未找到合同，已展示该客户全部 {total} 份合同供选择。"
-            )
-        return json.dumps(result, ensure_ascii=False)
+            "filter": {"business_type": normalized},
+        }, ensure_ascii=False)
 
     def query_payments(self, **kwargs) -> str:
         query = self.db.query(Payment).filter(Payment.is_deleted == False)
@@ -735,7 +595,6 @@ class ToolExecutor:
                     "wechat_group_name": customer.wechat_group_name,
                 },
                 "created": created,
-                "message": "客户创建成功" if created else f"客户已存在（ID: {customer.id}）",
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("create_customer failed")
@@ -786,7 +645,7 @@ class ToolExecutor:
                     "email": customer.email,
                     "wechat_group_name": customer.wechat_group_name,
                 },
-                "message": f"客户信息已更新: {list(updated.keys())}",
+                "updated_fields": list(updated.keys()),
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("update_customer failed")
@@ -1055,7 +914,7 @@ class ToolExecutor:
         contract_data_raw = kwargs.get("contract_data", {})
 
         if not customer_id:
-            return json.dumps({"error": "缺少 customer_id，请先创建或查找客户"}, ensure_ascii=False)
+            return json.dumps({"error": "缺少 customer_id"}, ensure_ascii=False)
         if not file_id:
             return json.dumps({"error": "缺少 file_id，无法关联原始文件"}, ensure_ascii=False)
 
@@ -1282,8 +1141,7 @@ class ToolExecutor:
                     "signed_date": str(contract.signed_date) if contract.signed_date else None,
                 },
                 "auto_payments": auto_payments,
-                **({"_warning": "合同总金额为0，VL未提取到金额且Agent未补传。请人工核实合同金额。"}
-                   if contract.total_amount == 0 else {}),
+                **({"zero_amount": True} if contract.total_amount == 0 else {}),
             }, ensure_ascii=False)
         except Exception as e:
             logger.exception("create_contract failed")
@@ -1391,10 +1249,7 @@ class ToolExecutor:
             ).first()
             if existing:
                 return json.dumps({
-                    "warning": True,
-                    "message": f"第{installment_number}期收入记录已存在（状态: {existing.status}, "
-                               f"金额: {existing.amount} {existing.currency}），"
-                               f"请使用 update_payment 更新已有记录。",
+                    "duplicate": True,
                     "existing_payment": self._payment_to_dict_lite(existing),
                 }, ensure_ascii=False)
         else:
@@ -1416,10 +1271,7 @@ class ToolExecutor:
                 if existing:
                     info = self._payment_to_dict_lite(existing)
                     return json.dumps({
-                        "warning": True,
-                        "message": f"该凭证已用于此合同（期数: {existing.installment_name or existing.installment_number}, "
-                                   f"金额: {existing.amount} {existing.currency}, 日期: {existing.paid_date}, "
-                                   f"类型: {existing.type}），请确认是否重复上传。",
+                        "duplicate": True,
                         "existing_payment": info,
                     }, ensure_ascii=False)
             logger.info(
@@ -1484,10 +1336,7 @@ class ToolExecutor:
                 if existing:
                     info = self._payment_to_dict_lite(existing)
                     return json.dumps({
-                        "warning": True,
-                        "message": f"该凭证已用于此合同（期数: {existing.installment_name or existing.installment_number}, "
-                                   f"金额: {existing.amount} {existing.currency}, 日期: {existing.paid_date}, "
-                                   f"类型: {existing.type}），请确认是否重复上传。",
+                        "duplicate": True,
                         "existing_payment": info,
                     }, ensure_ascii=False)
 
@@ -1595,7 +1444,7 @@ class ToolExecutor:
                     logger.info("match_receipt 使用缓存凭证数据: file_id=%s", file_id)
 
         if not receipt_data or not isinstance(receipt_data, dict):
-            return json.dumps({"error": "缺少凭证数据。请先调用 analyze_image 分析凭证，或直接传入 receipt_data。"}, ensure_ascii=False)
+            return json.dumps({"error": "缺少凭证数据"}, ensure_ascii=False)
 
         payer_name = receipt_data.get("payer_name", "")
         receipt_amount = None
@@ -1723,12 +1572,10 @@ class ToolExecutor:
         if not candidates:
             return json.dumps({
                 "matches": [],
-                "message": "未找到匹配的付款记录。请提供客户姓名以便搜索。",
             }, ensure_ascii=False)
 
         return json.dumps({
             "matches": candidates,
-            "message": f"找到 {len(candidates)} 条可能匹配的付款记录，请确认正确的关联。",
         }, ensure_ascii=False)
 
     def search_contract_text(self, **kwargs) -> str:
@@ -1759,7 +1606,7 @@ class ToolExecutor:
         if not contracts:
             return json.dumps({
                 "matches": [],
-                "message": f"未找到包含「{keyword}」的合同内容。",
+                "keyword": keyword,
             }, ensure_ascii=False)
 
         results = []
@@ -1789,7 +1636,7 @@ class ToolExecutor:
 
         return json.dumps({
             "matches": results,
-            "message": f"在 {len(results)} 份合同中找到「{keyword}」的匹配内容。",
+            "keyword": keyword,
         }, ensure_ascii=False)
 
     def ask_contract(self, **kwargs) -> str:
@@ -1815,7 +1662,7 @@ class ToolExecutor:
 
         if not contract.contract_text:
             return json.dumps({
-                "error": "该合同尚未提取全文内容。请重新上传合同文件以触发全文提取。",
+                "error": "该合同尚未提取全文内容",
                 "contract_number": contract.contract_number,
                 "customer_name": contract.customer.name if contract.customer else "未知",
             }, ensure_ascii=False)
@@ -1833,7 +1680,6 @@ class ToolExecutor:
             "signed_date": str(contract.signed_date) if contract.signed_date else None,
             "contract_text": text,
             "user_question": question,
-            "_instruction": "请基于以上 contract_text 中的合同全文内容，回答 user_question。只基于原文回答，不要编造任何合同中没有的信息。引用具体条款作为依据。如果合同中没有相关信息，明确告知用户。",
         }, ensure_ascii=False)
 
     def get_expense_summary(self, **kwargs) -> str:
@@ -2079,7 +1925,6 @@ class ToolExecutor:
             "expense_total_cny": float(expense_total),
             "recent_customers": recent_customers,
             "recent_contracts": recent_contracts,
-            "hint": "这是一个全局统计概览。如需查看具体客户或合同的详细信息，可用 search_customers / search_contracts 精确查找。",
         }, ensure_ascii=False)
 
     # ── 文件分析工具 ──
@@ -2271,8 +2116,6 @@ class ToolExecutor:
 
                 self._document_context = analysis_type
                 # 凭证类型：检测关键字段缺失，注入 _warnings 强制 LLM 向用户确认
-                if analysis_type == "receipt" and isinstance(structured, dict):
-                    self._inject_receipt_warnings(structured)
                 # 缓存 VL 完整输出，后续 create_contract 等工具可直接取用，避免 LLM 搬运丢失字段
                 self._cache_analysis(file_id, analysis_type, structured)
                 # 分析成功后立即将文件从 temp 复制到凭证永久目录，避免跨回合 temp 清理导致凭证丢失
@@ -2354,8 +2197,6 @@ class ToolExecutor:
                             if analysis_type == "contract" and isinstance(structured, dict):
                                 structured["full_text"] = full_text
                             self._document_context = analysis_type
-                            if analysis_type == "receipt" and isinstance(structured, dict):
-                                self._inject_receipt_warnings(structured)
                             self._cache_analysis(file_id, analysis_type, structured)
                             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
                             receipt_path = permanent_path or f"agent_upload/{file_id}"
@@ -2412,8 +2253,6 @@ class ToolExecutor:
                             except json.JSONDecodeError:
                                 structured = {"raw": content}
                             self._document_context = analysis_type
-                            if analysis_type == "receipt" and isinstance(structured, dict):
-                                self._inject_receipt_warnings(structured)
                             self._cache_analysis(file_id, analysis_type, structured)
                             permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
                             receipt_path = permanent_path or f"agent_upload/{file_id}"
@@ -2729,8 +2568,6 @@ TOOL_DEFINITIONS = [
             "description": (
                 "获取某客户的合同列表及付款状态汇总。"
                 "支持按业务类型（business_type）过滤。"
-                "群聊截图识别后会携带 business_type 调用本工具，仅返回该类型合同，"
-                "过滤后零结果会自动回退到全量展示，并在返回中带 message 提示。"
                 "业务类型取值：车辆买卖 / 两地牌过户 / 年检保险 / 其他。"
             ),
             "parameters": {
@@ -2747,8 +2584,7 @@ TOOL_DEFINITIONS = [
                             "其他",
                         ],
                         "description": (
-                            "业务类型过滤。群聊截图识别后必须传入识别结果中的 business_type；"
-                            "凭证/合同流程可不传。不传则返回全量。"
+                            "业务类型过滤。不传则返回全量。"
                         ),
                     },
                 },
@@ -2784,7 +2620,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_contract",
-            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。创建后系统会自动根据合同中的付款条款创建对应的付款记录（已付款项自动记录为 pending，如同时上传了凭证且金额匹配则直接记录为 paid）。系统会自动使用之前 analyze_image 的分析结果，无需重复传递合同数据。",
+            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。系统会自动使用之前 analyze_image 的分析结果，并自动根据付款条款创建对应的付款记录。",
             "parameters": {
                 "type": "object",
                 "required": ["customer_id", "file_id"],
@@ -2827,7 +2663,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment",
-            "description": "为合同创建收入付款记录（客户向公司付款）。无凭证时创建为 pending 状态（不参与结算），有凭证时创建为 paid 状态（自动参与结算）。同币种不折算，混币种按付款日实时汇率自动结算。仅用于手动录入或凭证上传场景——合同录入时系统会自动创建已付款项的记录，不需要手动调用。如果该期数已有记录会返回已有记录信息，此时应改用 update_payment。",
+            "description": "为合同创建收入付款记录（客户向公司付款）。无凭证时创建为 pending 状态，有凭证时创建为 paid 状态。同币种不折算，混币种按付款日实时汇率自动结算。合同录入时系统会自动创建已付款项的记录，不需要手动调用。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "amount", "currency", "paid_date"],
@@ -2838,7 +2674,7 @@ TOOL_DEFINITIONS = [
                     "amount": {"type": "number", "description": "付款金额"},
                     "currency": {
                         "type": "string", "enum": ["CNY", "HKD", "USD"],
-                        "description": "付款币种。优先从凭证分析结果中提取；如果凭证上没有明确标注币种符号（如 HK$/¥/$/港币/人民币），必须询问用户确认，不可猜测默认。",
+                        "description": "付款币种。优先从凭证分析结果中提取。",
                     },
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
                     "payment_method": {
@@ -2867,7 +2703,7 @@ TOOL_DEFINITIONS = [
                     "amount": {"type": "number", "description": "支出金额"},
                     "currency": {
                         "type": "string", "enum": ["CNY", "HKD", "USD"],
-                        "description": "支出币种。如果凭证上没有明确标注币种符号，必须询问用户确认，不可猜测默认。",
+                        "description": "支出币种。优先从凭证分析结果中提取。",
                     },
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
                     "payee_name": {"type": "string", "description": "收款方名称（如：某某代办公司）"},
@@ -2909,7 +2745,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "match_receipt",
-            "description": "根据凭证分析结果智能匹配到合同付款记录。优先按客户名匹配，其次按金额匹配。返回候选列表供用户确认，确认后用 update_payment 补充凭证。用户上传付款凭证时必须先调用此工具查找匹配。系统会自动使用之前 analyze_image 的分析结果，通常无需传递 receipt_data。",
+            "description": "根据凭证分析结果智能匹配到合同付款记录。优先按客户名匹配，其次按金额匹配。返回候选列表供用户确认。系统会自动使用之前 analyze_image 的分析结果。",
             "parameters": {
                 "type": "object",
                 "required": [],

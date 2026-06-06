@@ -60,25 +60,6 @@ _TOOL_FRIENDLY_NAMES = {
     "analyze_image": "分析文件",
 }
 
-# 用户确认意图匹配模式（re.IGNORECASE 已覆盖大小写变体）
-# 严格枚举，不使用 .* 通配符，避免"好的但我需要改一下"被误判为确认
-_CONFIRM_PATTERN = re.compile(
-    r'^(好的|确认|没问题|可以|执行|对|是的|ok|yes|好|行|就这样|确认执行|'
-    r'可以的|可以啊|可以吧|可以呢|'
-    r'好的啊|好的吧|好的呢|'
-    r'对啊|对的|对呢|'
-    r'好啊|好吧|好呢|'
-    r'行啊|行吧|行呢|'
-    r'确认了|确认啦|执行吧|'
-    r'没问题的|没问题了|没问题啦|'
-    r'是的呢|是的吧|是的啦|'
-    r'没错|好滴|好嘞|好咧|必须的|'
-    r'需要的|要的|要啊|要吧|'
-    r'当然|当然可以|当然好|就这样吧|就这样了)$',
-    re.IGNORECASE,
-)
-
-
 class ContractAgent:
     def __init__(self, db: Session, user: User):
         self.db = db
@@ -147,21 +128,8 @@ class ContractAgent:
             # 导致 LLM 看不到工具结果
             history = self._ensure_trailing_pair_intact(history)
 
-        # 4. 确认意图快捷路径：检测用户是否在确认上一轮提出的操作
+        # 4. 构建消息
         original_user_message = user_message
-        if (
-            not file_context  # 没有新附件
-            and not attachments
-            and self._is_confirmation(user_message)
-            and self._last_assistant_asked_confirmation(history)
-        ):
-            logger.info("检测到用户确认意图，注入快捷信号: session=%s", session_id[:8])
-            user_message = (
-                f"[系统注入：用户已确认，请立即执行上一轮提出的操作，不要重复解释或再次确认]\n"
-                f"用户说：「{user_message}」"
-            )
-
-        # 5. 构建消息
         messages = self._build_messages(history, user_message, file_context, summary=summary)
 
         # 6. 用户消息先入 messages（用于本轮 LLM 调用），
@@ -467,10 +435,8 @@ class ContractAgent:
                 return {
                     "skip": True,
                     "message": (
-                        f"[系统预分析结果 - 文件重复]\n"
-                        f"该文件已在系统中存在对应的合同记录。\n"
-                        f"合同编号：{existing.contract_number}，客户：{existing.title or '未知'}，"
-                        f"状态：{existing.status}。"
+                        f"文件重复：该文件已有对应合同（编号：{existing.contract_number}，"
+                        f"客户：{existing.title or '未知'}，状态：{existing.status}）。"
                     ),
                 }
         except Exception:
@@ -520,12 +486,9 @@ class ContractAgent:
                     agent_data = {k: v for k, v in structured.items() if k != "full_text"}
                     logger.info("预分析完成: keys=%s", list(structured.keys()))
                     return (
-                        f"[系统已自动提取合同结构化数据，请勿再调用 analyze_image 工具]\n"
                         f"文件类型：{file_type_label}\n"
                         f"file_id：{file_id}\n"
-                        f"结构化数据：\n{json.dumps(agent_data, ensure_ascii=False, indent=2)}\n\n"
-                        f"请基于以上数据向用户展示关键信息，询问是否需要创建合同。"
-                        f"创建客户时请直接使用 party_b 中的姓名、电话等信息。"
+                        f"结构化数据：\n{json.dumps(agent_data, ensure_ascii=False, indent=2)}"
                     )
                 else:
                     logger.warning("预分析: LLM 返回非 dict，降级为 raw_text 缓存")
@@ -550,11 +513,9 @@ class ContractAgent:
             context_str += f"\n\n...（共 {len(text)} 字符，已截断）"
 
         return (
-            f"[系统已自动提取文件内容，请勿再调用 analyze_image 工具]\n"
             f"文件类型：{file_type_label}\n"
             f"file_id：{file_id}\n"
-            f"提取内容：\n{context_str}\n\n"
-            f"请直接基于以上内容向用户展示关键信息，询问是否需要创建合同。"
+            f"提取内容：\n{context_str}"
         )
 
     async def _pre_analyze_image(self, file_id: str) -> Optional[str]:
@@ -573,64 +534,20 @@ class ContractAgent:
                 logger.warning("图片预分析失败: file_id=%s, error=%s", file_id, result_data.get("error", ""))
                 return None
 
-            # 从 VL 结果中提取关键字段，构建摘要给 LLM
             data = result_data.get("data", {})
             if not isinstance(data, dict):
                 return None
 
-            summary_parts = []
-            if data.get("party_b", {}).get("name"):
-                summary_parts.append(f"客户：{data['party_b']['name']}")
-            if data.get("total_amount"):
-                cur = data.get("currency", "")
-                summary_parts.append(f"金额：{data['total_amount']} {cur}".strip())
-            if data.get("signed_date"):
-                summary_parts.append(f"签订日期：{data['signed_date']}")
-            if data.get("payment_terms"):
-                terms_str = "、".join(
-                    f"{t.get('name', t.get('description', '?'))} {t.get('amount', '?')}"
-                    for t in data["payment_terms"]
-                )
-                summary_parts.append(f"付款条款：{terms_str}")
-            if data.get("business_description"):
-                summary_parts.append(f"业务：{data['business_description']}")
-
-            summary = "\n".join(summary_parts) if summary_parts else "图片内容已识别"
+            # 直传完整 JSON（去掉 full_text），让 Agent 自行决定展示内容
+            agent_data = {k: v for k, v in data.items() if k != "full_text"}
             logger.info("图片预分析完成: file_id=%s", file_id)
             return (
-                f"[系统已自动分析图片文件，请勿再调用 analyze_image 工具]\n"
                 f"file_id：{file_id}\n"
-                f"分析摘要：\n{summary}\n\n"
-                f"请基于以上摘要向用户展示关键信息，询问是否需要创建合同。"
+                f"结构化数据：\n{json.dumps(agent_data, ensure_ascii=False, indent=2)}"
             )
         except Exception:
             logger.warning("图片预分析异常: file_id=%s", file_id, exc_info=True)
             return None
-
-    @staticmethod
-    def _is_confirmation(user_message: str) -> bool:
-        """判断用户消息是否为确认意图（短文本 + 匹配确认模式）"""
-        stripped = user_message.strip()
-        if not stripped or len(stripped) > 30:
-            return False
-        return bool(_CONFIRM_PATTERN.match(stripped))
-
-    @staticmethod
-    def _last_assistant_asked_confirmation(history: List[dict]) -> bool:
-        """检查最近一条 assistant 消息是否在请求用户确认"""
-        for msg in reversed(history):
-            if msg.get("role") == "assistant":
-                content = msg.get("content", "")
-                if not content:
-                    continue
-                # 检查是否包含确认请求的典型措辞
-                confirm_keywords = (
-                    "确认", "是否", "要关联", "关联吗", "要创建", "创建吗",
-                    "是否需要", "需要吗", "执行吗", "是否将", "将.*关联",
-                    "确认后", "请确认", "确认一下",
-                )
-                return bool(re.search("|".join(confirm_keywords), content))
-        return False
 
     def _load_history(self, session_id: str) -> List[dict]:
         """从数据库加载对话历史（上限 100 条，用于摘要和上下文构建）"""
@@ -948,14 +865,17 @@ class ContractAgent:
             return None
 
     def _build_tool_result_fallback(self, messages: List[dict]) -> Optional[str]:
-        """当 LLM 在工具调用后未生成回复时，从最近的 tool 结果构建兜底回复。
-        委托给 ToolExecutor.format_result_summary 处理。"""
+        """当 LLM 在工具调用后未生成回复时，从最近的 tool 结果构建兜底回复。"""
         for msg in reversed(messages):
             if msg.get("role") == "tool":
                 content = msg.get("content", "")
                 if not content:
                     continue
-                return self.executor.format_result_summary(content)
+                # 简单截断返回，让下一轮 LLM 自行解读
+                preview = content[:500]
+                if len(content) > 500:
+                    preview += "..."
+                return preview
         return None
 
     @staticmethod
