@@ -1847,41 +1847,59 @@ class ToolExecutor:
     # ── 统计概览工具 ──
 
     def get_overview(self) -> str:
-        """全局统计概览，用于回答'现在什么情况''有哪些数据'等开放式问题。"""
+        """全局统计概览，用于回答'现在什么情况''有哪些数据'等开放式问题。
+        按角色隔离数据范围：
+        - admin：全部数据
+        - income：仅自己创建的客户 + 自己名下的合同 + 这些合同的收入
+        - expense：所有合同（用于关联支出）+ 自己创建的支出；无客户视角
+        """
         from sqlalchemy import func
 
-        # 客户总数
-        customers_total = self.db.query(Customer).filter(Customer.is_deleted == False).count()
+        # ── 客户范围 ──
+        customer_query = self.db.query(Customer).filter(Customer.is_deleted == False)
+        if self.user.role == Role.INCOME:
+            customer_query = customer_query.filter(Customer.created_by == self.user.id)
+        # expense 不展示客户列表（参照 search_customers 的硬隔离）
+        show_customers = self.user.role != Role.EXPENSE
 
-        # 合同统计
-        contracts_total = self.db.query(Contract).filter(Contract.is_deleted == False).count()
+        # ── 合同范围 ──
+        contract_query = self.db.query(Contract).filter(Contract.is_deleted == False)
+        if self.user.role == Role.INCOME:
+            contract_query = contract_query.filter(Contract.sales_person_id == self.user.id)
+        # admin/expense 看全部合同
+
+        customers_total = customer_query.count() if show_customers else 0
+        contracts_total = contract_query.count()
+
         status_counts = (
-            self.db.query(Contract.status, func.count(Contract.id))
-            .filter(Contract.is_deleted == False)
+            contract_query.with_entities(Contract.status, func.count(Contract.id))
             .group_by(Contract.status)
             .all()
         )
         by_status = {s: c for s, c in status_counts}
 
-        # 最近客户
-        latest_customers = (
-            self.db.query(Customer)
-            .filter(Customer.is_deleted == False)
-            .order_by(Customer.created_at.desc())
-            .limit(5)
-            .all()
-        )
-        recent_customers = [{"id": c.id, "name": c.name, "contract_count": (
-            self.db.query(Contract).filter(Contract.customer_id == c.id, Contract.is_deleted == False).count()
-        )} for c in latest_customers]
+        # ── 最近客户 ──
+        recent_customers = []
+        if show_customers:
+            latest_customers = (
+                customer_query.order_by(Customer.created_at.desc()).limit(5).all()
+            )
+            # 客户的合同数也要按角色过滤
+            for c in latest_customers:
+                cc_query = self.db.query(Contract).filter(
+                    Contract.customer_id == c.id, Contract.is_deleted == False
+                )
+                if self.user.role == Role.INCOME:
+                    cc_query = cc_query.filter(Contract.sales_person_id == self.user.id)
+                recent_customers.append({
+                    "id": c.id,
+                    "name": c.name,
+                    "contract_count": cc_query.count(),
+                })
 
-        # 最近合同
+        # ── 最近合同 ──
         latest_contracts = (
-            self.db.query(Contract)
-            .filter(Contract.is_deleted == False)
-            .order_by(Contract.created_at.desc())
-            .limit(5)
-            .all()
+            contract_query.order_by(Contract.created_at.desc()).limit(5).all()
         )
         recent_contracts = [
             {
@@ -1890,42 +1908,57 @@ class ToolExecutor:
                 "customer_name": c.customer.name if c.customer else None,
                 "status": c.status,
                 "total_amount": float(c.total_amount) if c.total_amount else None,
+                "currency": c.currency,  # 关键：让 LLM 知道币种，避免默认按 ¥ 展示
             }
             for c in latest_contracts
         ]
 
-        # 30天内到期合同
+        # ── 30天内到期合同 ──
         from datetime import timedelta
         target_date = date.today() + timedelta(days=30)
-        expiring_count = self.db.query(Contract).filter(
-            Contract.is_deleted == False,
+        expiring_count = contract_query.filter(
             Contract.status == "active",
             Contract.end_date <= target_date,
             Contract.end_date >= date.today(),
         ).count()
 
-        # 收入/支出汇总（CNY）
-        income_total = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
-            Payment.is_deleted == False,
-            Payment.type == "income",
-            Payment.status == "paid",
-        ).scalar()
-        expense_total = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
-            Payment.is_deleted == False,
-            Payment.type == "expense",
-            Payment.status == "paid",
-        ).scalar()
-
-        return json.dumps({
+        # ── 收入/支出汇总（CNY） ──
+        result = {
             "customers_total": customers_total,
             "contracts_total": contracts_total,
             "contracts_by_status": by_status,
             "expiring_contracts_30days": expiring_count,
-            "income_total_cny": float(income_total),
-            "expense_total_cny": float(expense_total),
-            "recent_customers": recent_customers,
             "recent_contracts": recent_contracts,
-        }, ensure_ascii=False)
+            "scope": self.user.role,  # 让 LLM 知道当前数据范围
+        }
+        if show_customers:
+            result["recent_customers"] = recent_customers
+
+        # 收入：admin 看全部，income 只看自己合同的，expense 不看
+        if self.user.role != Role.EXPENSE:
+            income_query = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
+                Payment.is_deleted == False,
+                Payment.type == "income",
+                Payment.status == "paid",
+            )
+            if self.user.role == Role.INCOME:
+                income_query = income_query.join(Contract).filter(
+                    Contract.sales_person_id == self.user.id
+                )
+            result["income_total_cny"] = float(income_query.scalar())
+
+        # 支出：admin 看全部，expense 只看自己创建的，income 不看
+        if self.user.role != Role.INCOME:
+            expense_query = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
+                Payment.is_deleted == False,
+                Payment.type == "expense",
+                Payment.status == "paid",
+            )
+            if self.user.role == Role.EXPENSE:
+                expense_query = expense_query.filter(Payment.created_by == self.user.id)
+            result["expense_total_cny"] = float(expense_query.scalar())
+
+        return json.dumps(result, ensure_ascii=False)
 
     # ── 文件分析工具 ──
 
