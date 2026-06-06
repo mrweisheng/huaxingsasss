@@ -1,0 +1,32 @@
+# 强制源代码统一使用 LF 行尾，避免 Windows 下误用 CRLF
+# 触发 commit 时告警：warning: in the working copy of 'X', CRLF will be replaced by LF
+
+# Python 后端
+*.py text eol=lf
+*.toml text eol=lf
+*.cfg text eol=lf
+*.ini text eol=lf
+
+# 前端
+*.ts text eol=lf
+*.tsx text eol=lf
+*.js text eol=lf
+*.jsx text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.html text eol=lf
+
+# 文档
+*.md text eol=lf
+*.txt text eol=lf
+
+# 配置文件
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+.env.example text eol=lf
+
+# 锁文件由对应工具管理
+package-lock.json text eol=lf
+uv.lock text eol=lf
