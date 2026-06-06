@@ -1,6 +1,6 @@
 """合同录入子图
 
-Phase 1 核心交付：10 个节点 + 路由函数 + 条件边。
+Phase 1 核心交付：9 个节点 + 路由函数 + 条件边。
 取代 agent.py 中 ReAct 循环的"展示概要 → 等用户确认 → 建客户 → 建合同"流程。
 
 节点清单：
@@ -10,10 +10,10 @@ Phase 1 核心交付：10 个节点 + 路由函数 + 条件边。
   4. search_customer_node    — 调 ToolExecutor.execute("search_customers")
   5. create_customer_node    — 调 ToolExecutor.execute("create_customer")
   6. create_contract_node    — 调 ToolExecutor.execute("create_contract")
-  7. auto_create_payments_node — 复用 tools.py _auto_create_payments_from_terms
-  8. summarize_node          — LLM 组织总结语言
-  9. summarize_cancel_node   — 模板化取消消息
-  10. fallback_node          — 异常兜底
+                              （含 tools._auto_create_payments_from_terms）
+  7. summarize_node          — 模板化总结（Phase 1 暂不接 LLM）
+  8. summarize_cancel_node   — 模板化取消消息
+  9. fallback_node           — 异常兜底
 """
 import asyncio
 import json
@@ -23,6 +23,7 @@ from typing import Optional, Literal
 
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
+from langchain_core.messages import AIMessage
 
 from app.ai.orchestrator.state import ContractEntryState
 from app.ai.tools import ToolExecutor
@@ -37,11 +38,19 @@ class ContractEntrySubgraph:
     与文档 §7.1 设计完全对齐。
     """
 
-    def __init__(self, db, user, agent):
+    def __init__(self, db, user, agent, mode: str = "chat",
+                 session_context: Optional[dict] = None, session_id: str = ""):
         self.db = db
         self.user = user
         self.agent = agent
+        # mode / session_context 必须注入到本子图闭包内的 ToolExecutor，
+        # 改 agent.executor 无效（那是另一个实例）。
         self.executor = ToolExecutor(db, user)
+        self.executor.mode = mode
+        self.executor.session_context = session_context or {}
+        # session_id 必须注入，否则 _cache_key 使用 "nosession" 兜底，
+        # 导致 Redis VL 缓存跨会话/跨用户命中（或无法命中旧 ReAct 路径写入的缓存）
+        self.executor.session_id = session_id
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     # 节点 1：分析文件（复用 agent.py 现有逻辑）
@@ -185,7 +194,11 @@ class ContractEntrySubgraph:
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     async def search_customer_node(self, state: ContractEntryState) -> dict:
-        """调用 ToolExecutor.search_customers 查重"""
+        """调用 ToolExecutor.search_customers 查重。
+
+        同名客户去重策略：精确匹配 → 按 contract_count 倒序 → 取第一条。
+        contract_count 越大表示该客户与业务关联越密切，优先复用避免误创建重复客户。
+        """
         contract_data = state.get("contract_data", {})
         customer_name = contract_data.get("customer_name", "")
 
@@ -196,10 +209,15 @@ class ContractEntrySubgraph:
                 "errors": ["缺少客户姓名"],
             }
 
+        # ⚠️ 字段名必须用 `name`，不是 `keyword`
+        # search_customers 工具定义（tools.py:316-322 + 2509-2521）只接受
+        # name/phone/wechat_group/limit 四个参数。传 `keyword` 会被静默忽略，
+        # 导致 has_filter=False 走"返回全局统计+样例"分支，匹配不到任何客户，
+        # 后果：customer_exists=False → 误判客户不存在 → 重复创建。
         result_str = await asyncio.to_thread(
             self.executor.execute,
             "search_customers",
-            {"keyword": customer_name},
+            {"name": customer_name},
         )
 
         try:
@@ -209,13 +227,19 @@ class ContractEntrySubgraph:
 
         customers = result.get("customers", []) if isinstance(result, dict) else []
 
-        # 精确姓名匹配
+        # 精确姓名匹配：避免 "张三" 匹配到 "张三丰" / "小张三" 等误关联
         matched = [c for c in customers if c.get("name") == customer_name]
 
         if matched:
+            # 同名客户按业务关联度排序：合同数倒序，再按客户 ID 升序（保证稳定）
+            # 合同数多 = 老客户 = 优先复用，避免误创建重复
+            best = sorted(
+                matched,
+                key=lambda c: (-(c.get("contract_count") or 0), c.get("id") or 0),
+            )[0]
             return {
                 "current_node": "search_customer_node",
-                "customer_id": matched[0]["id"],
+                "customer_id": best["id"],
                 "customer_name": customer_name,
                 "customer_exists": True,
             }
@@ -325,29 +349,16 @@ class ContractEntrySubgraph:
         }
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 节点 7：自动创建付款记录
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-    async def auto_create_payments_node(self, state: ContractEntryState) -> dict:
-        """
-        从合同 payment_terms 自动创建付款记录。
-
-        注意：实际付款创建已在 create_contract_node 调用 tools.py:create_contract()
-        时完成（内含 _auto_create_payments_from_terms）。本节点仅读取 state 中的
-        auto_payments 结果，作为独立节点提供幂等兜底和可观测性。
-        """
-        auto_payments = state.get("auto_payments", [])
-        return {
-            "current_node": "auto_create_payments_node",
-            "auto_payments": auto_payments,
-        }
-
-    # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 节点 8：总结（LLM 组织语言）
+    # 节点 7：总结（LLM 组织语言）
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     async def summarize_node(self, state: ContractEntryState) -> dict:
-        """调用 LLM 生成友好的总结文本"""
+        """模板化生成合同录入总结。
+
+        注意：文档 §7.1 计划用 LLM 组织语言，但 Phase 1 实际走模板字符串。
+        auto_payments 已在 create_contract_node 调 tools.create_contract 时
+        由 _auto_create_payments_from_terms 创建，本节点仅做总结展示。
+        """
         contract_data = state.get("contract_data", {})
         contract_id = state.get("contract_id")
         auto_payments = state.get("auto_payments", [])
@@ -373,8 +384,6 @@ class ContractEntrySubgraph:
                 f"   金额：{contract_data.get('total_amount', '?')} {contract_data.get('currency', 'CNY')}"
             )
 
-        # 将总结作为 messages 推给前端
-        from langchain_core.messages import AIMessage
         return {
             "current_node": "summarize_node",
             "messages": [AIMessage(content=summary)],
@@ -382,12 +391,11 @@ class ContractEntrySubgraph:
         }
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 节点 9：取消总结
+    # 节点 8：取消总结
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     async def summarize_cancel_node(self, state: ContractEntryState) -> dict:
         """用户取消录入后的提示"""
-        from langchain_core.messages import AIMessage
         return {
             "current_node": "summarize_cancel_node",
             "messages": [AIMessage(content="已取消合同录入。如需重新录入，请再次上传文件。")],
@@ -395,19 +403,29 @@ class ContractEntrySubgraph:
         }
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 节点 10：异常兜底
+    # 节点 9：异常兜底
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     async def fallback_node(self, state: ContractEntryState) -> dict:
-        """异常兜底节点"""
+        """异常兜底节点。按 fallback_strategy 分支返回不同提示，避免笼统错误。"""
         errors = state.get("errors", [])
         fallback = state.get("fallback_strategy", "unknown")
 
-        fallback_msg = f"合同录入过程遇到问题（{fallback}）"
-        if errors:
+        # 各 fallback_strategy 专属消息；通用兜底保留 unknown 分支
+        strategy_messages = {
+            "duplicate": "该文件之前已用于创建合同（数据库已有 file_hash 记录），无需重复录入。\n"
+                         "如需查看已有合同，请使用 search_contracts 工具。",
+            "no_contract_data": "未能从文件中识别出客户姓名和合同编号，无法直接录入。\n"
+                                "如需录入合同，请补充以下信息后重试：\n"
+                                "- 客户姓名 + 联系电话\n"
+                                "- 合同编号 + 签订日期 + 金额 + 币种",
+            "unknown": "合同录入过程遇到未知问题，请稍后重试或联系管理员。",
+        }
+        fallback_msg = strategy_messages.get(fallback, f"合同录入过程遇到问题（{fallback}）")
+        if errors and fallback not in ("duplicate", "no_contract_data"):
+            # 已知策略的友好提示已含根因，不重复错误详情
             fallback_msg += "\n错误详情：" + "; ".join(errors)
 
-        from langchain_core.messages import AIMessage
         return {
             "current_node": "fallback_node",
             "messages": [AIMessage(content=fallback_msg)],
@@ -452,14 +470,14 @@ class ContractEntrySubgraph:
         """编译合同录入子图，返回 StateGraph 实例"""
         graph = StateGraph(ContractEntryState)
 
-        # 添加节点
+        # 添加节点（9 个，auto_create_payments_node 已合并到 create_contract_node
+        # 内 tools._auto_create_payments_from_terms，避免空 pass-through 节点）
         graph.add_node("analyze_file_node", self.analyze_file_node)
         graph.add_node("show_preview_node", self.show_preview_node)
         graph.add_node("wait_user_confirm_node", self.wait_user_confirm_node)
         graph.add_node("search_customer_node", self.search_customer_node)
         graph.add_node("create_customer_node", self.create_customer_node)
         graph.add_node("create_contract_node", self.create_contract_node)
-        graph.add_node("auto_create_payments_node", self.auto_create_payments_node)
         graph.add_node("summarize_node", self.summarize_node)
         graph.add_node("summarize_cancel_node", self.summarize_cancel_node)
         graph.add_node("fallback_node", self.fallback_node)
@@ -494,8 +512,7 @@ class ContractEntrySubgraph:
         )
 
         graph.add_edge("create_customer_node", "create_contract_node")
-        graph.add_edge("create_contract_node", "auto_create_payments_node")
-        graph.add_edge("auto_create_payments_node", "summarize_node")
+        graph.add_edge("create_contract_node", "summarize_node")
         graph.add_edge("summarize_node", END)
         graph.add_edge("summarize_cancel_node", END)
         graph.add_edge("fallback_node", END)
