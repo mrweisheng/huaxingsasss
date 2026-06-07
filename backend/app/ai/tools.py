@@ -136,7 +136,13 @@ class ToolExecutor:
             self._redis = redis_lib.Redis(connection_pool=pool)
 
     def _cache_key(self, analysis_type: str, file_id: str) -> str:
-        """Redis 缓存 key: vl:{contract|receipt}:{session_id}:{file_id}"""
+        """Redis 缓存 key。
+
+        contract: vl:contract:{file_id}（PR-B-3 新格式，与 contract_analyzer 共享，file_id 为 UUID 不加 sid）
+        receipt:   vl:receipt:{session_id}:{file_id}（保持旧格式，receipt 路径未重构）
+        """
+        if analysis_type == "contract":
+            return f"vl:contract:{file_id}"
         sid = self.session_id or "nosession"
         return f"vl:{analysis_type}:{sid}:{file_id}"
 
@@ -2087,8 +2093,8 @@ class ToolExecutor:
 
             structured = result.get("data", {})
             self._document_context = analysis_type
-            # 缓存 VL 完整输出，后续 create_contract 等工具可直接取用
-            self._cache_analysis(file_id, analysis_type, structured)
+            # PR-B-3: 不再写缓存，ContractAnalyzer.analyze_file 内部已写
+            # （避免双写，key 格式统一在 contract_analyzer 管理）
             # 合同文件不复制到凭证目录 —— create_contract 会从 temp 复制到合同目录
             return json.dumps({
                 "success": True,

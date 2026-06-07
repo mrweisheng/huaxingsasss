@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-企业级合同管理与智能客服系统，面向华星资源开发有限公司的两地车牌指标过户服务业务。核心流程：上传合同图片/PDF → AI (Alibaba DashScope Qwen-VL) 自动解析提取结构化数据 → 收入/支出双线跟踪与汇率结算 → 利润计算 → 智能问答 Agent。
+企业级合同管理与智能客服系统，面向华星资源开发有限公司的两地车牌指标过户服务业务。核心流程：上传合同图片/PDF → AI（DashScope qwen3-vl-flash 视觉分析 + SiliconFlow DeepSeek-V4-Flash Agent 推理）自动解析提取结构化数据 → 收入/支出双线跟踪与汇率结算 → 利润计算 → 智能问答 Agent（LangGraph 编排）。
 
 Monorepo 结构：`backend/` (FastAPI) + `frontend/` (React/TypeScript)。
 
@@ -89,33 +89,39 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 三层架构，依赖方向：`api/` → `services/` → `models/`
 
-- **`api/v1/`** — FastAPI 路由层（7 个路由模块：auth, customers, contracts, payments, agent, files, exchange_rates），处理 HTTP 请求/响应，参数校验。权限通过 `Depends(get_current_user)` 和 `Depends(require_role(...))` 注入。
-- **`services/`** — 业务逻辑层（6 个服务模块），所有业务操作（含数据库事务）在此完成。路由层不直接操作 ORM。`exchange_rate_fetcher.py` 负责外部汇率数据抓取。
-- **`models/`** — SQLAlchemy ORM 模型（10 个模型文件），全部继承 `BaseModel`（提供 `id`, `created_at`, `updated_at`）。`models/__init__.py` 导入所有模型以确保 Alembic autogenerate 能发现。
-- **`schemas/`** — Pydantic v2 模型（7 个 schema 模块），请求/响应数据校验。使用 `from_attributes = True` 配合 ORM。
+- **`api/v1/`** — FastAPI 路由层（9 个路由模块：auth, customers, contracts, payments, agent, files, exchange_rates, stats, users），处理 HTTP 请求/响应，参数校验。权限通过 `Depends(get_current_user)` 和 `Depends(require_role(...))` 注入。
+- **`services/`** — 业务逻辑层（10 个服务模块），所有业务操作（含数据库事务）在此完成。路由层不直接操作 ORM。模块列表：`contract_service`, `customer_service`, `payment_service`, `exchange_rate_service`, `exchange_rate_fetcher`（外部汇率抓取）, `contract_analyzer`（合同文件 AI 解析）, `receipt_analyzer`（凭证 OCR 分析）, `stats_service`（统计聚合）, `user_service`（用户管理）, `audit_service`（操作审计日志）。
+- **`models/`** — SQLAlchemy ORM 模型（9 个实体模型 + `base.py`），全部继承 `BaseModel`（提供 `id`, `created_at`, `updated_at`, `is_deleted`, `deleted_at` 软删除支持）。`models/__init__.py` 导入所有模型以确保 Alembic autogenerate 能发现。
+- **`schemas/`** — Pydantic v2 模型（8 个 schema 模块：contract, customer, payment, exchange_rate, agent, user, stats, response），请求/响应数据校验。使用 `from_attributes = True` 配合 ORM。
 - **`ai/`** — AI 智能体模块：
-  - `agent.py` — `ContractAgent` ReAct 循环引擎，SSE 流式输出，多轮对话管理。含历史消息摘要（`_summarize_history()`）、VL 图片预分析（`_pre_analyze_image()`）、文本内容分析（`_analyze_text_content()`）。
+  - `agent.py` — `ContractAgent` ReAct 循环引擎（legacy 模式），SSE 流式输出，多轮对话管理。含历史消息摘要（`_summarize_history()`）、VL 图片预分析（`_pre_analyze_image()`）、文本内容分析（`_analyze_text_content()`）。
   - `tools.py` — `ToolExecutor` 工具执行器（20 个工具）+ `TOOL_DEFINITIONS`（OpenAI function calling 格式）。含文档上下文守卫（receipt/contract/general/group_chat 阻断不匹配的工具调用）和 VL 结果 Redis 缓存。
   - `prompts.py` — 系统提示词（含角色权限描述）、凭证/合同/群聊分析提示词模板。
-  - `llm_client.py` — `SiliconFlowClient`（VL 视觉模型，历史遗留包装）+ `DashScopeAgentClient`（Agent 推理模型，流式函数调用）。主用 DashScope qwen3-vl-flash 做视觉分析，deepseek-v4-flash 做 Agent 推理。
-- **`core/`** — JWT 认证（`security.py`）、自定义异常（`exceptions.py`）、中间件（`middleware.py`）、日志（`logging.py`）、中文工具（`chinese.py`）、业务类型常量（`business_types.py`）。`main.py` 已注册全局异常 handler。
+  - `llm_client.py` — `SiliconFlowClient`（视觉/文本模型）+ `DashScopeAgentClient`（Agent 推理模型，流式函数调用）。DashScope qwen3-vl-flash 做视觉分析，SiliconFlow DeepSeek-V4-Flash 做 Agent 推理。
+  - **`orchestrator/`** — LangGraph 编排层（`AGENT_ORCHESTRATOR=langgraph` 时启用）：
+    - `graph.py` — 根图：`START → intake_node → route_by_intent → [4 分支] → finalize_node → END`
+    - `state.py` — `RootState`, `ContractEntryState`, `GeneralChatState` TypedDict 状态定义
+    - `contract_entry.py` — 合同录入子图：9 节点 DAG（analyze_file → show_preview → wait_user_confirm → search/create_customer → create_contract → summarize），使用 `interrupt()` 实现 HITL 用户确认
+    - `general_chat.py` — 通用对话子图：call_model_node ↔ execute_tool_node 循环，支持全部 20 个工具
+    - `sse_adapter.py` — LangGraph `astream_events` 到前端 SSE 事件格式的适配器
+    - `checkpointer.py` — `AsyncPostgresSaver` 工厂，基于 psycopg3 连接池
+- **`core/`** — JWT 认证（`security.py`）、角色权限校验（`permissions.py`）、自定义异常（`exceptions.py`）、中间件（`middleware.py`）、日志（`logging.py`）、中文工具（`chinese.py`）、业务类型常量（`business_types.py`）。`main.py` 已注册全局异常 handler。
 - **`config.py`** — Pydantic Settings，从 `.env` 读取配置。`SECRET_KEY` 无默认值，必须配置。
-- **`utils/`** — 文件工具（`file_utils.py`）、API 限流器（`rate_limiter.py`）。
-- **`tasks/`** — Celery 异步任务：凭证 OCR、临时文件清理、汇率同步、合同解析。
+- **`utils/`** — 文件工具（`file_utils.py`）、文件分析（`file_analysis.py`，PDF/Word/Excel 文本提取与类型检测）、API 限流器（`rate_limiter.py`）。
+- **`tasks/`** — Celery 异步任务：凭证 OCR（`receipt_ocr_tasks`）、临时文件清理（`cleanup_tasks`）、汇率同步（`exchange_rate_tasks`）、合同解析（`contract_tasks`）。
 
 ### Frontend (`frontend/src/`)
 
 - **`services/api.ts`** — Axios 实例，含请求拦截器（自动加 Bearer token）和响应拦截器（401 自动刷新 token，队列化防并发）。
-- **`services/`** — API 服务模块（auth, customer, contract, payment, agent），按业务域封装 API 调用。
-- **`store/useAuthStore.ts`** — 认证状态管理，token 存 localStorage。
-- **`store/useAgentStore.ts`** — Agent 会话状态管理（会话列表、消息、SSE 流式处理、文件上传）。
+- **`services/`** — API 服务模块（7 个：auth, customer, contract, payment, agent, stats, user），按业务域封装 API 调用。
+- **`store/useAuthStore.ts`** — Zustand 认证状态管理，token 存 localStorage。
+- **`store/useAgentStore.ts`** — Zustand Agent 会话状态管理（会话列表、消息、SSE 流式处理、文件上传）。
 - **`types/index.ts`** — TypeScript 类型定义，与后端 Pydantic Schema 对应。Payment 含 `type`（income/expense）和 `payee_name` 字段，Contract 含 `total_expense`/`total_expense_in_cny` 字段。
 - **`types/agent.ts`** — Agent 相关类型：ChatMessage、ChatSession、SSEEvent、ToolCall。
-- **`pages/`** — Ant Design 页面组件（10 个页面），使用 React Router v6。含收付管理按币种分组 KPI 展示。
-- **`components/Layout.tsx`** — 侧边栏 + 顶栏布局，按角色显示菜单（income 看客户/合同/收入，expense 看支出，admin 看全部）。
-- **`components/ProtectedRoute.tsx`** — 支持 `allowedRoles` 属性的角色守卫。
+- **`pages/`** — Ant Design 页面组件（11 个：Login, ContractList, ContractDetail, ContractUpload, CustomerList, CustomerDetail, CustomerNew, PaymentList, FinancialOverview, AgentChat, UserList），使用 React Router v6。含收付管理按币种分组 KPI 展示。
+- **`components/`** — 8 个组件：`Layout`（侧边栏+顶栏，按角色显示菜单）、`ProtectedRoute`（角色守卫）、`MobileNav`（移动端导航）、`ContractUploadWizard`（多步合同上传向导）、`ContractChatModal`（合同对话弹窗）、`ReceiptChatModal`（凭证对话弹窗）、`ReceiptPaymentModal`（凭证付款弹窗）、`AgentChatShared`（Agent 聊天共享逻辑）。
 - Vite 路径别名：`@` → `src/`。开发代理：`/api` → `http://localhost:8000`。
-- 依赖：react-markdown + remark-gfm 用于 Agent 聊天中的 Markdown 渲染，dayjs 处理日期。
+- 依赖：react-markdown + remark-gfm 用于 Agent 聊天中的 Markdown 渲染，dayjs 处理日期，echarts + echarts-for-react 用于图表展示，zustand 状态管理。
 
 ### Key Data Flow
 
@@ -139,10 +145,12 @@ npm run build      # TypeScript 检查 + Vite 构建
 1. `POST /agent/sessions` → 创建会话，获取 session_id
 2. `POST /agent/upload` → 上传凭证/合同图片到临时目录，获取 file_id
 3. `POST /agent/chat` (SSE) → 流式对话，携带 session_id 和 attachments
-4. Agent 内部 ReAct 循环：DashScope Agent 函数调用 → ToolExecutor 执行 → 结果回传 LLM → 最终回复
+4. 两种编排模式（由 `AGENT_ORCHESTRATOR` 控制）：
+   - **langgraph（默认）**：根图 intake → route_by_intent → 合同录入子图（HITL 确认）/ 通用对话子图（call_model ↔ execute_tool 循环）→ finalize
+   - **legacy（回滚）**：`ContractAgent` ReAct 循环，Agent 函数调用 → ToolExecutor 执行 → 结果回传 LLM → 最终回复
 5. 工具调用现有 Service 层（ContractService、PaymentService 等），权限按 user.role 过滤
-6. 图片分析：主用 DashScope VL 模型（qwen3-vl-flash）识别凭证/合同内容，含图片压缩（最大 1600px）和 Redis 缓存（30 分钟 TTL）
-7. 支持 PDF 多策略分析：有文字 → 百炼 DeepSeek-V4-Flash 文本模型；扫描 PDF → 渲染为图片 → VL 模型。同时支持 Word (.docx) 和 Excel (.xlsx)。
+6. 图片分析：DashScope VL 模型（qwen3-vl-flash）识别凭证/合同内容，含图片压缩（最大 1600px）和 Redis 缓存（30 分钟 TTL）
+7. 支持 PDF 多策略分析：有文字 → 文本模型提取；扫描 PDF → 渲染为图片 → VL 模型。同时支持 Word (.docx) 和 Excel (.xlsx)（`file_analysis.py`）
 8. 历史消息超限时自动摘要（`_summarize_history()`）
 
 群聊识别流程：
@@ -166,29 +174,37 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 ## Environment Variables
 
-关键必配项（详见 `backend/.env.example`）：
-- `SECRET_KEY` — JWT 签名密钥，无默认值，必须设置
+关键必配项（详见 `backend/.env.example`，启动时校验）：
+- `SECRET_KEY` — JWT 签名密钥，无默认值，长度 ≥ 32 字符
+- `SILICONFLOW_API_KEY` — SiliconFlow API 密钥（Agent 推理模型 DeepSeek-V4-Flash）
+- `DASHSCOPE_API_KEY` — 阿里云 DashScope API 密钥（视觉模型 qwen3-vl-flash + 文本模型 qwen-plus）
 - `POSTGRES_PASSWORD` — 数据库密码
-- `DASHSCOPE_API_KEY` — 阿里云 DashScope API 密钥（视觉模型 qwen3-vl-flash + Agent 推理模型 deepseek-v4-flash，合同/凭证 OCR + 智能对话）
-- `SILICONFLOW_API_KEY` — SiliconFlow API 密钥（历史遗留视觉模型，仍为必配）
 
 可选配置项（有默认值）：
+- `SILICONFLOW_VISION_MODEL` — SiliconFlow 视觉模型名，默认 `Qwen/Qwen3-VL-32B-Instruct`
+- `SILICONFLOW_TEXT_MODEL` — SiliconFlow 文本模型名，默认 `Qwen/Qwen3-VL-8B-Instruct`
+- `SILICONFLOW_AGENT_MODEL` — SiliconFlow Agent 推理模型名，默认 `deepseek-ai/DeepSeek-V4-Flash`
 - `DASHSCOPE_BASE_URL` — DashScope API 地址，默认 `https://dashscope.aliyuncs.com/compatible-mode/v1`
-- `DASHSCOPE_VISION_MODEL` — 视觉模型名，默认 `qwen3-vl-flash`
-- `DASHSCOPE_AGENT_MODEL` — Agent 推理模型名，默认 `deepseek-v4-flash`
+- `DASHSCOPE_VISION_MODEL` — DashScope 视觉模型名，默认 `qwen3-vl-flash`
+- `DASHSCOPE_TEXT_MODEL` — DashScope 文本模型名，默认 `qwen-plus`
 - `AGENT_ORCHESTRATOR` — Agent 编排引擎，`langgraph`（默认）或 `legacy`（紧急回滚）
-- `LANGCHAIN_TRACING_V2` — LangSmith 追踪开关，`true` 启用（Phase 2.7）
+- `LANGCHAIN_TRACING_V2` — LangSmith 追踪开关，`true` 启用
 - `LANGCHAIN_API_KEY` — LangSmith API 密钥
 - `LANGCHAIN_PROJECT` — LangSmith 项目名，默认 `huaxing-agent`
 - `AGENT_MAX_ITERATIONS` — Agent 最大迭代次数，默认 8
+- `AGENT_MAX_RETRIES` — Agent 最大重试次数，默认 3
+- `AGENT_RETRY_BASE_DELAY` — 重试基础延迟（秒），默认 1.0
 - `AGENT_HISTORY_WINDOW` — 历史消息窗口，默认 100
 - `AGENT_MAX_SUMMARY_MESSAGES` — 摘要触发阈值，默认 10
 - `REDIS_PASSWORD` — Redis 密码
-- `SCREENSHOT_UPLOAD_DIR` — 截图上传目录
+- `UPLOAD_DIR` / `CONTRACT_UPLOAD_DIR` / `RECEIPT_UPLOAD_DIR` / `SCREENSHOT_UPLOAD_DIR` / `TEMP_UPLOAD_DIR` — 文件存储目录
+- `MAX_FILE_SIZE` — 最大文件大小（字节），默认 50MB
+- `DEFAULT_EXCHANGE_RATE_HKD_CNY` — 默认港币兑人民币汇率，默认 0.92
+- `DEFAULT_EXCHANGE_RATE_USD_CNY` — 默认美元兑人民币汇率，默认 7.25
 
 ## Database Models
 
-8 张表：`users`, `customers`, `contracts`, `payments`, `exchange_rates`, `files`, `audit_logs`, `chat_history`。
+9 张表：`users`, `customers`, `contracts`, `payments`, `exchange_rates`, `files`, `audit_logs`, `chat_sessions`, `chat_history`。
 
 ### Payment 表关键字段
 
@@ -220,7 +236,11 @@ npm run build      # TypeScript 检查 + Vite 构建
 
 SQL 导出工具：`backend/scripts/dump_init_sql.py` 基于 ORM 模型自动生成业务表 DDL，用法 `cd backend && uv run python scripts/dump_init_sql.py > ../sql/init_business_tables.sql`。
 
-`chat_history` 表存储 Agent 对话消息，每行一条消息（role: user/assistant/tool），通过 `session_id` 分组为会话。包含 `tool_calls`（JSON）和 `metadata`（JSON）列支持函数调用和附件。
+`chat_sessions` 表存储会话元数据（session_id UUID, user_id, title, mode: `chat`|`receipt_income`|`receipt_expense`, context JSONB），与 `chat_history` 通过 `session_id` 关联。
+
+`chat_history` 表存储 Agent 对话消息，每行一条消息（role: user/assistant/tool），通过 `session_id` 分组为会话。包含 `tool_calls`（JSON）和 `extra_metadata`（JSON）列支持函数调用和附件。
+
+ORM 基类 `BaseModel`（基于 `DeclarativeBase`）提供 `id`, `created_at`, `updated_at`, `is_deleted`, `deleted_at` 字段，支持软删除（`soft_delete()` 方法）。
 
 ### Agent 工具列表
 
@@ -252,8 +272,6 @@ SQL 导出工具：`backend/scripts/dump_init_sql.py` 基于 ORM 模型自动生
 权限辅助方法：`_is_admin()`, `_can_view_income()`, `_can_view_expense()`, `_can_create_contract()`。
 
 文档上下文守卫：`_document_context`, `_DOCUMENT_BLOCKED_TOOLS`, `_check_document_guard()`。
-
-ORM 基类 `BaseModel` 使用 `DeclarativeBase`（非已弃用的 `declarative_base()`）。
 
 ## Git 远程仓库
 

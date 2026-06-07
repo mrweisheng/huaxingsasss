@@ -28,10 +28,10 @@ from app.ai.prompts import (
 )
 from app.ai.tools import ToolExecutor, TOOL_DEFINITIONS
 from app.config import settings
-from app.utils.file_utils import validate_file_id_in_dir
 from app.models.chat_history import ChatHistory
 from app.models.chat_session import ChatSession
 from app.models.user import User
+from app.services.contract_analyzer import ContractAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -365,13 +365,9 @@ class ContractAgent:
         if not file_id:
             return None
 
-        # 解析文件路径（带路径穿越防御）
-        user_dir = os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id))
-        candidates = [
-            validate_file_id_in_dir(file_id, user_dir),
-            validate_file_id_in_dir(file_id, settings.TEMP_UPLOAD_DIR),
-        ]
-        file_path = next((p for p in candidates if p and os.path.exists(p)), None)
+        # PR-A: 复用 ContractAnalyzer.resolve_file_path 对齐文件查找逻辑
+        # 含带扩展名 glob 兜底（UUID.pdf / UUID.docx），修复精确匹配失败的 glob bug
+        file_path = ContractAnalyzer.resolve_file_path(file_id, self.user.id)
         if not file_path:
             return None
 

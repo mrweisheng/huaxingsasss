@@ -215,10 +215,10 @@ async def chat(
                         return
 
                 # 构建子图 + 根图。mode / session_context 通过构造函数注入到子图闭包
-                # 内的 ToolExecutor，而不是修改 agent.executor（那是另一个实例）。
-                # agent 注入 finalize_node 用于 chat_history 落库（ADR #6）。
+                # 内的 ToolExecutor。PR-B-4: 子图不再依赖 agent 实例（独立化）。
+                # agent 仅注入到 build_root_graph 的 finalize_node 用于 chat_history 落库（ADR #6）。
                 contract_entry = ContractEntrySubgraph(
-                    db, current_user, agent,
+                    db, current_user,
                     mode=agent._mode,
                     session_context=agent._session_context,
                     session_id=session_id,

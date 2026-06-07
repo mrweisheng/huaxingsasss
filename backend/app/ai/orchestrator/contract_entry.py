@@ -4,7 +4,7 @@ Phase 1 核心交付：9 个节点 + 路由函数 + 条件边。
 取代 agent.py 中 ReAct 循环的"展示概要 → 等用户确认 → 建客户 → 建合同"流程。
 
 节点清单：
-  1. analyze_file_node       — 复用 agent._prepare_file / _analyze_text_content
+  1. analyze_file_node       — 直调 ContractAnalyzer.resolve_file_path + .analyze_file
   2. show_preview_node       — 组装预览数据（无 LLM 调用）
   3. wait_user_confirm_node  — interrupt() 暂停，前端按钮确认
   4. search_customer_node    — 调 ToolExecutor.execute("search_customers")
@@ -27,6 +27,7 @@ from langchain_core.messages import AIMessage
 
 from app.ai.orchestrator.state import ContractEntryState
 from app.ai.tools import ToolExecutor
+from app.services.contract_analyzer import ContractAnalyzer, _get_cached_analysis
 
 logger = logging.getLogger(__name__)
 
@@ -34,30 +35,27 @@ logger = logging.getLogger(__name__)
 class ContractEntrySubgraph:
     """合同录入子图工厂。
 
-    通过 closure 注入 db / user / agent 依赖，返回编译后的子图。
-    与文档 §7.1 设计完全对齐。
+    通过 closure 注入 db / user 依赖，返回编译后的子图。
+    PR-B-2 改造：去除对 ReAct Agent 私有方法的依赖，子图完全独立。
     """
 
-    def __init__(self, db, user, agent, mode: str = "chat",
+    def __init__(self, db, user, mode: str = "chat",
                  session_context: Optional[dict] = None, session_id: str = ""):
         self.db = db
         self.user = user
-        self.agent = agent
-        # mode / session_context 必须注入到本子图闭包内的 ToolExecutor，
-        # 改 agent.executor 无效（那是另一个实例）。
+        # mode / session_context 必须注入到本子图闭包内的 ToolExecutor
         self.executor = ToolExecutor(db, user)
         self.executor.mode = mode
         self.executor.session_context = session_context or {}
-        # session_id 必须注入，否则 _cache_key 使用 "nosession" 兜底，
-        # 导致 Redis VL 缓存跨会话/跨用户命中（或无法命中旧 ReAct 路径写入的缓存）
+        # session_id 注入 executor，供工具层内部缓存使用
         self.executor.session_id = session_id
 
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    # 节点 1：分析文件（复用 agent.py 现有逻辑）
+    # 节点 1：分析文件（PR-B-2：直调 ContractAnalyzer，不再依赖 ReAct Agent）
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     async def analyze_file_node(self, state: ContractEntryState) -> dict:
-        """处理附件：文本提取 + AI 结构化分析，结果缓存到 state.contract_data"""
+        """处理附件：解析文件 → 调 ContractAnalyzer（已含类型检测/文本提取/LLM/查重/缓存）"""
         attachments = state.get("attachments", [])
 
         if not attachments:
@@ -65,31 +63,37 @@ class ContractEntrySubgraph:
 
         att = attachments[0]
         file_id = att.get("file_id", "")
-        file_type = att.get("file_type", "")
 
         if not file_id:
             return {"current_node": "analyze_file_node", "errors": ["无效的 file_id"]}
 
-        # 阶段 1：快速文本提取（< 1s）
-        prep = await self.agent._prepare_file(file_id, file_type)
+        # 1) 解析文件路径（含 glob 兜底 + 路径穿越防御）
+        file_path = ContractAnalyzer.resolve_file_path(file_id, self.user.id)
+        if not file_path:
+            return {
+                "current_node": "analyze_file_node",
+                "errors": [f"文件不存在: {file_id}"],
+            }
 
-        if prep is None:
-            # 图片或其他格式 → VL 预分析
-            result = await self.agent._pre_analyze_image(file_id)
-        elif prep.get("skip"):
-            # 重复文件
+        # 2) 调 ContractAnalyzer.analyze_file（同步方法，asyncio.to_thread 包装避免阻塞事件循环）
+        result = await asyncio.to_thread(
+            ContractAnalyzer.analyze_file, file_path, self.db, self.user.id
+        )
+
+        if result.get("duplicate_detected"):
             return {
                 "current_node": "analyze_file_node",
                 "fallback_strategy": "duplicate",
-                "errors": [prep.get("message", "文件重复")],
+                "errors": [result.get("message", "文件重复")],
             }
-        else:
-            # PDF/Word/Excel → LLM 结构化提取
-            result = await self.agent._analyze_text_content(
-                file_id, prep["file_type_label"], prep["text"]
-            )
 
-        file_context = result if isinstance(result, str) else json.dumps(result, ensure_ascii=False)
+        if not result.get("success"):
+            return {
+                "current_node": "analyze_file_node",
+                "errors": [result.get("error", "分析失败")],
+            }
+
+        file_context = json.dumps(result["data"], ensure_ascii=False)
 
         logger.info(
             "contract_entry.analyze_file: file_id=%s result_len=%d",
@@ -108,9 +112,9 @@ class ContractEntrySubgraph:
 
     def _extract_contract_data(self, file_context: str, file_id: str = "") -> dict:
         """从 file_context 中提取合同结构化数据（VL 缓存优先，文本兜底）"""
-        # 先查 Redis 缓存
+        # 先查 Redis 缓存（PR-B-1: 用 contract_analyzer 的模块级函数，key 格式 l:contract:{file_id}）
         if file_id:
-            cached = self.executor.get_cached_analysis(file_id, "contract")
+            cached = _get_cached_analysis(file_id)
             if cached and isinstance(cached, dict):
                 return cached
 

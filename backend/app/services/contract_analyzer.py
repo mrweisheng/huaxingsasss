@@ -2,11 +2,13 @@
 合同文件分析器
 从 tools.py 提取的共享 VL 分析逻辑，供 Agent 工具和页面端点复用。
 职责：文件类型检测 → 图片压缩 → VL/文本模型调用 → 结构化输出 + 重复检测 + 自动创建付款。
-不涉及 Redis 缓存、session 上下文。
+含 Redis 结果缓存（供 LangGraph 子图和工具层共享，PR-B-1 新增）。
 """
+import json
 import os
 import logging
 import shutil
+import redis as redis_lib
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -19,6 +21,7 @@ from app.models.contract import Contract
 from app.models.user import User
 from app.ai.prompts import CONTRACT_ANALYSIS_PROMPT
 from app.utils.file_utils import calculate_file_hash, validate_file_id_in_dir
+from app.ai.tools import _get_redis_pool
 from app.utils.file_analysis import (
     compress_image,
     detect_image_mime,
@@ -134,6 +137,67 @@ def auto_create_payments_from_terms(
             })
 
     return auto_payments
+
+
+
+
+# ─── 结果缓存（PR-B-1 新增）───
+
+# 缓存 key 格式：`vl:contract:{file_id}`
+# 简化版（去掉 session_id），因为 file_id 已是 UUID，加 session_id 主要是过度防御。
+# 与 tools.py 的 `_cache_key` 后续在 PR-B-3 中对齐到同一格式，确保两条路径共享缓存。
+_CONTRACT_CACHE_PREFIX = "vl:contract:"
+_CONTRACT_CACHE_TTL = 1800  # 30 分钟，与 tools.py._ANALYSIS_CACHE_TTL 对齐
+_memory_contract_cache: dict = {}
+
+
+def _get_redis_client() -> Optional[redis_lib.Redis]:
+    """获取 Redis 客户端（复用 tools.py 的连接池）。返回 None 表示 Redis 不可用。"""
+    pool = _get_redis_pool()
+    if pool is None:
+        return None
+    try:
+        return redis_lib.Redis(connection_pool=pool)
+    except Exception:
+        return None
+
+
+def _cache_analysis(file_id: str, data: dict) -> None:
+    """将 analyze_file 的结构化结果缓存（供 create_contract 等工具复用）。
+
+    优先写 Redis，写失败降级到进程内内存 dict。两条路径（LangGraph 子图、
+    tools.analyze_image 合同分支）必须用同一 key 才能共享缓存。
+    """
+    if not isinstance(data, dict):
+        return
+    redis = _get_redis_client()
+    if redis:
+        try:
+            key = f"{_CONTRACT_CACHE_PREFIX}{file_id}"
+            redis.setex(key, _CONTRACT_CACHE_TTL, json.dumps(data, ensure_ascii=False))
+            logger.debug("contract_cache 写入 Redis: key=%s", key)
+            return
+        except Exception:
+            logger.warning("contract_cache Redis 写入失败，降级内存: file_id=%s", file_id)
+    _memory_contract_cache[file_id] = data
+
+
+def _get_cached_analysis(file_id: str) -> Optional[dict]:
+    """从缓存读取 analyze_file 的结构化结果（优先 Redis，降级内存）。"""
+    redis = _get_redis_client()
+    if redis:
+        try:
+            key = f"{_CONTRACT_CACHE_PREFIX}{file_id}"
+            raw = redis.get(key)
+            if raw:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    logger.debug("contract_cache 命中 Redis: key=%s", key)
+                    return data
+        except Exception:
+            logger.warning("contract_cache Redis 读取失败: file_id=%s", file_id)
+    data = _memory_contract_cache.get(file_id)
+    return data if isinstance(data, dict) else None
 
 
 # ─── 核心分析入口 ───
@@ -266,6 +330,11 @@ class ContractAnalyzer:
 
         # 归一化 payment_terms
         normalize_payment_terms(structured)
+
+        # PR-B-1: 写入 Redis 缓存，供后续 create_contract 工具复用
+        # file_id 从 file_path 提取（basename 去扩展名），与 tools.py 一致
+        file_id = os.path.splitext(os.path.basename(file_path))[0]
+        _cache_analysis(file_id, structured)
 
         return {
             "success": True,
