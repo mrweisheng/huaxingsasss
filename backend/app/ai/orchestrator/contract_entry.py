@@ -110,20 +110,38 @@ class ContractEntrySubgraph:
     # 节点 2：展示预览（无 LLM，纯数据组装）
     # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+    @staticmethod
+    def _normalize_contract_data(data: dict) -> dict:
+        """将 LLM 嵌套输出（party_b.name 等）展平为下游期望的扁平 key。
+
+        CONTRACT_ANALYSIS_PROMPT 输出 party_b: {name, phone, id_number}，
+        但 search_customer / create_customer / wait_user_confirm 各节点读
+        customer_name / phone / id_card_number。此方法做一次性映射。
+        """
+        party_b = data.get("party_b")
+        if isinstance(party_b, dict):
+            if not data.get("customer_name") and party_b.get("name"):
+                data["customer_name"] = party_b["name"]
+            if not data.get("phone") and party_b.get("phone"):
+                data["phone"] = party_b["phone"]
+            if not data.get("id_card_number") and party_b.get("id_number"):
+                data["id_card_number"] = party_b["id_number"]
+        return data
+
     def _extract_contract_data(self, file_context: str, file_id: str = "") -> dict:
         """从 file_context 中提取合同结构化数据（VL 缓存优先，文本兜底）"""
         # 先查 Redis 缓存（PR-B-1: 用 contract_analyzer 的模块级函数，key 格式 l:contract:{file_id}）
         if file_id:
             cached = _get_cached_analysis(file_id)
             if cached and isinstance(cached, dict):
-                return cached
+                return self._normalize_contract_data(cached)
 
         # 尝试从 file_context JSON 解析
         if file_context:
             try:
                 data = json.loads(file_context)
                 if isinstance(data, dict):
-                    return data
+                    return self._normalize_contract_data(data)
             except (json.JSONDecodeError, TypeError):
                 pass
         return {}
@@ -169,7 +187,7 @@ class ContractEntrySubgraph:
             "type": "contract_confirmation",
             "message": (
                 f"是否录入客户「{contract_data.get('customer_name', '未知')}」的合同？\n"
-                f"编号：{contract_data.get('contract_number', '自动生成')}\n"
+                f"编号：{contract_data.get('contract_number') or '自动生成'}\n"
                 f"金额：{contract_data.get('total_amount', '?')} {contract_data.get('currency', 'CNY')}"
             ),
             "preview": {
