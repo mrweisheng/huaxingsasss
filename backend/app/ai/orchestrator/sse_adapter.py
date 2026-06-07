@@ -57,6 +57,7 @@ async def adapt_langgraph_stream(
     task = asyncio.create_task(_consume_stream())
     interrupt_emitted = False
     stall_count = 0
+    consecutive_failures = 0  # 连续 checkpoint 查询失败计数
 
     try:
         while True:
@@ -118,34 +119,53 @@ async def adapt_langgraph_stream(
             if stream_done and not collected_events:
                 break
 
-            # 等待新事件或超时
-            await asyncio.sleep(0.5)
+            # 等待新事件或超时（退避：0.5s → 1s → 2s → 4s → 5s 封顶）
+            if stall_count >= 2:
+                sleep_interval = min(0.5 * (2 ** (stall_count - 2)), 5.0)
+            else:
+                sleep_interval = 0.5
+            await asyncio.sleep(sleep_interval)
 
             # 无新事件时，轮询检查点检测 interrupt（子图 interrupt 阻塞生成器）
             if not collected_events and not stream_done and graph and config:
                 stall_count += 1
-                if stall_count >= 2:  # 停滞 1 秒后开始检查
+                if stall_count >= 2:  # 停滞后开始检查
                     try:
                         state = await graph.aget_state(config)
-                        if state.next:
-                            interrupts = getattr(state, 'interrupts', None) or []
-                            if interrupts:
-                                interrupt_data = _interrupt_from_list(interrupts)
-                                if interrupt_data:
-                                    logger.info(
-                                        "SSE adapter: interrupt from checkpoint, "
-                                        "next=%s, type=%s",
-                                        state.next, interrupt_data.get("type", "unknown"),
-                                    )
-                                    yield _sse_encode({"event": "interrupt", "data": interrupt_data})
-                                    yield _sse_encode({
-                                        "event": "done",
-                                        "data": {"session_id": session_id, "interrupted": True},
-                                    })
-                                    interrupt_emitted = True
-                                    break
+                        consecutive_failures = 0  # 成功查询，重置失败计数
+                        interrupts = getattr(state, 'interrupts', None) or []
+                        logger.debug(
+                            "SSE adapter: checkpoint poll stall=%d next=%s interrupts_count=%d",
+                            stall_count, state.next, len(interrupts),
+                        )
+                        if state.next and interrupts:
+                            interrupt_data = _interrupt_from_list(interrupts)
+                            if interrupt_data:
+                                logger.info(
+                                    "SSE adapter: interrupt from checkpoint, "
+                                    "next=%s, type=%s",
+                                    state.next, interrupt_data.get("type", "unknown"),
+                                )
+                                yield _sse_encode({"event": "interrupt", "data": interrupt_data})
+                                yield _sse_encode({
+                                    "event": "done",
+                                    "data": {"session_id": session_id, "interrupted": True},
+                                })
+                                interrupt_emitted = True
+                                break
                     except Exception as e:
-                        logger.warning("SSE adapter: checkpoint check failed: %s", e)
+                        consecutive_failures += 1
+                        logger.warning(
+                            "SSE adapter: checkpoint check failed (%d/5): %s",
+                            consecutive_failures, e,
+                        )
+                        if consecutive_failures >= 5:
+                            logger.error("SSE adapter: checkpoint 连续失败，退出")
+                            yield _sse_encode({
+                                "event": "error",
+                                "data": {"message": "对话出错: checkpoint 服务不可用"},
+                            })
+                            break
     finally:
         if not task.done():
             task.cancel()
@@ -162,7 +182,10 @@ async def adapt_langgraph_stream(
             if state.next and interrupts:
                 interrupt_data = _interrupt_from_list(interrupts)
                 if interrupt_data:
-                    logger.info("SSE adapter: interrupt from post-stream checkpoint")
+                    logger.info(
+                        "SSE adapter: interrupt from post-stream checkpoint, type=%s",
+                        interrupt_data.get("type", "unknown"),
+                    )
                     yield _sse_encode({"event": "interrupt", "data": interrupt_data})
                     yield _sse_encode({
                         "event": "done",
