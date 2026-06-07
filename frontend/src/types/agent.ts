@@ -50,10 +50,17 @@ export interface InterruptOption {
   value: Record<string, any>
 }
 
+export interface ToolCallSummary {
+  tool: string
+  description: string
+  args: Record<string, any>
+}
+
 export interface InterruptInfo {
-  type: 'contract_confirmation'
+  type: string
   message: string
-  preview?: Record<string, any>
+  tool_calls?: ToolCallSummary[]
+  preview?: Record<string, any>  // 向后兼容旧 interrupt 格式
   options: InterruptOption[]
   interrupt_id: string
 }

@@ -57,20 +57,15 @@ class RootState(TypedDict, total=False):
 
 
 class ContractEntryState(RootState, total=False):
-    """合同录入子图状态"""
+    """合同录入子图状态（Agent 循环架构）
 
-    # VL/文本预分析的结构化数据
-    contract_data: Optional[dict]
-    customer_id: Optional[int]
-    customer_name: Optional[str]
-    customer_exists: bool
+    Agent 循环：analyze_file → call_model ↔ execute_tool
+    interrupt 安全门在 execute_tool 中拦截敏感工具（create_customer/create_contract），
+    用户确认后通过 approved_tool_ids 放行。
+    """
 
-    # HITL
-    preview_shown: bool         # 是否已展示概要
-    user_confirmed: bool        # 是否已点击确认录入
-
-    # 自动付款
-    auto_payments: list[dict]
+    # HITL 安全门：已批准的工具调用 ID，execute_tool_node 据此跳过 interrupt
+    approved_tool_ids: Annotated[list[str], operator.add]
 
 
 class GeneralChatState(RootState, total=False):

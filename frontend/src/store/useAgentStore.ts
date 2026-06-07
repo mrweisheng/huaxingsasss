@@ -159,6 +159,7 @@ function dispatchSSEEvent(
     const info: InterruptInfo = {
       type: eventData.type || 'contract_confirmation',
       message: eventData.message || '',
+      tool_calls: eventData.tool_calls,
       preview: eventData.preview,
       options: eventData.options || [],
       interrupt_id: eventData.interrupt_id || '',

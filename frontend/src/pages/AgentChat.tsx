@@ -761,7 +761,25 @@ export default function AgentChat() {
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
                   {interruptInfo.message}
                 </div>
-                {interruptInfo.preview && (
+                {interruptInfo.tool_calls && interruptInfo.tool_calls.length > 0 && (
+                  <div style={{
+                    padding: '8px 12px', borderRadius: 8,
+                    background: 'var(--bg-secondary)',
+                    marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)',
+                    display: 'flex', flexDirection: 'column', gap: 6,
+                  }}>
+                    {interruptInfo.tool_calls.map((tc, i) => (
+                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                        <span style={{
+                          display: 'inline-block', width: 6, height: 6,
+                          borderRadius: '50%', background: 'var(--color-primary)', flexShrink: 0,
+                        }} />
+                        <span>{tc.description}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {interruptInfo.preview && !interruptInfo.tool_calls && (
                   <div style={{
                     padding: '8px 12px', borderRadius: 8,
                     background: 'var(--bg-secondary)',
