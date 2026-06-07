@@ -1,4 +1,4 @@
-﻿"""通用对话子图（Phase 2.4 — ADR #3 自建 StateGraph）
+"""通用对话子图（Phase 2.4 — ADR #3 自建 StateGraph）
 
 替代旧 ReAct 循环，支持 20 个工具的开放对话。
 

@@ -1,4 +1,4 @@
-﻿"""Root Graph — LangGraph 顶层编排
+"""Root Graph — LangGraph 顶层编排
 
 Phase 1：intake_node → route_by_intent → contract_entry_subgraph → finalize_node
 Phase 2：凭证引导 / 群聊 / 通用对话子图接入

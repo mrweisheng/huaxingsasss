@@ -1,4 +1,4 @@
-﻿"""
+"""
 智能问答 API 路由 — Agent SSE 流式对话
 """
 import json
