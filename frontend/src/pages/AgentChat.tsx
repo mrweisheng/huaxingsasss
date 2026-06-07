@@ -249,7 +249,15 @@ export default function AgentChat() {
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
-    if (!text && pendingFiles.length === 0) return
+    if (!text && pendingFiles.length === 0) {
+      message.warning('请输入内容或上传文件')
+      return
+    }
+    // Phase 2.5：有附件时文本必填（凭证录入需要辅助文字供 VL 分析）
+    if (pendingFiles.length > 0 && !text) {
+      message.warning('上传文件时必须添加文字说明')
+      return
+    }
     // 立即清空输入框和待发文件，防止重复提交
     const filesToSend = pendingFiles.length > 0 ? [...pendingFiles] : undefined
     setInputText('')
@@ -841,7 +849,7 @@ export default function AgentChat() {
                 value={inputText}
                 onChange={(e) => setInputText(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={pendingFiles.length > 0 ? '添加说明（可选）...' : '输入你的问题...'}
+                placeholder={pendingFiles.length > 0 ? '请描述文件内容（必填）...' : '输入你的问题...'}
                 autoSize={{ minRows: 1, maxRows: 5 }}
                 disabled={isStreaming || !!interruptInfo}
                 bordered={false}
@@ -860,7 +868,7 @@ export default function AgentChat() {
                 <Button
                   type="primary" size="large" icon={<SendOutlined />}
                   onClick={handleSend}
-                  disabled={(!inputText.trim() && pendingFiles.length === 0)}
+                  disabled={!inputText.trim()}
                   style={{ borderRadius: 8, height: 40, padding: '0 20px', flexShrink: 0 }}
                 >
                   发送
