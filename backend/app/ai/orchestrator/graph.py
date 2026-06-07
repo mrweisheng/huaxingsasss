@@ -1,4 +1,4 @@
-"""Root Graph — LangGraph 顶层编排
+﻿"""Root Graph — LangGraph 顶层编排
 
 Phase 1：intake_node → route_by_intent → contract_entry_subgraph → finalize_node
 Phase 2：凭证引导 / 群聊 / 通用对话子图接入
@@ -7,12 +7,11 @@ ADR #5：直接使用 AsyncPostgresSaver
 ADR #2：不引入 ChatOpenAI，继续用 DashScopeAgentClient
 """
 import logging
-from typing import AsyncGenerator, Optional, Literal
+from typing import Optional, Literal
 
 from langgraph.graph import StateGraph, START, END
 
-from app.ai.orchestrator.state import RootState, ContractEntryState, GeneralChatState
-from app.ai.orchestrator.checkpointer import get_checkpointer
+from app.ai.orchestrator.state import RootState
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +66,8 @@ def _infer_intent(attachments: list, user_msg: str) -> str:
     if any(t.startswith("image") for t in file_types):
         if any(kw in user_lower for kw in ("凭证", "receipt", "转账", "收据", "付款")):
             return "receipt_entry"
+        if any(kw in user_lower for kw in ("群聊", "微信群", "group", "群")):
+            return "group_chat"
         return "general"  # 图片不确定用途，走通用对话
 
     return "general"
@@ -77,21 +78,32 @@ def _infer_intent(attachments: list, user_msg: str) -> str:
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def route_by_intent(state: RootState) -> Literal[
-    "contract_entry_subgraph", "general_chat_subgraph"
+    "contract_entry_subgraph",
+    "general_chat_subgraph",
+    "receipt_entry_node",
+    "group_chat_node",
 ]:
-    """根据 intent 和 mode 路由。
+    """根据 intent 和 mode 路由到对应子图/节点（Phase 2.6 完整路由矩阵）。
 
-    Phase 1 仅实现 contract_entry 和 general_chat 两个子图。
-    Phase 2 扩展 receipt_entry / group_chat。
+    路由矩阵：
+      intent             | mode   | 路由目标
+      contract_entry     | chat   | contract_entry_subgraph
+      receipt_entry      | *      | receipt_entry_node（降级引导）
+      group_chat         | *      | group_chat_node（降级引导）
+      general            | *      | general_chat_subgraph
     """
     intent = state.get("intent", "general")
     mode = state.get("executor_mode", "chat")
 
-    # 合同意图 + chat 模式 → 合同录入子图
     if intent == "contract_entry" and mode == "chat":
         return "contract_entry_subgraph"
 
-    # 通用对话兜底
+    if intent == "receipt_entry":
+        return "receipt_entry_node"
+
+    if intent == "group_chat":
+        return "group_chat_node"
+
     return "general_chat_subgraph"
 
 
@@ -133,6 +145,10 @@ def make_finalize_node(agent):
         session_id = state.get("session_id", "")
         for msg in state.get("messages", []):
             msg_type = getattr(msg, "type", None)
+            # auto_filled: HumanMessage.additional_kwargs 上的标记，标识系统补全的
+            # ""请分析文件...""提示词（用户实际没输入），写入 metadata 便于历史回看
+            auto_filled = bool(getattr(msg, "additional_kwargs", {}).get("auto_filled", False))
+            user_metadata = {"auto_filled": True} if auto_filled else None
             try:
                 if msg_type == "ai":
                     agent._save_message(
@@ -142,7 +158,9 @@ def make_finalize_node(agent):
                     )
                 elif msg_type == "human":
                     agent._save_message(
-                        session_id, "user", getattr(msg, "content", "") or ""
+                        session_id, "user",
+                        getattr(msg, "content", "") or "",
+                        metadata=user_metadata,
                     )
                 elif msg_type == "tool":
                     agent.save_tool_message(
@@ -185,44 +203,48 @@ async def finalize_node(state: RootState) -> dict:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 通用对话子图（Phase 1 — 保留 ReAct 循环作为过渡）
-# Phase 2 将替换为自建 StateGraph（文档 §7.4）
+# 凭证引导降级节点（Phase 2.1 占位，引导用户到卡片按钮）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-async def general_chat_start_node(state: GeneralChatState) -> dict:
-    """通用对话入口：Phase 1 占位节点。
+async def receipt_entry_node(state: RootState) -> dict:
+    """凭证录入引导：Phase 2.1 降级节点。
 
-    当 endpoint 的 use_langgraph 判断允许非 pdf/word/excel 附件进入
-    LangGraph 路径时（如未来扩展到图片附件），此节点会根据 intent 返回
-    引导消息，避免用户收不到任何回复。
-
-    Phase 2 将替换此占位为完整的 call_model → execute_tool ReAct 子图。
+    凭证录入已迁移到合同列表卡片的「收」「支」按钮，此处引导用户切换入口。
+    仍可通过 query_payments / get_payment_summary 等工具查询付款信息。
     """
     from langchain_core.messages import AIMessage
 
-    intent = state.get("intent", "general")
-    messages = []
-
-    if intent == "receipt_entry":
-        messages.append(AIMessage(content=(
+    return {
+        "messages": [AIMessage(content=(
             "凭证录入功能已迁移到合同列表卡片的「收」「支」按钮。\n"
             "请在合同列表页面找到对应合同，点击卡片上的按钮进行凭证录入。\n\n"
-            "如果您需要查询付款信息，可以使用 query_payments 或 get_contract_detail 工具。"
-        )))
-    elif intent == "group_chat":
-        messages.append(AIMessage(content=(
-            "群聊关联功能正在开发中。\n"
-            "您可以直接告诉我群聊名称和对应客户，我可以帮您通过 update_contract 关联群聊信息。"
-        )))
-    else:
-        # 通用对话：无附件文本消息理论上不会进入此节点
-        # （endpoint 的 use_langgraph 会走旧 ReAct），但作为兜底
-        messages.append(AIMessage(content="请告诉我您需要什么帮助？"))
+            "如果您需要查询付款信息，可以直接告诉我合同编号或客户姓名，我帮您查询。"
+        ))],
+        "should_end": True,
+        "current_node": "receipt_entry_node",
+    }
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 群聊关联降级节点（Phase 2.3 占位，引导用户手动关联）
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+async def group_chat_node(state: RootState) -> dict:
+    """群聊关联：Phase 2.3 降级节点。
+
+    用户上传微信群截图时，引导用户提供群名和业务信息，
+    通过 update_contract 工具手动关联 wechat_group 字段。
+    """
+    from langchain_core.messages import AIMessage
 
     return {
-        "messages": messages,
+        "messages": [AIMessage(content=(
+            "群聊关联功能：请告诉我微信群名称和对应的客户姓名或合同编号，"
+            "我可以帮您将群聊信息关联到合同记录中。\n\n"
+            "例如：「微信群 港车交流群 对应客户 张三」"
+        ))],
         "should_end": True,
-        "current_node": "general_chat_start_node",
+        "current_node": "group_chat_node",
     }
 
 
@@ -230,32 +252,45 @@ async def general_chat_start_node(state: GeneralChatState) -> dict:
 # 构建 Root Graph
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def build_general_chat_subgraph() -> StateGraph:
-    """构建通用对话子图（Phase 1 占位）"""
-    g = StateGraph(GeneralChatState)
-    g.add_node("general_chat_start_node", general_chat_start_node)
-    g.add_edge(START, "general_chat_start_node")
-    g.add_edge("general_chat_start_node", END)
-    return g.compile()
 
-
-def build_root_graph(contract_entry_app, checkpointer=None, agent=None) -> StateGraph:
-    """编译 Root Graph，注册合同录入子图。
+def build_root_graph(
+    contract_entry_app,
+    general_chat_app=None,
+    checkpointer=None,
+    agent=None,
+    db=None,
+    user=None,
+    session_context: Optional[dict] = None,
+    session_id: str = "",
+) -> StateGraph:
+    """编译 Root Graph，注册 4 个子图/节点（Phase 2.6 完整编排）。
 
     Args:
         contract_entry_app: ContractEntrySubgraph.build() 的返回值
+        general_chat_app: GeneralChatSubgraph.build() 的返回值（可选，None 时自建）
         checkpointer: AsyncPostgresSaver 实例
         agent: ContractAgent 实例（注入 finalize_node 用于 chat_history 落库）
+        db / user: 数据库会话和用户（用于自建通用对话子图）
+        session_context / session_id: ToolExecutor 上下文
     """
+    from app.ai.orchestrator.general_chat import GeneralChatSubgraph
+
     workflow = StateGraph(RootState)
 
-    # 通用对话子图（Phase 1 占位）
-    general_app = build_general_chat_subgraph()
+    # 通用对话子图：优先使用外部注入，否则自建
+    if general_chat_app is None and db is not None and user is not None:
+        general_chat = GeneralChatSubgraph(
+            db, user, session_context=session_context, session_id=session_id,
+        )
+        general_chat_app = general_chat.build(checkpointer=checkpointer)
 
     # 添加节点
     workflow.add_node("intake_node", intake_node)
     workflow.add_node("contract_entry_subgraph", contract_entry_app)
-    workflow.add_node("general_chat_subgraph", general_app)
+    workflow.add_node("general_chat_subgraph", general_chat_app)
+    workflow.add_node("receipt_entry_node", receipt_entry_node)
+    workflow.add_node("group_chat_node", group_chat_node)
+
     # finalize_node: 生产环境注入 agent 落库，否则使用无 agent 版本
     if agent is not None:
         workflow.add_node("finalize_node", make_finalize_node(agent))
@@ -271,11 +306,15 @@ def build_root_graph(contract_entry_app, checkpointer=None, agent=None) -> State
         {
             "contract_entry_subgraph": "contract_entry_subgraph",
             "general_chat_subgraph": "general_chat_subgraph",
+            "receipt_entry_node": "receipt_entry_node",
+            "group_chat_node": "group_chat_node",
         },
     )
 
     workflow.add_edge("contract_entry_subgraph", "finalize_node")
     workflow.add_edge("general_chat_subgraph", "finalize_node")
+    workflow.add_edge("receipt_entry_node", "finalize_node")
+    workflow.add_edge("group_chat_node", "finalize_node")
     workflow.add_edge("finalize_node", END)
 
     return workflow.compile(checkpointer=checkpointer)
