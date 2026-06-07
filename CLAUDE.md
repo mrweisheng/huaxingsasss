@@ -177,6 +177,9 @@ npm run build      # TypeScript 检查 + Vite 构建
 - `DASHSCOPE_VISION_MODEL` — 视觉模型名，默认 `qwen3-vl-flash`
 - `DASHSCOPE_AGENT_MODEL` — Agent 推理模型名，默认 `deepseek-v4-flash`
 - `AGENT_ORCHESTRATOR` — Agent 编排引擎，`langgraph`（默认）或 `legacy`（紧急回滚）
+- `LANGCHAIN_TRACING_V2` — LangSmith 追踪开关，`true` 启用（Phase 2.7）
+- `LANGCHAIN_API_KEY` — LangSmith API 密钥
+- `LANGCHAIN_PROJECT` — LangSmith 项目名，默认 `huaxing-agent`
 - `AGENT_MAX_ITERATIONS` — Agent 最大迭代次数，默认 8
 - `AGENT_HISTORY_WINDOW` — 历史消息窗口，默认 100
 - `AGENT_MAX_SUMMARY_MESSAGES` — 摘要触发阈值，默认 10
@@ -214,6 +217,8 @@ npm run build      # TypeScript 检查 + Vite 构建
 **禁止创建 alembic 迁移脚本。** 当 ORM 模型变更涉及表结构改动（新增列、修改列类型、新增表等）时，只提供纯 SQL DDL/DML 语句给用户手动执行，不要生成 `migrations/versions/` 下的迁移文件。
 
 `main.py` 的 `on_startup` 直接调用 `init_checkpointer()`（创建 LangGraph checkpoint 表），不再使用 alembic。新增的表结构变更应通过提供 SQL 语句由用户手动执行。
+
+SQL 导出工具：`backend/scripts/dump_init_sql.py` 基于 ORM 模型自动生成业务表 DDL，用法 `cd backend && uv run python scripts/dump_init_sql.py > ../sql/init_business_tables.sql`。
 
 `chat_history` 表存储 Agent 对话消息，每行一条消息（role: user/assistant/tool），通过 `session_id` 分组为会话。包含 `tool_calls`（JSON）和 `metadata`（JSON）列支持函数调用和附件。
 

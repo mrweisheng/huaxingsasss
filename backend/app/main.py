@@ -76,6 +76,18 @@ async def on_startup():
     # LangGraph checkpoint 表由 init_checkpointer() 内部 setup() 自动创建
     from app.ai.orchestrator.checkpointer import init_checkpointer
     await init_checkpointer()
+
+    # LangSmith 可观测性（Phase 2.7）：将 pydantic settings 同步到 os.environ，
+    # langsmith SDK 从环境变量读取追踪配置，设置后 LangGraph 节点自动埋点
+    import os
+    if settings.LANGCHAIN_TRACING_V2 and settings.LANGCHAIN_API_KEY:
+        os.environ["LANGCHAIN_TRACING_V2"] = "true"
+        os.environ["LANGCHAIN_API_KEY"] = settings.LANGCHAIN_API_KEY
+        os.environ["LANGCHAIN_PROJECT"] = settings.LANGCHAIN_PROJECT
+        logger.info("langsmith_tracing_enabled: project=%s", settings.LANGCHAIN_PROJECT)
+    else:
+        logger.info("langsmith_tracing_disabled")
+
     logger.info("app_starting: app=%s, env=%s", settings.APP_NAME, settings.APP_ENV)
 
 

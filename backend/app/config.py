@@ -69,6 +69,12 @@ class Settings(BaseSettings):
 
     # Agent 重试配置
     AGENT_MAX_RETRIES: int = 3
+
+    # LangSmith 可观测性（Phase 2.7）
+    # 设为 true 后 LangChain/LangGraph 自动追踪到 LangSmith UI
+    LANGCHAIN_TRACING_V2: bool = False
+    LANGCHAIN_API_KEY: str = ""
+    LANGCHAIN_PROJECT: str = "huaxing-agent"
     AGENT_RETRY_BASE_DELAY: float = 1.0
 
     # Agent配置

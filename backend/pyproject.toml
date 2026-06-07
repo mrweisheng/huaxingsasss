@@ -55,6 +55,7 @@ dependencies = [
 
     # 日志与监控
     "structlog>=24.4.0",
+    "langsmith>=0.1.0",  # LangSmith 可观测性（Phase 2.7）
 
     # 开发工具
     "black>=24.10.0",
