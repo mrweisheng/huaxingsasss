@@ -117,7 +117,11 @@ _NODE_FRIENDLY = {
     "summarize_cancel_node": "取消录入",
     "fallback_node": "处理异常",
     "finalize_node": "保存记录",
-    "general_chat_start_node": "分析中",
+    "call_model_node": "思考中",
+    "general_chat_subgraph": "通用对话",
+    "execute_tool_node": "执行操作",
+    "receipt_entry_node": "处理凭证请求",
+    "group_chat_node": "处理群聊请求",
 }
 
 
