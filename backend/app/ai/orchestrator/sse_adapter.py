@@ -103,6 +103,14 @@ async def adapt_langgraph_stream(
                             "data": {"content": chunk.content},
                         })
 
+                elif kind == "on_custom_event" and event.get("name") == "text_chunk":
+                    content = event.get("data", {}).get("content", "")
+                    if content:
+                        yield _sse_encode({
+                            "event": "text",
+                            "data": {"content": content},
+                        })
+
             if interrupt_emitted:
                 break
 

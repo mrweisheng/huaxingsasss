@@ -27,6 +27,7 @@ from typing import Optional, Literal
 from langgraph.graph import StateGraph, START, END
 from langgraph.types import interrupt
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
+from langchain_core.callbacks.manager import adispatch_custom_event
 
 from app.ai.orchestrator.state import ContractEntryState
 from app.ai.tools import TOOL_DEFINITIONS, ToolExecutor
@@ -211,6 +212,10 @@ class ContractEntrySubgraph:
                 ):
                     if event["type"] == "text":
                         full_text += event["content"]
+                        await adispatch_custom_event(
+                            "text_chunk",
+                            {"content": event["content"]},
+                        )
                     elif event["type"] == "tool_call":
                         tool_calls.append({
                             "id": event["id"],
