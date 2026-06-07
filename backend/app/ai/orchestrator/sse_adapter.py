@@ -5,7 +5,7 @@ Phase 1 新增 interrupt 事件类型
 """
 import json
 import logging
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional
 
 from app.ai.orchestrator.state import RootState
 
@@ -40,10 +40,15 @@ async def adapt_langgraph_stream(
         if interrupt_emitted:
             if kind == "on_chain_end":
                 next_output = event.get("data", {}).get("output", {})
-                if isinstance(next_output, dict) and next_output.get("interrupt_info"):
+                next_interrupt = _extract_interrupt(next_output) if isinstance(next_output, dict) else None
+                if next_interrupt:
+                    logger.info(
+                        "SSE adapter: subsequent interrupt detected, type=%s",
+                        next_interrupt.get("type", "unknown"),
+                    )
                     yield _sse_encode({
                         "event": "interrupt",
-                        "data": next_output["interrupt_info"],
+                        "data": next_interrupt,
                     })
                     yield _sse_encode({
                         "event": "done",
@@ -62,12 +67,23 @@ async def adapt_langgraph_stream(
         elif kind == "on_chain_end":
             node_name = event.get("name", "")
             output = event.get("data", {}).get("output", {})
-            if isinstance(output, dict) and output.get("interrupt_info"):
-                # interrupt 触发 → 推送 interrupt 事件 + done(interrupted=true)，
-                # 然后进入"仅监听新 interrupt"模式
+            if isinstance(output, dict):
+                # 调试日志：显示 output 的顶层键名，帮助排查 interrupt 键名不匹配
+                output_keys = list(output.keys())
+                if "__interrupt__" in output_keys or "interrupt_info" in output_keys:
+                    logger.info(
+                        "SSE adapter: on_chain_end node=%s output_keys=%s",
+                        node_name, output_keys,
+                    )
+            interrupt_value = _extract_interrupt(output) if isinstance(output, dict) else None
+            if interrupt_value:
+                logger.info(
+                    "SSE adapter: interrupt detected, node=%s, type=%s",
+                    node_name, interrupt_value.get("type", "unknown"),
+                )
                 sse_interrupt = {
                     "event": "interrupt",
-                    "data": output["interrupt_info"],
+                    "data": interrupt_value,
                 }
                 yield _sse_encode(sse_interrupt)
 
@@ -127,3 +143,35 @@ _NODE_FRIENDLY = {
 
 def _node_friendly_name(node_name: str) -> str:
     return _NODE_FRIENDLY.get(node_name, node_name)
+
+
+def _extract_interrupt(output: dict) -> Optional[dict]:
+    """从 on_chain_end 事件的 output 中提取 interrupt payload。
+
+    LangGraph 1.2+ 使用 ``__interrupt__`` 键名（非自定义 state 字段
+    ``interrupt_info``），值为 ``[Interrupt, ...]`` 列表。
+    每个元素可能是 Interrupt 对象（有 ``.value`` / ``.id`` 属性）或 dict。
+    返回第一个 interrupt 的 value（即传给 ``interrupt()`` 的 dict），
+    包含 type / message / preview / options / interrupt_id。
+
+    ⚠️ interrupt_id 会被 LangGraph 框架生成的 ``.id`` 覆盖，确保前端
+    收到的 ID 与 checkpoint ``state.interrupts[i].id`` 一致，
+    resume 校验才能通过。节点内自定义的 ``contract_xxx`` ID 被丢弃。
+    """
+    interrupts = output.get("__interrupt__")
+    if not interrupts or not isinstance(interrupts, list):
+        return None
+    first = interrupts[0]
+    # Interrupt 对象 → 取 .value 和 .id；dict → 取 ["value"] 和 ["id"]
+    value = getattr(first, "value", None)
+    lg_id = getattr(first, "id", None)
+    if value is None and isinstance(first, dict):
+        value = first.get("value")
+        lg_id = lg_id or first.get("id")
+    if not isinstance(value, dict):
+        return None
+    result = dict(value)
+    # 用 LangGraph 框架 ID 覆盖自定义 ID，保证 resume 校验匹配
+    if lg_id:
+        result["interrupt_id"] = lg_id
+    return result
