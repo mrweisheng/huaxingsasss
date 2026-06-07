@@ -1,4 +1,4 @@
-"""
+﻿"""
 智能问答 API 路由 — Agent SSE 流式对话
 """
 import json
@@ -106,8 +106,10 @@ async def chat(
     # ====================
 
     question = request.question or ""
+    auto_filled = False
     if not question.strip() and request.attachments:
-        # 根据附件类型动态生成默认提示词
+        # 根据附件类型动态生成默认提示词，标记为自动补全（用于 chat_history 元数据）
+        auto_filled = True
         types = {a.file_type for a in request.attachments}
         type_labels = []
         if "image" in types or "receipt" in types:
@@ -157,13 +159,22 @@ async def chat(
                     yield f"data: {json.dumps({'event': 'error', 'data': {'message': '系统正在维护中，请稍后重试'}}, ensure_ascii=False)}\n\n"
                     return
                 use_langgraph = True
-            elif request.attachments and any(
-                a.file_type in ("pdf", "word", "excel") for a in request.attachments
-            ):
-                # 文档附件 → 合同录入子图（受环境变量控制）
-                # 已知限制：图片附件（JPEG/PNG）不触发 LangGraph，走旧 ReAct。
-                # Phase 2 通用对话子图完成后统一走 LangGraph，届时移除此限制。
-                use_langgraph = settings.AGENT_ORCHESTRATOR != "legacy"
+            elif request.attachments:
+                # 附件类型分流：
+                #   pdf/word/excel              → LangGraph 合同录入子图
+                #   image + 凭证/群聊关键词     → LangGraph receipt_entry / group_chat 降级引导
+                #   image + 无关键词            → 旧 ReAct（带 VL 能力；Phase 2.4 general_chat
+                #                                 暂不支持 image_url 多模态 content，退回旧路径）
+                #   其他附件类型                 → 旧 ReAct
+                has_doc = any(a.file_type in ('pdf', 'word', 'excel') for a in request.attachments)
+                has_image = any(a.file_type == 'image' for a in request.attachments)
+                has_image_with_kw = has_image and any(
+                    kw in (request.question or '').lower()
+                    for kw in ('凭证', 'receipt', '转账', '收据', '付款',
+                               '群聊', '微信群', 'group', '群')
+                )
+                if has_doc or has_image_with_kw:
+                    use_langgraph = settings.AGENT_ORCHESTRATOR != 'legacy'
 
             if use_langgraph:
                 try:
@@ -213,12 +224,24 @@ async def chat(
                     session_id=session_id,
                 )
                 contract_app = contract_entry.build(checkpointer=cp)
-                root_app = build_root_graph(contract_app, checkpointer=cp, agent=agent)
+                root_app = build_root_graph(
+                    contract_app,
+                    checkpointer=cp,
+                    agent=agent,
+                    db=db,
+                    user=current_user,
+                    session_context=agent._session_context,
+                    session_id=session_id,
+                )
 
-                # 构造 initial_state
+                # 构造 initial_state。auto_filled 标记透传到 HumanMessage.additional_kwargs，
+                # finalize_node 读取后写入 chat_history.metadata，区分"用户实际输入"与"系统补全"
                 from langchain_core.messages import HumanMessage
                 initial_state = {
-                    "messages": [HumanMessage(content=question)],
+                    "messages": [HumanMessage(
+                        content=question,
+                        additional_kwargs={"auto_filled": True} if auto_filled else {},
+                    )],
                     "user_id": current_user.id,
                     "user_role": current_user.role,
                     "session_id": session_id,
