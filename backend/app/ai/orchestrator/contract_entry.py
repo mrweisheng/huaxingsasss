@@ -365,8 +365,11 @@ class ContractEntrySubgraph:
         errors = state.get("errors", [])
 
         if errors:
+            # 合同可能创建失败（contract_id 为 None），不显示"已创建"误导用户
+            created = bool(contract_id)
+            head = f"合同已录入（ID: {contract_id}）" if created else "合同录入未完成"
             summary = (
-                f"合同已创建（ID: {contract_id}），但存在以下问题：\n"
+                f"{head}，但存在以下问题：\n"
                 + "\n".join(f"  - {e}" for e in errors)
             )
         elif auto_payments:
