@@ -57,7 +57,6 @@ const businessTypeConfig: Record<string, {
 const currencySymbol: Record<string, string> = {
   CNY: '¥',
   HKD: 'HK$',
-  USD: '$',
 }
 
 function formatAmount(amount: number | null | undefined, currency: string): string {

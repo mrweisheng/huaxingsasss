@@ -2,11 +2,11 @@
 汇率自动同步定时任务
 
 每天北京时间 00:30 自动同步最新汇率到数据库。
+项目只支持 CNY 和 HKD 两种币种，故此任务仅同步 HKD/CNY 汇率。
 数据来源：frankfurter.dev（ECB 参考汇率） + @fawazahmed0/currency-api（备用）
 """
 import logging
 from datetime import date
-
 from decimal import Decimal
 
 from app.tasks.celery_app import celery_app
@@ -23,8 +23,8 @@ def sync_daily_rates(self):
     Celery 入口：获取汇率 → 存入数据库
 
     流程：
-    1. 调用 fetch_exchange_rates() 获取 HKD/CNY 和 USD/CNY 汇率
-    2. 遍历两种货币，存入或更新数据库
+    1. 调用 fetch_exchange_rates() 获取 HKD/CNY 汇率
+    2. 写入或更新数据库
     3. 失败时重试（最多3次）
 
     Returns:
@@ -37,9 +37,9 @@ def sync_daily_rates(self):
     try:
         rates = fetch_exchange_rates()
 
-        if rates["hkdcny"] is None and rates["usdcny"] is None:
-            logger.error("汇率获取失败：两个货币对都没有数据")
-            raise self.retry(exc=Exception("汇率获取全部失败"), countdown=300)
+        if rates["hkdcny"] is None:
+            logger.error("汇率获取失败：HKD/CNY 没有数据")
+            raise self.retry(exc=Exception("HKD/CNY 汇率获取失败"), countdown=300)
 
         result = _save_rates_to_db(db, rates, today)
         logger.info("汇率同步完成: %s", result["message"])
@@ -69,8 +69,8 @@ def _save_rates_to_db(db, rates: dict, today: date) -> dict:
     - 如果当日无记录，新增记录
 
     Args:
-        db: SQLAlchemy 会话
-        rates: {"hkdcny": float, "usdcny": float, "source": str, "date": str}
+        db: SQLAlchemy session
+        rates: {"hkdcny": float, "source": str, "date": str}
         today: 当前日期
 
     Returns:
@@ -83,13 +83,14 @@ def _save_rates_to_db(db, rates: dict, today: date) -> dict:
 
     source = rates.get("source", "unknown")
 
-    for currency_code, rate_key in [("HKD", "hkdcny"), ("USD", "usdcny")]:
-        rate_value = rates.get(rate_key)
+    # 项目仅支持 CNY 和 HKD，故只同步 HKD/CNY
+    currency_code = "HKD"
+    rate_key = "hkdcny"
+    rate_value = rates.get(rate_key)
 
-        if rate_value is None:
-            details[f"{currency_code}/CNY"] = {"skipped": "未获取到汇率"}
-            continue
-
+    if rate_value is None:
+        details[f"{currency_code}/CNY"] = {"skipped": "未获取到汇率"}
+    else:
         rate_decimal = Decimal(str(rate_value))
 
         existing = ExchangeRateService.get_exchange_rate_record(
@@ -103,30 +104,29 @@ def _save_rates_to_db(db, rates: dict, today: date) -> dict:
                 "rate": float(rate_decimal),
                 "source": source,
             }
-            continue
-
-        try:
-            ExchangeRateService.update_exchange_rate(
-                db=db,
-                from_currency=currency_code,
-                to_currency="CNY",
-                rate=rate_decimal,
-                rate_date=today,
-                source=source,
-            )
-            saved_count += 1
-            action = "更新" if existing else "新增"
-            logger.info(f"{action}汇率 {currency_code}/CNY = {rate_value} ({today}, {source})")
-            details[f"{currency_code}/CNY"] = {
-                "action": action.lower(),
-                "rate": float(rate_decimal),
-                "source": source,
-            }
-        except Exception as e:
-            err_msg = f"{currency_code}/CNY: {str(e)}"
-            errors.append(err_msg)
-            logger.error(err_msg)
-            details[f"{currency_code}/CNY"] = {"error": str(e)}
+        else:
+            try:
+                ExchangeRateService.update_exchange_rate(
+                    db=db,
+                    from_currency=currency_code,
+                    to_currency="CNY",
+                    rate=rate_decimal,
+                    rate_date=today,
+                    source=source,
+                )
+                saved_count += 1
+                action = "更新" if existing else "新增"
+                logger.info(f"{action}汇率 {currency_code}/CNY = {rate_value} ({today}, {source})")
+                details[f"{currency_code}/CNY"] = {
+                    "action": action.lower(),
+                    "rate": float(rate_decimal),
+                    "source": source,
+                }
+            except Exception as e:
+                err_msg = f"{currency_code}/CNY: {str(e)}"
+                errors.append(err_msg)
+                logger.error(err_msg)
+                details[f"{currency_code}/CNY"] = {"error": str(e)}
 
     if errors:
         status = "partial_failure"

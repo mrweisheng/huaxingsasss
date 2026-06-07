@@ -16,9 +16,9 @@ logger = logging.getLogger(__name__)
 class ExchangeRateService:
     """汇率管理服务"""
 
+    # 项目仅支持 CNY 和 HKD，故 fallback 只需 HKD/CNY
     FALLBACK_RATES = {
         ("HKD", "CNY"): Decimal(str(getattr(settings, "DEFAULT_EXCHANGE_RATE_HKD_CNY", "0.92"))),
-        ("USD", "CNY"): Decimal(str(getattr(settings, "DEFAULT_EXCHANGE_RATE_USD_CNY", "7.25"))),
     }
 
     @staticmethod
@@ -38,7 +38,7 @@ class ExchangeRateService:
         4. 硬编码 fallback
 
         Args:
-            from_currency: 源币种（HKD/USD等）
+            from_currency: 源币种（项目仅支持 HKD）
             to_currency: 目标币种（默认CNY）
             rate_date: 汇率日期
 

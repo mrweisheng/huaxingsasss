@@ -343,7 +343,7 @@ class ContractService:
         if 'business_description' in contract_data:
             contract.business_description = contract_data['business_description']
 
-        # 提取币种（AI 可识别 HKD/USD/CNY）
+        # 提取币种（AI 可识别 CNY/HKD）
         if 'currency' in contract_data and contract_data['currency']:
             contract.currency = contract_data['currency']
 

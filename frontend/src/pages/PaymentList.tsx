@@ -8,7 +8,7 @@ import { useAuthStore } from '@/store/useAuthStore'
 import type { Payment } from '@/types'
 import './PaymentList.css'
 
-const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
+const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
 function fmt(amount: number | undefined | null, currency: string): string {
   if (amount === undefined || amount === null) return '-'
@@ -25,7 +25,7 @@ function amountToChinese(amount: number, currency: string): string {
   const unitMap = ['', '拾', '佰', '仟']
   const bigUnitMap = ['', '萬', '億']
 
-  const currencyName = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency === 'USD' ? '美元' : currency
+  const currencyName = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency
   const intPart = Math.floor(amount)
   const fracPart = Math.round((amount - intPart) * 100)
 

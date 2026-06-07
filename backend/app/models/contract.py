@@ -29,7 +29,7 @@ class Contract(BaseModel):
     sales_person_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True, comment="业务员ID")
     
     # 金额相关（支持多币种）
-    currency = Column(String(3), nullable=False, default="CNY", comment="合同币种: CNY/HKD/USD")
+    currency = Column(String(3), nullable=False, default="CNY", comment="合同币种: CNY/HKD")
     total_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="合同总金额")
     paid_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="已付金额")
     remaining_amount = Column(DECIMAL(15, 2), comment="剩余金额")

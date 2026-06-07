@@ -1,6 +1,8 @@
 """
 外汇牌价获取服务 - frankfurter.dev + currency-api 双源方案
 
+业务范围：项目只支持 CNY 和 HKD 两种币种。HKD 兑 CNY 汇率是唯一需要同步的汇率。
+
 架构：
   1. 优先调用 frankfurter.dev（ECB 参考汇率，免费、无需 API Key）
   2. 失败时使用 @fawazahmed0/currency-api（jsDelivr CDN，免费、无需 API Key）
@@ -30,14 +32,13 @@ CURRENCY_API_BASE = "https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api"
 
 REQUEST_TIMEOUT = 15.0
 
-# 币种列表（兑 CNY）
-CURRENCIES = ["HKD", "USD"]
-RATE_KEYS = {"HKD": "hkdcny", "USD": "usdcny"}
+# 唯一需要同步的汇率：HKD → CNY
+SUPPORTED_CURRENCIES = ["HKD"]
+RATE_KEYS = {"HKD": "hkdcny"}
 
 # 汇率合理性范围
 RATE_BOUNDS = {
     "hkdcny": (0.5, 2.0),
-    "usdcny": (5.0, 10.0),
 }
 
 
@@ -45,7 +46,7 @@ RATE_BOUNDS = {
 
 def fetch_exchange_rates() -> Dict[str, Optional[float]]:
     """
-    获取当日 HKD/CNY 和 USD/CNY 汇率。
+    获取当日 HKD/CNY 汇率。
 
     执行顺序：
     1. 优先从 frankfurter.dev 获取
@@ -53,19 +54,16 @@ def fetch_exchange_rates() -> Dict[str, Optional[float]]:
     3. 都失败返回空结果
 
     Returns:
-        {"hkdcny": float or None, "usdcny": float or None, "source": str, "date": str}
+        {"hkdcny": float or None, "source": str, "date": str}
     """
-    result = {"hkdcny": None, "usdcny": None, "source": None, "date": None}
+    result = {"hkdcny": None, "source": None, "date": None}
 
     # 主源：frankfurter.dev
     try:
         rates = _validate_rates(_fetch_frankfurter("latest"))
-        if rates["hkdcny"] is not None and rates["usdcny"] is not None:
+        if rates.get("hkdcny") is not None:
             result.update(rates)
-            logger.info(
-                "汇率获取成功（frankfurter.dev）: HKD/CNY=%s, USD/CNY=%s",
-                rates["hkdcny"], rates["usdcny"],
-            )
+            logger.info("汇率获取成功（frankfurter.dev）: HKD/CNY=%s", rates["hkdcny"])
             return result
     except Exception as e:
         logger.warning("frankfurter.dev 汇率获取失败: %s，尝试备用源...", e)
@@ -73,12 +71,9 @@ def fetch_exchange_rates() -> Dict[str, Optional[float]]:
     # 备用源：@fawazahmed0/currency-api (jsDelivr CDN)
     try:
         rates = _validate_rates(_fetch_currency_api("latest"))
-        if rates["hkdcny"] is not None or rates["usdcny"] is not None:
+        if rates.get("hkdcny") is not None:
             result.update(rates)
-            logger.info(
-                "汇率获取成功（currency-api 备用）: HKD/CNY=%s, USD/CNY=%s",
-                rates["hkdcny"], rates["usdcny"],
-            )
+            logger.info("汇率获取成功（currency-api 备用）: HKD/CNY=%s", rates["hkdcny"])
             return result
     except Exception as e:
         logger.warning("currency-api 汇率获取失败: %s", e)
@@ -99,12 +94,16 @@ def fetch_rate_for_date(
     API 会自动返回最近一个工作日的汇率。
 
     Args:
-        currency: "HKD" 或 "USD"
+        currency: 必须是 "HKD"
         rate_date: 目标日期
 
     Returns:
         {"rate": float, "actual_date": str, "source": str} 或 None
     """
+    if currency not in SUPPORTED_CURRENCIES:
+        logger.warning("不支持的币种: %s（仅支持 %s）", currency, SUPPORTED_CURRENCIES)
+        return None
+
     date_str = rate_date.isoformat()
 
     # 主源：frankfurter.dev
@@ -149,9 +148,9 @@ def _fetch_frankfurter(
 
     Args:
         date_or_latest: "latest" 或日期字符串 "YYYY-MM-DD"
-        currencies: 要查询的币种列表，默认 ["HKD", "USD"]
+        currencies: 要查询的币种列表，默认 SUPPORTED_CURRENCIES
     """
-    currencies = currencies or CURRENCIES
+    currencies = currencies or SUPPORTED_CURRENCIES
     to_param = ",".join(currencies)
     url = f"{FRANKFURTER_BASE}/{date_or_latest}?from=CNY&to={to_param}"
 
@@ -186,13 +185,13 @@ def _fetch_currency_api(
 
     支持历史日期查询（2024-03-02 至今），无需 API Key，无速率限制。
     URL 格式：https://cdn.jsdelivr.net/npm/@fawazahmed0/currency-api@{date}/v1/currencies/{code}.json
-    返回格式：{"date": "...", "hkd": {"cny": 0.92, "usd": 0.13, ...}}
+    返回格式：{"date": "...", "hkd": {"cny": 0.92, ...}}
 
     Args:
         date_or_latest: "latest" 或日期字符串 "YYYY-MM-DD"
-        currencies: 要查询的币种列表，默认 ["HKD", "USD"]
+        currencies: 要查询的币种列表，默认 SUPPORTED_CURRENCIES
     """
-    currencies = currencies or CURRENCIES
+    currencies = currencies or SUPPORTED_CURRENCIES
 
     version = "latest" if date_or_latest == "latest" else date_or_latest
 
@@ -209,17 +208,6 @@ def _fetch_currency_api(
         result["date"] = data.get("date", date_or_latest)
         hkd_cny = data.get("hkd", {}).get("cny")
         result["hkdcny"] = round(hkd_cny, 6) if hkd_cny and hkd_cny > 0 else None
-
-    if "USD" in currencies:
-        usd_url = f"{CURRENCY_API_BASE}@{version}/v1/currencies/usd.json"
-        with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
-            usd_resp = client.get(usd_url)
-            usd_resp.raise_for_status()
-
-        usd_data = usd_resp.json()
-        result["date"] = usd_data.get("date", date_or_latest)
-        usd_cny = usd_data.get("usd", {}).get("cny")
-        result["usdcny"] = round(usd_cny, 6) if usd_cny and usd_cny > 0 else None
 
     return result
 

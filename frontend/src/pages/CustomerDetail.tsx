@@ -18,7 +18,7 @@ const BUSINESS_TYPE_MAP: Record<string, string> = {
   '办两地牌': '办两地牌',
 }
 
-const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
+const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
 function fmt(amount: number | undefined | null, currency: string): string {
   if (amount === undefined || amount === null) return '-'

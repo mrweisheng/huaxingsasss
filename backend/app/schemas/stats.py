@@ -1,5 +1,7 @@
 """
 财务统计相关 Pydantic 模型
+
+币种规则：项目只支持 CNY 和 HKD 两种币种。所有金额按币种分组返回，不跨币种合并/折算。
 """
 from typing import Optional, List
 from pydantic import BaseModel, Field
@@ -13,42 +15,42 @@ class CurrencyAmount(BaseModel):
 
 
 class KpiData(BaseModel):
-    """核心 KPI 指标"""
+    """核心 KPI 指标（已按币种分组）"""
     total_contracts: int = Field(0, description="合同总数")
     active_contracts: int = Field(0, description="进行中合同")
     total_customers: int = Field(0, description="客户总数")
-    total_income: CurrencyAmount = Field(default_factory=CurrencyAmount, description="已收总额")
-    total_expense: CurrencyAmount = Field(default_factory=CurrencyAmount, description="支出总额")
-    total_profit: CurrencyAmount = Field(default_factory=CurrencyAmount, description="利润")
-    total_remaining: CurrencyAmount = Field(default_factory=CurrencyAmount, description="待收金额")
+    total_income: CurrencyAmount = Field(default_factory=CurrencyAmount, description="已收总额（按币种）")
+    total_expense: CurrencyAmount = Field(default_factory=CurrencyAmount, description="支出总额（按币种）")
+    total_profit: CurrencyAmount = Field(default_factory=CurrencyAmount, description="利润（按币种）")
+    total_remaining: CurrencyAmount = Field(default_factory=CurrencyAmount, description="待收金额（按币种）")
 
 
 class MonthlyItem(BaseModel):
-    """月度趋势条目"""
+    """月度趋势条目（按币种分组）"""
     month: str = Field(..., description="月份, YYYY-MM")
-    income: Decimal = Field(Decimal("0"), description="收入（CNY）")
-    expense: Decimal = Field(Decimal("0"), description="支出（CNY）")
-    profit: Decimal = Field(Decimal("0"), description="利润（CNY）")
+    income: CurrencyAmount = Field(default_factory=CurrencyAmount, description="收入（按币种）")
+    expense: CurrencyAmount = Field(default_factory=CurrencyAmount, description="支出（按币种）")
+    profit: CurrencyAmount = Field(default_factory=CurrencyAmount, description="利润（按币种）")
 
 
 class BusinessTypeItem(BaseModel):
-    """业务类型分布条目"""
+    """业务类型分布条目（按币种分组）"""
     business_type: str = Field(..., description="业务类型")
     contract_count: int = Field(0, description="合同数")
-    total_amount: Decimal = Field(Decimal("0"), description="合同总额（CNY）")
-    income: Decimal = Field(Decimal("0"), description="已收（CNY）")
-    expense: Decimal = Field(Decimal("0"), description="支出（CNY）")
-    profit: Decimal = Field(Decimal("0"), description="利润（CNY）")
+    total_amount: CurrencyAmount = Field(default_factory=CurrencyAmount, description="合同总额（按币种）")
+    income: CurrencyAmount = Field(default_factory=CurrencyAmount, description="已收（按币种）")
+    expense: CurrencyAmount = Field(default_factory=CurrencyAmount, description="支出（按币种）")
+    profit: CurrencyAmount = Field(default_factory=CurrencyAmount, description="利润（按币种）")
 
 
 class TopCustomerItem(BaseModel):
-    """TOP 客户条目"""
+    """TOP 客户条目（按币种分组）"""
     customer_id: int
     customer_name: str
     contract_count: int = Field(0, description="合同数")
-    total_income: Decimal = Field(Decimal("0"), description="已收总额（CNY）")
-    total_expense: Decimal = Field(Decimal("0"), description="支出总额（CNY）")
-    profit: Decimal = Field(Decimal("0"), description="利润（CNY）")
+    total_income: CurrencyAmount = Field(default_factory=CurrencyAmount, description="已收总额（按币种）")
+    total_expense: CurrencyAmount = Field(default_factory=CurrencyAmount, description="支出总额（按币种）")
+    profit: CurrencyAmount = Field(default_factory=CurrencyAmount, description="利润（按币种）")
 
 
 class ContractStatusItem(BaseModel):

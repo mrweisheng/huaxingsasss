@@ -95,9 +95,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "DEBUG"
     LOG_FORMAT: str = "json"
     
-    # 汇率配置
+    # 汇率配置（项目仅支持 CNY 和 HKD，故只需 HKD/CNY 默认值）
     DEFAULT_EXCHANGE_RATE_HKD_CNY: float = 0.92
-    DEFAULT_EXCHANGE_RATE_USD_CNY: float = 7.25
     
     @model_validator(mode="after")
     def validate_required(self):

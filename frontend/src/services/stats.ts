@@ -17,27 +17,27 @@ export interface KpiData {
 
 export interface MonthlyItem {
   month: string
-  income: number
-  expense: number
-  profit: number
+  income: CurrencyAmount
+  expense: CurrencyAmount
+  profit: CurrencyAmount
 }
 
 export interface BusinessTypeItem {
   business_type: string
   contract_count: number
-  total_amount: number
-  income: number
-  expense: number
-  profit: number
+  total_amount: CurrencyAmount
+  income: CurrencyAmount
+  expense: CurrencyAmount
+  profit: CurrencyAmount
 }
 
 export interface TopCustomerItem {
   customer_id: number
   customer_name: string
   contract_count: number
-  total_income: number
-  total_expense: number
-  profit: number
+  total_income: CurrencyAmount
+  total_expense: CurrencyAmount
+  profit: CurrencyAmount
 }
 
 export interface ContractStatusItem {

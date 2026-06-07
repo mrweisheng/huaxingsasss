@@ -351,7 +351,6 @@ export default function ReceiptPaymentModal({
                   >
                     <Option value="CNY">CNY 人民币</Option>
                     <Option value="HKD">HKD 港币</Option>
-                    <Option value="USD">USD 美元</Option>
                   </Select>
                 </div>
                 <div>

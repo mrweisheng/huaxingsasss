@@ -99,7 +99,7 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
   return null
 })
 
-const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$', USD: '$' }
+const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
 export default function ReceiptChatModal({
   open, contractId, contractNumber, customerName,

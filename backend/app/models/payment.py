@@ -22,7 +22,7 @@ class Payment(BaseModel):
     type = Column(String(20), nullable=False, default="income", index=True, comment="类型: income/expense")
     
     # 金额与币种（支持多币种）
-    currency = Column(String(3), nullable=False, default="CNY", index=True, comment="付款币种: CNY/HKD/USD")
+    currency = Column(String(3), nullable=False, default="CNY", index=True, comment="付款币种: CNY/HKD")
     amount = Column(DECIMAL(15, 2), nullable=False, comment="本期应付金额")
     paid_amount = Column(DECIMAL(15, 2), default=0, comment="实际已付金额")
     

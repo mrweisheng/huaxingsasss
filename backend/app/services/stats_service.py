@@ -115,7 +115,7 @@ class StatsService:
 
     @staticmethod
     def _build_monthly_trend(db: Session, months: int = 6) -> list:
-        """构建最近 N 个月的收入/支出趋势（统一折算 CNY）"""
+        """构建最近 N 个月的收入/支出趋势（按币种分组，不跨币种合并）"""
         today = date.today()
         # 从当月开始往前推 N 个月
         start_month = today.month - months + 1
@@ -125,14 +125,13 @@ class StatsService:
             start_year -= 1
         start_date = date(start_year, start_month, 1)
 
-        # 查询 paid 状态的付款，按月+类型汇总
+        # 查询 paid 状态的付款，按月+类型+币种汇总原始金额
         rows = db.query(
             extract("year", Payment.paid_date).label("yr"),
             extract("month", Payment.paid_date).label("mo"),
             Payment.type,
             Payment.currency,
             func.sum(Payment.paid_amount).label("total"),
-            func.sum(Payment.paid_amount_in_cny).label("total_cny"),
         ).filter(
             Payment.is_deleted == False,
             Payment.status == "paid",
@@ -144,18 +143,19 @@ class StatsService:
             Payment.currency,
         ).all()
 
-        # 按月聚合：CNY 付款直接用 paid_amount，HKD 付款用 paid_amount_in_cny
-        monthly_income = defaultdict(Decimal)
-        monthly_expense = defaultdict(Decimal)
+        # 按月+币种聚合：每个月的每个币种独立累加
+        # 结构: {month_key: {currency: {"income": D, "expense": D}}}
+        monthly = defaultdict(lambda: {"CNY": {"income": Decimal("0"), "expense": Decimal("0")},
+                                       "HKD": {"income": Decimal("0"), "expense": Decimal("0")}})
 
         for row in rows:
             month_key = f"{int(row.yr):04d}-{int(row.mo):02d}"
-            # CNY 付款的 paid_amount_in_cny 为 None（不需要折算），直接用 paid_amount
-            amount_cny = row.total_cny if row.total_cny else row.total
+            cur = row.currency if row.currency in ("CNY", "HKD") else "CNY"
+            bucket = monthly[month_key][cur]
             if row.type == "income":
-                monthly_income[month_key] += amount_cny
-            else:
-                monthly_expense[month_key] += amount_cny
+                bucket["income"] += row.total or Decimal("0")
+            elif row.type == "expense":
+                bucket["expense"] += row.total or Decimal("0")
 
         # 生成完整的月份列表
         result = []
@@ -166,91 +166,116 @@ class StatsService:
                 m += 12
                 y -= 1
             month_key = f"{y:04d}-{m:02d}"
-            inc = monthly_income.get(month_key, Decimal("0"))
-            exp = monthly_expense.get(month_key, Decimal("0"))
+            by_cur = monthly.get(month_key, {"CNY": {"income": Decimal("0"), "expense": Decimal("0")},
+                                              "HKD": {"income": Decimal("0"), "expense": Decimal("0")}})
             result.append({
                 "month": month_key,
-                "income": inc,
-                "expense": exp,
-                "profit": inc - exp,
+                "income": {
+                    "CNY": by_cur["CNY"]["income"],
+                    "HKD": by_cur["HKD"]["income"],
+                },
+                "expense": {
+                    "CNY": by_cur["CNY"]["expense"],
+                    "HKD": by_cur["HKD"]["expense"],
+                },
+                "profit": {
+                    "CNY": by_cur["CNY"]["income"] - by_cur["CNY"]["expense"],
+                    "HKD": by_cur["HKD"]["income"] - by_cur["HKD"]["expense"],
+                },
             })
 
         return result
 
     @staticmethod
     def _build_business_type_distribution(db: Session) -> list:
-        """按业务类型分布（统一折算 CNY）"""
-        income_cny = func.sum(
-            func.coalesce(func.nullif(Contract.paid_amount_in_cny, 0), Contract.paid_amount)
-        ).label("income")
-        expense_cny = func.sum(
-            func.coalesce(func.nullif(Contract.total_expense_in_cny, 0), Contract.total_expense)
-        ).label("expense")
+        """按业务类型分布（按币种分组）"""
+        # 按 (business_type, currency) 分组聚合合同原始金额（合同主币种）
+        income_by_cur = func.sum(Contract.paid_amount).label("income")
+        expense_by_cur = func.sum(Contract.total_expense).label("expense")
+        total_by_cur = func.sum(Contract.total_amount).label("total")
 
         rows = db.query(
             Contract.business_type,
+            Contract.currency,
             func.count(Contract.id).label("contract_count"),
-            income_cny,
-            expense_cny,
+            income_by_cur,
+            expense_by_cur,
+            total_by_cur,
         ).filter(
             Contract.is_deleted == False,
-        ).group_by(Contract.business_type).all()
+        ).group_by(Contract.business_type, Contract.currency).all()
 
-        result = []
+        # 合并到业务类型维度：每个业务类型下按币种拆
+        by_bt: dict[str, dict] = {}
         for row in rows:
             bt = BusinessType.normalize(row.business_type) or row.business_type or "其他"
-            inc = row.income or Decimal("0")
-            exp = row.expense or Decimal("0")
-            result.append({
-                "business_type": bt,
-                "contract_count": row.contract_count,
-                "total_amount": Decimal("0"),
-                "income": inc,
-                "expense": exp,
-                "profit": inc - exp,
-            })
+            cur = row.currency if row.currency in ("CNY", "HKD") else "CNY"
+            if bt not in by_bt:
+                by_bt[bt] = {
+                    "business_type": bt,
+                    "contract_count": 0,
+                    "total_amount": {"CNY": Decimal("0"), "HKD": Decimal("0")},
+                    "income": {"CNY": Decimal("0"), "HKD": Decimal("0")},
+                    "expense": {"CNY": Decimal("0"), "HKD": Decimal("0")},
+                    "profit": {"CNY": Decimal("0"), "HKD": Decimal("0")},
+                }
+            by_bt[bt]["contract_count"] += row.contract_count or 0
+            by_bt[bt]["total_amount"][cur] += row.total or Decimal("0")
+            by_bt[bt]["income"][cur] += row.income or Decimal("0")
+            by_bt[bt]["expense"][cur] += row.expense or Decimal("0")
+            by_bt[bt]["profit"][cur] = (
+                by_bt[bt]["income"][cur] - by_bt[bt]["expense"][cur]
+            )
 
-        result.sort(key=lambda x: x["profit"], reverse=True)
+        result = list(by_bt.values())
+        # 按 CNY 业务量（不跨币种比较）作为排序参考；不强行混币种排名
+        result.sort(key=lambda x: (x["profit"]["CNY"] + x["profit"]["HKD"]), reverse=True)
         return result
 
     @staticmethod
     def _build_top_customers(db: Session, limit: int = 10) -> list:
-        """按客户收入排名（统一折算 CNY）"""
-        income_cny = func.sum(
-            func.coalesce(func.nullif(Contract.paid_amount_in_cny, 0), Contract.paid_amount)
-        ).label("total_income")
-        expense_cny = func.sum(
-            func.coalesce(func.nullif(Contract.total_expense_in_cny, 0), Contract.total_expense)
-        ).label("total_expense")
-
+        """按客户收入排名（按币种分组，不跨币种合并）"""
         rows = db.query(
             Customer.id.label("customer_id"),
             Customer.name.label("customer_name"),
+            Contract.currency,
             func.count(Contract.id).label("contract_count"),
-            income_cny,
-            expense_cny,
+            func.sum(Contract.paid_amount).label("total_income"),
+            func.sum(Contract.total_expense).label("total_expense"),
         ).join(
             Contract, Contract.customer_id == Customer.id
         ).filter(
             Contract.is_deleted == False,
             Customer.is_deleted == False,
         ).group_by(
-            Customer.id, Customer.name,
-        ).order_by(
-            income_cny.desc(),
-        ).limit(limit).all()
+            Customer.id, Customer.name, Contract.currency,
+        ).all()
 
-        return [
-            {
-                "customer_id": r.customer_id,
-                "customer_name": r.customer_name,
-                "contract_count": r.contract_count,
-                "total_income": r.total_income or Decimal("0"),
-                "total_expense": r.total_expense or Decimal("0"),
-                "profit": (r.total_income or Decimal("0")) - (r.total_expense or Decimal("0")),
-            }
-            for r in rows
-        ]
+        # 合并到客户维度：每个客户下按币种拆
+        by_cust: dict[int, dict] = {}
+        for r in rows:
+            cid = r.customer_id
+            cur = r.currency if r.currency in ("CNY", "HKD") else "CNY"
+            if cid not in by_cust:
+                by_cust[cid] = {
+                    "customer_id": cid,
+                    "customer_name": r.customer_name,
+                    "contract_count": 0,
+                    "total_income": {"CNY": Decimal("0"), "HKD": Decimal("0")},
+                    "total_expense": {"CNY": Decimal("0"), "HKD": Decimal("0")},
+                    "profit": {"CNY": Decimal("0"), "HKD": Decimal("0")},
+                }
+            by_cust[cid]["contract_count"] += r.contract_count or 0
+            by_cust[cid]["total_income"][cur] += r.total_income or Decimal("0")
+            by_cust[cid]["total_expense"][cur] += r.total_expense or Decimal("0")
+            by_cust[cid]["profit"][cur] = (
+                by_cust[cid]["total_income"][cur] - by_cust[cid]["total_expense"][cur]
+            )
+
+        result = list(by_cust.values())
+        # 按 CNY 业务量排序（admin 视角下 CNY 是主要参考币种；HKD 同理可单独看）
+        result.sort(key=lambda x: x["total_income"]["CNY"] + x["total_income"]["HKD"], reverse=True)
+        return result[:limit]
 
     @staticmethod
     def _build_contract_status(db: Session) -> list:

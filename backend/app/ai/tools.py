@@ -301,6 +301,7 @@ class ToolExecutor:
             "id": c.id,
             "contract_number": c.contract_number,
             "title": c.title,
+            "business_description": c.business_description,
             "customer_name": c.customer.name if c.customer else None,
             "business_type": c.business_type,
             "total_amount": float(c.total_amount) if c.total_amount else 0,
@@ -1698,7 +1699,7 @@ class ToolExecutor:
         }, ensure_ascii=False)
 
     def get_expense_summary(self, **kwargs) -> str:
-        """查看支出汇总，按合同或收款方维度聚合"""
+        """查看支出汇总，按合同或收款方维度聚合（按币种分组，不跨币种合并）"""
         if not self._can_view_expense():
             return json.dumps({"error": "当前角色无权查看支出汇总"}, ensure_ascii=False)
 
@@ -1717,7 +1718,12 @@ class ToolExecutor:
             query = query.filter(Payment.payee_name.ilike(f"%{_escape_ilike(kwargs['payee_name'])}%"))
 
         payments = query.all()
-        total_expense = sum(float(p.paid_amount_in_cny or 0) for p in payments)
+
+        # 按原始币种分组：每一笔支出报给 LLM 时都是它原本的币种和金额
+        total_by_currency = {"CNY": 0.0, "HKD": 0.0}
+        for p in payments:
+            cur = p.currency if p.currency in ("CNY", "HKD") else "CNY"
+            total_by_currency[cur] += float(p.paid_amount or 0)
 
         group_by = kwargs.get("group_by", "contract")
         groups = {}
@@ -1727,9 +1733,11 @@ class ToolExecutor:
             else:
                 key = str(p.contract_id)
 
+            cur = p.currency if p.currency in ("CNY", "HKD") else "CNY"
+
             if key not in groups:
                 groups[key] = {
-                    "total": 0,
+                    "by_currency": {"CNY": 0.0, "HKD": 0.0},
                     "count": 0,
                 }
                 if group_by == "payee":
@@ -1737,12 +1745,13 @@ class ToolExecutor:
                 else:
                     groups[key]["contract_id"] = p.contract_id
                     groups[key]["contract_number"] = p.contract.contract_number if p.contract else None
+                    groups[key]["contract_currency"] = p.contract.currency if p.contract else None
 
-            groups[key]["total"] += float(p.paid_amount_in_cny or 0)
+            groups[key]["by_currency"][cur] += float(p.paid_amount or 0)
             groups[key]["count"] += 1
 
         return json.dumps({
-            "total_expense_in_cny": total_expense,
+            "total_by_currency": total_by_currency,
             "expense_count": len(payments),
             "groups": list(groups.values()),
         }, ensure_ascii=False)
@@ -1783,14 +1792,20 @@ class ToolExecutor:
 
         payments = query.all()
 
-        total_paid = sum(float(p.paid_amount_in_cny or 0) for p in payments if p.status == "paid")
-        total_pending = sum(float(p.amount_in_cny or 0) for p in payments if p.status == "pending")
+        # 按原始币种分组：每笔付款的币种和金额都是它原本的，不折算后混合
+        total_paid_by_currency = {"CNY": 0.0, "HKD": 0.0}
+        total_pending_by_currency = {"CNY": 0.0, "HKD": 0.0}
+
+        for p in payments:
+            cur = p.currency if p.currency in ("CNY", "HKD") else "CNY"
+            if p.status == "paid":
+                total_paid_by_currency[cur] += float(p.paid_amount or 0)
+            elif p.status == "pending":
+                total_pending_by_currency[cur] += float(p.amount or 0)
 
         summary = {
-            "total_paid": total_paid,
-            "total_pending": total_pending,
-            "total_paid_unit": "CNY",
-            "total_pending_unit": "CNY",
+            "total_paid_by_currency": total_paid_by_currency,
+            "total_pending_by_currency": total_pending_by_currency,
             "payment_count": len(payments),
         }
 
@@ -1799,31 +1814,40 @@ class ToolExecutor:
             groups = {}
             for p in payments:
                 cid = p.contract_id
+                cur = p.currency if p.currency in ("CNY", "HKD") else "CNY"
                 if cid not in groups:
                     groups[cid] = {
                         "contract_id": cid,
                         "contract_number": p.contract.contract_number if p.contract else None,
-                        "currency": p.contract.currency if p.contract else None,
-                        "paid": 0, "pending": 0,
+                        "contract_currency": p.contract.currency if p.contract else None,  # 合同主币种
+                        "by_currency": {  # 按付款原始币种分组
+                            "CNY": {"paid": 0.0, "pending": 0.0},
+                            "HKD": {"paid": 0.0, "pending": 0.0},
+                        },
                     }
                 if p.status == "paid":
-                    groups[cid]["paid"] += float(p.paid_amount_in_cny or 0)
+                    groups[cid]["by_currency"][cur]["paid"] += float(p.paid_amount or 0)
                 elif p.status == "pending":
-                    groups[cid]["pending"] += float(p.amount_in_cny or 0)
+                    groups[cid]["by_currency"][cur]["pending"] += float(p.amount or 0)
             summary["groups"] = list(groups.values())
         elif group_by == "customer":
             groups = {}
             for p in payments:
                 customer_name = p.contract.customer.name if p.contract and p.contract.customer else "未知"
+                cur = p.currency if p.currency in ("CNY", "HKD") else "CNY"
                 if customer_name not in groups:
                     groups[customer_name] = {
                         "customer_name": customer_name,
-                        "paid": 0, "pending": 0, "contract_count": 0,
+                        "by_currency": {
+                            "CNY": {"paid": 0.0, "pending": 0.0},
+                            "HKD": {"paid": 0.0, "pending": 0.0},
+                        },
+                        "contract_count": 0,
                     }
                 if p.status == "paid":
-                    groups[customer_name]["paid"] += float(p.paid_amount_in_cny or 0)
+                    groups[customer_name]["by_currency"][cur]["paid"] += float(p.paid_amount or 0)
                 elif p.status == "pending":
-                    groups[customer_name]["pending"] += float(p.amount_in_cny or 0)
+                    groups[customer_name]["by_currency"][cur]["pending"] += float(p.amount or 0)
             for p in payments:
                 customer_name = p.contract.customer.name if p.contract and p.contract.customer else "未知"
                 if customer_name in groups:
@@ -1940,7 +1964,7 @@ class ToolExecutor:
             Contract.end_date >= date.today(),
         ).count()
 
-        # ── 收入/支出汇总（CNY） ──
+        # ── 收入/支出汇总（按币种分组，不折算合并） ──
         result = {
             "customers_total": customers_total,
             "contracts_total": contracts_total,
@@ -1954,27 +1978,45 @@ class ToolExecutor:
 
         # 收入：admin 看全部，income 只看自己合同的，expense 不看
         if self.user.role != Role.EXPENSE:
-            income_query = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
+            income_rows = self.db.query(
+                Payment.currency,
+                func.coalesce(func.sum(Payment.paid_amount), 0).label("total"),
+            ).filter(
                 Payment.is_deleted == False,
                 Payment.type == "income",
                 Payment.status == "paid",
             )
             if self.user.role == Role.INCOME:
-                income_query = income_query.join(Contract).filter(
+                income_rows = income_rows.join(Contract).filter(
                     Contract.sales_person_id == self.user.id
                 )
-            result["income_total_cny"] = float(income_query.scalar())
+            income_rows = income_rows.group_by(Payment.currency).all()
+
+            income_by_currency = {"CNY": 0.0, "HKD": 0.0}
+            for r in income_rows:
+                if r.currency in income_by_currency:
+                    income_by_currency[r.currency] = float(r.total)
+            result["income_by_currency"] = income_by_currency
 
         # 支出：admin 看全部，expense 只看自己创建的，income 不看
         if self.user.role != Role.INCOME:
-            expense_query = self.db.query(func.coalesce(func.sum(Payment.paid_amount_in_cny), 0)).filter(
+            expense_rows = self.db.query(
+                Payment.currency,
+                func.coalesce(func.sum(Payment.paid_amount), 0).label("total"),
+            ).filter(
                 Payment.is_deleted == False,
                 Payment.type == "expense",
                 Payment.status == "paid",
             )
             if self.user.role == Role.EXPENSE:
-                expense_query = expense_query.filter(Payment.created_by == self.user.id)
-            result["expense_total_cny"] = float(expense_query.scalar())
+                expense_rows = expense_rows.filter(Payment.created_by == self.user.id)
+            expense_rows = expense_rows.group_by(Payment.currency).all()
+
+            expense_by_currency = {"CNY": 0.0, "HKD": 0.0}
+            for r in expense_rows:
+                if r.currency in expense_by_currency:
+                    expense_by_currency[r.currency] = float(r.total)
+            result["expense_by_currency"] = expense_by_currency
 
         return json.dumps(result, ensure_ascii=False)
 
@@ -2681,7 +2723,7 @@ TOOL_DEFINITIONS = [
                     "contract_data": {"type": "object", "description": "【通常无需传递】合同提取数据。系统自动使用分析结果。仅当需覆盖特定字段（如标题修正）时传入。"},
                     "title": {"type": "string", "description": "合同标题（如：购车合同、两地牌办理合同）"},
                     "total_amount": {"type": "number", "description": "合同总金额"},
-                    "currency": {"type": "string", "enum": ["CNY", "HKD", "USD"], "description": "合同币种。从合同原文提取，如 HK$/港币=HKD，¥/人民币=CNY。不清楚时询问用户确认。"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "合同币种。从合同原文提取，如 HK$/港币=HKD，¥/人民币=CNY。不清楚时询问用户确认。"},
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
                     "business_type": {"type": "string", "enum": ["车辆买卖", "两地牌过户", "年检保险", "其他"], "description": "业务大类：车辆买卖（买车卖车）、两地牌过户（办理中港车牌过户）、年检保险、其他"},
                     "business_description": {"type": "string", "description": "极简业务描述，只说做了什么业务（买什么车/办什么牌/哪个口岸），不要包含金额和付款条件。如：购买现牌 粤Z7N80港（深圳湾口岸）"},
@@ -2724,7 +2766,7 @@ TOOL_DEFINITIONS = [
                     "installment_name": {"type": "string", "description": "期数名称（如「定金」、「首期」、「尾款」），从合同原文或用户描述提取"},
                     "amount": {"type": "number", "description": "付款金额"},
                     "currency": {
-                        "type": "string", "enum": ["CNY", "HKD", "USD"],
+                        "type": "string", "enum": ["CNY", "HKD"],
                         "description": "付款币种。优先从凭证分析结果中提取。",
                     },
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
@@ -2753,7 +2795,7 @@ TOOL_DEFINITIONS = [
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "amount": {"type": "number", "description": "支出金额"},
                     "currency": {
-                        "type": "string", "enum": ["CNY", "HKD", "USD"],
+                        "type": "string", "enum": ["CNY", "HKD"],
                         "description": "支出币种。优先从凭证分析结果中提取。",
                     },
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},

@@ -142,7 +142,7 @@ class SiliconFlowClient:
     }
   ],
   "total_amount": 合同总金额（数字类型）,
-  "currency": "币种（CNY/HKD/USD）",
+  "currency": "币种（CNY/HKD）",
   "validity_period": {
     "start_date": "生效日期（YYYY-MM-DD格式，如无则为null）",
     "end_date": "到期日期（YYYY-MM-DD格式，如无则为null）"
