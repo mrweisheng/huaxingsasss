@@ -1,4 +1,4 @@
-﻿# Update 分支综合审核报告 v2
+# Update 分支综合审核报告 v2
 
 > **审核日期**：2026-06-06 ~ 2026-06-07（多轮审核 + 修复 + 合并 + Phase 2 推进）
 > **审核范围**：update 分支 14 个原 commit + 用户后续 5 个 commit + master 合并 commit + 本轮 Phase 2 增量 6 个 commit
@@ -6,7 +6,7 @@
 > **本版（v2）变更**：
 > 1. 修正 v1 中"Phase 2/3 全部未启动"的错误结论——已实际落地 6 项 Phase 2 任务
 > 2. 修复第一轮审核 P0 回归 bug（图片无 VL 能力丢数据）
-> 3. 修复 P1/P2 隐患 7 项（错误文案、系统 prompt 重复、dismiss 竞态、SSE 友好名、llm_client 单例、auto_filled 元数据、3 个文件 BOM 头）
+> 3. 修复 P0/P1/P2 隐患 8 项（P0 图片附件 VL 回归、P1 错误文案/P1 重复 system prompt/P1 dismiss 竞态、P2 SSE 友好名/P2 llm_client 单例/P2 auto_filled 元数据、BOM 清理 3 个文件）
 > 4. 删除过期 audit 文档 1 份
 > **整体评价**：★★★★☆（Phase 1+2 核心完整、可上线，剩 E2E + 灰度）
 
@@ -35,30 +35,30 @@
 ### 1.1 Commit 链（按合并后顺序）
 
 ```
-本轮新增（6 个，待提交）：
-  feat(orchestrator): Phase 2.1+2.3 降级引导节点
-  feat(orchestrator): Phase 2.4 通用对话子图 (general_chat)
-  feat(orchestrator): Phase 2.6 Root Graph 4 子图编排
-  feat(observability): Phase 2.7 LangSmith 接入
+本轮 v2 增量（12 个 commit，按时间顺序，已提交）：
+  fix(orchestrator): P1 summarize_node 错误文案 — 区分合同已创建 vs 未完成
+  fix(orchestrator): P0 图片附件 VL 回归 — 退回旧 ReAct 分支判断
+  feat(orchestrator): Phase 2.4 通用对话子图（自建 StateGraph）
+  feat(orchestrator): Phase 2.1+2.3+2.6 降级引导 + Root Graph 4 子图编排
+  fix(frontend): P1 dismissInterrupt 竞态 — 加 await
   feat(frontend): Phase 2.5 输入框必填
+  refactor(sse): 适配 Phase 2 节点命名 + general_chat_subgraph 友好名
+  feat(observability): Phase 2.7 LangSmith 接入
   chore(migrations): 加 README 说明
-  refactor(sse): 适配 Phase 2 节点命名
-  fix(orchestrator): P0 图片附件 VL 回归
-  fix(orchestrator): P1 summarize_node 错误文案
-  fix(orchestrator): P1 _convert_messages 重复 system prompt
-  fix(frontend): P1 dismissInterrupt await
-  fix(orchestrator): P2 auto_filled metadata 透传
-  chore: 清理 3 个 orchestrator 文件 BOM 头
-  docs: 综合审核第二版 + 删除过期 audit
+  chore: 删除过期第一轮 audit 文档
+  docs: 综合审核第二版（v2）
+  fix: 清理 3 个 orchestrator 文件 BOM 头
 
 原 update 分支 14 个 commit + 用户后续改进（含 ef5d9ea / 32886ab / 9597e38 / b5a1e22 / ceacff4 / 28d5e22 / 74d4db2 / 3828ca7 / d2f3bfb / 9e1070f / 76daedf / d74ec22 / 531097b）+ master 同步 8a78a1f
 ```
 
 ### 1.2 改动量
 
-- **本轮增量**（未提交 working tree）：~410 行新增（general_chat.py 250 行 + graph.py +133 + sse_adapter +4 + 6 个文件小改）
+- **本轮 v2 增量**（12 个 commit，已提交）：15 文件，+884 / -310 行（净 +574 行）
+  - 新文件：general_chat.py（265 行）+ migrations/README.md（5 行）+ 2026-06-07 综合审核 v2（433 行）
+  - 主要改动：graph.py +91/-52（Phase 2.1+2.3+2.6 + auto_filled）、agent.py +35/-12（P0 + P2）、sse_adapter.py +5/-1
+  - 删除：docs/audit-2026-06-06-update-branch.md（239 行）
 - **历史合并**：35 文件，+6302 / -1563 行（净 +4739 行）
-- **删除**：`docs/audit-2026-06-06-update-branch.md`（10KB，过期被 v2 综合审核取代）
 
 ### 1.3 主题分类
 
@@ -70,7 +70,7 @@
 | 凭证/群聊降级节点（Phase 2.1+2.3） | ✅ | +50 行 | 引导用户到卡片按钮 |
 | LangSmith 可观测性（Phase 2.7） | ✅ | +20 行 | 环境变量透传 + 日志埋点 |
 | 前端输入框必填（Phase 2.5） | ✅ | +10 行 | 防御非法空附件提交 |
-| Bug 修复 | ✅ | 7 项 | P0 × 1 / P1 × 3 / P2 × 3 |
+| Bug 修复 | ✅ | 8 项 | P0 × 1 / P1 × 3 / P2 × 3 / 工程 BOM × 1 |
 | 单元 / E2E 测试 | ❌ | 0 | Phase 1+2 全靠手工验证，风险累积中 |
 
 ---
@@ -388,21 +388,19 @@ class GeneralChatSubgraph:
 ## 11. 附：v2 全部 commit 链（含本轮增量）
 
 ```
-# 本轮 v2 增量（待提交，14 个 commit，按主题拆）
-fix(orchestrator): P0 图片附件 VL 回归
-fix(orchestrator): P1 summarize_node 错误文案
-fix(orchestrator): P1 _convert_messages 重复 system prompt
-fix(frontend): P1 dismissInterrupt await
-fix(orchestrator): P2 auto_filled metadata 透传
-feat(orchestrator): Phase 2.1+2.3 降级引导节点
-feat(orchestrator): Phase 2.4 通用对话子图 (general_chat)
-feat(orchestrator): Phase 2.6 Root Graph 4 子图编排
-feat(observability): Phase 2.7 LangSmith 接入
-feat(frontend): Phase 2.5 输入框必填
-refactor(sse): 适配 Phase 2 节点命名
-chore: 清理 3 个 orchestrator 文件 BOM 头
-chore(migrations): 加 README 说明
-docs: 综合审核第二版 + 删除过期 audit
+# 本轮 v2 增量（12 个 commit，时间正序，已提交）
+fde246a fix(orchestrator): P1 summarize_node 错误文案 — 区分合同已创建 vs 未完成
+73c9abe fix(orchestrator): P0 图片附件 VL 回归 — 退回旧 ReAct 分支判断
+4d07b88 feat(orchestrator): Phase 2.4 通用对话子图（自建 StateGraph）
+df8604f feat(orchestrator): Phase 2.1+2.3+2.6 降级引导 + Root Graph 4 子图编排
+1092dc2 fix(frontend): P1 dismissInterrupt 竞态 — 加 await
+47e52b0 feat(frontend): Phase 2.5 输入框必填
+2dd0eed refactor(sse): 适配 Phase 2 节点命名 + general_chat_subgraph 友好名
+3e7834a feat(observability): Phase 2.7 LangSmith 接入
+0f50fc0 chore(migrations): 加 README 说明
+14724fe chore: 删除过期第一轮 audit 文档
+23fcf95 docs: 综合审核第二版（v2）
+3e29490 fix: 清理 3 个 orchestrator 文件 BOM 头
 
 # 原 update 分支 + 合并 master（按时间倒序）
 8a78a1f chore: main.py 注释更新，移除 init_db.py 引用                [master 同步]
