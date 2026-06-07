@@ -259,6 +259,8 @@ async def chat(
                             config, version="v2",
                         ),
                         session_id,
+                        graph=root_app,
+                        config=config,
                     ):
                         if http_request and await http_request.is_disconnected():
                             return
@@ -270,6 +272,8 @@ async def chat(
                             initial_state, config, version="v2",
                         ),
                         session_id,
+                        graph=root_app,
+                        config=config,
                     ):
                         if http_request and await http_request.is_disconnected():
                             return

@@ -1,8 +1,13 @@
-"""LangGraph astream_events → 现有 SSE 事件格式适配
+"""LangGraph astream_events -> 现有 SSE 事件格式适配器
 
-文档 §6.8：LangGraph 事件 → SSE 事件映射表
+文档 6.8：LangGraph 事件 -> SSE 事件映射表
 Phase 1 新增 interrupt 事件类型
+
+关键设计：astream_events 生成器在子图 interrupt() 处可能阻塞（节点等待 resume
+不 yield 事件），因此用后台任务 + 队列解耦消费，主循环定期轮询图检查点
+检测 interrupt，避免前端永久转圈。
 """
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator, Optional
@@ -15,104 +20,164 @@ logger = logging.getLogger(__name__)
 async def adapt_langgraph_stream(
     agen,  # AsyncGenerator from astream_events
     session_id: str,
+    graph=None,    # CompiledGraph，用于 interrupt 后检查 checkpoint
+    config=None,   # graph config，含 thread_id
 ) -> AsyncGenerator[str, None]:
     """将 LangGraph astream_events 流转换为现有 SSE 事件格式。
+
+    核心机制：astream_events 在子图 interrupt() 时，节点阻塞等待 resume，
+    生成器不再 yield 事件。通过后台任务消费生成器 + 主循环轮询检查点，
+    可在节点阻塞时检测到 interrupt 并及时通知前端。
 
     Args:
         agen: graph.astream_events(initial_state, config, version="v2") 的返回
         session_id: 会话 ID
+        graph: 编译后的图（可选），用于 aget_state 检查 interrupt
+        config: 图配置（可选），含 configurable.thread_id
 
     Yields:
-        "data: {json}\n\n" 格式的 SSE 字符串
+        "data: {json}\\n\\n" 格式的 SSE 字符串
     """
+    # 用 list 在后台任务和主循环之间传递事件（asyncio 单线程，无需锁）
+    collected_events: list = []
+    stream_done = False
+    stream_error: Optional[Exception] = None
+
+    async def _consume_stream():
+        """后台任务：消费 astream_events 生成器，事件存入 collected_events"""
+        nonlocal stream_done, stream_error
+        try:
+            async for event in agen:
+                collected_events.append(event)
+        except Exception as e:
+            stream_error = e
+        finally:
+            stream_done = True
+
+    task = asyncio.create_task(_consume_stream())
     interrupt_emitted = False
+    stall_count = 0
 
-    async for event in agen:
-        kind = event.get("event", "")
+    try:
+        while True:
+            # 从 collected_events 取事件处理（每次最多 50 个，防止无限循环）
+            processed = 0
+            while collected_events and processed < 50:
+                event = collected_events.pop(0)
+                processed += 1
+                kind = event.get("event", "")
+                stall_count = 0  # 收到事件，重置停滞计数
 
-        # interrupt 已触发后：仅监听"新的 interrupt 事件"（多步流程），
-        # 跳过 on_chain_start / on_chat_model_stream / on_chat_model_end 等
-        # 收尾/干扰事件，避免脏数据污染确认面板。
-        # 多步 interrupt 的标准实现：第一次 interrupt → 用户 resume → LangGraph
-        # 在新的 astream_events 调用中 emit 第二个 interrupt；同一个 stream 内
-        # 不会连续触发两个 interrupt。所以此处 `continue` 是为了理论完备性，
-        # 实际单步/多步流程的行为相同。
-        if interrupt_emitted:
-            if kind == "on_chain_end":
-                next_output = event.get("data", {}).get("output", {})
-                next_interrupt = _extract_interrupt(next_output) if isinstance(next_output, dict) else None
-                if next_interrupt:
-                    logger.info(
-                        "SSE adapter: subsequent interrupt detected, type=%s",
-                        next_interrupt.get("type", "unknown"),
-                    )
+                if interrupt_emitted:
+                    continue
+
+                if kind == "on_chain_start":
+                    node_name = event.get("name", "")
                     yield _sse_encode({
-                        "event": "interrupt",
-                        "data": next_interrupt,
+                        "event": "thinking",
+                        "data": {"message": f"正在{_node_friendly_name(node_name)}..."},
                     })
+
+                elif kind == "on_chain_end":
+                    node_name = event.get("name", "")
+                    output = event.get("data", {}).get("output", {})
+                    interrupt_value = _extract_interrupt(output) if isinstance(output, dict) else None
+                    if interrupt_value:
+                        logger.info(
+                            "SSE adapter: interrupt from event, node=%s, type=%s",
+                            node_name, interrupt_value.get("type", "unknown"),
+                        )
+                        yield _sse_encode({"event": "interrupt", "data": interrupt_value})
+                        yield _sse_encode({
+                            "event": "done",
+                            "data": {"session_id": session_id, "interrupted": True},
+                        })
+                        interrupt_emitted = True
+
+                elif kind == "on_chat_model_stream":
+                    chunk = event.get("data", {}).get("chunk")
+                    if chunk and hasattr(chunk, "content") and chunk.content:
+                        yield _sse_encode({
+                            "event": "text",
+                            "data": {"content": chunk.content},
+                        })
+
+            if interrupt_emitted:
+                break
+
+            # 检查生成器异常退出
+            if stream_error:
+                logger.error("SSE adapter: stream error: %s", stream_error)
+                yield _sse_encode({
+                    "event": "error",
+                    "data": {"message": f"对话出错: {stream_error}"},
+                })
+                break
+
+            # 检查生成器正常结束
+            if stream_done and not collected_events:
+                break
+
+            # 等待新事件或超时
+            await asyncio.sleep(0.5)
+
+            # 无新事件时，轮询检查点检测 interrupt（子图 interrupt 阻塞生成器）
+            if not collected_events and not stream_done and graph and config:
+                stall_count += 1
+                if stall_count >= 2:  # 停滞 1 秒后开始检查
+                    try:
+                        state = await graph.aget_state(config)
+                        if state.next:
+                            interrupts = getattr(state, 'interrupts', None) or []
+                            if interrupts:
+                                interrupt_data = _interrupt_from_list(interrupts)
+                                if interrupt_data:
+                                    logger.info(
+                                        "SSE adapter: interrupt from checkpoint, "
+                                        "next=%s, type=%s",
+                                        state.next, interrupt_data.get("type", "unknown"),
+                                    )
+                                    yield _sse_encode({"event": "interrupt", "data": interrupt_data})
+                                    yield _sse_encode({
+                                        "event": "done",
+                                        "data": {"session_id": session_id, "interrupted": True},
+                                    })
+                                    interrupt_emitted = True
+                                    break
+                    except Exception as e:
+                        logger.warning("SSE adapter: checkpoint check failed: %s", e)
+    finally:
+        if not task.done():
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+
+    # 流结束后兜底：检查是否遗漏了 interrupt（生成器正常结束但子图有 interrupt）
+    if not interrupt_emitted and graph and config:
+        try:
+            state = await graph.aget_state(config)
+            interrupts = getattr(state, 'interrupts', None) or []
+            if state.next and interrupts:
+                interrupt_data = _interrupt_from_list(interrupts)
+                if interrupt_data:
+                    logger.info("SSE adapter: interrupt from post-stream checkpoint")
+                    yield _sse_encode({"event": "interrupt", "data": interrupt_data})
                     yield _sse_encode({
                         "event": "done",
                         "data": {"session_id": session_id, "interrupted": True},
                     })
-            continue
+                    interrupt_emitted = True
+        except Exception:
+            pass
 
-        if kind == "on_chain_start":
-            node_name = event.get("name", "")
-            sse = {
-                "event": "thinking",
-                "data": {"message": f"正在{_node_friendly_name(node_name)}..."},
-            }
-            yield _sse_encode(sse)
-
-        elif kind == "on_chain_end":
-            node_name = event.get("name", "")
-            output = event.get("data", {}).get("output", {})
-            if isinstance(output, dict):
-                # 调试日志：显示 output 的顶层键名，帮助排查 interrupt 键名不匹配
-                output_keys = list(output.keys())
-                if "__interrupt__" in output_keys or "interrupt_info" in output_keys:
-                    logger.info(
-                        "SSE adapter: on_chain_end node=%s output_keys=%s",
-                        node_name, output_keys,
-                    )
-            interrupt_value = _extract_interrupt(output) if isinstance(output, dict) else None
-            if interrupt_value:
-                logger.info(
-                    "SSE adapter: interrupt detected, node=%s, type=%s",
-                    node_name, interrupt_value.get("type", "unknown"),
-                )
-                sse_interrupt = {
-                    "event": "interrupt",
-                    "data": interrupt_value,
-                }
-                yield _sse_encode(sse_interrupt)
-
-                sse_done = {
-                    "event": "done",
-                    "data": {"session_id": session_id, "interrupted": True},
-                }
-                yield _sse_encode(sse_done)
-                interrupt_emitted = True
-
-        elif kind == "on_chat_model_stream":
-            chunk = event.get("data", {}).get("chunk")
-            if chunk and hasattr(chunk, "content") and chunk.content:
-                sse = {
-                    "event": "text",
-                    "data": {"content": chunk.content},
-                }
-                yield _sse_encode(sse)
-
-        elif kind == "on_chat_model_end":
-            pass  # 流结束标记
-
-    # 未触发 interrupt 的正常完成
+    # 正常完成
     if not interrupt_emitted:
-        sse = {
+        yield _sse_encode({
             "event": "done",
             "data": {"session_id": session_id, "interrupted": False},
-        }
-        yield _sse_encode(sse)
+        })
 
 
 def _sse_encode(event: dict) -> str:
@@ -145,33 +210,35 @@ def _node_friendly_name(node_name: str) -> str:
     return _NODE_FRIENDLY.get(node_name, node_name)
 
 
+def _interrupt_from_list(interrupts: list) -> Optional[dict]:
+    """从 Interrupt 列表中提取第一个 interrupt 的 value。
+
+    用于 graph.aget_state(config).interrupts 返回的 [Interrupt, ...] 列表。
+    Interrupt.id 覆盖 value 中的 interrupt_id，确保 resume 校验匹配。
+    """
+    if not interrupts:
+        return None
+    first = interrupts[0]
+    value = getattr(first, 'value', None)
+    lg_id = getattr(first, 'id', None)
+    if value is None and isinstance(first, dict):
+        value = first.get('value')
+        lg_id = lg_id or first.get('id')
+    if not isinstance(value, dict):
+        return None
+    result = dict(value)
+    if lg_id:
+        result['interrupt_id'] = lg_id
+    return result
+
+
 def _extract_interrupt(output: dict) -> Optional[dict]:
     """从 on_chain_end 事件的 output 中提取 interrupt payload。
 
-    LangGraph 1.2+ 使用 ``__interrupt__`` 键名（非自定义 state 字段
-    ``interrupt_info``），值为 ``[Interrupt, ...]`` 列表。
-    每个元素可能是 Interrupt 对象（有 ``.value`` / ``.id`` 属性）或 dict。
-    返回第一个 interrupt 的 value（即传给 ``interrupt()`` 的 dict），
-    包含 type / message / preview / options / interrupt_id。
-
-    ⚠️ interrupt_id 会被 LangGraph 框架生成的 ``.id`` 覆盖，确保前端
-    收到的 ID 与 checkpoint ``state.interrupts[i].id`` 一致，
-    resume 校验才能通过。节点内自定义的 ``contract_xxx`` ID 被丢弃。
+    LangGraph 1.2+ 使用 __interrupt__ 键名，值为 [Interrupt, ...] 列表。
+    委托 _interrupt_from_list 统一处理 Interrupt 对象解析和 ID 覆盖。
     """
     interrupts = output.get("__interrupt__")
     if not interrupts or not isinstance(interrupts, list):
         return None
-    first = interrupts[0]
-    # Interrupt 对象 → 取 .value 和 .id；dict → 取 ["value"] 和 ["id"]
-    value = getattr(first, "value", None)
-    lg_id = getattr(first, "id", None)
-    if value is None and isinstance(first, dict):
-        value = first.get("value")
-        lg_id = lg_id or first.get("id")
-    if not isinstance(value, dict):
-        return None
-    result = dict(value)
-    # 用 LangGraph 框架 ID 覆盖自定义 ID，保证 resume 校验匹配
-    if lg_id:
-        result["interrupt_id"] = lg_id
-    return result
+    return _interrupt_from_list(interrupts)
