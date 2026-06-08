@@ -44,6 +44,12 @@ class ToolExecutorV2(ToolExecutor):
         self.session_context = None
         self._document_context = None
 
+    # 增强 _payment_to_dict_lite：加上 description 字段（供 LLM 查看上下文）
+    def _payment_to_dict_lite(self, p) -> dict:
+        d = super()._payment_to_dict_lite(p)
+        d["description"] = p.description
+        return d
+
     # ═══════════════════════════════════════════════════════════
     # 辅助方法
     # ═══════════════════════════════════════════════════════════
@@ -261,7 +267,7 @@ class ToolExecutorV2(ToolExecutor):
         business_hint = receipt_data.get("business_hint", "")
         description = receipt_data.get("description", "") or business_hint or ""
         # 自动生成更可读的描述
-        auto_desc = _build_payment_description(
+        auto_desc = self._build_payment_description(
             amount=amount, currency=currency,
             installment_name=receipt_data.get("installment_name", ""),
             business_hint=business_hint,
@@ -552,6 +558,79 @@ class ToolExecutorV2(ToolExecutor):
             self.db.rollback()
             logger.exception("create_payment_record 失败")
             return json.dumps({"error": f"创建付款记录失败: {str(e)}"}, ensure_ascii=False)
+
+    # ═══════════════════════════════════════════════════════════
+    # 🔄 update_payment — 增强：支持 description 自动生成
+    # ═══════════════════════════════════════════════════════════
+
+    def update_payment(self, **kwargs) -> str:
+        """更新付款记录。增强：传入 receipt_data 时自动生成 description。"""
+        payment_id = kwargs.get("payment_id")
+        receipt_data = kwargs.get("receipt_data")
+
+        # 先调父类完成核心更新
+        result_str = super().update_payment(**kwargs)
+        try:
+            result = json.loads(result_str)
+        except json.JSONDecodeError:
+            return result_str
+
+        if not result.get("success") or not payment_id:
+            return result_str
+
+        # 如果传入凭证数据但 description 未设置 → 自动生成
+        if isinstance(receipt_data, dict) and not kwargs.get("description"):
+            payment = self.db.query(Payment).filter(Payment.id == payment_id).first()
+            if payment:
+                contract = payment.contract
+                hint = receipt_data.get("business_hint", "")
+                desc = self._build_payment_description(
+                    amount=float(payment.amount) if payment.amount else 0,
+                    currency=payment.currency or "CNY",
+                    installment_name=payment.installment_name or "",
+                    business_hint=hint,
+                    contract=contract,
+                )
+                payment.description = desc
+                self.db.commit()
+                result["payment"]["description"] = desc
+
+        return json.dumps(result, ensure_ascii=False, default=str)
+
+    # ═══════════════════════════════════════════════════════════
+    # 🔄 create_contract — 增强：自动生成的付款记录补齐 description
+    # ═══════════════════════════════════════════════════════════
+
+    def create_contract(self, **kwargs) -> str:
+        """创建合同。增强：自动为系统生成的付款记录补齐 description。"""
+        result_str = super().create_contract(**kwargs)
+        try:
+            result = json.loads(result_str)
+        except json.JSONDecodeError:
+            return result_str
+
+        if not result.get("success"):
+            return result_str
+
+        # 为新生成的 auto_payments 补齐 description
+        auto_payments = result.get("auto_payments", [])
+        contract_data = result.get("contract", {})
+        if auto_payments and contract_data:
+            for ap in auto_payments:
+                pid = ap.get("payment_id")
+                if pid:
+                    payment = self.db.query(Payment).filter(Payment.id == pid).first()
+                    if payment and not payment.description:
+                        desc = self._build_payment_description(
+                            amount=float(payment.amount) if payment.amount else 0,
+                            currency=payment.currency or "CNY",
+                            installment_name=payment.installment_name or "",
+                            business_hint=contract_data.get("business_description", "") or "",
+                        )
+                        payment.description = desc
+            self.db.commit()
+
+        return result_str
 
     # ═══════════════════════════════════════════════════════════
     # 🔄 query_payments — 增强：支持分组聚合（替代 get_payment_summary / get_expense_summary）
