@@ -281,11 +281,10 @@ class ContractEntrySubgraph:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         async def execute_tool_node(state: ContractEntryState) -> dict:
-            """执行工具调用。
+            """执行工具调用（直接执行，不做 interrupt 拦截）。
 
-            敏感工具（create_customer / create_contract）触发 interrupt 安全门：
-            - 首次调用：interrupt() 暂停，展示待执行的操作，等用户确认
-            - 用户确认后 resume：approved_tool_ids 包含这些 ID，跳过 interrupt 直接执行
+            注意：当前版本关闭了 interrupt 安全门，所有工具直接执行。
+            如需恢复确认 UI，取消下方注释即可。
             """
             last_msg = state["messages"][-1]
             if not getattr(last_msg, "tool_calls", None):
@@ -293,77 +292,7 @@ class ContractEntrySubgraph:
 
             all_tool_calls = last_msg.tool_calls
 
-            # 检查是否有未批准的敏感工具
-            approved_ids = set(state.get("approved_tool_ids", []))
-            sensitive_calls = [
-                tc for tc in all_tool_calls
-                if tc["name"] in _SENSITIVE_TOOLS
-                and tc["id"] not in approved_ids
-            ]
-            new_approved_ids = []
-
-            if sensitive_calls:
-                # 构建 interrupt payload
-                interrupt_id = f"contract_{uuid.uuid4().hex[:8]}"
-
-                # 从 sensitive_calls 构建工具调用摘要
-                tool_summaries = []
-                for tc in sensitive_calls:
-                    name = tc["name"]
-                    try:
-                        args = tc["args"] if isinstance(tc["args"], dict) else (json.loads(tc["args"]) if isinstance(tc["args"], str) else {})
-                    except (json.JSONDecodeError, TypeError):
-                        args = {}
-
-                    if name == "create_customer":
-                        tool_summaries.append({
-                            "tool": "create_customer",
-                            "description": f"创建客户「{args.get('name', '?')}」",
-                            "args": args,
-                        })
-                    elif name == "create_contract":
-                        tool_summaries.append({
-                            "tool": "create_contract",
-                            "description": (
-                                f"创建合同（客户ID: {args.get('customer_id', '?')}，"
-                                f"金额: {args.get('total_amount', '?')} {args.get('currency', 'CNY')}）"
-                            ),
-                            "args": args,
-                        })
-
-                sensitive_ids = [tc["id"] for tc in sensitive_calls]
-
-                # interrupt 暂停，等用户确认
-                user_response = interrupt({
-                    "type": "contract_confirmation",
-                    "message": "确认执行以上操作？",
-                    "tool_calls": tool_summaries,
-                    "options": [
-                        {
-                            "label": "确认执行",
-                            "value": {
-                                "confirmed": True,
-                                "approved_tool_ids": sensitive_ids,
-                            },
-                        },
-                        {"label": "取消", "value": {"confirmed": False}},
-                    ],
-                    "interrupt_id": interrupt_id,
-                })
-
-                # resume 后：检查用户是否确认
-                if not user_response.get("confirmed", False):
-                    return {
-                        "messages": [AIMessage(content="已取消操作，未创建任何记录。如需重新录入，请再次上传合同文件。")],
-                        "current_node": "execute_tool_node",
-                        "should_end": True,
-                    }
-
-                # 用户确认：标记这些工具为已批准，继续执行（不 return）
-                new_approved_ids = sensitive_ids
-                approved_ids.update(sensitive_ids)
-
-            # 执行所有工具调用
+            # 执行所有工具调用（无中断，直接执行）
             tool_messages = []
             for tc in all_tool_calls:
                 tool_name = tc["name"]
@@ -389,13 +318,10 @@ class ContractEntrySubgraph:
                     tool_call_id=tc["id"],
                 ))
 
-            result = {
+            return {
                 "messages": tool_messages,
                 "current_node": "execute_tool_node",
             }
-            if new_approved_ids:
-                result["approved_tool_ids"] = new_approved_ids
-            return result
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 构建子图

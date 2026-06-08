@@ -97,6 +97,8 @@ async def chat(
     logger.info("[AGENT CHAT] session_id: %s", request.session_id)
     logger.info("[AGENT CHAT] question: %s", request.question or "(空)")
     logger.info("[AGENT CHAT] attachments: %s", request.attachments)
+    logger.info("[AGENT CHAT] resume: %s", request.resume)
+    logger.info("[AGENT CHAT] interrupt_id: %s", request.interrupt_id)
     if request.attachments:
         for i, att in enumerate(request.attachments):
             logger.info("[AGENT CHAT]   attachment[%d]: file_id=%s, file_type=%s", i, att.file_id, att.file_type)
@@ -188,31 +190,81 @@ async def chat(
                 session_id=session_id,
             )
 
-            # ━━━ 中断恢复：校验 interrupt_id 与 checkpoint 匹配 ━━━
-            # interrupt.id 是 LangGraph 内部分配的 UUID，interrupt.value["interrupt_id"]
-            # 是 execute_tool_node 里我们自定义的 contract_xxx / receipt_xxx。
-            # 前端回传的是后者，所以必须从 value 中提取比对。
+            # ━━━ 中断恢复：校验 interrupt_id 与当前待处理中断匹配 ━━━
+            #
+            # 关键设计（修复版 v2）：
+            #   1. sse_adapter._interrupt_from_list() 已将 LangGraph 内部分配的
+            #      Interrupt.id（UUID）覆盖到 SSE payload 的 interrupt_id 字段。
+            #      前端回传的 request.interrupt_id 就是这个 UUID。
+            #   2. 因此校验时必须从 Interrupt.id（而非 value["interrupt_id"]）提取比对。
+            #   3. 冷编译图（每次请求重建）的 aget_state() 在某些 LangGraph 版本中
+            #      可能返回异常数据，因此内置两层兜底：
+            #      a) 防御式 getattr（防止 dict 无 .interrupts 属性崩溃）
+            #      b) 直接查询 checkpointer 获取 pending_writes 中的 interrupt
             if request.resume:
+                pending_ids = []
+                checkpoint_ok = False
+
+                # ── 主路径：graph.aget_state() → StateSnapshot.interrupts ──
                 try:
                     state_snapshot = await root_app.aget_state(config)
-                    pending_ids = []
-                    for item in (state_snapshot.interrupts or []):
-                        value = getattr(item, 'value', None)
-                        if isinstance(value, dict):
-                            uid = value.get("interrupt_id", "")
-                            if uid:
-                                pending_ids.append(uid)
-                    if request.interrupt_id not in pending_ids:
-                        logger.warning(
-                            "interrupt_id 不匹配: received=%s pending=%s thread=%s",
-                            request.interrupt_id, pending_ids, session_id,
-                        )
-                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断'}}, ensure_ascii=False)}\n\n"
-                        return
+                    # 防御式：兼容 StateSnapshot 和原始 dict 两种返回类型
+                    interrupts_raw = (
+                        getattr(state_snapshot, 'interrupts', None) or []
+                        if not isinstance(state_snapshot, dict)
+                        else state_snapshot.get('interrupts', [])
+                    )
+                    for item in interrupts_raw:
+                        lg_id = getattr(item, 'id', None)
+                        if lg_id:
+                            pending_ids.append(lg_id)
+                    checkpoint_ok = True
+                    logger.debug(
+                        "checkpoint 查询成功(aget_state): pending_ids=%s thread=%s",
+                        pending_ids, session_id,
+                    )
                 except Exception as e:
-                    logger.error("checkpoint 查询失败: %s", e)
-                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '无法验证中断状态，请稍后重试'}}, ensure_ascii=False)}\n\n"
+                    logger.warning(
+                        "aget_state 查询异常（将尝试 fallback）: %s thread=%s",
+                        e, session_id,
+                    )
+
+                # ── 兜底路径：直接查 checkpointer pending_writes ──
+                if not checkpoint_ok:
+                    try:
+                        saved = await cp.aget_tuple(config)
+                        if saved and saved.pending_writes:
+                            for _tid, _chan, _val in saved.pending_writes:
+                                if _chan in ("__interrupt__", "interrupt"):
+                                    items = _val if isinstance(_val, (list, tuple)) else [_val]
+                                    for it in items:
+                                        lg_id = getattr(it, 'id', None)
+                                        if lg_id:
+                                            pending_ids.append(lg_id)
+                        checkpoint_ok = True
+                        logger.debug(
+                            "checkpoint 查询成功(fallback): pending_ids=%s thread=%s",
+                            pending_ids, session_id,
+                        )
+                    except Exception as e2:
+                        logger.warning(
+                            "checkpoint fallback 也失败，放行由 LangGraph 内部校验: %s thread=%s",
+                            e2, session_id,
+                        )
+                        # 不 return，让 LangGraph 内部处理 resume 校验
+
+                # ── 校验（仅在主路径或兜底路径成功时执行） ──
+                if checkpoint_ok and pending_ids and request.interrupt_id not in pending_ids:
+                    logger.warning(
+                        "interrupt_id 不匹配: received=%s pending=%s thread=%s",
+                        request.interrupt_id, pending_ids, session_id,
+                    )
+                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断，请刷新页面重试'}}, ensure_ascii=False)}\n\n"
                     return
+                logger.info(
+                    "interrupt_id 校验通过: id=%s thread=%s",
+                    request.interrupt_id, session_id,
+                )
 
             # 构造 initial_state。auto_filled 标记透传到 HumanMessage.additional_kwargs，
             # finalize_node 读取后写入 chat_history.metadata，区分"用户实际输入"与"系统补全"

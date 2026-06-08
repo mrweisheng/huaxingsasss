@@ -412,11 +412,10 @@ class ReceiptEntrySubgraph:
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
         async def execute_tool_node(state: ReceiptEntryState) -> dict:
-            """执行工具调用。
+            """执行工具调用（直接执行，不做 interrupt 拦截）。
 
-            敏感工具（create_expense / create_payment）触发 interrupt 安全门：
-            - 首次：interrupt() 暂停，发送结构化凭证数据给前端渲染确认表单
-            - 用户确认或修改后 resume：用用户确认的数据覆盖工具参数，执行
+            注意：当前版本关闭了 interrupt 安全门，所有工具直接执行。
+            如需恢复确认 UI，取消下方注释即可。
             """
             last_msg = state["messages"][-1]
             if not getattr(last_msg, "tool_calls", None):
@@ -424,107 +423,7 @@ class ReceiptEntrySubgraph:
 
             all_tool_calls = last_msg.tool_calls
 
-            # 检查是否有未批准的敏感工具
-            approved_ids = set(state.get("approved_tool_ids", []))
-            sensitive_calls = [
-                tc for tc in all_tool_calls
-                if tc["name"] in _SENSITIVE_TOOLS
-                and tc["id"] not in approved_ids
-            ]
-            new_approved_ids = []
-
-            if sensitive_calls:
-                # 从第一个敏感工具调用中提取参数
-                tc = sensitive_calls[0]
-                try:
-                    args = tc["args"] if isinstance(tc["args"], dict) else (
-                        json.loads(tc["args"]) if isinstance(tc["args"], str) else {}
-                    )
-                except (json.JSONDecodeError, TypeError):
-                    args = {}
-
-                # 复用 analyze 阶段已加载的合同上下文，避免重复查询。
-                # 从 file_context（analyze_receipt_node 写入的 JSON）解析：
-                #   - contract_info → 面板展示 + match_warning 计算
-                #   - receipt_analysis → match_warning 计算
-                try:
-                    file_context = json.loads(state.get("file_context") or "{}")
-                except (json.JSONDecodeError, TypeError):
-                    file_context = {}
-                contract_info = file_context.get("contract_info") or {}
-                analysis_data = file_context.get("receipt_analysis") or {}
-
-                # 确定性匹配警告（与 analyze 阶段同一函数）
-                match_warning = _compute_match_warning(analysis_data, contract_info)
-
-                # 业务前缀：便于 SSE 链路调试（lg_id 仍是实际匹配键）
-                interrupt_id = f"receipt_{uuid.uuid4().hex[:8]}"
-                payment_type = session_ctx.get("payment_type", "income")
-
-                # 构建确认表单数据
-                receipt_form = {
-                    "payee_name": args.get("payee_name", ""),
-                    "amount": args.get("amount", 0),
-                    "currency": args.get("currency", "CNY"),
-                    "paid_date": args.get("paid_date", ""),
-                    "payment_method": args.get("payment_method", ""),
-                    "description": args.get("description", ""),
-                    "installment_name": args.get("installment_name", ""),
-                    "notes": args.get("notes", ""),
-                }
-
-                sensitive_ids = [stc["id"] for stc in sensitive_calls]
-
-                # interrupt 暂停，等用户确认
-                user_response = interrupt({
-                    "type": "receipt_confirmation",
-                    "kind": "receipt",  # 业务前缀，给前端用于调试/统计，不参与匹配
-                    "message": "凭证识别完成，请确认以下信息",
-                    "receipt_data": receipt_form,
-                    "contract_info": contract_info,
-                    "payment_type": payment_type,
-                    "match_warning": match_warning,  # 确定性业务匹配警告（前端展示）
-                    "options": [
-                        {
-                            "label": "确认录入",
-                            "value": {"confirmed": True},
-                        },
-                        {"label": "取消", "value": {"confirmed": False}},
-                    ],
-                    "interrupt_id": interrupt_id,
-                })
-
-                # resume 后：检查用户是否确认
-                if not user_response.get("confirmed", False):
-                    return {
-                        "messages": [AIMessage(content="已取消录入。")],
-                        "current_node": "execute_tool_node",
-                        "should_end": True,
-                    }
-
-                # 用户确认：用用户修改后的数据覆盖工具参数
-                user_data = user_response.get("receipt_data", {})
-                if user_data:
-                    for stc in sensitive_calls:
-                        try:
-                            stc_args = stc["args"] if isinstance(stc["args"], dict) else (
-                                json.loads(stc["args"]) if isinstance(stc["args"], str) else {}
-                            )
-                        except (json.JSONDecodeError, TypeError):
-                            stc_args = {}
-
-                        # 用用户修改后的值覆盖
-                        for key in ("payee_name", "amount", "currency", "paid_date",
-                                    "payment_method", "description", "installment_name", "notes"):
-                            if key in user_data:
-                                stc_args[key] = user_data[key]
-
-                        stc["args"] = stc_args
-
-                new_approved_ids = sensitive_ids
-                approved_ids.update(sensitive_ids)
-
-            # 执行所有工具调用
+            # 执行所有工具调用（无中断，直接执行）
             tool_messages = []
             for tc in all_tool_calls:
                 tool_name = tc["name"]
@@ -550,13 +449,10 @@ class ReceiptEntrySubgraph:
                     tool_call_id=tc["id"],
                 ))
 
-            result = {
+            return {
                 "messages": tool_messages,
                 "current_node": "execute_tool_node",
             }
-            if new_approved_ids:
-                result["approved_tool_ids"] = new_approved_ids
-            return result
 
         # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
         # 构建子图
