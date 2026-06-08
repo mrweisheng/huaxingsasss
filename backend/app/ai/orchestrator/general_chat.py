@@ -87,8 +87,27 @@ class GeneralChatSubgraph:
                     "current_node": "call_model_node",
                 }
 
+            # 附件上下文注入：把 state.attachments 信息追加到最后一条用户消息中，
+            # 让 LLM 知道有附件及其 file_id，可以调 analyze_image 工具处理。
+            msgs = list(state.get("messages", []))
+            attachments = state.get("attachments", [])
+            if attachments and msgs:
+                # 找到最后一条 HumanMessage，追加附件上下文
+                for i in range(len(msgs) - 1, -1, -1):
+                    if isinstance(msgs[i], HumanMessage):
+                        ctx_parts = [f"\n\n[附件: {len(attachments)} 个文件]"]
+                        for att in attachments:
+                            fid = att.get("file_id", "") if isinstance(att, dict) else getattr(att, "file_id", "")
+                            ftype = att.get("file_type", "") if isinstance(att, dict) else getattr(att, "file_type", "")
+                            ctx_parts.append(f"- file_id={fid}, file_type={ftype}")
+                        msgs[i] = HumanMessage(
+                            content=(msgs[i].content or "") + "\n".join(ctx_parts),
+                            id=msgs[i].id,
+                        )
+                        break
+
             # LangChain → OpenAI 格式转换
-            openai_messages = _convert_messages(state.get("messages", []), user)
+            openai_messages = _convert_messages(msgs, user)
 
             full_text = ""
             tool_calls = []

@@ -17,15 +17,16 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 当前日期: {current_date}
 - 当前用户: {user_name}（{role_desc}）
 
-## 确认与执行规则（最高优先级，三阶段工作流）
-1. **阶段 1（分析）**：用户上传文件/给出新需求时，参考预分析数据 + 历史消息，整理出"将要做的事"
-2. **阶段 2（展示）**：调 set_pending_plan(summary, actions=[...], user_confirmed=False) 声明计划；用文字向用户展示关键信息（客户/金额/业务类型），明确问"是否确认创建？"。**严禁**在阶段 2 直接调 create_customer / create_contract / create_payment / create_expense / update_payment
-3. **阶段 3（执行）**：用户回复后，**用语义理解**（不要用词库或关键词匹配）判断用户是否同意
+## 确认与执行规则（最高优先级）
+1. **分析**：用户上传文件/给出新需求时，参考预分析数据 + 历史消息，整理出"将要做的事"
+2. **展示**：调 set_pending_plan(summary, actions=[...], user_confirmed=False) 声明计划；用文字向用户展示关键信息（客户/金额/业务类型），明确问"是否确认创建？"。**严禁**在此阶段直接调 create_customer / create_contract / create_payment / create_expense / update_payment
+3. **执行**：用户回复后，**用语义理解**（不要用词库或关键词匹配）判断用户是否同意
    - 若同意：先调 set_pending_plan(user_confirmed=True) 更新计划状态，再在同一轮继续调 actions 里的 create_* 工具
    - 若拒绝/犹豫/要求修改：调 set_pending_plan(user_confirmed=False) 更新计划，可调整 actions/summary；**不要**调 create_*
 4. 已确认过的事项直接推进，禁止对同一件事确认两次
 5. 禁止在用户确认后再次展示已展示过的信息
 6. 严禁在用户确认后直接调 create_* 跳过 set_pending_plan —— 工具会被系统拒绝执行并返回明确错误
+7. **禁止向用户输出"阶段1""阶段2""阶段3""步骤X"等内部流程编号或标签**
 
 ## 业务背景
 公司管理两种核心业务：
@@ -48,7 +49,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 用户上传合同文件时，分析文件内容，确认关键信息后录入系统。分析结果中已有的字段（签订日期、币种等）直接使用，不得向用户重复询问。只有分析结果为 null 或缺失的字段才需要追问。
 
 ### 凭证录入
-凭证录入通过合同列表卡片的「收」「支」按钮发起，进入凭证录入子图。子图自动分析凭证、查询已有记录，你负责判断匹配/新建并调用工具，系统确认面板完成用户交互。在通用对话中仍可使用 query_payments / get_payment_summary 查询。
+凭证录入通过合同列表卡片的「收」「支」按钮发起，进入凭证录入子图。子图自动分析凭证、查询已有记录，你负责判断匹配/新建并调用工具。在通用对话中仍可使用 query_payments / get_payment_summary 查询。
 
 ### 群聊关联
 用户上传微信群聊截图时，分析截图内容，提取客户和业务信息，关联合同的 wechat_group 字段。
@@ -338,23 +339,24 @@ business_type 判断规则（严格执行）：
 4. business_type 必须是固定枚举值之一，null 仅在完全无法判断时使用"""
 
 
-CONTRACT_ENTRY_PROMPT = """你是合同录入助手。严格遵守三阶段工作流，禁止跳过任何阶段。
+CONTRACT_ENTRY_PROMPT = """你是合同录入助手。严格遵守以下工作流程，禁止跳过任何步骤。
 
-## 阶段 1：分析
+## 第一步：分析
 
 ContractAnalyzer 已处理文件，[文件分析结果] 在上下文中。你必须先看分析数据，理解客户、金额、币种、业务类型。
 
-## 阶段 2：展示 + 等待确认
+## 第二步：展示 + 等待确认
 
 1. 调 set_pending_plan(summary, actions=[...], user_confirmed=False)
    - summary: 1-2 句话总结关键信息（客户、金额、业务类型）
    - actions: 计划要执行的所有 create_* 工具名
      - 如需新建客户：含 create_customer
      - 必含 create_contract
-2. 阶段 2 严禁调用 create_customer / create_contract
+2. 此步骤严禁调用 create_customer / create_contract
 3. 在向用户展示的文字里明确问"是否确认创建？"
+4. **禁止输出"阶段1""阶段2""第一步"等内部流程标签**
 
-## 阶段 3：执行（仅当用户确认后）
+## 第三步：执行（仅当用户确认后）
 
 用户回复后，你必须用语义理解（不是关键词匹配）判断意图：
 - 用户是否表达了"同意继续创建"？
