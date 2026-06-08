@@ -188,6 +188,11 @@ export function computeEventUpdates(
   return { action: 'continue', nextThoughtId: ctx.thoughtStepId }
 }
 
+/** 将多条 text 片段合并为一次 content 追加（用于 rAF 合并渲染）。*/
+export function mergeTextAppends(chunks: string[]): string {
+  return chunks.join('')
+}
+
 /** 把 DispatchResult 应用到 ChatMessage 列表，返回新数组。*/
 import type { ChatMessage } from '@/types/agent'
 
@@ -206,55 +211,69 @@ export function applyMessageUpdates(
     return messages
   }
 
-  return messages.map((m) => {
-    if (m.id !== assistantId) return m
+  // 用索引直接定位目标消息，避免 map 遍历整条数组
+  const idx = messages.findIndex(m => m.id === assistantId)
+  if (idx === -1) return messages
 
-    // text: 追加到 content
-    if (result.textAppend !== undefined) {
-      return { ...m, content: m.content + result.textAppend }
+  const m = messages[idx]
+
+  // text: 追加到 content
+  if (result.textAppend !== undefined) {
+    const updated = { ...m, content: m.content + result.textAppend }
+    const next = messages.slice()
+    next[idx] = updated
+    return next
+  }
+
+  // tool_call: 推入 toolCalls
+  if (result.toolCallAppend) {
+    const updated = {
+      ...m,
+      toolCalls: [...(m.toolCalls || []), result.toolCallAppend],
     }
+    const next = messages.slice()
+    next[idx] = updated
+    return next
+  }
 
-    // tool_call: 推入 toolCalls
-    if (result.toolCallAppend) {
-      return {
-        ...m,
-        toolCalls: [...(m.toolCalls || []), result.toolCallAppend],
+  // tool_result: 填充最后一个 toolCall.result
+  if (result.toolResultLast && m.toolCalls?.length) {
+    const calls = [...m.toolCalls]
+    calls[calls.length - 1] = {
+      ...calls[calls.length - 1],
+      result: result.toolResultLast.result,
+    }
+    const next = messages.slice()
+    next[idx] = { ...m, toolCalls: calls }
+    return next
+  }
+
+  // thinking: 标记上一个 running 为 done，推入新的 running
+  if (result.thoughtAppend) {
+    const thoughts = [...(m.thoughts || [])]
+    if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
+      thoughts[thoughts.length - 1] = {
+        ...thoughts[thoughts.length - 1],
+        status: 'done' as const,
       }
     }
+    thoughts.push({ id: result.thoughtAppend.id, message: result.thoughtAppend.message, status: 'running' })
+    const next = messages.slice()
+    next[idx] = { ...m, thoughts }
+    return next
+  }
 
-    // tool_result: 填充最后一个 toolCall.result
-    if (result.toolResultLast && m.toolCalls?.length) {
-      const calls = [...m.toolCalls]
-      calls[calls.length - 1] = {
-        ...calls[calls.length - 1],
-        result: result.toolResultLast.result,
-      }
-      return { ...m, toolCalls: calls }
+  // done: 收尾最后一个 running 步骤
+  if (result.thoughtFinalizeLast && m.thoughts?.length) {
+    const thoughts = [...m.thoughts]
+    const last = thoughts[thoughts.length - 1]
+    if (last && last.status === 'running') {
+      thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
     }
+    const next = messages.slice()
+    next[idx] = { ...m, thoughts }
+    return next
+  }
 
-    // thinking: 标记上一个 running 为 done，推入新的 running
-    if (result.thoughtAppend) {
-      const thoughts = [...(m.thoughts || [])]
-      if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
-        thoughts[thoughts.length - 1] = {
-          ...thoughts[thoughts.length - 1],
-          status: 'done' as const,
-        }
-      }
-      thoughts.push({ id: result.thoughtAppend.id, message: result.thoughtAppend.message, status: 'running' })
-      return { ...m, thoughts }
-    }
-
-    // done: 收尾最后一个 running 步骤
-    if (result.thoughtFinalizeLast && m.thoughts?.length) {
-      const thoughts = [...m.thoughts]
-      const last = thoughts[thoughts.length - 1]
-      if (last && last.status === 'running') {
-        thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
-      }
-      return { ...m, thoughts }
-    }
-
-    return m
-  })
+  return messages
 }

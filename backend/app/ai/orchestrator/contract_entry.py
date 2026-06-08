@@ -353,8 +353,13 @@ class ContractEntrySubgraph:
                     clean_actions = [
                         a for a in (args.get("actions") or []) if a in valid_actions
                     ]
+                    # 复用已有 plan_id：避免每次生成新 ID 导致 LLM 感知到变化
+                    # 仅当 plan 尚不存在时才生成新 ID
+                    existing_plan_id = new_pending_plan.get("plan_id") if new_pending_plan else None
+                    plan_id = existing_plan_id or str(uuid.uuid4())[:8]
+
                     new_pending_plan = {
-                        "plan_id": new_pending_plan.get("plan_id") if pending_plan_was_updated else str(uuid.uuid4())[:8],
+                        "plan_id": plan_id,
                         "summary": str(args.get("summary", "")),
                         "actions": clean_actions,
                         "user_confirmed": bool(args.get("user_confirmed", False)),

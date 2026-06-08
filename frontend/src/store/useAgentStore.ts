@@ -5,6 +5,7 @@ import {
   readSSEStream,
   computeEventUpdates,
   applyMessageUpdates,
+  mergeTextAppends,
 } from '@/lib/sseStream'
 
 interface AgentState {
@@ -31,7 +32,8 @@ let abortController: AbortController | null = null
 
 /**
  * 把单个 SSE 事件应用到 store：消息列表更新 + 外层状态（interruptInfo / error / sessionId）。
- * 返回 [action, nextThoughtId]，调用方根据 action 决定是否提前退出循环。
+ * text 事件除外：textAppend 由调用方通过 rAF 合并机制刷入，此处跳过。
+ * 返回 [action, nextThoughtId, textAppend]，调用方根据 action 决定是否提前退出循环。
  */
 function applyEventToStore(
   event: Parameters<typeof computeEventUpdates>[0],
@@ -39,14 +41,23 @@ function applyEventToStore(
   thoughtStepId: number,
   set: (partial: Partial<AgentState> | ((state: AgentState) => Partial<AgentState>)) => void,
   get: () => AgentState,
-): [import('@/lib/sseStream').DispatchAction, number] {
+): [import('@/lib/sseStream').DispatchAction, number, string | undefined] {
   const result = computeEventUpdates(event, {
     assistantId,
     thoughtStepId,
     hasCurrentSessionId: !!get().currentSessionId,
   })
 
-  if (result.textAppend || result.toolCallAppend || result.toolResultLast ||
+  // text 事件：不在此处 set()，返回 textAppend 让调用方通过 rAF 合并刷入
+  if (result.textAppend) {
+    // 仍需处理其他附带状态（如 sessionIdSync）
+    if (result.sessionIdSync) {
+      set({ currentSessionId: result.sessionIdSync })
+    }
+    return [result.action, result.nextThoughtId, result.textAppend]
+  }
+
+  if (result.toolCallAppend || result.toolResultLast ||
       result.thoughtAppend || result.thoughtFinalizeLast) {
     set((state) => ({
       messages: applyMessageUpdates(state.messages, result, assistantId),
@@ -65,7 +76,7 @@ function applyEventToStore(
     set({ error: result.errorMessage })
   }
 
-  return [result.action, result.nextThoughtId]
+  return [result.action, result.nextThoughtId, undefined]
 }
 
 /** 把客户端 File 列表转换为上传后的服务端附件元数据。*/
@@ -221,6 +232,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     abortController = new AbortController()
     let thoughtStepId = 0
 
+    // rAF 合并渲染：同一帧内的多个 text chunk 合并为一次 state 更新
+    let pendingTextChunks: string[] = []
+    let rafHandle: number | null = null
+
+    const flushText = () => {
+      if (pendingTextChunks.length === 0) return
+      const merged = mergeTextAppends(pendingTextChunks)
+      pendingTextChunks = []
+      rafHandle = null
+      set((state) => ({
+        messages: applyMessageUpdates(state.messages, {
+          action: 'continue',
+          nextThoughtId: thoughtStepId,
+          textAppend: merged,
+        }, assistantId),
+      }))
+    }
+
+    const scheduleFlush = () => {
+      if (rafHandle === null) {
+        rafHandle = requestAnimationFrame(flushText)
+      }
+    }
+
     try {
       const response = await agentApi.chatStream(content, sessionId, uploadedAttachments)
       if (!response.ok || !response.body) {
@@ -228,12 +263,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
 
       for await (const event of readSSEStream(response, abortController.signal)) {
-        const [action, nextThoughtId] = applyEventToStore(event, assistantId, thoughtStepId, set, get)
+        const [action, nextThoughtId, textAppend] = applyEventToStore(event, assistantId, thoughtStepId, set, get)
         thoughtStepId = nextThoughtId
+
+        // text 事件：缓冲后 rAF 合并渲染，避免逐 chunk set() 导致卡顿
+        if (textAppend) {
+          pendingTextChunks.push(textAppend)
+          scheduleFlush()
+        }
+
         if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+          // 退出前刷出剩余 text
+          if (rafHandle !== null) cancelAnimationFrame(rafHandle)
+          flushText()
           return
         }
       }
+      // 流结束，刷出剩余 text
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle)
+      flushText()
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         set({ error: e.message || '对话出错' })
@@ -241,6 +289,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     } finally {
       set({ isStreaming: false })
       abortController = null
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle)
     }
   },
 
@@ -265,6 +314,30 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     abortController = new AbortController()
     let thoughtStepId = 1  // 0 已被 resume_0 占用
 
+    // rAF 合并渲染（同 sendMessage）
+    let pendingTextChunks: string[] = []
+    let rafHandle: number | null = null
+
+    const flushText = () => {
+      if (pendingTextChunks.length === 0) return
+      const merged = mergeTextAppends(pendingTextChunks)
+      pendingTextChunks = []
+      rafHandle = null
+      set((state) => ({
+        messages: applyMessageUpdates(state.messages, {
+          action: 'continue',
+          nextThoughtId: thoughtStepId,
+          textAppend: merged,
+        }, assistantId),
+      }))
+    }
+
+    const scheduleFlush = () => {
+      if (rafHandle === null) {
+        rafHandle = requestAnimationFrame(flushText)
+      }
+    }
+
     try {
       const response = await agentApi.resumeInterrupt(
         currentSessionId,
@@ -276,12 +349,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       }
 
       for await (const event of readSSEStream(response, abortController.signal)) {
-        const [action, nextThoughtId] = applyEventToStore(event, assistantId, thoughtStepId, set, get)
+        const [action, nextThoughtId, textAppend] = applyEventToStore(event, assistantId, thoughtStepId, set, get)
         thoughtStepId = nextThoughtId
+
+        if (textAppend) {
+          pendingTextChunks.push(textAppend)
+          scheduleFlush()
+        }
+
         if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+          if (rafHandle !== null) cancelAnimationFrame(rafHandle)
+          flushText()
           return
         }
       }
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle)
+      flushText()
     } catch (e: any) {
       if (e.name !== 'AbortError') {
         set({ error: e.message || '对话出错' })
@@ -289,6 +372,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     } finally {
       set({ isStreaming: false })
       abortController = null
+      if (rafHandle !== null) cancelAnimationFrame(rafHandle)
     }
   },
 

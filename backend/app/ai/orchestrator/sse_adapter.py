@@ -10,7 +10,7 @@ Phase 1 新增 interrupt 事件类型
 import asyncio
 import json
 import logging
-from typing import AsyncGenerator, Optional
+from typing import AsyncGenerator, Optional, FrozenSet
 
 from app.ai.orchestrator.state import RootState
 
@@ -81,9 +81,13 @@ async def adapt_langgraph_stream(
 
                 if kind == "on_chain_start":
                     node_name = event.get("name", "")
+                    friendly = _node_friendly_name(node_name)
+                    if friendly is None:
+                        # 内部路由/条件节点，不向前端发送 thinking 事件
+                        continue
                     yield _sse_encode({
                         "event": "thinking",
-                        "data": {"message": f"正在{_node_friendly_name(node_name)}..."},
+                        "data": {"message": f"正在{friendly}..."},
                     })
 
                 elif kind == "on_chain_end":
@@ -223,6 +227,7 @@ def _sse_encode(event: dict) -> str:
     return f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
 
 
+# 需要向用户展示的有业务意义的节点 → 友好名称
 _NODE_FRIENDLY = {
     "intake_node": "分析请求",
     "analyze_file_node": "分析文件内容",
@@ -243,11 +248,26 @@ _NODE_FRIENDLY = {
     "receipt_entry_subgraph": "凭证录入",
     "receipt_entry_node": "处理凭证请求",
     "group_chat_node": "处理群聊请求",
+    "contract_entry_subgraph": "合同录入",
 }
 
+# LangGraph 内部节点：路由/条件判断/子图包装器，不应暴露给用户
+# 这些节点在 on_chain_start 时会被跳过，不发送 thinking SSE 事件
+_INTERNAL_NODES = frozenset({
+    "LangGraph",
+    "StateGraph",
+    "route_by_intent",
+    "should_continue",
+    "route_after_analyze",
+    "route_after_execute",
+})
 
-def _node_friendly_name(node_name: str) -> str:
-    return _NODE_FRIENDLY.get(node_name, node_name)
+
+def _node_friendly_name(node_name: str) -> Optional[str]:
+    """返回节点的用户友好名称；内部节点返回 None 表示应跳过；未映射节点显示'处理中'。"""
+    if node_name in _INTERNAL_NODES:
+        return None
+    return _NODE_FRIENDLY.get(node_name, "处理中")
 
 
 def _interrupt_from_list(interrupts: list) -> Optional[dict]:

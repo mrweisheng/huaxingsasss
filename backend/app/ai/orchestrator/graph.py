@@ -98,7 +98,7 @@ def route_by_intent(state: RootState) -> Literal[
       intent             | mode                        | 路由目标
       contract_entry     | chat                        | contract_entry_subgraph
       receipt_entry      | receipt_income/receipt_expense | receipt_entry_subgraph（完整子图）
-      receipt_entry      | 其他                         | receipt_entry_node（降级引导）
+      receipt_entry      | chat（有附件）                | general_chat_subgraph（通用对话处理凭证图片）
       group_chat         | *                           | group_chat_node（降级引导）
       general            | *                           | general_chat_subgraph
     """
@@ -111,7 +111,9 @@ def route_by_intent(state: RootState) -> Literal[
     if intent == "receipt_entry":
         if mode in ("receipt_income", "receipt_expense"):
             return "receipt_entry_subgraph"
-        return "receipt_entry_node"
+        # chat 模式下用户上传凭证图片，走通用对话子图处理（有图片分析能力）
+        # 不走 receipt_entry_node 降级引导（只说"请去卡片按钮"，无法处理附件）
+        return "general_chat_subgraph"
 
     if intent == "group_chat":
         return "group_chat_node"
