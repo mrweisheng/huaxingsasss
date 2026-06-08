@@ -2046,7 +2046,12 @@ class ToolExecutor:
         }, ensure_ascii=False)
 
     def execute(self, tool_name: str, arguments: dict) -> str:
-        """统一执行入口"""
+        """统一执行入口
+
+        注意：set_pending_plan 不在此入口处理（见各子图 execute_tool_node 内联分支），
+        原因：它是纯 state 写入工具，不调 Service，且需要绕过 _check_mode_guard
+        （凭证模式下 set_pending_plan 不在 _MODE_ALLOWED_TOOLS 白名单中）。
+        """
         handler = getattr(self, tool_name, None)
         if not handler:
             logger.warning("未知工具调用: %s", tool_name)
@@ -2460,6 +2465,52 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "question": {"type": "string", "description": "用户关于合同条款的具体问题，如'违约金怎么约定'、'交车截止日期是什么'、'甲方有什么义务'"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "set_pending_plan",
+            "description": (
+                "声明本次录入计划并请求用户确认。"
+                "所有 create_customer / create_contract / create_payment / create_expense / update_payment "
+                "工具调用前，必须先调此工具声明计划。"
+                "工作流：\n"
+                "1) 阶段 2（展示）：先调一次，user_confirmed=False，summary 给用户看的内容，actions 列出计划调用的 create_* 工具名\n"
+                "2) 用户回复后（阶段 3）：你必须用语义理解（不要用词库）判断用户是否确认。\n"
+                "   - 若同意：在同一轮先调此工具，user_confirmed=True，actions 不变；然后继续调 actions 里的 create_* 工具\n"
+                "   - 若拒绝/犹豫/修改：调此工具，user_confirmed=False，可更新 actions/summary；不要调 create_*"
+            ),
+            "parameters": {
+                "type": "object",
+                "required": ["summary", "actions", "user_confirmed"],
+                "properties": {
+                    "summary": {
+                        "type": "string",
+                        "description": "向用户展示的计划摘要，1-2 句话概括客户/金额/业务类型等关键信息",
+                    },
+                    "actions": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "enum": [
+                                "create_customer", "create_contract",
+                                "create_payment", "create_expense",
+                                "update_payment",
+                            ],
+                        },
+                        "description": "计划要执行的所有写入工具名。写入工具必须在此列表中才能被允许执行。",
+                    },
+                    "user_confirmed": {
+                        "type": "boolean",
+                        "description": (
+                            "用户是否已确认此计划。"
+                            "由你根据用户最新消息的语义自行判断（语气、上下文、否定词都考虑），"
+                            "不要依赖词库或关键词匹配。"
+                        ),
+                    },
                 },
             },
         },

@@ -29,7 +29,10 @@ class RootState(TypedDict, total=False):
     attachments: list[dict]     # [{file_id, file_type}, ...]
     file_context: Optional[str] # VL/文本预分析结果
 
-    # ── HITL 中断 ──
+    # ── HITL 中断（DEPRECATED: 已被 set_pending_plan 计划驱动安全门替代）──
+    # 保留此字段仅为兼容 agent.py 的 resume 校验链和 finalize_node 的清理逻辑。
+    # 等前端协议升级后统一清理（不再发送 interrupt_id / resume 请求）。
+    # #plan-driven-safety-gate
     interrupt_info: Optional[dict]  # {type, message, options, interrupt_id}
 
     # ── 工具调用 ──
@@ -60,12 +63,14 @@ class ContractEntryState(RootState, total=False):
     """合同录入子图状态（Agent 循环架构）
 
     Agent 循环：analyze_file → call_model ↔ execute_tool
-    interrupt 安全门在 execute_tool 中拦截敏感工具（create_customer/create_contract），
-    用户确认后通过 approved_tool_ids 放行。
+    计划驱动安全门：set_pending_plan 工具设置 pending_plan，execute_tool_node
+    据此拦截 create_customer/create_contract 越权调用。
     """
 
-    # HITL 安全门：已批准的工具调用 ID，execute_tool_node 据此跳过 interrupt
-    approved_tool_ids: Annotated[list[str], operator.add]
+    # 计划驱动：当前待执行计划，由 set_pending_plan 工具更新
+    # 结构: {"plan_id": str, "summary": str, "actions": list[str], "user_confirmed": bool}
+    # plan_id: 每次 set_pending_plan 首次调用时生成，用于审计日志关联
+    pending_plan: Optional[dict]
 
 
 class GeneralChatState(RootState, total=False):
@@ -77,9 +82,11 @@ class ReceiptEntryState(RootState, total=False):
     """凭证录入子图状态（收入/支出统一）
 
     Agent 循环：analyze_receipt → call_model ↔ execute_tool
-    interrupt 安全门在 execute_tool 中拦截敏感工具（create_expense/create_payment），
-    展示结构化凭证确认表单，用户确认或修改后 resume 放行。
+    计划驱动安全门：set_pending_plan 工具设置 pending_plan，execute_tool_node
+    据此拦截 create_payment/create_expense/update_payment 越权调用。
     """
 
-    # HITL 安全门：已批准的工具调用 ID，execute_tool_node 据此跳过 interrupt
-    approved_tool_ids: Annotated[list[str], operator.add]
+    # 计划驱动：当前待执行计划，由 set_pending_plan 工具更新
+    # 结构: {"plan_id": str, "summary": str, "actions": list[str], "user_confirmed": bool}
+    # plan_id: 每次 set_pending_plan 首次调用时生成，用于审计日志关联
+    pending_plan: Optional[dict]

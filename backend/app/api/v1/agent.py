@@ -280,11 +280,21 @@ async def chat(
                 "executor_mode": agent._mode,
                 "session_context": agent._session_context or {},
                 "_finalized": False,  # 每轮新请求重置幂等标记，避免跨轮残留
+                # Defense in depth：analyze 节点也会重置，这里再重置一次保证从入口
+                # 进来时状态干净（防止 checkpoint 残留 should_end=True 导致
+                # route_after_analyze 误判 END、Agent 循环进不去）
+                "should_end": False,
+                "iteration_count": 0,
             }
             # 仅在请求携带附件时才覆盖 checkpoint 中的 attachments，
             # 否则保留上一轮的附件上下文（支持多轮合同录入等场景）
+            # 注意：无附件时必须显式置 []，否则 checkpoint 中旧 attachments 残留
+            # 会导致 analyze 节点重新分析已处理过的文件（触发重复检测）。
+            # analyze 节点通过 file_context（而非 attachments）判断是否续接。
             if request.attachments:
                 initial_state["attachments"] = [a.model_dump() for a in request.attachments]
+            else:
+                initial_state["attachments"] = []
 
             if request.resume:
                 # 中断恢复（校验已在上方完成）
