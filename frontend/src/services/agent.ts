@@ -85,8 +85,6 @@ export const agentApi = {
       attachments: attachments || null,
     })
   },
-
-  /**
 }
 
 function _chatRequest(body: Record<string, any>): Promise<Response> {
