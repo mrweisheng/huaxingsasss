@@ -590,6 +590,15 @@ initial_state = {
 
 10. 前端零改动（除 commit 1 中删除旧确认面板）
 
+## 九、实施结果（2026-06-08）
+
+已于 `refactor: 彻底删除interrupt确认UI机制` commit 完成清理：
+
+- 删除了所有 interrupt/resume 相关代码（前后端共 ~1100 行）
+- SSE 适配器简化为直接消费 astream_events，无后台任务/checkpoint 轮询
+- 确认机制改为纯聊天交互：用户自然语言确认 → LLM 调 set_pending_plan(user_confirmed=true) → 代码层硬约束放行
+- 不再有 interrupt 事件类型、InterruptInfo 类型、ReceiptConfirmPanel 组件
+
 ## 十、未来可扩展
 
 - **Plan 模板化**：高频场景做成模板

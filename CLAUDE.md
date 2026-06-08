@@ -49,12 +49,12 @@
 | 层 | 文件 | 职责 | 决策方 |
 |---|---|---|---|
 | Root Graph | `orchestrator/graph.py` | 意图推断 + 路由 + finalize 落库 | 代码（确定性） |
-| 子图 | `orchestrator/{contract,receipt,general}_entry.py` | 循环：analyze → call_model ↔ execute_tool | LLM + 代码混合（敏感工具由 interrupt 守门） |
+| 子图 | `orchestrator/{contract,receipt,general}_entry.py` | 循环：analyze → call_model ↔ execute_tool | LLM + 代码混合（敏感工具由计划驱动安全门守门） |
 | 工具执行 | `ai/tools.py` `ToolExecutor` | 调 Service 层，返回纯 JSON 事实 | 代码（确定性） |
 | Service | `services/*.py` | 业务规则、权限校验、事务边界 | 代码（确定性） |
 | 模型 / DB | `models/*.py` | ORM 映射、表结构 | 代码 |
 | 提示词 | `ai/prompts.py` | 业务偏好、追问策略、字段解释 | LLM 软规则 |
-| 中断守门 | 子图 `_SENSITIVE_TOOLS` 集合 + `approved_tool_ids` | 防止 LLM 跳过确认执行高危工具 | 代码 + 前端 UI |
+| 安全门 | 子图 `_SENSITIVE_TOOLS` 集合 + `set_pending_plan` 计划驱动 | 防止 LLM 跳过确认执行高危工具 | 代码硬约束 + LLM 多轮对话确认 |
 
 ### Root Graph 路由矩阵
 
@@ -75,21 +75,21 @@ analyze_{file,receipt}_node（确定性）→ call_model_node（LLM 决策）
                                           ↑                ↓
                                           └── execute_tool_node ┘
                                                  │
-                                                 ├─ 敏感工具 → interrupt() 暂停 → 前端确认
-                                                 │             └─ resume: approved_tool_ids 放行
+                                                 ├─ 敏感工具 → 计划驱动安全门（set_pending_plan）
+                                                 │             └─ LLM 展示计划 → 用户自然语言确认 → LLM 调 set_pending_plan(confirmed=true)
                                                  └─ 普通工具 → 直接执行 → ToolMessage 回灌
 ```
 
 - `analyze_*_node`：确定性预分析（VL/OCR/DB 查询），不消耗 LLM token，结果注入 messages
 - `call_model_node`：LLM 决定展示什么、调哪个工具、追问还是结束（迭代上限 `settings.AGENT_MAX_ITERATIONS=8`）
-- `execute_tool_node`：工具执行；敏感工具触发 interrupt 安全门（合同：`create_customer`/`create_contract`；凭证：`create_payment`/`create_expense`）
+- `execute_tool_node`：工具执行；敏感工具走计划驱动安全门——LLM 先调 `set_pending_plan` 声明计划，代码层硬约束校验 `user_confirmed` 后才放行 `create_*`（合同：`create_customer`/`create_contract`；凭证：`create_payment`/`create_expense`）。用户确认通过自然语言（如"确认"），LLM 自行判断语义
 - `finalize_node`（Root 层）：`chat_history` 并行落库（ADR #6，checkpoint 存机器可读状态，`chat_history` 存人类可读消息，职责不同不互相替代），用 `_finalized` 标记做幂等防护
 
 ## 技术锚点
 
 - 后端：uv · FastAPI · SQLAlchemy 2.x · Pydantic v2 · pydantic_settings
 - 前端：npm · Vite · React · TypeScript · Zustand
-- Agent 编排：LangGraph 1.2.x · `StateGraph` / `interrupt()` / `Command(resume=...)` / `astream_events(version="v2")`
+- Agent 编排：LangGraph 1.2.x · `StateGraph` / `astream_events(version="v2")`
 - Checkpoint：`AsyncPostgresSaver` + `psycopg3` `AsyncConnectionPool`（`autocommit=True`、`prepare_threshold=0`），复用现有 PG，`main.py:on_startup` 调 `init_checkpointer()` 自动建表
 - LLM 客户端：`backend/app/ai/llm_client.py` — `DashScopeAgentClient`（百炼 qwen3-vl-flash 视觉 + 文本）、`SiliconFlowClient`（SiliconFlow VL 兜底）。**不引入** `langchain-openai` / `ChatOpenAI`（ADR #2：百炼兼容模式 `tools` 与 `stream=True` 互斥）
 - 工具执行：`backend/app/ai/tools.py` — 17 个工具，`TOOL_DEFINITIONS`（OpenAI function calling 格式）+ `ToolExecutor`（含 `mode guard` 拦截越权工具、`document guard` 防止重复识别）
@@ -105,17 +105,17 @@ analyze_{file,receipt}_node（确定性）→ call_model_node（LLM 决策）
 |---|---|---|
 | `thinking` | 节点开始（友好中文提示） | 显示"正在 X..." |
 | `text` | LLM 文本流式增量 | 追加到当前气泡 |
-| `interrupt` | 敏感工具待确认 | 渲染确认表单（合同/凭证专用面板） |
-| `done` | 结束（`interrupted: true/false`） | 中断则等用户回传 `resume`，否则关闭流 |
+| `done` | 流正常结束 | 收尾 thought 步骤，关闭流 |
+| `done` | 流正常结束 | 收尾 thought 步骤，关闭流 |
 | `error` | 异常 | 展示错误提示 |
 
-中断恢复：`request.resume` 携带用户回传值，路由层 `cp.aget(config)` 校验 `interrupt_id` 匹配 checkpoint 待处理中断列表后才允许 `Command(resume=...)`。
+确认机制：纯聊天交互。敏感工具走计划驱动安全门——LLM 先展示计划，用户自然语言确认，LLM 调 `set_pending_plan(user_confirmed=true)`，代码层硬约束校验后放行。
 
 ## 扩展指引（新增功能时如何不破坏现有架构）
 
 ### 新增子图（例：报价单子图）
 1. `orchestrator/` 新建 `quotation_entry.py`，类比 `contract_entry.py` 的 `analyze_node → call_model ↔ execute_tool` 模式
-2. `orchestrator/state.py` 新增 `QuotationState(RootState)`，如需 HITL 安全门加 `approved_tool_ids: Annotated[list[str], operator.add]`
+2. `orchestrator/state.py` 新增 `QuotationState(RootState)`
 3. `orchestrator/graph.py`：`route_by_intent` 加分支；`build_root_graph` 加节点 + 边（子图 → `finalize_node`）
 4. `intake_node` 的 `_infer_intent` 加关键词或文件类型路由
 5. `_SENSITIVE_TOOLS` 列出需要中断确认的工具名
@@ -124,7 +124,7 @@ analyze_{file,receipt}_node（确定性）→ call_model_node（LLM 决策）
 1. `tools.py` `TOOL_DEFINITIONS` 加 OpenAI function 定义（描述写清楚字段语义和限制）
 2. 工具方法实现里**只返回事实 JSON**，不嵌入"请先..."等行为指令（铁律）
 3. 子图 `_SENSITIVE_TOOLS` 集合加入工具名
-4. `execute_tool_node` 的 interrupt payload 中加 `tool_summaries` / 确认表单字段
+4. `execute_tool_node` 中加计划驱动安全门校验（`pending_plan.user_confirmed` 检查）
 5. 前端对应增加确认 UI（`ReceiptConfirmPanel.tsx` / `ContractChatModal` 参考）
 
 ### 新增 LLM 客户端
