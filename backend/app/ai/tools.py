@@ -17,6 +17,8 @@ from datetime import timedelta
 import httpx
 import logging
 import redis as redis_lib
+
+logger = logging.getLogger(__name__)
 from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
