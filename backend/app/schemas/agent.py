@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 class AttachmentItem(BaseModel):
     file_id: str = Field(..., description="上传接口返回的文件ID")
     file_type: str = Field("image", description="文件类型: image/pdf/word/excel/text")
+    file_name: Optional[str] = Field(None, description="原始文件名（用于 LLM 判断文件用途）")
 
 
 class ChatRequest(BaseModel):

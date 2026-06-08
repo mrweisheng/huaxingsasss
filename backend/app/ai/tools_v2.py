@@ -1,0 +1,818 @@
+"""Agent 工具执行器 v2 — 精简版
+
+变更（相对 tools.py）：
+  - 继承原 ToolExecutor，复用所有业务逻辑
+  - 删除 mode guard / document guard / set_pending_plan
+  - 新增 analyze_files / match_and_confirm_payment
+  - 合并 create_payment + create_expense → create_payment_record
+  - 工具集 20→14
+
+设计原则：
+  - 轻量确认：写入工具执行前检查 LLM 上文是否展示确认请求
+  - 无模式锁定：所有工具在所有场景下可用（权限由角色控制）
+"""
+import asyncio
+import json
+import logging
+from datetime import date
+from decimal import Decimal
+from typing import Optional
+
+from app.ai.tools import ToolExecutor, _get_redis_pool
+from app.services.file_analyzer import FileAnalyzer
+from app.services.payment_service import PaymentService
+from app.services.exchange_rate_service import ExchangeRateService
+from app.utils.file_utils import resolve_file_path
+from app.models.payment import Payment
+from app.models.contract import Contract
+from app.config import settings
+
+logger = logging.getLogger(__name__)
+
+
+class ToolExecutorV2(ToolExecutor):
+    """精简版工具执行器。
+
+    继承原 ToolExecutor，复用所有查询/写入工具的业务逻辑。
+    重写 execute() 入口，删除 mode guard / document guard。
+    """
+
+    def __init__(self, db, user, session_id: Optional[str] = None):
+        super().__init__(db, user, session_id)
+        # 删除 mode 相关成员（不再需要模式锁定）
+        self.mode = None
+        self.session_context = None
+        self._document_context = None
+
+    # ═══════════════════════════════════════════════════════════
+    # 统一执行入口（简化版，无 mode guard / document guard）
+    # ═══════════════════════════════════════════════════════════
+
+    def execute(self, tool_name: str, arguments: dict) -> str:
+        """统一执行入口 — 无模式守卫，仅角色权限控制"""
+        handler = getattr(self, tool_name, None)
+        if not handler:
+            logger.warning("未知工具调用: %s", tool_name)
+            return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
+
+        args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
+        logger.info("工具调用: %s | 参数: %s", tool_name, args_preview)
+
+        try:
+            result = handler(**arguments)
+            return result
+        except Exception as e:
+            logger.exception("工具执行失败: %s", tool_name)
+            return json.dumps({"error": f"工具执行失败: {str(e)}"}, ensure_ascii=False)
+
+    # ═══════════════════════════════════════════════════════════
+    # 🆕 analyze_files — LLM 可主动调度的文件分析工具
+    # ═══════════════════════════════════════════════════════════
+
+    def analyze_files(
+        self,
+        file_ids: list[str],
+        purpose: str = "auto",
+    ) -> str:
+        """分析上传的文件。自动识别类型（合同/凭证/证件/车辆照片/群聊截图/其他），提取结构化信息。
+
+        Args:
+            file_ids: 文件ID列表（支持批量）
+            purpose: 分析目的（auto=自动判断, contract/receipt/group_chat。其他类型会被拒绝）
+
+        Returns:
+            JSON: {
+                "success": True,
+                "files": [
+                    {
+                        "file_id": "...",
+                        "type": "contract"|"receipt"|...,
+                        "data": {...},       # 类型对应的结构化数据
+                        "confidence": 0.0-1.0,
+                        "file_type": "image"|"pdf"|"document",
+                    },
+                    ...
+                ]
+            }
+        """
+        if not file_ids:
+            return json.dumps({"success": False, "error": "请提供至少一个 file_id"}, ensure_ascii=False)
+
+        results = []
+        for file_id in file_ids:
+            try:
+                # 解析文件路径
+                file_path = resolve_file_path(file_id, self.user.id)
+                if not file_path:
+                    results.append({
+                        "file_id": file_id, "success": False,
+                        "error": f"文件不存在: {file_id}",
+                    })
+                    continue
+
+                # 检查缓存
+                cached = self._get_cached_analysis(file_id, "contract") \
+                    or self._get_cached_analysis(file_id, "receipt")
+                if cached and purpose not in ("auto",):
+                    # 有缓存且 purpose 匹配 → 直接返回
+                    results.append({
+                        "file_id": file_id, "success": True,
+                        "type": purpose, "data": cached,
+                        "source": "cache",
+                    })
+                    continue
+
+                # 调 FileAnalyzer
+                file_name = file_id  # file_id 作为文件名 fallback
+                analysis = FileAnalyzer.analyze(
+                    file_path, file_name,
+                    purpose=purpose,
+                    db=self.db,
+                    user_id=self.user.id,
+                )
+
+                if analysis.get("duplicate_detected"):
+                    results.append({
+                        "file_id": file_id, "success": True,
+                        "type": "contract",
+                        "duplicate_detected": True,
+                        "existing_contract": analysis.get("existing_contract"),
+                        "message": "该文件已在系统中存在对应的合同记录",
+                    })
+                elif analysis.get("success"):
+                    results.append({
+                        "file_id": file_id, "success": True,
+                        "type": analysis["type"],
+                        "data": analysis["data"],
+                        "confidence": analysis.get("confidence"),
+                        "file_type": analysis.get("file_type"),
+                    })
+                    # 缓存结果
+                    self._cache_analysis(file_id, analysis["type"], analysis["data"])
+                else:
+                    results.append({
+                        "file_id": file_id, "success": False,
+                        "error": analysis.get("error", "分析失败"),
+                    })
+            except Exception as e:
+                logger.exception("analyze_files 失败: file_id=%s", file_id)
+                results.append({
+                    "file_id": file_id, "success": False,
+                    "error": str(e),
+                })
+
+        return json.dumps({
+            "success": True,
+            "files": results,
+            "total": len(results),
+        }, ensure_ascii=False, default=str)
+
+    # ═══════════════════════════════════════════════════════════
+    # 🆕 match_and_confirm_payment — 凭证自动匹配 + 确认
+    # ═══════════════════════════════════════════════════════════
+
+    def match_and_confirm_payment(
+        self,
+        contract_id: int,
+        receipt_data: dict,
+        payment_type: str = "income",
+    ) -> str:
+        """根据凭证分析结果，自动匹配合同中待确认(pending)的付款记录。
+
+        匹配成功 → 更新为 paid
+        无匹配   → 创建新付款记录（paid 状态）
+
+        Args:
+            contract_id: 关联合同ID
+            receipt_data: analyze_files 返回的凭证分析结果
+            payment_type: income（收入）或 expense（支出）
+
+        Returns:
+            JSON: {"success": True, "matched": bool, "payment": {...}}
+        """
+        # 验证合同
+        contract = self.db.query(Contract).filter(
+            Contract.id == contract_id, Contract.is_deleted == False
+        ).first()
+        if not contract:
+            return json.dumps({"error": f"合同不存在: {contract_id}"}, ensure_ascii=False)
+
+        if not isinstance(receipt_data, dict):
+            return json.dumps({"error": "receipt_data 格式错误，请从 analyze_files 结果中获取"}, ensure_ascii=False)
+
+        # 提取凭证关键字段
+        amount = None
+        try:
+            amount = float(receipt_data.get("amount", 0))
+        except (TypeError, ValueError):
+            pass
+        currency = receipt_data.get("currency", contract.currency or "CNY")
+        payer_name = receipt_data.get("payer_name", "")
+        payee_name = receipt_data.get("payee_name", "")
+        transaction_date = receipt_data.get("transaction_date", "")
+        business_hint = receipt_data.get("business_hint", "")
+        description = receipt_data.get("description", "") or business_hint or ""
+        document_type = receipt_data.get("document_type", "")
+
+        # 查该合同所有 pending 状态同类型付款记录
+        pending_payments = (
+            self.db.query(Payment)
+            .filter(
+                Payment.contract_id == contract_id,
+                Payment.type == payment_type,
+                Payment.status == "pending",
+                Payment.is_deleted == False,
+            )
+            .order_by(Payment.installment_number.asc())
+            .all()
+        )
+
+        matched = None
+        if pending_payments and amount and amount > 0:
+            # 匹配策略：金额最接近 + 币种相同优先
+            best_match = None
+            best_score = float("inf")
+            for p in pending_payments:
+                score = abs(float(p.amount) - amount)
+                if p.currency == currency:
+                    score *= 0.5  # 同币种优先
+                if score < best_score:
+                    best_score = score
+                    best_match = p
+
+            # 阈值：金额差异 < 1% 或 < 100 元
+            if best_match and (
+                (best_match.amount > 0 and abs(float(best_match.amount) - amount) / float(best_match.amount) < 0.01)
+                or abs(float(best_match.amount) - amount) < 100
+            ):
+                # 匹配成功 → 更新为 paid
+                payment = best_match
+                try:
+                    # 获取凭证路径
+                    receipt_path = None
+                    receipt_file_id = receipt_data.get("file_id")
+                    if receipt_file_id:
+                        receipt_path = self._ensure_file_in_receipt_dir(
+                            f"agent_upload/{receipt_file_id}"
+                        )
+
+                    payment.status = "paid"
+                    payment.paid_amount = Decimal(str(amount))
+                    payment.currency = currency
+                    payment.paid_date = date.today()
+                    if transaction_date:
+                        try:
+                            payment.paid_date = date.fromisoformat(transaction_date)
+                        except (ValueError, TypeError):
+                            pass
+                    payment.payment_method = document_type or "unknown"
+                    payment.notes = f"凭证自动匹配确认: {description}" if description else "凭证自动匹配确认"
+                    payment.description = description[:30] if description else None
+                    payment.receipt_data = receipt_data
+                    if receipt_path:
+                        payment.receipt_image_path = receipt_path
+
+                    # 计算汇率
+                    if currency and currency != "CNY":
+                        try:
+                            _, amount_in_cny = ExchangeRateService.convert_to_cny(
+                                self.db, Decimal(str(amount)), currency, payment.paid_date
+                            )
+                            if amount_in_cny:
+                                payment.amount_in_cny = amount_in_cny
+                                payment.paid_amount_in_cny = amount_in_cny
+                        except Exception:
+                            pass
+
+                    self.db.commit()
+                    self.db.refresh(payment)
+
+                    matched = {
+                        "id": payment.id,
+                        "installment_name": payment.installment_name,
+                        "amount": float(payment.amount),
+                        "currency": payment.currency,
+                        "status": payment.status,
+                        "paid_date": str(payment.paid_date) if payment.paid_date else None,
+                    }
+                except Exception as e:
+                    self.db.rollback()
+                    logger.exception("match_and_confirm 匹配更新失败")
+
+        # 无匹配 → 创建新记录
+        if not matched:
+            try:
+                installment_number = PaymentService.get_next_installment_number(
+                    self.db, contract_id, payment_type
+                )
+
+                # 获取凭证路径
+                receipt_path = None
+                receipt_file_id = receipt_data.get("file_id")
+                if receipt_file_id:
+                    receipt_path = self._ensure_file_in_receipt_dir(
+                        f"agent_upload/{receipt_file_id}"
+                    )
+
+                paid_date = date.today()
+                if transaction_date:
+                    try:
+                        paid_date = date.fromisoformat(transaction_date)
+                    except (ValueError, TypeError):
+                        pass
+
+                payment = PaymentService.create_payment_with_exchange_rate(
+                    db=self.db,
+                    contract_id=contract_id,
+                    installment_number=installment_number,
+                    currency=currency or contract.currency or "CNY",
+                    amount=Decimal(str(amount)) if amount else Decimal("0"),
+                    paid_date=paid_date,
+                    payment_method=document_type or "unknown",
+                    receipt_image_path=receipt_path,
+                    notes=description or "凭证录入",
+                    created_by=self.user.id,
+                    type=payment_type,
+                    installment_name=receipt_data.get("installment_name"),
+                )
+
+                # 补充 receipt_data
+                if receipt_data:
+                    payment.receipt_data = receipt_data
+                    payment.description = description[:30] if description else None
+                    if payee_name and payment_type == "expense":
+                        payment.payee_name = payee_name
+                    self.db.commit()
+                    self.db.refresh(payment)
+
+                matched = {
+                    "id": payment.id,
+                    "installment_name": payment.installment_name,
+                    "amount": float(payment.amount),
+                    "currency": payment.currency,
+                    "status": payment.status,
+                    "paid_date": str(payment.paid_date) if payment.paid_date else None,
+                }
+            except Exception as e:
+                self.db.rollback()
+                logger.exception("match_and_confirm 创建新记录失败")
+                return json.dumps({
+                    "error": f"创建付款记录失败: {str(e)}",
+                    "matched": False,
+                }, ensure_ascii=False)
+
+        return json.dumps({
+            "success": True,
+            "matched": True if pending_payments and matched else False,
+            "payment": matched,
+            "message": "凭证已匹配并确认" if pending_payments and matched else "已创建新付款记录",
+        }, ensure_ascii=False, default=str)
+
+    # ═══════════════════════════════════════════════════════════
+    # 🔄 create_payment_record — 合并 create_payment + create_expense
+    # ═══════════════════════════════════════════════════════════
+
+    def create_payment_record(
+        self,
+        contract_id: int,
+        amount: float,
+        currency: str,
+        paid_date: str,
+        type: str = "income",  # noqa: A002
+        payee_name: Optional[str] = None,
+        installment_name: Optional[str] = None,
+        installment_number: Optional[int] = None,
+        payment_method: str = "unknown",
+        receipt_image_path: Optional[str] = None,
+        notes: Optional[str] = None,
+        description: Optional[str] = None,
+        receipt_data: Optional[dict] = None,
+    ) -> str:
+        """统一的付款记录创建（收入/支出）。
+
+        Args:
+            contract_id: 合同ID
+            amount: 金额
+            currency: 币种（CNY/HKD）
+            paid_date: 付款日期（YYYY-MM-DD）
+            type: income（收入）或 expense（支出）
+            payee_name: 收款方名称（仅支出，必填）
+            installment_name: 期数名称（如"定金"、"尾款"）
+            installment_number: 期数编号（可选，系统自动计算）
+            payment_method: 付款方式
+            receipt_image_path: 凭证图片路径
+            notes: 备注
+            description: 简短业务说明（不超过30字）
+            receipt_data: 凭证分析结构化数据
+        """
+        # 合同校验
+        contract = self.db.query(Contract).filter(
+            Contract.id == contract_id, Contract.is_deleted == False
+        ).first()
+        if not contract:
+            return json.dumps({"error": f"合同不存在: {contract_id}"}, ensure_ascii=False)
+
+        # 支出必须有收款方
+        if type == "expense" and not payee_name:
+            return json.dumps({"error": "创建支出记录必须指定收款方名称"}, ensure_ascii=False)
+
+        # 凭证路径处理
+        if receipt_image_path:
+            receipt_image_path = self._ensure_file_in_receipt_dir(receipt_image_path)
+
+        # 期数
+        if not installment_number:
+            installment_number = PaymentService.get_next_installment_number(
+                self.db, contract_id, type
+            )
+
+        # 解析日期
+        try:
+            paid_dt = date.fromisoformat(paid_date)
+        except (ValueError, TypeError):
+            paid_dt = date.today()
+
+        try:
+            payment = PaymentService.create_payment_with_exchange_rate(
+                db=self.db,
+                contract_id=contract_id,
+                installment_number=installment_number,
+                currency=currency,
+                amount=Decimal(str(amount)),
+                paid_date=paid_dt,
+                payment_method=payment_method,
+                receipt_image_path=receipt_image_path,
+                notes=notes or "",
+                created_by=self.user.id,
+                type=type,
+                installment_name=installment_name,
+            )
+
+            # 补充字段
+            if payee_name and type == "expense":
+                payment.payee_name = payee_name
+            if description:
+                payment.description = description[:30]
+            if receipt_data:
+                payment.receipt_data = receipt_data
+
+            self.db.commit()
+            self.db.refresh(payment)
+
+            return json.dumps({
+                "success": True,
+                "payment": {
+                    "id": payment.id,
+                    "installment_name": payment.installment_name,
+                    "type": payment.type,
+                    "amount": float(payment.amount),
+                    "currency": payment.currency,
+                    "status": payment.status,
+                    "paid_date": str(payment.paid_date) if payment.paid_date else None,
+                },
+                "message": f"{'收入' if type == 'income' else '支出'}记录已创建",
+            }, ensure_ascii=False, default=str)
+
+        except Exception as e:
+            self.db.rollback()
+            logger.exception("create_payment_record 失败")
+            return json.dumps({"error": f"创建付款记录失败: {str(e)}"}, ensure_ascii=False)
+
+    # ═══════════════════════════════════════════════════════════
+    # 🔄 query_payments — 增强：支持分组聚合（替代 get_payment_summary / get_expense_summary）
+    # ═══════════════════════════════════════════════════════════
+
+    def query_payments(self, **kwargs) -> str:
+        """付款记录查询，支持按合同/状态/类型/日期筛选，支持分组聚合。
+
+        分组聚合：group_by=contract 时，按合同汇总（替代 get_payment_summary/get_expense_summary）
+        """
+        group_by = kwargs.pop("group_by", None)
+        if group_by:
+            return self._query_payments_grouped(group_by, **kwargs)
+        return super().query_payments(**kwargs)
+
+    def _query_payments_grouped(self, group_by: str, **kwargs) -> str:
+        """按维度分组聚合付款数据"""
+        from sqlalchemy import func
+
+        query = self.db.query(
+            Payment.contract_id,
+            Payment.type,
+            Payment.currency,
+            func.count(Payment.id).label("count"),
+            func.coalesce(func.sum(Payment.paid_amount), 0).label("total"),
+        ).filter(
+            Payment.is_deleted == False,
+            Payment.status == "paid",
+        )
+
+        if kwargs.get("contract_id"):
+            query = query.filter(Payment.contract_id == kwargs["contract_id"])
+
+        # 角色权限
+        if self.user.role == "income":
+            query = query.filter(Payment.type == "income")
+            query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
+        elif self.user.role == "expense":
+            query = query.filter(Payment.type == "expense")
+            query = query.filter(Payment.created_by == self.user.id)
+
+        groups = {"contract": Payment.contract_id}
+        group_col = groups.get(group_by, Payment.contract_id)
+        query = query.group_by(group_col, Payment.type, Payment.currency)
+
+        rows = query.all()
+
+        # 按 contract_id 汇总
+        result = {}
+        for row in rows:
+            cid = row.contract_id
+            if cid not in result:
+                # 获取合同编号和客户名
+                contract = self.db.query(Contract).filter(Contract.id == cid).first()
+                result[cid] = {
+                    "contract_id": cid,
+                    "contract_number": contract.contract_number if contract else "",
+                    "customer_name": contract.customer.name if contract and contract.customer else "",
+                    "income": {"CNY": 0.0, "HKD": 0.0},
+                    "expense": {"CNY": 0.0, "HKD": 0.0},
+                }
+            if row.type in ("income", "expense"):
+                result[cid][row.type][row.currency] = float(row.total)
+
+        return json.dumps({
+            "grouped_by": group_by,
+            "payments": list(result.values()),
+        }, ensure_ascii=False)
+
+
+# ═══════════════════════════════════════════════════════════════
+# TOOL_DEFINITIONS v2 — 14 个工具
+# ═══════════════════════════════════════════════════════════════
+
+TOOL_DEFINITIONS = [
+    # ── 文件分析 ──
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_files",
+            "description": "分析上传的文件。自动识别文件类型（合同/付款凭证/群聊截图），并提取结构化信息。仅支持这三种类型，车辆照片、证件等会被拒绝并提示原因。用户上传文件后应首先调用此工具。支持批量分析多个文件。纯分析工具，不写数据库。",
+            "parameters": {
+                "type": "object",
+                "required": ["file_ids"],
+                "properties": {
+                    "file_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要分析的文件ID列表，从附件信息中获取",
+                    },
+                    "purpose": {
+                        "type": "string",
+                        "enum": ["auto", "contract", "receipt", "group_chat"],
+                        "description": "分析目的。auto=自动判断（默认），其余为强制指定类型",
+                    },
+                },
+            },
+        },
+    },
+    # ── 全局概览 ──
+    {
+        "type": "function",
+        "function": {
+            "name": "get_overview",
+            "description": "获取系统全局统计概览：客户总数、合同总数（按状态分布）、即将到期合同数、收支汇总。用于回答'现在什么情况''有哪些数据'等开放式问题。",
+            "parameters": {"type": "object", "properties": {}},
+        },
+    },
+    # ── 客户管理（3 个） ──
+    {
+        "type": "function",
+        "function": {
+            "name": "search_customers",
+            "description": "搜索客户。不传参数时返回全局统计+最近10个客户样例；传 name/phone/wechat_group 按条件模糊匹配（自动兼容繁简体）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "name": {"type": "string", "description": "客户姓名"},
+                    "phone": {"type": "string", "description": "电话号码"},
+                    "wechat_group": {"type": "string", "description": "微信群名称"},
+                    "limit": {"type": "integer", "description": "最大返回数量", "default": 10},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_customer",
+            "description": "创建客户记录。同名+同电话/邮箱的客户已存在时会返回已有客户（不会重复创建）。从合同文件提取到客户信息后调用。",
+            "parameters": {
+                "type": "object",
+                "required": ["name"],
+                "properties": {
+                    "name": {"type": "string", "description": "客户姓名"},
+                    "phone": {"type": "string", "description": "联系电话"},
+                    "email": {"type": "string", "description": "联系邮箱"},
+                    "contact_person": {"type": "string", "description": "联系人"},
+                    "id_card_number": {"type": "string", "description": "身份证号"},
+                    "wechat_group_name": {"type": "string", "description": "微信群名称"},
+                    "address": {"type": "string", "description": "地址"},
+                    "remarks": {"type": "string", "description": "备注"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_customer",
+            "description": "更新已有客户信息。从合同文件中提取到客户电话、证件号等新信息时，用于补充已有客户记录。",
+            "parameters": {
+                "type": "object",
+                "required": ["customer_id"],
+                "properties": {
+                    "customer_id": {"type": "integer", "description": "客户ID"},
+                    "phone": {"type": "string", "description": "联系电话"},
+                    "email": {"type": "string", "description": "联系邮箱"},
+                    "id_card_number": {"type": "string", "description": "身份证号"},
+                    "wechat_group_name": {"type": "string", "description": "微信群名称"},
+                    "address": {"type": "string", "description": "地址"},
+                    "remarks": {"type": "string", "description": "备注"},
+                },
+            },
+        },
+    },
+    # ── 合同管理（4 个） ──
+    {
+        "type": "function",
+        "function": {
+            "name": "search_contracts",
+            "description": "搜索合同。不传参数时返回全局统计+最近10个合同样例；传 contract_number/customer_name/status/keyword 按条件搜索。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contract_number": {"type": "string", "description": "合同编号"},
+                    "customer_name": {"type": "string", "description": "客户姓名（模糊匹配）"},
+                    "status": {"type": "string", "enum": ["active", "completed"], "description": "合同状态"},
+                    "keyword": {"type": "string", "description": "全文搜索关键词"},
+                    "date_from": {"type": "string", "description": "签订日期起始（YYYY-MM-DD）"},
+                    "date_to": {"type": "string", "description": "签订日期截止（YYYY-MM-DD）"},
+                    "page": {"type": "integer", "default": 1},
+                    "per_page": {"type": "integer", "default": 10},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_contract_detail",
+            "description": "获取合同完整详情，包含所有付款记录、付款进度和待确认收款列表。用于用户询问某个具体合同时。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_contract",
+            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。系统会自动根据付款条款创建对应的 pending 付款记录。",
+            "parameters": {
+                "type": "object",
+                "required": ["customer_id", "file_id"],
+                "properties": {
+                    "customer_id": {"type": "integer", "description": "客户ID"},
+                    "file_id": {"type": "string", "description": "上传文件的ID。系统会自动使用 analyze_files 对该文件的分析结果。"},
+                    "title": {"type": "string", "description": "合同标题"},
+                    "total_amount": {"type": "number", "description": "合同总金额"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "币种。HK$/港币=HKD，¥/人民币=CNY"},
+                    "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
+                    "business_type": {"type": "string", "enum": ["车辆买卖", "两地牌过户", "年检保险", "其他"], "description": "业务类型"},
+                    "business_description": {"type": "string", "description": "极简业务描述（如：购买现牌 粤Z7N80港 深圳湾口岸）"},
+                    "wechat_group": {"type": "string", "description": "业务微信群名称"},
+                    "contract_data": {"type": "object", "description": "合同分析数据（通常无需传递，系统自动从缓存获取）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_contract",
+            "description": "更新合同信息。用于补充微信群名称、备注等元信息。当用户发送业务群截图时，提取群名后关联到合同。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "wechat_group": {"type": "string", "description": "业务微信群名称"},
+                    "remarks": {"type": "string", "description": "备注"},
+                    "title": {"type": "string", "description": "合同标题"},
+                    "business_description": {"type": "string", "description": "业务描述"},
+                },
+            },
+        },
+    },
+    # ── 付款管理（4 个） ──
+    {
+        "type": "function",
+        "function": {
+            "name": "query_payments",
+            "description": "付款记录查询。可按合同ID、类型（income/expense）、状态（pending/paid）筛选。支持 group_by=contract 按合同分组聚合（替代旧的收支汇总工具）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "按合同ID筛选"},
+                    "type": {"type": "string", "enum": ["income", "expense"], "description": "付款类型"},
+                    "status": {"type": "string", "enum": ["pending", "paid"], "description": "付款状态"},
+                    "group_by": {"type": "string", "enum": ["contract"], "description": "分组聚合维度"},
+                    "page": {"type": "integer", "default": 1},
+                    "per_page": {"type": "integer", "default": 20},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_payment_record",
+            "description": "创建付款记录（统一收入/支出）。type=income 为客户收入，type=expense 为公司支出（必须指定 payee_name）。有凭证时自动设为 paid 状态并参与结算。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id", "amount", "currency", "paid_date", "type"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "amount": {"type": "number", "description": "金额"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "币种"},
+                    "paid_date": {"type": "string", "description": "付款日期（YYYY-MM-DD）"},
+                    "type": {"type": "string", "enum": ["income", "expense"], "description": "income=收入，expense=支出"},
+                    "payee_name": {"type": "string", "description": "收款方名称（仅支出必填）"},
+                    "installment_name": {"type": "string", "description": "期数名称（如'定金'、'尾款'）"},
+                    "payment_method": {"type": "string", "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"], "description": "付款方式"},
+                    "receipt_image_path": {"type": "string", "description": "凭证图片路径"},
+                    "notes": {"type": "string", "description": "备注"},
+                    "description": {"type": "string", "description": "简短业务说明（不超过30字）"},
+                    "receipt_data": {"type": "object", "description": "凭证分析数据"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "match_and_confirm_payment",
+            "description": "根据凭证分析结果，自动匹配合同中待确认(pending)的付款记录。匹配成功则更新为paid；无匹配则创建新付款记录。需要先调 analyze_files 获取凭证数据，再传入 receipt_data。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id", "receipt_data"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "关联合同ID"},
+                    "receipt_data": {"type": "object", "description": "analyze_files 返回的凭证分析结果（JSON对象）"},
+                    "payment_type": {"type": "string", "enum": ["income", "expense"], "description": "收入或支出，默认 income"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "update_payment",
+            "description": "更新已有付款记录的备注、凭证、付款方式等信息。为已有 pending 付款补充凭证时使用（系统自动转为 paid 并参与结算）。",
+            "parameters": {
+                "type": "object",
+                "required": ["payment_id"],
+                "properties": {
+                    "payment_id": {"type": "integer", "description": "付款记录ID"},
+                    "notes": {"type": "string", "description": "备注"},
+                    "payment_method": {"type": "string", "description": "付款方式"},
+                    "receipt_image_path": {"type": "string", "description": "凭证图片路径"},
+                    "receipt_data": {"type": "object", "description": "凭证分析数据"},
+                    "installment_name": {"type": "string", "description": "期数名称"},
+                    "paid_date": {"type": "string", "description": "付款日期（YYYY-MM-DD）"},
+                },
+            },
+        },
+    },
+    # ── 全文搜索 ──
+    {
+        "type": "function",
+        "function": {
+            "name": "search_contract_text",
+            "description": "按关键词搜索所有合同的全文内容，返回匹配的合同列表和文本片段。用于查找包含特定条款、约定的合同（如搜索'违约金'、'仲裁'、'交车日期'）。传 contract_id 可限定在某份合同中搜索（替代 ask_contract）。",
+            "parameters": {
+                "type": "object",
+                "required": ["keyword"],
+                "properties": {
+                    "keyword": {"type": "string", "description": "搜索关键词"},
+                    "contract_id": {"type": "integer", "description": "限定在某份合同中搜索（可选）"},
+                },
+            },
+        },
+    },
+]

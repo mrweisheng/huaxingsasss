@@ -131,14 +131,13 @@ async def chat(
         else:
             question = "请分析上传的文件内容"
 
-    agent = ContractAgent(db, current_user)
+    # 注意：不再需要 agent._load_session_meta()，unified_agent 不依赖 mode/session_context
 
     async def event_generator():
         try:
-            # ━━━ LangGraph 编排路径（唯一运行时） ━━━
-            from app.ai.orchestrator.graph import build_root_graph
-            from app.ai.orchestrator.contract_entry import ContractEntrySubgraph
-            from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream
+            # ━━━ v2 统一 Agent 图（单层循环） ━━━
+            from app.ai.orchestrator.unified_agent import build_unified_agent
+            from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream_v2
             from app.ai.orchestrator.checkpointer import get_checkpointer
 
             try:
@@ -150,33 +149,14 @@ async def chat(
                     detail="LangGraph checkpointer 未初始化，请联系管理员",
                 )
 
-            # 加载 session 元数据（mode / session_context 用于 ToolExecutor 守卫）
-            agent._load_session_meta(request.session_id)
-
             config = {
                 "configurable": {"thread_id": request.session_id or str(uuid.uuid4())},
             }
             session_id = config["configurable"]["thread_id"]
 
-            # 构建子图 + 根图
-            contract_entry = ContractEntrySubgraph(
-                db, current_user,
-                mode=agent._mode,
-                session_context=agent._session_context,
-                session_id=session_id,
-            )
-            contract_app = contract_entry.build()
-            session_context = dict(agent._session_context or {})
-            session_context["mode"] = agent._mode
-            root_app = build_root_graph(
-                contract_app,
-                checkpointer=cp,
-                agent=agent,
-                db=db,
-                user=current_user,
-                session_context=session_context,
-                session_id=session_id,
-            )
+            # 构建统一 Agent 图
+            agent_workflow = build_unified_agent(db, current_user)
+            compiled_app = agent_workflow.compile(checkpointer=cp)
 
             # 构造 initial_state
             from langchain_core.messages import HumanMessage
@@ -188,8 +168,6 @@ async def chat(
                 "user_id": current_user.id,
                 "user_role": current_user.role,
                 "session_id": session_id,
-                "executor_mode": agent._mode,
-                "session_context": agent._session_context or {},
                 "_finalized": False,
                 "should_end": False,
                 "iteration_count": 0,
@@ -199,8 +177,8 @@ async def chat(
             else:
                 initial_state["attachments"] = []
 
-            async for sse_line in adapt_langgraph_stream(
-                root_app.astream_events(
+            async for sse_line in adapt_langgraph_stream_v2(
+                compiled_app.astream_events(
                     initial_state, config, version="v2",
                 ),
                 session_id,
