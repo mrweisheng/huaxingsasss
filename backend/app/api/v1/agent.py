@@ -216,10 +216,14 @@ async def chat(
                 "user_id": current_user.id,
                 "user_role": current_user.role,
                 "session_id": session_id,
-                "attachments": [a.model_dump() for a in request.attachments] if request.attachments else [],
                 "executor_mode": agent._mode,
                 "session_context": agent._session_context or {},
+                "_finalized": False,  # 每轮新请求重置幂等标记，避免跨轮残留
             }
+            # 仅在请求携带附件时才覆盖 checkpoint 中的 attachments，
+            # 否则保留上一轮的附件上下文（支持多轮合同录入等场景）
+            if request.attachments:
+                initial_state["attachments"] = [a.model_dump() for a in request.attachments]
 
             if request.resume:
                 # 中断恢复（校验已在上方完成）
