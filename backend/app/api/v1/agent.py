@@ -141,7 +141,7 @@ async def chat(
             from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream
             from app.ai.orchestrator.checkpointer import get_checkpointer
 
-            # 中断恢复：校验 interrupt_id
+            # 中断恢复：基本校验
             if request.resume:
                 if not request.interrupt_id or not isinstance(request.interrupt_id, str):
                     yield f"data: {json.dumps({'event': 'error', 'data': {'message': '中断恢复缺少有效的 interrupt_id'}}, ensure_ascii=False)}\n\n"
@@ -164,28 +164,11 @@ async def chat(
             }
             session_id = config["configurable"]["thread_id"]
 
-            # ━━━ 中断恢复：校验 interrupt_id 与 checkpoint 匹配 ━━━
-            if request.resume:
-                try:
-                    state_snapshot = await cp.aget(config)
-                    pending_ids = [
-                        i.id for i in (state_snapshot.interrupts or [])
-                    ]
-                    if request.interrupt_id not in pending_ids:
-                        logger.warning(
-                            "interrupt_id 不匹配: received=%s pending=%s thread=%s",
-                            request.interrupt_id, pending_ids, session_id,
-                        )
-                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断'}}, ensure_ascii=False)}\n\n"
-                        return
-                except Exception as e:
-                    logger.error("checkpoint 查询失败: %s", e)
-                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '无法验证中断状态，请稍后重试'}}, ensure_ascii=False)}\n\n"
-                    return
-
             # 构建子图 + 根图。mode / session_context 通过构造函数注入到子图闭包
             # 内的 ToolExecutor。PR-B-4: 子图不再依赖 agent 实例（独立化）。
             # agent 仅注入到 build_root_graph 的 finalize_node 用于 chat_history 落库（ADR #6）。
+            # 注意：必须在 interrupt_id 校验前构建，因为需要 root_app.aget_state()
+            # 来获取 StateSnapshot（cp.aget 返回原始 dict，不含 .interrupts）。
             contract_entry = ContractEntrySubgraph(
                 db, current_user,
                 mode=agent._mode,
@@ -204,6 +187,32 @@ async def chat(
                 session_context=session_context,
                 session_id=session_id,
             )
+
+            # ━━━ 中断恢复：校验 interrupt_id 与 checkpoint 匹配 ━━━
+            # interrupt.id 是 LangGraph 内部分配的 UUID，interrupt.value["interrupt_id"]
+            # 是 execute_tool_node 里我们自定义的 contract_xxx / receipt_xxx。
+            # 前端回传的是后者，所以必须从 value 中提取比对。
+            if request.resume:
+                try:
+                    state_snapshot = await root_app.aget_state(config)
+                    pending_ids = []
+                    for item in (state_snapshot.interrupts or []):
+                        value = getattr(item, 'value', None)
+                        if isinstance(value, dict):
+                            uid = value.get("interrupt_id", "")
+                            if uid:
+                                pending_ids.append(uid)
+                    if request.interrupt_id not in pending_ids:
+                        logger.warning(
+                            "interrupt_id 不匹配: received=%s pending=%s thread=%s",
+                            request.interrupt_id, pending_ids, session_id,
+                        )
+                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断'}}, ensure_ascii=False)}\n\n"
+                        return
+                except Exception as e:
+                    logger.error("checkpoint 查询失败: %s", e)
+                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '无法验证中断状态，请稍后重试'}}, ensure_ascii=False)}\n\n"
+                    return
 
             # 构造 initial_state。auto_filled 标记透传到 HumanMessage.additional_kwargs，
             # finalize_node 读取后写入 chat_history.metadata，区分"用户实际输入"与"系统补全"
