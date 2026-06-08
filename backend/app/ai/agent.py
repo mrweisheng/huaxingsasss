@@ -1,881 +1,71 @@
 """
-ContractAgent — 基于 ReAct 模式的智能业务助手
-使用 DashScope 百炼 DeepSeek-V4-Flash 进行函数调用，qwen3-vl-flash 视觉模型处理图片
-"""
-import asyncio
-import json
-import logging
-import os
-import time
-import uuid
-from datetime import date
-from typing import AsyncGenerator, Optional, List, Dict, Any
+ContractAgent — LangGraph 编排下的会话/消息/模式上下文服务器。
 
-import httpx
-import redis as redis_lib
+ReAct 循环已移除（PR-R-3 之后由 LangGraph root graph 接手），当下该服务器只负责：
+  - 会话管理（create/list/delete session）
+  - 消息结果录入 chat_history 表（finalize_node 调用 _save_message / save_tool_message）
+  - mode / session_context 加载（api/v1/agent.py 用于 root graph 的 executor_mode 注入）
+"""
+import logging
+from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.ai.llm_client import DashScopeAgentClient
-from app.ai.prompts import (
-    build_system_prompt,
-    RECEIPT_ENTRY_PROMPT,
-    RECEIPT_ANALYSIS_PROMPT,
-    CONTRACT_ANALYSIS_PROMPT,
-    GENERAL_ANALYSIS_PROMPT,
-    SUMMARY_PROMPT,
-    INCREMENTAL_SUMMARY_PROMPT,
-)
-from app.ai.tools import ToolExecutor, TOOL_DEFINITIONS
+from app.ai.tools import ToolExecutor
 from app.config import settings
 from app.models.chat_history import ChatHistory
 from app.models.chat_session import ChatSession
 from app.models.user import User
-from app.services.contract_analyzer import ContractAnalyzer
 
 logger = logging.getLogger(__name__)
 
-# 工具名称 → 中文友好描述（用于前端 thinking 提示）
-_TOOL_FRIENDLY_NAMES = {
-    "get_overview": "查询全局统计",
-    "search_customers": "搜索客户",
-    "create_customer": "创建客户",
-    "update_customer": "更新客户信息",
-    "search_contracts": "搜索合同",
-    "get_contract_detail": "获取合同详情",
-    "get_customer_contracts": "查询客户合同",
-    "create_contract": "创建合同",
-    "update_contract": "更新合同信息",
-    "query_payments": "查询付款记录",
-    "create_payment": "创建收入记录",
-    "create_expense": "创建支出记录",
-    "update_payment": "更新付款记录",
-    "match_receipt": "匹配凭证",
-    "get_expense_summary": "汇总支出",
-    "get_payment_summary": "汇总付款",
-    "get_expiring_contracts": "查询即将到期合同",
-    "search_contract_text": "搜索合同全文",
-    "ask_contract": "查阅合同内容",
-    "analyze_image": "分析文件",
-}
 
 class ContractAgent:
+    """会话/消息/模式上下文服务器。
+
+    不再提供 ReAct 循环服务（PR-R-3 已移除）。实际工具并发和 LLM 调用现在由
+    app.ai.orchestrator.* 中的 LangGraph root graph 负责，服务器为其提供轻量的
+    chat_history 上下文。
+    """
+
     def __init__(self, db: Session, user: User):
         self.db = db
         self.user = user
-        self.llm = DashScopeAgentClient()
         self.executor = ToolExecutor(db, user)
         self._mode: str = "chat"
         self._session_context: Optional[dict] = None
 
-    async def chat(
-        self,
-        session_id: Optional[str],
-        user_message: str,
-        attachments: Optional[List[dict]] = None,
-    ) -> AsyncGenerator[dict, None]:
+    # ------------------------------------------------------------------
+    # mode / session_context
+    # ------------------------------------------------------------------
+
+    def _load_session_meta(self, session_id: str) -> None:
+        """从 chat_sessions 表加载 mode 和 context，注入到 self._mode / self._session_context。
+
+        api/v1/agent.py 调用此方法确保 root graph 接收到用户的 mode 和 session_context。
         """
-        主对话方法，SSE 流式输出。
-
-        Yields:
-            {"event": "text", "data": {"content": "..."}}
-            {"event": "tool_call", "data": {"name": "...", "arguments": ...}}
-            {"event": "tool_result", "data": {"name": "...", "result": "..."}}
-            {"event": "thinking", "data": {"message": "..."}}
-            {"event": "done", "data": {"session_id": "...", "tokens_used": ...}}
-        """
-        # 创建或复用会话
-        if not session_id:
-            session_id = str(uuid.uuid4())
-
-        # 加载 session 元数据（mode / context）
-        self._load_session_meta(session_id)
-
-        # 将 mode 注入 executor，用于工具白名单控制
-        self.executor.mode = self._mode
-        self.executor.session_context = self._session_context
-
-        # 将 session_id 注入 executor，供 DB 兜底查询使用
-        self.executor.session_id = session_id
-
-        logger.info(
-            "Agent会话: session=%s, mode=%s, user=%s(%s), 附件=%d, 消息=%s",
-            session_id[:8], self._mode, self.user.username, self.user.role,
-            len(attachments) if attachments else 0,
-            user_message[:100],
+        session_record = (
+            self.db.query(ChatSession)
+            .filter(ChatSession.session_id == session_id)
+            .first()
         )
-
-        # 1. 处理附件（_process_attachments 为 AsyncGenerator，yield SSE 进度事件和最终结果）
-        file_context = ""
-        if attachments:
-            async for item in self._process_attachments(attachments):
-                if isinstance(item, dict):
-                    yield item  # SSE 进度事件
-                else:
-                    file_context = item  # 最终结果字符串
-
-        # 2. 加载历史（当前消息还未保存，不会出现在历史中）
-        history = self._load_history(session_id)
-
-        # 3. 历史摘要（超过阈值时压缩早期消息，支持增量缓存）
-        summary = await self._summarize_history(history, session_id=session_id)
-        if summary:
-            history = history[-settings.AGENT_MAX_SUMMARY_MESSAGES:]
-            # 截断可能拆散 tool_call 配对，需重新验证
-            history = self._validate_message_chain(history, session_id)
-            # 进一步确保最后一轮 assistant+tool 配对完整，避免摘要窗口过短
-            # 导致 LLM 看不到工具结果
-            history = self._ensure_trailing_pair_intact(history)
-
-        # 4. 构建消息
-        original_user_message = user_message
-        messages = self._build_messages(history, user_message, file_context, summary=summary)
-
-        # 6. 用户消息先入 messages（用于本轮 LLM 调用），
-        #    但延迟到助手回复成功后再 commit，避免 LLM 失败时出现"用户问了 AI 没答"的孤儿用户消息。
-        pending_user_metadata = {
-            "attachments": attachments,
-            "file_context": file_context,
-        }
-
-        # ReAct 循环
-        total_tokens = 0
-        for iteration in range(settings.AGENT_MAX_ITERATIONS):
-            logger.info(
-                "===== ReAct迭代 #%d 开始 | messages=%d 条 | session=%s =====",
-                iteration, len(messages), session_id[:8],
-            )
-
-            # 调用 LLM
-            full_text = ""
-            tool_calls: List[dict] = []
-            llm_event_count = 0
-
-            # 调用前消毒消息链：移除可能存在的孤立 tool 消息
-            messages = self._sanitize_messages_for_api(messages, session_id)
-
-            try:
-                logger.info("ReAct迭代 #%d: 开始调用 DashScope Agent API...", iteration)
-                async for event in self.llm.chat_completion_stream(
-                    messages=messages,
-                    tools=TOOL_DEFINITIONS,
-                ):
-                    llm_event_count += 1
-                    if event["type"] == "text":
-                        full_text += event["content"]
-                        yield {"event": "text", "data": {"content": event["content"]}}
-
-                    elif event["type"] == "tool_call":
-                        tool_calls.append({
-                            "id": event["id"],
-                            "name": event["name"],
-                            "arguments": event["arguments"],
-                        })
-
-                    elif event["type"] == "usage":
-                        total_tokens += event.get("total_tokens", 0)
-
-                    elif event["type"] == "done":
-                        logger.info(
-                            "ReAct迭代 #%d: LLM流结束 | reason=%s | text_len=%d | tool_calls=%d | events=%d",
-                            iteration, event.get("finish_reason"), len(full_text), len(tool_calls), llm_event_count,
-                        )
-                        if event.get("finish_reason") == "tool_calls":
-                            pass
-                logger.info(
-                    "ReAct迭代 #%d: LLM调用完成 | text_len=%d | tool_calls=%d | total_events=%d",
-                    iteration, len(full_text), len(tool_calls), llm_event_count,
-                )
-            except Exception as e:
-                logger.exception("ReAct迭代 #%d LLM调用异常", iteration)
-                # 如果之前有工具结果，用工具结果生成兜底回复
-                fallback = self._build_tool_result_fallback(messages)
-                if fallback is not None:
-                    full_text = fallback
-                else:
-                    full_text = f"抱歉，我在处理时遇到了技术问题: {str(e)}"
-                yield {"event": "text", "data": {"content": full_text}}
-                tool_calls = []
-
-            logger.info(
-                "===== ReAct迭代 #%d 结束 | text_len=%d | tool_calls=%d =====",
-                iteration, len(full_text), len(tool_calls),
-            )
-
-            if not tool_calls:
-                # 无工具调用，对话结束
-                if not full_text.strip() and iteration > 0:
-                    # 第二轮及以上返回空文本 → 尝试从最近的工具结果生成兜底回复
-                    fallback = self._build_tool_result_fallback(messages)
-                    if fallback is not None:
-                        full_text = fallback
-                        logger.info("使用兜底回复: %s", full_text[:100])
-                        yield {"event": "text", "data": {"content": full_text}}
-
-                self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
-                # 助手消息落库成功后才落库用户消息，避免孤儿 user 消息
-                self._save_message(session_id, "user", original_user_message, metadata=pending_user_metadata)
-                yield {
-                    "event": "done",
-                    "data": {
-                        "session_id": session_id,
-                        "tokens_used": total_tokens,
-                    },
-                }
-                return
-
-            # 执行工具调用
-            # 把助手的工具调用消息加入上下文
-            tool_calls_serialized = [
-                {
-                    "id": tc["id"],
-                    "type": "function",
-                    "function": {
-                        "name": tc["name"],
-                        "arguments": tc["arguments"],
-                    },
-                }
-                for tc in tool_calls
-            ]
-            assistant_msg = {"role": "assistant", "content": full_text or None}
-            assistant_msg["tool_calls"] = tool_calls_serialized
-            messages.append(assistant_msg)
-
-            # 持久化 assistant 的 tool_call 消息
-            # 注意：首轮写库时同步把用户消息也入库，确保 user/assistant 配对一致
-            self._save_message(session_id, "assistant", full_text or "", tool_calls=tool_calls_serialized)
-            if iteration == 0 and not getattr(self, "_user_msg_persisted", False):
-                self._save_message(session_id, "user", original_user_message, metadata=pending_user_metadata)
-                self._user_msg_persisted = True
-
-            for tc in tool_calls:
-                # 工具执行前通知前端（analyze_image 给出更明确的等待提示）
-                _friendly = _TOOL_FRIENDLY_NAMES.get(tc["name"], tc["name"])
-                if tc["name"] == "analyze_image":
-                    _progress_msg = "正在调用 AI 识别文件内容，可能需要 5-30 秒..."
-                else:
-                    _progress_msg = f"正在{_friendly}..."
-                yield {"event": "thinking", "data": {"message": _progress_msg}}
-
-                yield {
-                    "event": "tool_call",
-                    "data": {
-                        "name": tc["name"],
-                        "arguments": tc["arguments"],
-                    },
-                }
-
-                # 执行工具
-                try:
-                    args = json.loads(tc["arguments"]) if isinstance(tc["arguments"], str) else tc["arguments"]
-                except json.JSONDecodeError:
-                    args = {}
-
-                _tool_start = time.monotonic()
-                result = await asyncio.to_thread(self.executor.execute, tc["name"], args)
-                _tool_elapsed = time.monotonic() - _tool_start
-                logger.info(
-                    "工具执行耗时: %s → %.1fs", tc["name"], _tool_elapsed,
-                )
-
-                logger.info(
-                    "Agent工具结果: %s → %s", tc["name"],
-                    result[:200] if result else "empty",
-                )
-
-                yield {
-                    "event": "tool_result",
-                    "data": {"name": tc["name"], "result": result[:6000]},
-                }
-
-                # 工具结果加入上下文
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tc["id"],
-                    "content": result,
-                })
-
-                # 持久化 tool result 消息（完整存储，缓存方案依赖完整 VL 输出）
-                self.save_tool_message(session_id, tc["id"], tc["name"], result)
-
-            # 继续循环，让 LLM 根据工具结果生成回复
-            yield {"event": "thinking", "data": {"message": "正在整合结果..."}}
-
-        # 超过最大迭代次数
-        full_text += "\n\n[系统提示：对话轮次已达上限，如果问题尚未解决，请继续提问。]"
-        self._save_message(session_id, "assistant", full_text, tokens_used=total_tokens)
-        if not getattr(self, "_user_msg_persisted", False):
-            self._save_message(session_id, "user", original_user_message, metadata=pending_user_metadata)
-            self._user_msg_persisted = True
-        yield {
-            "event": "done",
-            "data": {"session_id": session_id, "tokens_used": total_tokens},
-        }
-
-    async def _process_attachments(self, attachments: List[dict]) -> AsyncGenerator:
-        """处理附件，yield SSE 进度事件和最终结果字符串。
-
-        yield 约定：dict（含 event 键）→ SSE 进度事件；str → 最终结果。
-        文本型文件（PDF/Word/Excel）：准备 → AI 结构化提取。
-        图片：直接调 VL 预分析，省掉 ReAct 循环的一轮 LLM 推理。
-        """
-        yield {"event": "thinking", "data": {"message": f"正在分析 {len(attachments)} 个文件..."}}
-
-        results = []
-        for att in attachments:
-            file_id = att.get("file_id", "")
-            file_type = att.get("file_type", "")
-
-            # ── 阶段 1：文件准备（快，< 1s）──
-            yield {"event": "thinking", "data": {"message": "正在读取文件内容..."}}
-            prep = await self._prepare_file(file_id, file_type)
-
-            if prep is None:
-                # 图片或其他不可提取文本的格式 → 尝试 VL 预分析
-                result = await self._pre_analyze_image(file_id)
-                if result:
-                    results.append(result)
-                    continue
-                results.append(f"用户上传了文件（file_id: {file_id}）")
-                continue
-
-            if prep.get("skip"):
-                # 重复文件
-                results.append(prep["message"])
-                continue
-
-            # ── 阶段 2：AI 结构化提取（慢，5-12s）──
-            yield {"event": "thinking", "data": {"message": "正在调用 AI 识别合同关键信息..."}}
-            result = await self._analyze_text_content(file_id, prep["file_type_label"], prep["text"])
-            if result:
-                results.append(result)
-            else:
-                results.append(f"用户上传了文件（file_id: {file_id}）")
-
-        yield {"event": "thinking", "data": {"message": "文件分析完成"}}
-        yield "\n".join(results)
-
-    async def _prepare_file(self, file_id: str, file_type: str) -> Optional[dict]:
-        """快速提取文件文本内容（< 1s）。
-
-        返回 {'text': str, 'file_type_label': str}，
-        或 {'skip': True, 'message': str}（重复文件），
-        或 None（图片/不可读/扫描件）。
-        """
-        if not file_id:
-            return None
-
-        # PR-A: 复用 ContractAnalyzer.resolve_file_path 对齐文件查找逻辑
-        # 含带扩展名 glob 兜底（UUID.pdf / UUID.docx），修复精确匹配失败的 glob bug
-        file_path = ContractAnalyzer.resolve_file_path(file_id, self.user.id)
-        if not file_path:
-            return None
-
-        # 读取文件头用于 PDF 检测（Word/Excel 优先用上传端点检测的 file_type）
-        try:
-            with open(file_path, "rb") as f:
-                header = f.read(2000)
-        except OSError:
-            return None
-
-        from app.utils.file_analysis import is_docx, is_xlsx
-
-        text = ""
-        file_type_label = ""
-
-        if header[:4] == b"%PDF":
-            try:
-                from app.utils.file_analysis import extract_pdf_text
-                text = extract_pdf_text(file_path)
-            except Exception:
-                return None
-            if not text.strip():
-                return None
-            file_type_label = "PDF"
-        elif file_type == "word" or is_docx(header):
-            try:
-                from app.utils.file_analysis import extract_word_text
-                text = extract_word_text(file_path)
-            except Exception:
-                return None
-            if not text.strip():
-                return None
-            file_type_label = "Word"
-        elif file_type == "excel" or is_xlsx(header):
-            try:
-                from app.utils.file_analysis import extract_excel_text
-                text = extract_excel_text(file_path)
-            except Exception:
-                return None
-            if not text.strip():
-                return None
-            file_type_label = "Excel"
+        if session_record:
+            self._mode = session_record.mode or "chat"
+            self._session_context = session_record.context
         else:
-            # 图片或其他格式，交给 VL 预分析
-            return None
+            self._mode = "chat"
+            self._session_context = None
 
-        # 快速查重：计算 hash + DB 查询
-        try:
-            from app.utils.file_utils import calculate_file_hash
-            with open(file_path, "rb") as f:
-                file_hash = calculate_file_hash(f.read())
-            # 缓存 hash 供 create_contract 复用，避免重复读取大文件
-            self.executor._file_hash_cache[file_path] = file_hash
-            from app.models.contract import Contract
-            existing = self.db.query(Contract).filter(
-                Contract.file_hash == file_hash,
-                Contract.is_deleted == False,
-            ).first()
-            if existing:
-                return {
-                    "skip": True,
-                    "message": (
-                        f"文件重复：该文件已有对应合同（编号：{existing.contract_number}，"
-                        f"客户：{existing.title or '未知'}，状态：{existing.status}）。"
-                    ),
-                }
-        except Exception:
-            logger.debug("查重跳过: file_id=%s", file_id)
-
-        return {"text": text, "file_type_label": file_type_label}
-
-    async def _analyze_text_content(self, file_id: str, file_type_label: str, text: str) -> Optional[str]:
-        """调用 LLM 提取结构化数据（5-12s），缓存结果并返回摘要给 LLM。"""
-        logger.info("预分析: 调用LLM提取合同结构化数据, text_len=%d", len(text))
-        try:
-            from app.utils.file_analysis import make_text_extraction_prompt
-
-            actual_prompt = make_text_extraction_prompt(CONTRACT_ANALYSIS_PROMPT)
-            payload = {
-                "model": settings.SILICONFLOW_AGENT_MODEL,
-                "messages": [{
-                    "role": "user",
-                    "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{text[:8000]}",
-                }],
-                "temperature": 0.1,
-                "max_tokens": 4096,
-            }
-            headers = {
-                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
-                "Content-Type": "application/json",
-            }
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(
-                    f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
-                    json=payload, headers=headers,
-                )
-
-            if response.status_code == 200:
-                content = response.json()["choices"][0]["message"]["content"]
-                try:
-                    structured = json.loads(content)
-                except json.JSONDecodeError:
-                    structured = {"raw": content}
-
-                if isinstance(structured, dict):
-                    structured["full_text"] = text
-                    self.executor._document_context = "contract"
-                    self.executor._cache_analysis(file_id, "contract", structured)
-
-                    # 直接传递完整结构化 JSON（去掉 full_text 大字段），让 Agent 自行决定展示和使用
-                    agent_data = {k: v for k, v in structured.items() if k != "full_text"}
-                    logger.info("预分析完成: keys=%s", list(structured.keys()))
-                    return (
-                        f"文件类型：{file_type_label}\n"
-                        f"file_id：{file_id}\n"
-                        f"结构化数据：\n{json.dumps(agent_data, ensure_ascii=False, indent=2)}"
-                    )
-                else:
-                    logger.warning("预分析: LLM 返回非 dict，降级为 raw_text 缓存")
-            else:
-                logger.warning(
-                    "预分析: LLM 调用失败 status=%s body=%s，降级为 raw_text 缓存",
-                    response.status_code, response.text[:200],
-                )
-        except Exception:
-            logger.exception("预分析: LLM 调用异常，降级为 raw_text 缓存")
-
-        # ━━━ 降级路径：LLM 失败时缓存原文（create_contract 需 raw_text）━━━
-        self.executor._document_context = "contract"
-        self.executor._cache_analysis(file_id, "contract", {
-            "raw_text": text,
-            "file_type": file_type_label,
-        })
-
-        # 截断原文给 LLM，完整原文通过缓存供 create_contract 使用
-        context_str = text[:8000]
-        if len(text) > 8000:
-            context_str += f"\n\n...（共 {len(text)} 字符，已截断）"
-
-        return (
-            f"文件类型：{file_type_label}\n"
-            f"file_id：{file_id}\n"
-            f"提取内容：\n{context_str}"
-        )
-
-    async def _pre_analyze_image(self, file_id: str) -> Optional[str]:
-        """图片预分析：直接调 VL 模型，省掉 ReAct 循环的一轮 LLM 推理。
-
-        复用现有 analyze_image 同步方法（通过 asyncio.to_thread），
-        VL 结果自动缓存到 Redis。失败时返回 None，交给 ReAct 循环处理。
-        """
-        try:
-            logger.info("图片预分析: file_id=%s", file_id)
-            result_str = await asyncio.to_thread(
-                self.executor.analyze_image, file_id, "contract"
-            )
-            result_data = json.loads(result_str)
-            if not result_data.get("success"):
-                logger.warning("图片预分析失败: file_id=%s, error=%s", file_id, result_data.get("error", ""))
-                return None
-
-            data = result_data.get("data", {})
-            if not isinstance(data, dict):
-                return None
-
-            # 直传完整 JSON（去掉 full_text），让 Agent 自行决定展示内容
-            agent_data = {k: v for k, v in data.items() if k != "full_text"}
-            logger.info("图片预分析完成: file_id=%s", file_id)
-            return (
-                f"file_id：{file_id}\n"
-                f"结构化数据：\n{json.dumps(agent_data, ensure_ascii=False, indent=2)}"
-            )
-        except Exception:
-            logger.warning("图片预分析异常: file_id=%s", file_id, exc_info=True)
-            return None
-
-    def _load_history(self, session_id: str) -> List[dict]:
-        """从数据库加载对话历史（上限 100 条，用于摘要和上下文构建）"""
-        records = (
-            self.db.query(ChatHistory)
-            .filter(
-                ChatHistory.session_id == session_id,
-                ChatHistory.user_id == self.user.id,
-            )
-            .order_by(ChatHistory.created_at.desc())
-            .limit(100)
-            .all()
-        )
-        records.reverse()
-
-        messages = []
-        for r in records:
-            if r.role == "user":
-                content = r.question
-                meta = r.extra_metadata or {}
-                if meta.get("file_context"):
-                    content += f"\n\n[文件分析上下文]\n{meta['file_context']}"
-                messages.append({"role": "user", "content": content})
-            elif r.role == "assistant":
-                msg = {"role": "assistant", "content": r.answer}
-                if r.tool_calls:
-                    msg["tool_calls"] = r.tool_calls
-                messages.append(msg)
-            elif r.role == "tool":
-                tool_call_id = r.extra_metadata.get("tool_call_id", "") if r.extra_metadata else ""
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call_id,
-                    "content": r.answer or "",
-                })
-
-        # 校验并修复消息链：确保每个 tool 消息前有对应的 assistant(tool_calls)，
-        # 且每个 assistant(tool_calls) 后有完整的 tool 回复
-        return self._validate_message_chain(messages, session_id)
-
-    @staticmethod
-    def _validate_message_chain(messages: List[dict], session_id: str) -> List[dict]:
-        """校验并修复消息链，确保 tool_calls/tool 配对完整。
-        规则：
-        1. tool 消息前必须是带 tool_calls 的 assistant
-        2. assistant 带 tool_calls 时，紧跟的 tool 回复必须齐全
-        """
-        if not messages:
-            return messages
-
-        cleaned = []
-        i = 0
-        while i < len(messages):
-            msg = messages[i]
-
-            if msg.get("role") == "assistant" and msg.get("tool_calls"):
-                # 收集紧跟的 tool 回复
-                tc_ids = {tc["id"] for tc in msg["tool_calls"]}
-                tool_replies = []
-                j = i + 1
-                while j < len(messages) and messages[j].get("role") == "tool":
-                    tool_replies.append(messages[j])
-                    j += 1
-
-                provided_ids = {t.get("tool_call_id", "") for t in tool_replies}
-                if tc_ids.issubset(provided_ids):
-                    # 配对完整，保留 assistant + 对应的 tool 回复
-                    cleaned.append(msg)
-                    cleaned.extend(tool_replies)
-                else:
-                    # 配对不完整，去掉 tool_calls，只保留 assistant 文本
-                    logger.warning(
-                        "截断不完整 tool_calls: session=%s, expected=%s, got=%s",
-                        session_id[:8], tc_ids, provided_ids,
-                    )
-                    cleaned.append({"role": "assistant", "content": msg.get("content") or ""})
-                i = j
-
-            elif msg.get("role") == "tool":
-                # 孤立 tool 消息（前面不是带 tool_calls 的 assistant），跳过
-                logger.warning(
-                    "跳过孤立 tool 消息: session=%s, tool_call_id=%s",
-                    session_id[:8], msg.get("tool_call_id", ""),
-                )
-                i += 1
-
-            else:
-                cleaned.append(msg)
-                i += 1
-
-        return cleaned
-
-    @staticmethod
-    def _ensure_trailing_pair_intact(messages: List[dict]) -> List[dict]:
-        """如果历史以 assistant(tool_calls) 开头但缺少对应 tool 回复，
-        说明截断拆散了配对。回退一格找到完整的最后一轮工具配对。
-        """
-        if not messages:
-            return messages
-        last = messages[-1]
-        if last.get("role") == "assistant" and last.get("tool_calls"):
-            # 向前找最近的 user 消息，确保包含完整一轮
-            for i in range(len(messages) - 1, -1, -1):
-                if messages[i].get("role") == "user":
-                    return messages[i:]
-            # 没有 user 兜底：剥离末尾的 tool_calls
-            return [{"role": "assistant", "content": last.get("content") or ""}]
-        return messages
-
-    @staticmethod
-    def _sanitize_messages_for_api(messages: List[dict], session_id: str) -> List[dict]:
-        """最终消毒：确保发送给 LLM 的消息链没有孤立 tool 消息。
-
-        规则：每个 tool 消息必须跟在带匹配 tool_calls 的 assistant 后面，
-        否则移除。同时也会移除 tool_calls 后缺失 tool 回复的 assistant。
-        """
-        if not messages:
-            return messages
-
-        sanitized: List[dict] = []
-        expected_tool_ids: set = set()  # 当前期待的 tool_call_id 集合
-
-        for msg in messages:
-            if msg.get("role") == "assistant":
-                sanitized.append(msg)
-                if msg.get("tool_calls"):
-                    expected_tool_ids = {tc["id"] for tc in msg["tool_calls"] if tc.get("id")}
-                else:
-                    expected_tool_ids = set()
-
-            elif msg.get("role") == "tool":
-                tc_id = msg.get("tool_call_id", "")
-                if tc_id and tc_id in expected_tool_ids:
-                    sanitized.append(msg)
-                    expected_tool_ids.discard(tc_id)
-                else:
-                    logger.warning(
-                        "API消毒: 跳过孤立 tool 消息: session=%s, tool_call_id=%s",
-                        session_id[:8], tc_id,
-                    )
-
-            else:
-                sanitized.append(msg)
-
-        # 如果 sanitized 后最后一个消息是带 tool_calls 的 assistant（缺少 tool 回复），
-        # 剥离 tool_calls 避免 API 拒绝
-        if sanitized:
-            last = sanitized[-1]
-            if last.get("role") == "assistant" and last.get("tool_calls"):
-                logger.warning(
-                    "API消毒: 剥离末尾不完整 tool_calls: session=%s, tool_calls=%s",
-                    session_id[:8], [tc.get("id", "") for tc in last["tool_calls"]],
-                )
-                sanitized[-1] = {"role": "assistant", "content": last.get("content") or ""}
-
-        return sanitized
-
-    def _build_messages(
-        self,
-        history: List[dict],
-        user_message: str,
-        file_context: str = "",
-        summary: Optional[str] = None,
-    ) -> List[dict]:
-        """构建完整的消息数组"""
-        # 按 mode 选择 system prompt
-        if self._mode in ("receipt_income", "receipt_expense"):
-            system_content = self._build_receipt_entry_prompt()
-        else:
-            system_content = build_system_prompt(
-                user_name=self.user.full_name or self.user.username,
-                user_role=self.user.role,
-                current_date=date.today().isoformat(),
-            )
-
-        system = {"role": "system", "content": system_content}
-
-        messages = [system]
-
-        # 摘要注入（如有）
-        if summary:
-            messages.append({
-                "role": "system",
-                "content": f"[对话历史摘要]\n{summary}",
-            })
-
-        # 历史消息
-        messages.extend(history)
-
-        # 当前用户消息
-        if file_context:
-            full_content = f"{user_message}\n\n[文件分析上下文]\n{file_context}"
-        else:
-            full_content = user_message
-        messages.append({"role": "user", "content": full_content})
-
-        return messages
-
-    async def _summarize_history(self, messages: List[dict], session_id: str = "") -> Optional[str]:
-        """当历史超过阈值时，将早期消息压缩为摘要保留关键业务信息。
-        支持增量更新：优先从 Redis 读取缓存摘要，仅将新增消息合并进已有摘要。
-        """
-        keep_recent = settings.AGENT_MAX_SUMMARY_MESSAGES
-        if len(messages) <= keep_recent + 4:
-            return None
-
-        older = messages[:-keep_recent]
-        if len(older) < 4:
-            return None
-
-        older_count = len(older)
-
-        # 尝试读取缓存摘要
-        cached = self._get_cached_summary(session_id)
-        if cached and cached.get("msg_count") == older_count:
-            # 完全一致，直接复用
-            logger.debug("摘要缓存命中（完全一致）: session=%s, count=%d", session_id[:8], older_count)
-            return cached["summary"]
-
-        if cached and cached.get("summary"):
-            delta_count = older_count - cached["msg_count"]
-            if 0 < delta_count < 10:
-                # 增量更新：仅处理新增消息
-                delta_messages = older[-delta_count:]
-                summary = await self._incremental_summarize(cached["summary"], delta_messages)
-                if summary:
-                    self._cache_summary(session_id, older_count, summary)
-                    return summary
-                # 增量失败，降级全量
-
-        # 全量生成（首次 / 缓存过期 / 增量失败）
-        history_text = self._serialize_messages(older)
-        prompt = SUMMARY_PROMPT.format(history=history_text)
-
-        try:
-            summary_parts = []
-            async for event in self.llm.chat_completion_stream(
-                messages=[{"role": "user", "content": prompt}],
-                tools=None,
-                temperature=0.1,
-                max_tokens=500,
-            ):
-                if event["type"] == "text":
-                    summary_parts.append(event["content"])
-
-            summary = "".join(summary_parts).strip()
-            if summary:
-                logger.info("历史摘要生成成功，%d 条早期消息压缩为 %d 字", len(older), len(summary))
-                self._cache_summary(session_id, older_count, summary)
-            return summary or None
-        except Exception as e:
-            logger.warning("历史摘要生成失败，降级为完整历史: %s", e)
-            return None
-
-    # ── 摘要缓存方法 ──────────────────────────────────────────
-
-    _SUMMARY_CACHE_TTL = 7200  # 2 小时
-
-    def _get_redis(self) -> Optional[redis_lib.Redis]:
-        """获取 Redis 连接（复用 executor 的连接）"""
-        return getattr(self.executor, "_redis", None)
-
-    def _get_cached_summary(self, session_id: str) -> Optional[dict]:
-        """从 Redis 读取缓存摘要"""
-        redis = self._get_redis()
-        if not redis or not session_id:
-            return None
-        try:
-            raw = redis.get(f"agent_summary:{session_id}")
-            if raw:
-                data = json.loads(raw)
-                if isinstance(data, dict) and data.get("summary"):
-                    return data
-        except Exception:
-            logger.debug("摘要缓存读取失败: session=%s", session_id[:8])
-        return None
-
-    def _cache_summary(self, session_id: str, msg_count: int, summary: str) -> None:
-        """将摘要写入 Redis 缓存"""
-        redis = self._get_redis()
-        if not redis or not session_id:
-            return
-        try:
-            redis.setex(
-                f"agent_summary:{session_id}",
-                self._SUMMARY_CACHE_TTL,
-                json.dumps({"summary": summary, "msg_count": msg_count}, ensure_ascii=False),
-            )
-        except Exception:
-            logger.debug("摘要缓存写入失败: session=%s", session_id[:8])
-
-    async def _incremental_summarize(self, cached_summary: str, delta_messages: List[dict]) -> Optional[str]:
-        """基于已有摘要和新增消息做增量更新"""
-        delta_text = self._serialize_messages(delta_messages)
-        prompt = INCREMENTAL_SUMMARY_PROMPT.format(
-            existing_summary=cached_summary,
-            delta_messages=delta_text,
-        )
-        try:
-            parts = []
-            async for event in self.llm.chat_completion_stream(
-                messages=[{"role": "user", "content": prompt}],
-                tools=None,
-                temperature=0.1,
-                max_tokens=500,
-            ):
-                if event["type"] == "text":
-                    parts.append(event["content"])
-            summary = "".join(parts).strip()
-            if summary:
-                logger.info("摘要增量更新成功，%d 条新消息合并，摘要 %d 字", len(delta_messages), len(summary))
-            return summary or None
-        except Exception as e:
-            logger.warning("摘要增量更新失败，降级全量: %s", e)
-            return None
-
-    def _build_tool_result_fallback(self, messages: List[dict]) -> Optional[str]:
-        """当 LLM 在工具调用后未生成回复时，从最近的 tool 结果构建兜底回复。"""
-        for msg in reversed(messages):
-            if msg.get("role") == "tool":
-                content = msg.get("content", "")
-                if not content:
-                    continue
-                # 简单截断返回，让下一轮 LLM 自行解读
-                preview = content[:500]
-                if len(content) > 500:
-                    preview += "..."
-                return preview
-        return None
+    # ------------------------------------------------------------------
+    # chat_history 上下文（finalize_node 调用）
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _serialize_messages(messages: List[dict]) -> str:
-        """将消息列表序列化为纯文本，供摘要模型使用"""
+        """将消息列表序列化为纯文本，供摘要模型使用。
+
+        标注：旧 ReAct 时使用。目前已无调用方。
+        """
         lines = []
         for m in messages:
             role = m.get("role", "")
@@ -904,13 +94,9 @@ class ContractAgent:
         metadata: Optional[dict] = None,
         tokens_used: int = 0,
     ):
-        """保存消息到数据库"""
-        if role == "user":
-            question = content
-            answer = None
-        else:
-            question = ""
-            answer = content
+        """保存消息到 chat_history 表，由 finalize_node 调用。"""
+        question = content if role == "user" else ""
+        answer = None if role == "user" else content
 
         record = ChatHistory(
             user_id=self.user.id,
@@ -933,7 +119,7 @@ class ContractAgent:
         tool_name: str,
         result: str,
     ):
-        """保存工具调用结果消息"""
+        """保存工具调用结果消息，由 finalize_node 调用。"""
         record = ChatHistory(
             user_id=self.user.id,
             session_id=session_id,
@@ -947,68 +133,12 @@ class ContractAgent:
         self.db.add(record)
         self.db.commit()
 
-    def _load_session_meta(self, session_id: str) -> None:
-        """从 chat_sessions 表加载 mode 和 context，注入到 self._mode / self._session_context"""
-        session_record = (
-            self.db.query(ChatSession)
-            .filter(ChatSession.session_id == session_id)
-            .first()
-        )
-        if session_record:
-            self._mode = session_record.mode or "chat"
-            self._session_context = session_record.context
-        else:
-            self._mode = "chat"
-            self._session_context = None
-
-    def _build_receipt_entry_prompt(self) -> str:
-        """构建凭证录入模式的 system prompt，从 session_context 获取合同信息"""
-        from app.models.contract import Contract
-
-        ctx = self._session_context or {}
-        contract_id = ctx.get("contract_id")
-        contract_no = "未知"
-        customer_name = "未知"
-        business_type = "未知"
-        total_amount = "--"
-        currency = "CNY"
-
-        if contract_id:
-            contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
-            if contract:
-                contract_no = contract.contract_number or "未知"
-                business_type = contract.business_type or "未知"
-                total_amount = f"{contract.total_amount:,.2f}" if contract.total_amount else "--"
-                currency = contract.currency or "CNY"
-                if contract.customer:
-                    customer_name = contract.customer.name or "未知"
-
-        is_income = self._mode == "receipt_income"
-        type_label = "收入" if is_income else "支出"
-        create_tool = "create_payment" if is_income else "create_expense"
-
-        role_desc = {
-            "admin": "管理员",
-            "income": "收入专员",
-            "expense": "支出专员",
-        }.get(self.user.role, self.user.role)
-
-        return RECEIPT_ENTRY_PROMPT.format(
-            type_label=type_label,
-            contract_no=contract_no,
-            customer_name=customer_name,
-            business_type=business_type,
-            total_amount=total_amount,
-            currency=currency,
-            current_date=date.today().isoformat(),
-            user_name=self.user.full_name or self.user.username,
-            role_desc=role_desc,
-            create_tool=create_tool,
-            contract_id=contract_id or 0,
-        )
+    # ------------------------------------------------------------------
+    # 会话管理
+    # ------------------------------------------------------------------
 
     def get_sessions(self) -> List[dict]:
-        """获取用户的所有会话列表（2 次查询替代 N+1）"""
+        """获取用户的所有会话列表（2 次查询替代 N+1）。"""
         from sqlalchemy import func as sa_func
 
         # Query 1: 聚合查询 — 每会话的消息数和最后活动时间
@@ -1025,8 +155,8 @@ class ContractAgent:
 
         session_ids = [s.session_id for s in aggregates]
 
-        # Query 2: 批量取 chat_sessions 的 mode / title / context / created_at
-        session_meta_map: dict[str, dict] = {}
+        # Query 2: 批量读 chat_sessions 的 mode / title / context / created_at
+        session_meta_map: dict = {}
         if session_ids:
             meta_records = (
                 self.db.query(
@@ -1048,7 +178,7 @@ class ContractAgent:
                 }
 
         # Query 3: 取每会话首条用户消息作标题（使用窗口函数）
-        first_msg_map: dict[str, Optional[str]] = {}
+        first_msg_map: dict = {}
         if session_ids:
             subq = (
                 self.db.query(
@@ -1077,7 +207,6 @@ class ContractAgent:
         result = []
         for s in aggregates:
             meta = session_meta_map.get(s.session_id, {})
-            # 优先用 chat_sessions.created_at（真实创建时间），fallback 到 last_activity
             created = meta.get("created_at") or s.last_activity
             result.append({
                 "session_id": s.session_id,
@@ -1092,7 +221,7 @@ class ContractAgent:
         return result
 
     def get_history(self, session_id: str) -> List[dict]:
-        """获取会话历史，并合并 tool 结果到 assistant 消息的 toolCalls 中"""
+        """获取会话历史，并合并 tool 结果到 assistant 消息的 toolCalls 中。"""
         records = (
             self.db.query(ChatHistory)
             .filter(
@@ -1103,19 +232,17 @@ class ContractAgent:
             .all()
         )
 
-        # 构建 tool_call_id -> result 的映射
-        tool_results: dict[str, str] = {}
+        tool_results = {}
         for r in records:
             if r.role == "tool" and r.extra_metadata:
                 tool_call_id = r.extra_metadata.get("tool_call_id", "")
                 if tool_call_id and r.answer:
                     tool_results[tool_call_id] = r.answer
 
-        # 过滤掉 role='tool' 的独立记录，将结果合并到 assistant 消息
         result = []
         for r in records:
             if r.role == "tool":
-                continue  # 跳过 tool 记录，结果已合并到 assistant
+                continue
 
             msg = {
                 "id": r.id,
@@ -1125,7 +252,6 @@ class ContractAgent:
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
 
-            # 处理 tool_calls，合并结果
             if r.role == "assistant" and r.tool_calls:
                 merged_tool_calls = []
                 for tc in r.tool_calls:
@@ -1143,8 +269,11 @@ class ContractAgent:
         return result
 
     def delete_session(self, session_id: str) -> bool:
-        """删除会话及其所有消息，同时清理关联 Redis 缓存"""
-        deleted = (
+        """删除会话及其所有消息。
+
+        同时清理 chat_sessions 表中的元数据行（避免遗留孤儿 session_id）。
+        """
+        history_deleted = (
             self.db.query(ChatHistory)
             .filter(
                 ChatHistory.session_id == session_id,
@@ -1152,27 +281,19 @@ class ContractAgent:
             )
             .delete()
         )
+        session_deleted = 0
+        if history_deleted:
+            session_deleted = (
+                self.db.query(ChatSession)
+                .filter(
+                    ChatSession.session_id == session_id,
+                    ChatSession.user_id == self.user.id,
+                )
+                .delete()
+            )
+            logger.info(
+                "delete_session: history=%d session_row=%d session=%s",
+                history_deleted, session_deleted, session_id[:8],
+            )
         self.db.commit()
-        if deleted > 0:
-            self._cleanup_session_redis(session_id)
-        return deleted > 0
-
-    def _cleanup_session_redis(self, session_id: str) -> None:
-        """清理会话关联的 Redis 缓存（VL 分析缓存 + 摘要缓存）"""
-        redis = self._get_redis()
-        if not redis:
-            return
-        try:
-            # 清理 VL 分析缓存: vl:*:{session_id}:*
-            cursor = 0
-            while True:
-                cursor, keys = redis.scan(cursor, match=f"vl:*:{session_id}:*", count=100)
-                if keys:
-                    redis.delete(*keys)
-                if cursor == 0:
-                    break
-            # 清理摘要缓存
-            redis.delete(f"agent_summary:{session_id}")
-            logger.debug("会话 Redis 缓存已清理: session=%s", session_id[:8])
-        except Exception:
-            logger.debug("会话 Redis 清理失败（可忽略）: session=%s", session_id[:8])
+        return history_deleted > 0

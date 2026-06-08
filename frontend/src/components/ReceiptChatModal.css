@@ -456,6 +456,25 @@
 }
 
 /* ═══════════════════════════════════════════════
+   凭证确认面板（interrupt）
+   ═══════════════════════════════════════════════ */
+.receipt-chat-interrupt-area {
+  padding: 0 12px;
+  border-top: 1px solid var(--border-default, #e5e7eb);
+  background: var(--bg-surface, #fff);
+}
+
+.receipt-chat-interrupt-area .receipt-confirm-panel {
+  margin: 12px 0;
+  border-color: var(--type-color-soft, rgba(30, 58, 95, 0.12));
+}
+
+.receipt-chat-interrupt-area .receipt-confirm-actions .ant-btn-primary {
+  background: var(--type-color, #1e3a5f);
+  border-color: var(--type-color, #1e3a5f);
+}
+
+/* ═══════════════════════════════════════════════
    响应式微调
    ═══════════════════════════════════════════════ */
 @media (max-width: 768px) {

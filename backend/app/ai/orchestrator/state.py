@@ -71,3 +71,15 @@ class ContractEntryState(RootState, total=False):
 class GeneralChatState(RootState, total=False):
     """通用对话子图状态（无新增字段，保留独立类为未来扩展）"""
     tokens_used: int
+
+
+class ReceiptEntryState(RootState, total=False):
+    """凭证录入子图状态（收入/支出统一）
+
+    Agent 循环：analyze_receipt → call_model ↔ execute_tool
+    interrupt 安全门在 execute_tool 中拦截敏感工具（create_expense/create_payment），
+    展示结构化凭证确认表单，用户确认或修改后 resume 放行。
+    """
+
+    # HITL 安全门：已批准的工具调用 ID，execute_tool_node 据此跳过 interrupt
+    approved_tool_ids: Annotated[list[str], operator.add]

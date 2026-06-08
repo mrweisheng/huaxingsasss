@@ -135,163 +135,120 @@ async def chat(
 
     async def event_generator():
         try:
-            # ━━━ Phase 1：中断恢复 + 合同录入 LangGraph 路径 ━━━
+            # ━━━ LangGraph 编排路径（唯一运行时） ━━━
             from app.ai.orchestrator.graph import build_root_graph
             from app.ai.orchestrator.contract_entry import ContractEntrySubgraph
             from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream
             from app.ai.orchestrator.checkpointer import get_checkpointer
 
-            # 检测是否应走 LangGraph 路径（支持 AGENT_ORCHESTRATOR 环境变量回滚）
-            # 设计文档 §9.3：AGENT_ORCHESTRATOR=legacy 时全量回退到旧 ReAct，5 分钟回滚
-            use_langgraph = False
-
+            # 中断恢复：校验 interrupt_id
             if request.resume:
-                # 中断恢复：校验 interrupt_id（完整 checkpoint 校验在下方 LangGraph 块内）
                 if not request.interrupt_id or not isinstance(request.interrupt_id, str):
                     yield f"data: {json.dumps({'event': 'error', 'data': {'message': '中断恢复缺少有效的 interrupt_id'}}, ensure_ascii=False)}\n\n"
                     return
-                # 中断恢复：必须走 LangGraph（旧 ReAct 无 checkpoint 概念）
-                if settings.AGENT_ORCHESTRATOR == "legacy":
-                    logger.warning(
-                        "AGENT_ORCHESTRATOR=legacy 但收到 resume 请求，无法恢复中断会话: session_id=%s",
-                        request.session_id,
-                    )
-                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '系统正在维护中，请稍后重试'}}, ensure_ascii=False)}\n\n"
-                    return
-                use_langgraph = True
-            elif request.attachments:
-                # 附件类型分流：
-                #   pdf/word/excel              → LangGraph 合同录入子图
-                #   image + 凭证/群聊关键词     → LangGraph receipt_entry / group_chat 降级引导
-                #   image + 无关键词            → 旧 ReAct（带 VL 能力；Phase 2.4 general_chat
-                #                                 暂不支持 image_url 多模态 content，退回旧路径）
-                #   其他附件类型                 → 旧 ReAct
-                has_doc = any(a.file_type in ('pdf', 'word', 'excel') for a in request.attachments)
-                has_image = any(a.file_type == 'image' for a in request.attachments)
-                has_image_with_kw = has_image and any(
-                    kw in (request.question or '').lower()
-                    for kw in ('凭证', 'receipt', '转账', '收据', '付款',
-                               '群聊', '微信群', 'group', '群')
-                )
-                if has_doc or has_image_with_kw:
-                    use_langgraph = settings.AGENT_ORCHESTRATOR != 'legacy'
 
-            if use_langgraph:
+            try:
+                cp = get_checkpointer()
+            except RuntimeError as e:
+                logger.error("checkpointer 未初始化: %s", e)
+                raise HTTPException(
+                    status_code=503,
+                    detail="LangGraph checkpointer 未初始化，请联系管理员",
+                )
+
+            # 加载 session 元数据（mode / session_context 用于 ToolExecutor 守卫）
+            agent._load_session_meta(request.session_id)
+
+            config = {
+                "configurable": {"thread_id": request.session_id or str(uuid.uuid4())},
+            }
+            session_id = config["configurable"]["thread_id"]
+
+            # ━━━ 中断恢复：校验 interrupt_id 与 checkpoint 匹配 ━━━
+            if request.resume:
                 try:
-                    cp = get_checkpointer()
-                except RuntimeError as e:
-                    # checkpointer 缺失是部署故障，抛 503 比静默降级更安全
-                    logger.error("checkpointer 未初始化: %s", e)
-                    raise HTTPException(
-                        status_code=503,
-                        detail="LangGraph checkpointer 未初始化，请联系管理员",
-                    )
-
-                # 加载 session 元数据（mode / session_context 用于 ToolExecutor 守卫）
-                agent._load_session_meta(request.session_id)
-
-                config = {
-                    "configurable": {"thread_id": request.session_id or str(uuid.uuid4())},
-                }
-                session_id = config["configurable"]["thread_id"]
-
-                # ━━━ 中断恢复：校验 interrupt_id 与 checkpoint 匹配 ━━━
-                if request.resume:
-                    try:
-                        state_snapshot = await cp.aget(config)
-                        pending_ids = [
-                            i.id for i in (state_snapshot.interrupts or [])
-                        ]
-                        if request.interrupt_id not in pending_ids:
-                            logger.warning(
-                                "interrupt_id 不匹配: received=%s pending=%s thread=%s",
-                                request.interrupt_id, pending_ids, session_id,
-                            )
-                            yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断'}}, ensure_ascii=False)}\n\n"
-                            return
-                    except Exception as e:
-                        logger.error("checkpoint 查询失败: %s", e)
-                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': '无法验证中断状态，请稍后重试'}}, ensure_ascii=False)}\n\n"
+                    state_snapshot = await cp.aget(config)
+                    pending_ids = [
+                        i.id for i in (state_snapshot.interrupts or [])
+                    ]
+                    if request.interrupt_id not in pending_ids:
+                        logger.warning(
+                            "interrupt_id 不匹配: received=%s pending=%s thread=%s",
+                            request.interrupt_id, pending_ids, session_id,
+                        )
+                        yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断'}}, ensure_ascii=False)}\n\n"
                         return
-
-                # 构建子图 + 根图。mode / session_context 通过构造函数注入到子图闭包
-                # 内的 ToolExecutor。PR-B-4: 子图不再依赖 agent 实例（独立化）。
-                # agent 仅注入到 build_root_graph 的 finalize_node 用于 chat_history 落库（ADR #6）。
-                contract_entry = ContractEntrySubgraph(
-                    db, current_user,
-                    mode=agent._mode,
-                    session_context=agent._session_context,
-                    session_id=session_id,
-                )
-                contract_app = contract_entry.build(checkpointer=cp)
-                root_app = build_root_graph(
-                    contract_app,
-                    checkpointer=cp,
-                    agent=agent,
-                    db=db,
-                    user=current_user,
-                    session_context=agent._session_context,
-                    session_id=session_id,
-                )
-
-                # 构造 initial_state。auto_filled 标记透传到 HumanMessage.additional_kwargs，
-                # finalize_node 读取后写入 chat_history.metadata，区分"用户实际输入"与"系统补全"
-                from langchain_core.messages import HumanMessage
-                initial_state = {
-                    "messages": [HumanMessage(
-                        content=question,
-                        additional_kwargs={"auto_filled": True} if auto_filled else {},
-                    )],
-                    "user_id": current_user.id,
-                    "user_role": current_user.role,
-                    "session_id": session_id,
-                    "attachments": [a.model_dump() for a in request.attachments] if request.attachments else [],
-                    "executor_mode": agent._mode,
-                    "session_context": agent._session_context or {},
-                }
-
-                if request.resume:
-                    # 中断恢复（校验已在上方完成）
-                    from langgraph.types import Command
-                    async for sse_line in adapt_langgraph_stream(
-                        root_app.astream_events(
-                            Command(resume=request.resume),
-                            config, version="v2",
-                        ),
-                        session_id,
-                        graph=root_app,
-                        config=config,
-                    ):
-                        if http_request and await http_request.is_disconnected():
-                            return
-                        yield sse_line
-                else:
-                    # 正常流
-                    async for sse_line in adapt_langgraph_stream(
-                        root_app.astream_events(
-                            initial_state, config, version="v2",
-                        ),
-                        session_id,
-                        graph=root_app,
-                        config=config,
-                    ):
-                        if http_request and await http_request.is_disconnected():
-                            return
-                        yield sse_line
-                return
-
-            # ━━━ 旧路径：ReAct 循环（Phase 2 替换为通用对话子图） ━━━
-            async for event in agent.chat(
-                session_id=request.session_id,
-                user_message=question,
-                attachments=[a.model_dump() for a in request.attachments] if request.attachments else None,
-            ):
-                # 客户端断开时 yield 会抛 CancelledError，中断整轮 ReAct 循环，
-                # 避免 LLM 继续跑完整轮浪费 token
-                if http_request and await http_request.is_disconnected():
-                    logger.info("SSE客户端断开，中断Agent生成 session=%s", request.session_id)
+                except Exception as e:
+                    logger.error("checkpoint 查询失败: %s", e)
+                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '无法验证中断状态，请稍后重试'}}, ensure_ascii=False)}\n\n"
                     return
-                yield f"data: {json.dumps(event, ensure_ascii=False)}\n\n"
+
+            # 构建子图 + 根图。mode / session_context 通过构造函数注入到子图闭包
+            # 内的 ToolExecutor。PR-B-4: 子图不再依赖 agent 实例（独立化）。
+            # agent 仅注入到 build_root_graph 的 finalize_node 用于 chat_history 落库（ADR #6）。
+            contract_entry = ContractEntrySubgraph(
+                db, current_user,
+                mode=agent._mode,
+                session_context=agent._session_context,
+                session_id=session_id,
+            )
+            contract_app = contract_entry.build(checkpointer=cp)
+            session_context = dict(agent._session_context or {})
+            session_context["mode"] = agent._mode
+            root_app = build_root_graph(
+                contract_app,
+                checkpointer=cp,
+                agent=agent,
+                db=db,
+                user=current_user,
+                session_context=session_context,
+                session_id=session_id,
+            )
+
+            # 构造 initial_state。auto_filled 标记透传到 HumanMessage.additional_kwargs，
+            # finalize_node 读取后写入 chat_history.metadata，区分"用户实际输入"与"系统补全"
+            from langchain_core.messages import HumanMessage
+            initial_state = {
+                "messages": [HumanMessage(
+                    content=question,
+                    additional_kwargs={"auto_filled": True} if auto_filled else {},
+                )],
+                "user_id": current_user.id,
+                "user_role": current_user.role,
+                "session_id": session_id,
+                "attachments": [a.model_dump() for a in request.attachments] if request.attachments else [],
+                "executor_mode": agent._mode,
+                "session_context": agent._session_context or {},
+            }
+
+            if request.resume:
+                # 中断恢复（校验已在上方完成）
+                from langgraph.types import Command
+                async for sse_line in adapt_langgraph_stream(
+                    root_app.astream_events(
+                        Command(resume=request.resume),
+                        config, version="v2",
+                    ),
+                    session_id,
+                    graph=root_app,
+                    config=config,
+                ):
+                    if http_request and await http_request.is_disconnected():
+                        return
+                    yield sse_line
+            else:
+                # 正常流
+                async for sse_line in adapt_langgraph_stream(
+                    root_app.astream_events(
+                        initial_state, config, version="v2",
+                    ),
+                    session_id,
+                    graph=root_app,
+                    config=config,
+                ):
+                    if http_request and await http_request.is_disconnected():
+                        return
+                    yield sse_line
         except Exception as e:
             logger.exception("Agent chat error")
             error_event = {

@@ -1,7 +1,7 @@
 """
 合同相关Pydantic模型
 """
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any
 from pydantic import BaseModel, Field
 from datetime import date, datetime
 from decimal import Decimal
@@ -85,56 +85,3 @@ class ContractResponse(ContractBase):
         from_attributes = True
 
 
-class ContractParseResult(BaseModel):
-    """合同解析结果"""
-
-    task_id: str = Field(..., description="任务ID")
-    status: str = Field(..., description="解析状态")
-    contract_id: Optional[int] = Field(None, description="合同ID")
-    parsed_data: Optional[Dict[str, Any]] = Field(None, description="解析数据")
-    confidence: Optional[float] = Field(None, description="置信度")
-    needs_review: bool = Field(default=False, description="是否需要人工审核")
-    message: Optional[str] = Field(None, description="消息")
-
-
-class ResolveCustomerRequest(BaseModel):
-    """从 AI 分析结果自动关联/创建客户"""
-    analysis_data: Dict[str, Any] = Field(..., description="VL 分析结果（含 party_a/party_b）")
-    party: str = Field(default="party_b", description="哪一方是客户: party_a 或 party_b")
-
-
-class AnalyzeFileRequest(BaseModel):
-    """合同文件分析请求"""
-    file_id: str = Field(..., description="已上传文件的 ID（由 /agent/upload 返回）")
-    file_name: Optional[str] = Field(None, description="原始文件名（用于推断扩展名）")
-    skip_duplicate_check: bool = Field(default=False, description="跳过重复检测（用户确认仍然创建时传 True）")
-
-
-class PaymentTermItem(BaseModel):
-    """单条付款条款"""
-    name: Optional[str] = Field(None, description="款项名称")
-    amount: Optional[float] = Field(None, description="金额")
-    due_date: Optional[str] = Field(None, description="应付日期")
-    condition: Optional[str] = Field(None, description="支付条件")
-    is_paid: Optional[bool] = Field(None, description="是否已付")
-
-
-class ContractCreateFromAnalysis(BaseModel):
-    """从 AI 分析结果创建合同"""
-    file_id: str = Field(..., description="已上传文件的 ID")
-    file_name: Optional[str] = Field(None, description="原始文件名")
-    customer_id: int = Field(..., description="客户 ID")
-    title: Optional[str] = Field(None, max_length=500)
-    business_type: Optional[str] = Field(None, max_length=50)
-    business_description: Optional[str] = Field(None, max_length=200)
-    currency: str = Field(default="CNY")
-    total_amount: Decimal = Field(default=Decimal("0"), ge=0)
-    signed_date: Optional[date] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
-    wechat_group: Optional[str] = Field(None, max_length=200)
-    payment_terms: Optional[List[PaymentTermItem]] = None
-    analysis_data: Optional[Dict[str, Any]] = Field(None, description="完整 VL 分析结果")
-    full_text: Optional[str] = Field(None, description="合同全文")
-    confidence: Optional[float] = Field(None, description="置信度")
-    remarks: Optional[str] = None

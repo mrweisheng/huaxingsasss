@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from 'react'
+﻿import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import {
   Modal, Input, Button, Avatar, Upload, Tag, Spin, message,
 } from 'antd'
@@ -8,9 +8,16 @@ import {
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
-import type { ChatMessage, FileType } from '@/types/agent'
+import type { ChatMessage, FileType, InterruptInfo, ReceiptConfirmData } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
+import ReceiptConfirmPanel from '@/components/ReceiptConfirmPanel'
+import {
+  readSSEStream,
+  computeEventUpdates,
+  applyMessageUpdates,
+} from '@/lib/sseStream'
 import './ReceiptChatModal.css'
+import './ReceiptConfirmPanel.css'
 
 interface ReceiptChatModalProps {
   open: boolean
@@ -111,13 +118,14 @@ export default function ReceiptChatModal({
   const [inputText, setInputText] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
+  const [interruptInfo, setInterruptInfo] = useState<InterruptInfo | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const sessionCreatingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
 
   const typeLabel = TYPE_LABELS[paymentType]
 
-  // 打开时立即渲染 UI，不再阻塞等待 createSession
+  // 打开时立即重置 UI（不再阻塞等待 createSession）
   // session 改为懒创建：用户首次发送时才创建
   useEffect(() => {
     if (!open) return
@@ -125,16 +133,25 @@ export default function ReceiptChatModal({
     setInputText('')
     setPendingFiles([])
     setSessionId(null)
+    setInterruptInfo(null)
     sessionCreatingRef.current = false
 
     setMessages([{
       id: Date.now(),
       sessionId: '',
       role: 'assistant',
-      content: `请上传${typeLabel}凭证（图片或 PDF），我来帮你分析并录入。`,
+      content: `请上传${typeLabel}凭证（图片或 PDF），我来帮您分析并录入。`,
       createdAt: new Date().toISOString(),
     }])
   }, [open, contractId, paymentType])
+
+  // 关闭时 abort 在飞 SSE（修复 P1 遗漏：之前关闭不中断后台请求）
+  useEffect(() => {
+    if (open) return
+    abortRef.current?.abort()
+    abortRef.current = null
+    setIsStreaming(false)
+  }, [open])
 
   // 自动滚到底部
   useEffect(() => {
@@ -152,6 +169,40 @@ export default function ReceiptChatModal({
     if (name.endsWith('.xlsx') || name.endsWith('.xls')) return 'excel'
     return 'text'
   }
+
+  /**
+   * 把 SSE 事件应用到本地 state（消息 + 中断面板）。
+   * 行为与 useAgentStore.applyEventToStore 完全一致，通过共享模块统一。
+   */
+  const applyEvent = useCallback((
+    event: Parameters<typeof computeEventUpdates>[0],
+    assistantId: number,
+    thoughtStepId: number,
+  ): [import('@/lib/sseStream').DispatchAction, number] => {
+    const result = computeEventUpdates(event, {
+      assistantId,
+      thoughtStepId,
+      hasCurrentSessionId: !!sessionId,
+    })
+
+    if (
+      result.textAppend || result.toolCallAppend || result.toolResultLast ||
+      result.thoughtAppend || result.thoughtFinalizeLast
+    ) {
+      setMessages(prev => applyMessageUpdates(prev, result, assistantId))
+    }
+
+    if (result.interruptInfo) {
+      setInterruptInfo(result.interruptInfo)
+      setIsStreaming(false)
+    }
+
+    if (result.sessionIdSync && !sessionId) {
+      setSessionId(result.sessionIdSync)
+    }
+
+    return [result.action, result.nextThoughtId]
+  }, [sessionId])
 
   // SSE 流式发送
   const doSend = useCallback(async (text: string, files?: File[]) => {
@@ -228,7 +279,7 @@ export default function ReceiptChatModal({
     setMessages(prev => [...prev, userMsg, assistantMsg])
 
     // 上传文件
-    const uploaded: { file_id: string; file_type: string; fileName?: string; preview?: string }[] = []
+    const uploaded: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
     for (const local of localAttachments) {
       try {
         const res = await agentApi.uploadFile(local.file)
@@ -250,72 +301,11 @@ export default function ReceiptChatModal({
       const response = await agentApi.chatStream(text, activeSessionId, uploaded)
       if (!response.ok || !response.body) throw new Error(`请求失败: ${response.status}`)
 
-      const reader = response.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        if (abortRef.current?.signal.aborted) break
-
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split('\n')
-        buffer = lines.pop() || ''
-
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue
-          const raw = line.slice(6).trim()
-          if (!raw) continue
-          try {
-            const event = JSON.parse(raw)
-            const eventData = event.data
-
-            if (event.event === 'text') {
-              const chunk = eventData.content || ''
-              setMessages(prev => prev.map(m =>
-                m.id === assistantId ? { ...m, content: m.content + chunk } : m
-              ))
-            } else if (event.event === 'tool_call') {
-              setMessages(prev => prev.map(m =>
-                m.id === assistantId ? {
-                  ...m,
-                  toolCalls: [...(m.toolCalls || []), { id: eventData.id || `tc_${Date.now()}`, name: eventData.name, arguments: eventData.arguments }],
-                } : m
-              ))
-            } else if (event.event === 'tool_result') {
-              setMessages(prev => prev.map(m => {
-                if (m.id !== assistantId || !m.toolCalls?.length) return m
-                const calls = [...m.toolCalls]
-                calls[calls.length - 1] = { ...calls[calls.length - 1], result: eventData.result }
-                return { ...m, toolCalls: calls }
-              }))
-            } else if (event.event === 'done') {
-              setMessages(prev => prev.map(m => {
-                if (m.id !== assistantId || !m.thoughts?.length) return m
-                const thoughts = [...m.thoughts]
-                const last = thoughts[thoughts.length - 1]
-                if (last && last.status === 'running') {
-                  thoughts[thoughts.length - 1] = { ...last, status: 'done' as const }
-                }
-                return { ...m, thoughts }
-              }))
-            } else if (event.event === 'error') {
-              message.error(eventData.message || '对话出错')
-            } else if (event.event === 'thinking') {
-              const msgText = eventData.message || '思考中...'
-              const stepId = `thought_${thoughtStepId++}`
-              setMessages(prev => prev.map(m => {
-                if (m.id !== assistantId) return m
-                const thoughts = [...(m.thoughts || [])]
-                if (thoughts.length > 0 && thoughts[thoughts.length - 1].status === 'running') {
-                  thoughts[thoughts.length - 1] = { ...thoughts[thoughts.length - 1], status: 'done' as const }
-                }
-                thoughts.push({ id: stepId, message: msgText, status: 'running' })
-                return { ...m, thoughts }
-              }))
-            }
-          } catch { /* skip */ }
+      for await (const event of readSSEStream(response, abortRef.current.signal)) {
+        const [action, nextThoughtId] = applyEvent(event, assistantId, thoughtStepId)
+        thoughtStepId = nextThoughtId
+        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+          return  // 退出循环，UI 已被 dispatcher 更新
         }
       }
     } catch (e: any) {
@@ -326,7 +316,7 @@ export default function ReceiptChatModal({
       setIsStreaming(false)
       abortRef.current = null
     }
-  }, [sessionId])
+  }, [sessionId, typeLabel, contractNumber, customerName, paymentType, contractId, applyEvent])
 
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
@@ -346,10 +336,67 @@ export default function ReceiptChatModal({
     setIsStreaming(false)
   }, [])
 
+  // resume interrupt：用户确认或取消后恢复 LangGraph 执行
+  const resumeInterrupt = useCallback(async (resumeValue: Record<string, any>) => {
+    if (!sessionId || !interruptInfo) return
+    const currentInterrupt = interruptInfo
+    setInterruptInfo(null)
+    setIsStreaming(true)
+
+    // 添加助手占位消息
+    const assistantId = Date.now()
+    const assistantMsg: ChatMessage = {
+      id: assistantId,
+      sessionId,
+      role: 'assistant',
+      content: '',
+      thoughts: [{ id: 'resume_0', message: '正在处理...', status: 'running' }],
+      createdAt: new Date().toISOString(),
+    }
+    setMessages(prev => [...prev, assistantMsg])
+
+    abortRef.current = new AbortController()
+    let thoughtStepId = 100  // 避免与之前的 thought ID 冲突
+
+    try {
+      const response = await agentApi.resumeInterrupt(
+        sessionId, resumeValue, currentInterrupt.interrupt_id
+      )
+      if (!response.ok || !response.body) throw new Error(`请求失败: ${response.status}`)
+
+      for await (const event of readSSEStream(response, abortRef.current.signal)) {
+        const [action, nextThoughtId] = applyEvent(event, assistantId, thoughtStepId)
+        thoughtStepId = nextThoughtId
+        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+          return
+        }
+      }
+    } catch (e: any) {
+      if (e.name !== 'AbortError') {
+        message.error(e.message || '处理出错')
+      }
+    } finally {
+      setIsStreaming(false)
+      abortRef.current = null
+    }
+  }, [sessionId, interruptInfo, applyEvent])
+
+  // 确认录入
+  const handleConfirmReceipt = useCallback((modifiedData: Partial<ReceiptConfirmData>) => {
+    resumeInterrupt({ confirmed: true, receipt_data: modifiedData })
+  }, [resumeInterrupt])
+
+  // 取消录入
+  const handleCancelReceipt = useCallback(() => {
+    resumeInterrupt({ confirmed: false })
+    message.info('已取消录入')
+  }, [resumeInterrupt])
+
   const handleClose = useCallback(() => {
     abortRef.current?.abort()
     setSessionId(null)
     setMessages([])
+    setInterruptInfo(null)
     onClose()
   }, [onClose])
 
@@ -383,7 +430,7 @@ export default function ReceiptChatModal({
       className={`receipt-chat-modal receipt-chat-modal--${paymentType}`}
       styles={{ body: { padding: 0, height: '70vh', display: 'flex', flexDirection: 'column' } }}
     >
-      {/* 头部 — 合同信息 + 操作描述 */}
+      {/* 头部：合同信息 + 操作描述 */}
       <div className="receipt-chat-header">
         <Avatar icon={<RobotOutlined />} className="receipt-chat-header-avatar" size={28} />
         <div className="receipt-chat-header-info">
@@ -420,7 +467,7 @@ export default function ReceiptChatModal({
         {!hasMessages ? (
           <div className="receipt-chat-empty receipt-chat-drop-zone">
             <InboxOutlined className="receipt-chat-drop-icon" />
-            <div className="receipt-chat-drop-text">拖拽凭证文件到此处</div>
+            <div className="receipt-chat-drop-text">拖拽凭证文件到此</div>
             <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>
               或点击下方 📎 按钮选择文件
             </div>
@@ -439,6 +486,21 @@ export default function ReceiptChatModal({
           </>
         )}
       </div>
+
+      {/* 凭证确认面板（interrupt） */}
+      {interruptInfo && interruptInfo.type === 'receipt_confirmation' && interruptInfo.receipt_data && (
+        <div className="receipt-chat-interrupt-area">
+          <ReceiptConfirmPanel
+            receiptData={interruptInfo.receipt_data}
+            contractInfo={interruptInfo.contract_info}
+            paymentType={interruptInfo.payment_type}
+            matchWarning={interruptInfo.match_warning}
+            onConfirm={handleConfirmReceipt}
+            onCancel={handleCancelReceipt}
+            loading={isStreaming}
+          />
+        </div>
+      )}
 
       {/* 输入区 */}
       {(
@@ -503,7 +565,7 @@ export default function ReceiptChatModal({
             )}
           </div>
           <div className="receipt-chat-input-hint">
-            拖拽文件到聊天区域 · Enter 发送，Shift+Enter 换行
+            拖拽文件到聊天区 · Enter 发送，Shift+Enter 换行
           </div>
         </div>
       )}

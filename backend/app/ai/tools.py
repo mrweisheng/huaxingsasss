@@ -3,7 +3,6 @@ Agent 工具执行器
 调用现有 Service 层实现业务操作
 """
 import base64
-import io
 import json
 import os
 import shutil
@@ -28,54 +27,11 @@ from app.models.customer import Customer
 from app.models.contract import Contract
 from app.models.payment import Payment
 from app.models.user import User
-from app.ai.prompts import (
-    RECEIPT_ANALYSIS_PROMPT,
-    CONTRACT_ANALYSIS_PROMPT,
-    GENERAL_ANALYSIS_PROMPT,
-    GROUP_CHAT_ANALYSIS_PROMPT,
-)
 from app.core.business_types import BusinessType
 from app.services.contract_service import ContractService
 from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
 from app.utils.file_utils import calculate_file_hash, validate_file_id_in_dir
-
-logger = logging.getLogger(__name__)
-
-# 图片压缩参数
-MAX_IMAGE_DIMENSION = 1600
-JPEG_QUALITY = 85
-
-
-def _compress_image(file_bytes: bytes, mime: str) -> tuple:
-    """压缩图片：缩放到 MAX_IMAGE_DIMENSION 内 + JPEG 质量 85。
-    如果已经足够小则原样返回。"""
-    from PIL import Image
-
-    try:
-        img = Image.open(io.BytesIO(file_bytes))
-    except Exception:
-        return file_bytes, mime
-
-    w, h = img.size
-    # 已足够小且是 JPEG → 不压缩
-    if max(w, h) <= MAX_IMAGE_DIMENSION and mime == "image/jpeg" and len(file_bytes) < 500_000:
-        return file_bytes, mime
-
-    # 等比缩放
-    if max(w, h) > MAX_IMAGE_DIMENSION:
-        ratio = MAX_IMAGE_DIMENSION / max(w, h)
-        img = img.resize((int(w * ratio), int(h * ratio)), Image.LANCZOS)
-
-    # 转 JPEG
-    buf = io.BytesIO()
-    if img.mode in ("RGBA", "P"):
-        img = img.convert("RGB")
-    img.save(buf, format="JPEG", quality=JPEG_QUALITY)
-
-    compressed = buf.getvalue()
-    logger.info("图片压缩: %dx%d %s %.0fKB → %.0fKB", w, h, mime, len(file_bytes)/1024, len(compressed)/1024)
-    return compressed, "image/jpeg"
 
 
 def _escape_ilike(keyword: str) -> str:
@@ -156,7 +112,7 @@ class ToolExecutor:
         return summary
 
     def _cache_analysis(self, file_id: str, analysis_type: str, data: dict) -> None:
-        """将 analyze_image 的 VL 完整输出缓存到 Redis（含内存降级）"""
+        """将 文件预分析 的 VL 完整输出缓存到 Redis（含内存降级）"""
         if not isinstance(data, dict):
             return
         if self._redis:
@@ -696,8 +652,8 @@ class ToolExecutor:
     def _get_receipt_image_path(self, explicit_path: Optional[str] = None) -> Optional[str]:
         """获取凭证图片路径，三级策略：
         1. LLM 主动传的路径（最佳路径，直接用）
-        2. 同请求内 _pending_receipt_path 缓存（analyze_image 刚设置的）
-        3. DB 查询兜底：当前会话最近一次 analyze_image 的 file_path
+        2. 同请求内 _pending_receipt_path 缓存（文件预分析 刚设置的）
+        3. DB 查询兜底：当前会话最近一次 文件预分析 的 file_path
         """
         # 1. LLM 主动传了
         if explicit_path:
@@ -718,7 +674,7 @@ class ToolExecutor:
                 ChatHistory.session_id == self.session_id,
                 ChatHistory.user_id == self.user.id,
                 ChatHistory.role == "tool",
-                ChatHistory.intent_type == "analyze_image",
+                ChatHistory.intent_type == "文件预分析",
             )
             .order_by(ChatHistory.created_at.desc())
             .first()
@@ -728,7 +684,7 @@ class ToolExecutor:
         try:
             result = json.loads(record.answer)
             if result.get("success") and result.get("file_path"):
-                logger.info("DB兜底：从会话历史找到 analyze_image file_path=%s", result["file_path"])
+                logger.info("DB兜底：从会话历史找到 文件预分析 file_path=%s", result["file_path"])
                 return result["file_path"]
         except (json.JSONDecodeError, TypeError):
             pass
@@ -2022,441 +1978,13 @@ class ToolExecutor:
 
     # ── 文件分析工具 ──
 
-    @staticmethod
-    def _detect_image_mime(header: bytes) -> str:
-        """读取文件头判断图片 MIME 类型"""
-        if header[:4] == b"\x89PNG":
-            return "image/png"
-        if header[:3] == b"\xff\xd8\xff":
-            return "image/jpeg"
-        if header[:4] == b"GIF8":
-            return "image/gif"
-        if header[:4] == b"RIFF" and header[8:12] == b"WEBP":
-            return "image/webp"
-        if header[:2] == b"BM":
-            return "image/bmp"
-        return ""  # 不是已知图片格式
-
-    def _extract_text_sync(self, file_path: str) -> str:
-        """同步提取 Word/文本文件内容（委托给 file_analysis 统一实现）"""
-        # 优先尝试 Word（.docx）
-        from app.utils.file_analysis import extract_word_text
-        result = extract_word_text(file_path)
-        if result:
-            return result
-
-        # 降级：纯文本（多种编码）
-        for encoding in ("utf-8", "gbk", "gb2312", "utf-16"):
-            try:
-                with open(file_path, "r", encoding=encoding) as f:
-                    text = f.read(10000)
-                return text
-            except (UnicodeDecodeError, UnicodeError):
-                continue
-        return ""
-
-    def _extract_excel_sync(self, file_path: str) -> str:
-        """同步提取 Excel 表格数据（委托给 file_analysis 统一实现）"""
-        from app.utils.file_analysis import extract_excel_text
-        return extract_excel_text(file_path)
-
-    def analyze_image(self, file_id: str, analysis_type: str = "receipt") -> str:
-        """分析上传的文件（图片/PDF/Word/Excel/文本），同步调用
-
-        路径约定（2026/06 重构后）：TEMP_UPLOAD_DIR/{user_id}/{file_id}
-        用户隔离由 api/v1/agent.py 的 /upload 端点写入路径决定。
-        为兼容旧全局路径与新用户隔离路径，这里两路都尝试。
-        """
-        # 新格式：用户隔离路径，文件名可能带扩展名（UUID.docx）也可能没有（旧版 UUID）
-        user_dir = os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id))
-        global_dir = settings.TEMP_UPLOAD_DIR
-        file_path = None
-        for base_dir in [user_dir, global_dir]:
-            # 路径穿越防御：校验 file_id
-            safe_path = validate_file_id_in_dir(file_id, base_dir)
-            if safe_path and os.path.exists(safe_path):
-                file_path = safe_path
-                break
-            # glob 匹配带扩展名的文件（file_id 已校验不含路径成分）
-            if safe_path and os.path.isdir(base_dir):
-                for f in os.listdir(base_dir):
-                    if f.startswith(file_id + "."):
-                        candidate = os.path.join(base_dir, f)
-                        if os.path.realpath(candidate).startswith(os.path.realpath(base_dir) + os.sep):
-                            file_path = candidate
-                            break
-            if file_path:
-                break
-        if not file_path:
-            return json.dumps({"error": f"文件不存在: {file_id}"}, ensure_ascii=False)
-
-        # ━━━ 合同类型：委托给 ContractAnalyzer（共享逻辑） ━━━
-        if analysis_type == "contract":
-            # 优先查缓存：预分析可能已提取并缓存了结构化数据
-            cached = self._get_cached_analysis(file_id, analysis_type)
-            if cached:
-                logger.info("analyze_image contract: 使用缓存结果 file_id=%s", file_id)
-                self._document_context = analysis_type
-                return json.dumps({
-                    "success": True,
-                    "data": self._summarize_analysis_for_context(cached),
-                    "file_id": file_id,
-                    "file_path": f"agent_upload/{file_id}",
-                    "file_type": cached.get("file_type", "document"),
-                    "analysis_type": analysis_type,
-                }, ensure_ascii=False)
-
-            from app.services.contract_analyzer import ContractAnalyzer
-            try:
-                result = ContractAnalyzer.analyze_file(file_path, self.db, self.user.id)
-            except Exception as e:
-                logger.exception("ContractAnalyzer.analyze_file failed")
-                return json.dumps({"error": f"合同分析失败: {str(e)}"}, ensure_ascii=False)
-
-            if result.get("duplicate_detected"):
-                return json.dumps({
-                    "success": True,
-                    "duplicate_detected": True,
-                    "message": result.get("message", "该文件已在系统中存在对应的合同记录"),
-                    "existing_contract": result.get("existing_contract"),
-                    "file_id": file_id,
-                    "analysis_type": analysis_type,
-                }, ensure_ascii=False)
-
-            # 检查 ContractAnalyzer 是否真正成功
-            if not result.get("success", True):
-                logger.warning("analyze_image: ContractAnalyzer 返回失败: %s", result.get("error", ""))
-                return json.dumps({
-                    "success": False,
-                    "error": result.get("error", "合同分析失败"),
-                    "file_id": file_id,
-                    "analysis_type": analysis_type,
-                }, ensure_ascii=False)
-
-            structured = result.get("data", {})
-            self._document_context = analysis_type
-            # PR-B-3: 不再写缓存，ContractAnalyzer.analyze_file 内部已写
-            # （避免双写，key 格式统一在 contract_analyzer 管理）
-            # 合同文件不复制到凭证目录 —— create_contract 会从 temp 复制到合同目录
-            return json.dumps({
-                "success": True,
-                "data": self._summarize_analysis_for_context(structured),
-                "file_id": file_id,
-                "file_path": f"agent_upload/{file_id}",
-                "file_type": result.get("file_type", "unknown"),
-                "analysis_type": analysis_type,
-            }, ensure_ascii=False)
-
-        # ━━━ 非 contract 类型：保持原有逻辑 ━━━
-        # 1) 读取文件头判断是否为图片
-        with open(file_path, "rb") as f:
-            header = f.read(12)
-            f.seek(0)
-            file_bytes = f.read()
-
-        mime = self._detect_image_mime(header)
-
-        if mime:
-            # 是图片 → VL 模型分析
-            prompt = {
-                "receipt": RECEIPT_ANALYSIS_PROMPT,
-                "contract": CONTRACT_ANALYSIS_PROMPT,
-                "general": GENERAL_ANALYSIS_PROMPT,
-                "group_chat": GROUP_CHAT_ANALYSIS_PROMPT,
-            }.get(analysis_type, GENERAL_ANALYSIS_PROMPT)
-
-            file_bytes, mime = _compress_image(file_bytes, mime)
-            image_base64 = base64.b64encode(file_bytes).decode()
-            payload = {
-                "model": settings.DASHSCOPE_VISION_MODEL,
-                "messages": [
-                    {
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": f"data:{mime};base64,{image_base64}"},
-                            },
-                            {"type": "text", "text": prompt},
-                        ],
-                    }
-                ],
-                "temperature": 0.1,
-                "max_tokens": 4096,
-            }
-
-            headers = {
-                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
-                "Content-Type": "application/json",
-            }
-
-            try:
-                with httpx.Client(timeout=120.0) as client:
-                    response = client.post(
-                        f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
-                        json=payload,
-                        headers=headers,
-                    )
-                if response.status_code != 200:
-                    return json.dumps({"error": f"VL API 错误: {response.text}"}, ensure_ascii=False)
-
-                result = response.json()
-                content = result["choices"][0]["message"]["content"]
-                try:
-                    structured = json.loads(content)
-                except json.JSONDecodeError:
-                    structured = {"raw": content}
-
-                self._document_context = analysis_type
-                # 凭证类型：检测关键字段缺失，注入 _warnings 强制 LLM 向用户确认
-                # 缓存 VL 完整输出，后续 create_contract 等工具可直接取用，避免 LLM 搬运丢失字段
-                self._cache_analysis(file_id, analysis_type, structured)
-                # 分析成功后立即将文件从 temp 复制到凭证永久目录，避免跨回合 temp 清理导致凭证丢失
-                permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
-                receipt_path = permanent_path or f"agent_upload/{file_id}"
-                if not permanent_path:
-                    logger.warning("analyze_image: 凭证文件持久化失败 file_id=%s", file_id)
-                self._pending_receipt_path = receipt_path
-                return json.dumps({
-                    "success": True,
-                    "data": self._summarize_analysis_for_context(structured),
-                    "file_id": file_id,
-                    "file_path": receipt_path,
-                    "file_type": "image",
-                    "analysis_type": analysis_type,
-                }, ensure_ascii=False)
-            except Exception as e:
-                logger.exception("analyze_image VL call failed")
-                return json.dumps({"error": f"图片分析失败: {str(e)}"}, ensure_ascii=False)
-
-        # 2) PDF 解析
-        if header[:4] == b"%PDF":
-            try:
-                import fitz
-                doc = fitz.open(file_path)
-                total_pages = len(doc)
-                logger.info("PDF分析开始: file_id=%s, analysis_type=%s, pages=%d", file_id, analysis_type, total_pages)
-
-                if analysis_type in ("contract", "receipt"):
-                    prompt = {
-                        "receipt": RECEIPT_ANALYSIS_PROMPT,
-                        "contract": CONTRACT_ANALYSIS_PROMPT,
-                    }[analysis_type]
-
-                    # 提取所有页面文本
-                    all_page_texts = []
-                    for page_num in range(total_pages):
-                        text = doc[page_num].get_text()
-                        if text.strip():
-                            all_page_texts.append(text.strip())
-                    doc.close()
-
-                    full_text = "\n\n".join(all_page_texts)
-
-                    if full_text.strip():
-                        # ✅ 有文本 → 用百炼 DeepSeek-V4-Flash 文本模型解析
-                        logger.info("PDF文本提取成功，使用百炼DeepSeek-V4-Flash解析: text_len=%d", len(full_text))
-                        try:
-                            # 合同类型：去掉 full_text 转录要求，文本已由 PyMuPDF 提取，节省 ~30s 生成时间
-                            from app.utils.file_analysis import make_text_extraction_prompt
-                            actual_prompt = make_text_extraction_prompt(prompt) if analysis_type == "contract" else prompt
-                            payload = {
-                                "model": settings.SILICONFLOW_AGENT_MODEL,
-                                "messages": [{"role": "user", "content": f"{actual_prompt}\n\n以下是合同文件的文字内容，请提取结构化信息：\n\n{full_text[:8000]}"}],
-                                "temperature": 0.1,
-                                "max_tokens": 4096,
-                            }
-                            headers = {
-                                "Authorization": f"Bearer {settings.SILICONFLOW_API_KEY}",
-                                "Content-Type": "application/json",
-                            }
-                            with httpx.Client(timeout=120.0) as client:
-                                response = client.post(
-                                    f"{settings.SILICONFLOW_BASE_URL}/chat/completions",
-                                    json=payload, headers=headers,
-                                )
-                            if response.status_code != 200:
-                                logger.error("百炼DeepSeek API错误: status=%s, body=%s", response.status_code, response.text[:500])
-                                return json.dumps({"error": f"百炼 DeepSeek API 错误: {response.text[:200]}"}, ensure_ascii=False)
-
-                            content = response.json()["choices"][0]["message"]["content"]
-                            try:
-                                structured = json.loads(content)
-                            except json.JSONDecodeError:
-                                structured = {"raw": content}
-
-                            logger.info("PDF文本模型解析完成: analysis_type=%s, keys=%s", analysis_type, list(structured.keys()) if isinstance(structured, dict) else "非dict")
-                            # 合同类型：注入已提取的 PDF 文本作为 full_text（无需 LLM 转录）
-                            if analysis_type == "contract" and isinstance(structured, dict):
-                                structured["full_text"] = full_text
-                            self._document_context = analysis_type
-                            self._cache_analysis(file_id, analysis_type, structured)
-                            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
-                            receipt_path = permanent_path or f"agent_upload/{file_id}"
-                            if not permanent_path:
-                                logger.warning("analyze_image PDF: 文件持久化失败 file_id=%s", file_id)
-                            self._pending_receipt_path = receipt_path
-                            return json.dumps({
-                                "success": True,
-                                "data": self._summarize_analysis_for_context(structured),
-                                "file_id": file_id,
-                                "file_path": receipt_path,
-                                "file_type": "pdf",
-                                "analysis_type": analysis_type,
-                            }, ensure_ascii=False)
-                        except Exception as e:
-                            logger.exception("百炼DeepSeek解析PDF失败")
-                            return json.dumps({"error": f"PDF文本解析失败: {str(e)}"}, ensure_ascii=False)
-                    else:
-                        # ❌ 无文本（扫描件）→ 渲染为图片走 VL
-                        logger.info("PDF无文本（扫描件），使用VL视觉模型分析")
-                        try:
-                            import fitz as _fitz
-                            doc2 = _fitz.open(file_path)
-                            try:
-                                pix = doc2[0].get_pixmap(dpi=150)
-                                img_bytes = pix.tobytes("png")
-                                img_b64 = base64.b64encode(img_bytes).decode()
-                            finally:
-                                doc2.close()
-
-                            payload = {
-                                "model": settings.DASHSCOPE_VISION_MODEL,
-                                "messages": [{
-                                    "role": "user",
-                                    "content": [
-                                        {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                                        {"type": "text", "text": prompt},
-                                    ],
-                                }],
-                                "temperature": 0.1,
-                                "max_tokens": 4096,
-                            }
-                            headers = {
-                                "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
-                                "Content-Type": "application/json",
-                            }
-                            with httpx.Client(timeout=120.0) as client:
-                                resp = client.post(f"{settings.DASHSCOPE_BASE_URL}/chat/completions", json=payload, headers=headers)
-                            if resp.status_code != 200:
-                                return json.dumps({"error": f"VL API 错误: {resp.text}"}, ensure_ascii=False)
-                            content = resp.json()["choices"][0]["message"]["content"]
-                            try:
-                                structured = json.loads(content)
-                            except json.JSONDecodeError:
-                                structured = {"raw": content}
-                            self._document_context = analysis_type
-                            self._cache_analysis(file_id, analysis_type, structured)
-                            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
-                            receipt_path = permanent_path or f"agent_upload/{file_id}"
-                            if not permanent_path:
-                                logger.warning("analyze_image PDF VL: 文件持久化失败 file_id=%s", file_id)
-                            self._pending_receipt_path = receipt_path
-                            return json.dumps({
-                                "success": True,
-                                "data": self._summarize_analysis_for_context(structured),
-                                "file_id": file_id, "file_path": receipt_path,
-                                "file_type": "pdf", "analysis_type": analysis_type,
-                            }, ensure_ascii=False)
-                        except Exception as e:
-                            logger.exception("PDF扫描件VL分析失败")
-                            return json.dumps({"error": f"PDF扫描件分析失败: {str(e)}"}, ensure_ascii=False)
-
-                else:
-                    # general 类型：提取文本内容
-                    try:
-                        pages_text = []
-                        for page_num in range(total_pages):
-                            page = doc[page_num]
-                            text = page.get_text()
-                            if text.strip():
-                                pages_text.append(f"第{page_num + 1}页:\n{text.strip()}")
-                            else:
-                                pix = page.get_pixmap(dpi=150)
-                                img_bytes = pix.tobytes("png")
-                                img_b64 = base64.b64encode(img_bytes).decode()
-                                payload = {
-                                    "model": settings.DASHSCOPE_VISION_MODEL,
-                                    "messages": [{
-                                        "role": "user",
-                                        "content": [
-                                            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{img_b64}"}},
-                                            {"type": "text", "text": GENERAL_ANALYSIS_PROMPT},
-                                        ],
-                                    }],
-                                    "temperature": 0.1,
-                                    "max_tokens": 4096,
-                                }
-                                headers = {
-                                    "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
-                                    "Content-Type": "application/json",
-                                }
-                                with httpx.Client(timeout=120.0) as client:
-                                    resp = client.post(
-                                        f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
-                                        json=payload, headers=headers,
-                                    )
-                                if resp.status_code == 200:
-                                    content = resp.json()["choices"][0]["message"]["content"]
-                                    pages_text.append(f"第{page_num + 1}页(扫描): {content[:500]}")
-                                else:
-                                    pages_text.append(f"第{page_num + 1}页分析失败")
-                    finally:
-                        doc.close()
-                    result = "\n".join(pages_text)
-                    permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
-                    file_out = permanent_path or f"agent_upload/{file_id}"
-                    return json.dumps({
-                        "success": True, "data": {"content": result[:5000]},
-                        "file_id": file_id, "file_path": file_out,
-                        "file_type": "pdf",
-                    }, ensure_ascii=False)
-            except ImportError:
-                return json.dumps({"error": "PDF 分析不可用（缺少 PyMuPDF）"}, ensure_ascii=False)
-            except Exception as e:
-                logger.exception("PDF分析异常")
-                return json.dumps({"error": f"PDF 分析失败: {str(e)}"}, ensure_ascii=False)
-
-        # 3) 尝试 Word / 文本
-        text_result = self._extract_text_sync(file_path)
-        if text_result:
-            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
-            file_out = permanent_path or f"agent_upload/{file_id}"
-            # 合同类型：缓存原文 + 设置文档上下文，确保 create_contract 链路完整
-            if analysis_type == "contract":
-                self._document_context = analysis_type
-                self._cache_analysis(file_id, analysis_type, {"raw_text": text_result, "file_type": "document"})
-            return json.dumps({
-                "success": True, "data": {"content": text_result},
-                "file_id": file_id, "file_path": file_out,
-                "file_type": "document",
-            }, ensure_ascii=False)
-
-        # 4) 尝试 Excel
-        excel_result = self._extract_excel_sync(file_path)
-        if excel_result:
-            permanent_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
-            file_out = permanent_path or f"agent_upload/{file_id}"
-            # 合同类型：缓存原文 + 设置文档上下文
-            if analysis_type == "contract":
-                self._document_context = analysis_type
-                self._cache_analysis(file_id, analysis_type, {"raw_text": excel_result, "file_type": "excel"})
-            return json.dumps({
-                "success": True, "data": {"content": excel_result},
-                "file_id": file_id, "file_path": file_out,
-                "file_type": "excel",
-            }, ensure_ascii=False)
-
-        return json.dumps({"error": "无法识别的文件类型，支持：图片、PDF、Word、Excel、文本"}, ensure_ascii=False)
-
-    # 模式级工具白名单：非 chat 模式只能使用白名单内的工具
     _MODE_ALLOWED_TOOLS = {
         "receipt_income": {
-            "analyze_image", "create_payment", "update_payment",
+            "create_payment", "update_payment",
             "get_contract_detail", "query_payments",
         },
         "receipt_expense": {
-            "analyze_image", "create_expense", "update_payment",
+            "create_expense", "update_payment",
             "get_contract_detail", "query_payments",
         },
     }
@@ -2531,7 +2059,7 @@ class ToolExecutor:
             logger.warning("模式守卫拦截: tool=%s, mode=%s", tool_name, self.mode)
             return mode_blocked
 
-        # 文档上下文守卫：analyze_image 设置的 document_context 按以下规则处理：
+        # 文档上下文守卫：文件预分析 设置的 document_context 按以下规则处理：
         # - 工具命中封锁列表 → 拦截并一次性消费上下文
         # - 工具放行 → 保留上下文，由后续写操作工具（如 update_contract）结束后显式清空
         blocked = self._check_document_guard(tool_name)
@@ -2713,13 +2241,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_contract",
-            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。系统会自动使用之前 analyze_image 的分析结果，并自动根据付款条款创建对应的付款记录。",
+            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。系统会自动使用之前 文件预分析 的分析结果，并自动根据付款条款创建对应的付款记录。",
             "parameters": {
                 "type": "object",
                 "required": ["customer_id", "file_id"],
                 "properties": {
                     "customer_id": {"type": "integer", "description": "客户ID（通过 create_customer 或 search_customers 获取）"},
-                    "file_id": {"type": "string", "description": "上传文件的ID（聊天上传时返回的 file_id）。系统会自动使用之前 analyze_image 对该文件的分析结果。"},
+                    "file_id": {"type": "string", "description": "上传文件的ID（聊天上传时返回的 file_id）。系统会自动使用之前 文件预分析 对该文件的分析结果。"},
                     "contract_data": {"type": "object", "description": "【通常无需传递】合同提取数据。系统自动使用分析结果。仅当需覆盖特定字段（如标题修正）时传入。"},
                     "title": {"type": "string", "description": "合同标题（如：购车合同、两地牌办理合同）"},
                     "total_amount": {"type": "number", "description": "合同总金额"},
@@ -2729,7 +2257,7 @@ TOOL_DEFINITIONS = [
                     "business_description": {"type": "string", "description": "极简业务描述，只说做了什么业务（买什么车/办什么牌/哪个口岸），不要包含金额和付款条件。如：购买现牌 粤Z7N80港（深圳湾口岸）"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
                     "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},
-                    "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入 analyze_image 返回的 file_path。系统会自动保存到凭证目录。"},
+                    "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入 文件预分析 返回的 file_path。系统会自动保存到凭证目录。"},
                 },
             },
         },
@@ -2775,7 +2303,7 @@ TOOL_DEFINITIONS = [
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
                     },
-                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
+                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 文件预分析 返回的 file_path，系统会自动保存到凭证目录"},
                     "notes": {"type": "string", "description": "备注"},
                     "description": {"type": "string", "description": "本次付款的简短业务说明（如：30系埃尔法定金、港车保险、现牌定金），从凭证或对话中提取，不超过30字"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象，包含document_type/amount/payer_name/transaction_id等）"},
@@ -2806,7 +2334,7 @@ TOOL_DEFINITIONS = [
                         "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"],
                         "description": "付款方式",
                     },
-                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
+                    "receipt_image_path": {"type": "string", "description": "付款凭证图片路径 — 使用 文件预分析 返回的 file_path，系统会自动保存到凭证目录"},
                     "notes": {"type": "string", "description": "备注"},
                     "description": {"type": "string", "description": "本次支出的简短业务说明（如：港车保险费、代办车牌渠道费），从凭证或对话中提取，不超过30字"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
@@ -2826,7 +2354,7 @@ TOOL_DEFINITIONS = [
                     "payment_id": {"type": "integer", "description": "付款记录ID"},
                     "notes": {"type": "string", "description": "备注信息（根据凭证内容自动生成描述性备注）"},
                     "payment_method": {"type": "string", "description": "付款方式"},
-                    "receipt_image_path": {"type": "string", "description": "凭证图片路径 — 使用 analyze_image 返回的 file_path，系统会自动保存到凭证目录"},
+                    "receipt_image_path": {"type": "string", "description": "凭证图片路径 — 使用 文件预分析 返回的 file_path，系统会自动保存到凭证目录"},
                     "receipt_data": {"type": "object", "description": "凭证分析结构化数据（JSON对象）"},
                     "installment_name": {"type": "string", "description": "期数名称"},
                     "paid_date": {"type": "string", "description": "实际付款日期（YYYY-MM-DD）"},
@@ -2838,12 +2366,12 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "match_receipt",
-            "description": "根据凭证分析结果智能匹配到合同付款记录。优先按客户名匹配，其次按金额匹配。返回候选列表供用户确认。系统会自动使用之前 analyze_image 的分析结果。",
+            "description": "根据凭证分析结果智能匹配到合同付款记录。优先按客户名匹配，其次按金额匹配。返回候选列表供用户确认。系统会自动使用之前 文件预分析 的分析结果。",
             "parameters": {
                 "type": "object",
                 "required": [],
                 "properties": {
-                    "file_id": {"type": "string", "description": "凭证文件的ID。如已通过 analyze_image 分析过，系统会自动从缓存获取凭证数据。"},
+                    "file_id": {"type": "string", "description": "凭证文件的ID。如已通过 文件预分析 分析过，系统会自动从缓存获取凭证数据。"},
                     "receipt_data": {"type": "object", "description": "【通常无需传递】凭证分析结果。系统自动使用缓存数据。仅当缓存不可用时手动传入。"},
                     "customer_name": {"type": "string", "description": "客户姓名（当凭证中无法识别客户时，由用户提供）"},
                 },
@@ -2930,25 +2458,6 @@ TOOL_DEFINITIONS = [
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "question": {"type": "string", "description": "用户关于合同条款的具体问题，如'违约金怎么约定'、'交车截止日期是什么'、'甲方有什么义务'"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "analyze_image",
-            "description": "分析上传的文件（支持图片、PDF、Word、Excel、文本文件）。图片/扫描件通过视觉模型提取信息，文档类提取文字内容。文件需先通过聊天上传接口上传。",
-            "parameters": {
-                "type": "object",
-                "required": ["file_id", "analysis_type"],
-                "properties": {
-                    "file_id": {"type": "string", "description": "上传接口返回的文件ID"},
-                    "analysis_type": {
-                        "type": "string",
-                        "enum": ["receipt", "contract", "general", "group_chat"],
-                        "description": "分析类型：receipt=付款凭证, contract=合同/协议, general=其他图片, group_chat=微信群聊截图",
-                    },
                 },
             },
         },

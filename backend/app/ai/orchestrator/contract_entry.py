@@ -1,4 +1,4 @@
-"""合同录入子图（Agent 循环架构）
+﻿"""合同录入子图（Agent 循环架构）
 
 取代旧的 9 节点确定性 DAG，改为 Agent 推理循环 + interrupt 安全门。
 
@@ -34,6 +34,7 @@ from app.ai.tools import TOOL_DEFINITIONS, ToolExecutor
 from app.ai.llm_client import DashScopeAgentClient
 from app.ai.prompts import CONTRACT_ENTRY_PROMPT, build_system_prompt
 from app.services.contract_analyzer import ContractAnalyzer
+from app.utils.file_utils import resolve_file_path
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -98,7 +99,7 @@ class ContractEntrySubgraph:
                 }
 
             # 解析文件路径
-            file_path = ContractAnalyzer.resolve_file_path(file_id, user.id)
+            file_path = resolve_file_path(file_id, user.id)
             if not file_path:
                 return {
                     "current_node": "analyze_file_node",
@@ -496,3 +497,4 @@ def _convert_messages(messages: list, user) -> list:
             })
 
     return result
+

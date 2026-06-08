@@ -78,7 +78,6 @@ class Settings(BaseSettings):
     AGENT_RETRY_BASE_DELAY: float = 1.0
 
     # Agent配置
-    AGENT_ORCHESTRATOR: str = "langgraph"  # "langgraph" 或 "legacy"，回滚开关（设计文档 §9.3）
     AGENT_MAX_ITERATIONS: int = 8
     AGENT_HISTORY_WINDOW: int = 100  # 历史加载上限（条数）
     AGENT_MAX_SUMMARY_MESSAGES: int = 10  # 摘要后保留的最近消息条数

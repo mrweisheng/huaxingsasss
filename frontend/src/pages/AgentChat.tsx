@@ -29,7 +29,9 @@ import {
   MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import { useAgentStore } from '@/store/useAgentStore'
-import type { ChatMessage } from '@/types/agent'
+import type { ChatMessage, ReceiptConfirmData } from '@/types/agent'
+import ReceiptConfirmPanel from '@/components/ReceiptConfirmPanel'
+import '@/components/ReceiptConfirmPanel.css'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
 
 const { Text } = Typography
@@ -748,6 +750,24 @@ export default function AgentChat() {
 
             {/* 中断确认面板 */}
             {interruptInfo && (
+              interruptInfo.type === 'receipt_confirmation' && interruptInfo.receipt_data ? (
+                <div style={{ margin: '0 0 12px' }}>
+                  <ReceiptConfirmPanel
+                    receiptData={interruptInfo.receipt_data}
+                    contractInfo={interruptInfo.contract_info}
+                    paymentType={interruptInfo.payment_type}
+                    matchWarning={interruptInfo.match_warning}
+                    onConfirm={(modifiedData: Partial<ReceiptConfirmData>) =>
+                      resumeInterrupt({ confirmed: true, receipt_data: modifiedData })
+                    }
+                    onCancel={() => {
+                      dismissInterrupt()
+                      message.info('已取消操作')
+                    }}
+                    loading={isStreaming}
+                  />
+                </div>
+              ) : (
               <div style={{
                 margin: '0 0 12px', padding: 16,
                 background: 'var(--bg-elevated)',
@@ -799,11 +819,6 @@ export default function AgentChat() {
                 )}
                 <div style={{ display: 'flex', gap: 8 }}>
                   {interruptInfo.options.map((opt, i) => {
-                    // 按钮样式：第 1 个 primary（主推选项），其余 default。
-                    // 阶段判断：仅当有 "取消" 字样时才走 dismissInterrupt（向后兼容
-                    // contract_confirmation 的 confirmed: false 场景）；其他 option
-                    // 全部透传 opt.value 给 resumeInterrupt，由后端 LangGraph 决定
-                    // 路由。Phase 2 扩展为多选 interrupt（ask_*_node）时无需再改前端。
                     const isCancel = /取消|cancel/i.test(opt.label)
                     return (
                       <Button
@@ -812,8 +827,6 @@ export default function AgentChat() {
                         loading={isStreaming}
                         onClick={() => {
                           if (isCancel) {
-                            // dismissInterrupt 内部会发送 resumeInterrupt({confirmed: false})
-                            // 通知后端 LangGraph 走完取消流程，然后清除面板
                             dismissInterrupt()
                             message.info('已取消操作')
                           } else {
@@ -828,6 +841,7 @@ export default function AgentChat() {
                   })}
                 </div>
               </div>
+              )
             )}
 
             {/* 输入框 */}

@@ -43,12 +43,19 @@ async def adapt_langgraph_stream(
     stream_done = False
     stream_error: Optional[Exception] = None
 
+    # 事件缓冲软上限：超过此值时让 _consume_stream 短暂让步，避免主循环卡顿时 OOM。
+    # 50 = 5s × 10 evt/s（极端高速场景的 1 秒产量），给主循环充足窗口消费。
+    _EVENT_BUFFER_SOFT_CAP = 500
+
     async def _consume_stream():
-        """后台任务：消费 astream_events 生成器，事件存入 collected_events"""
+        """后台任务：消费 astream_events 生成器，事件存入 collected_events。
+        事件数达到软上限时短暂 yield，避免主循环卡顿时 OOM。"""
         nonlocal stream_done, stream_error
         try:
             async for event in agen:
                 collected_events.append(event)
+                if len(collected_events) >= _EVENT_BUFFER_SOFT_CAP:
+                    await asyncio.sleep(0)
         except Exception as e:
             stream_error = e
         finally:
@@ -232,6 +239,8 @@ _NODE_FRIENDLY = {
     "call_model_node": "思考中",
     "general_chat_subgraph": "通用对话",
     "execute_tool_node": "执行操作",
+    "analyze_receipt_node": "分析凭证内容",
+    "receipt_entry_subgraph": "凭证录入",
     "receipt_entry_node": "处理凭证请求",
     "group_chat_node": "处理群聊请求",
 }

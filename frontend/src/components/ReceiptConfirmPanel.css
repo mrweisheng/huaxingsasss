@@ -1,0 +1,117 @@
+/* ReceiptConfirmPanel — 凭证确认面板 */
+
+.receipt-confirm-panel {
+  margin: 0 0 12px;
+  padding: 16px;
+  background: var(--bg-elevated, #fff);
+  border: 1px solid var(--border-primary, #e5e7eb);
+  border-radius: 12px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.receipt-confirm-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.receipt-confirm-icon {
+  font-size: 16px;
+}
+
+.receipt-confirm-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary, #1a1a1a);
+}
+
+/* 匹配警告 */
+.receipt-confirm-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-bottom: 12px;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #9a3412;
+  line-height: 1.5;
+}
+
+.receipt-confirm-warning .anticon {
+  color: #f97316;
+  margin-top: 2px;
+  flex-shrink: 0;
+}
+
+/* 合同上下文 */
+.receipt-confirm-context {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 0 12px;
+  font-size: 12px;
+  color: var(--text-tertiary, #9ca3af);
+  flex-wrap: wrap;
+}
+
+.receipt-confirm-context strong {
+  color: var(--text-secondary, #6b7280);
+}
+
+.receipt-confirm-sep {
+  color: var(--border-primary, #e5e7eb);
+}
+
+/* 表单 */
+.receipt-confirm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.receipt-confirm-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.receipt-confirm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.receipt-confirm-field label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #6b7280);
+}
+
+.receipt-confirm-field .required-mark {
+  color: #ef4444;
+}
+
+.receipt-confirm-field.field-warning .ant-input-number,
+.receipt-confirm-field.field-warning .ant-select-selector,
+.receipt-confirm-field.field-warning .ant-picker {
+  border-color: #f97316 !important;
+}
+
+/* 操作按钮 */
+.receipt-confirm-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.receipt-confirm-actions .ant-btn-primary {
+  border-radius: 8px;
+}
+
+.receipt-confirm-actions .ant-btn-default {
+  border-radius: 8px;
+}

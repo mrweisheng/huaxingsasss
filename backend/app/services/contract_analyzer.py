@@ -1,4 +1,4 @@
-"""
+﻿"""
 合同文件分析器
 从 tools.py 提取的共享 VL 分析逻辑，供 Agent 工具和页面端点复用。
 职责：文件类型检测 → 图片压缩 → VL/文本模型调用 → 结构化输出 + 重复检测 + 自动创建付款。
@@ -20,7 +20,7 @@ from app.config import settings
 from app.models.contract import Contract
 from app.models.user import User
 from app.ai.prompts import CONTRACT_ANALYSIS_PROMPT
-from app.utils.file_utils import calculate_file_hash, validate_file_id_in_dir
+from app.utils.file_utils import calculate_file_hash
 from app.ai.tools import _get_redis_pool
 from app.utils.file_analysis import (
     compress_image,
@@ -348,24 +348,9 @@ class ContractAnalyzer:
 
     @staticmethod
     def resolve_file_path(file_id: str, user_id: int) -> Optional[str]:
-        """解析文件路径：优先用户隔离路径，回退全局路径。
-        支持新版（带扩展名 file_id.docx）和旧版（无扩展名 file_id）两种格式。
-        带路径穿越防御。"""
-        candidates = []
-        for base_dir in [
-            os.path.join(settings.TEMP_UPLOAD_DIR, str(user_id)),
-            settings.TEMP_UPLOAD_DIR,
-        ]:
-            safe_path = validate_file_id_in_dir(file_id, base_dir)
-            if safe_path:
-                candidates.append(safe_path)
-            if safe_path and os.path.isdir(base_dir):
-                for f in os.listdir(base_dir):
-                    if f.startswith(file_id + ".") or f == file_id:
-                        candidate = os.path.join(base_dir, f)
-                        if os.path.realpath(candidate).startswith(os.path.realpath(base_dir) + os.sep):
-                            candidates.append(candidate)
-        return next((p for p in candidates if os.path.exists(p)), None)
+        """兼容 shim：已迁至 app.utils.file_utils.resolve_file_path（PR-R-3）。"""
+        from app.utils.file_utils import resolve_file_path as _resolve
+        return _resolve(file_id, user_id)
 
     @staticmethod
     def copy_to_contract_dir(temp_file_path: str, contract_number: str) -> str:
@@ -383,3 +368,4 @@ class ContractAnalyzer:
         target_path = target_dir / target_filename
         shutil.copy2(temp_file_path, str(target_path))
         return str(Path(year_month) / target_filename)
+

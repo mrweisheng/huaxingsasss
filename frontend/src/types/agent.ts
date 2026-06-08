@@ -56,11 +56,33 @@ export interface ToolCallSummary {
   args: Record<string, any>
 }
 
+export interface ReceiptConfirmData {
+  payee_name: string
+  amount: number
+  currency: string
+  paid_date: string
+  payment_method: string
+  description: string
+  installment_name: string
+  notes: string
+}
+
+export interface ContractInfo {
+  contract_number: string
+  customer_name: string
+  business_type: string
+}
+
 export interface InterruptInfo {
   type: string
   message: string
   tool_calls?: ToolCallSummary[]
   preview?: Record<string, any>  // 向后兼容旧 interrupt 格式
+  // 凭证确认专用字段
+  receipt_data?: ReceiptConfirmData
+  contract_info?: ContractInfo
+  payment_type?: string
+  match_warning?: string
   options: InterruptOption[]
   interrupt_id: string
 }

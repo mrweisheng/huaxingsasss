@@ -80,17 +80,19 @@ def _infer_intent(attachments: list, user_msg: str) -> str:
 def route_by_intent(state: RootState) -> Literal[
     "contract_entry_subgraph",
     "general_chat_subgraph",
+    "receipt_entry_subgraph",
     "receipt_entry_node",
     "group_chat_node",
 ]:
     """根据 intent 和 mode 路由到对应子图/节点（Phase 2.6 完整路由矩阵）。
 
     路由矩阵：
-      intent             | mode   | 路由目标
-      contract_entry     | chat   | contract_entry_subgraph
-      receipt_entry      | *      | receipt_entry_node（降级引导）
-      group_chat         | *      | group_chat_node（降级引导）
-      general            | *      | general_chat_subgraph
+      intent             | mode                        | 路由目标
+      contract_entry     | chat                        | contract_entry_subgraph
+      receipt_entry      | receipt_income/receipt_expense | receipt_entry_subgraph（完整子图）
+      receipt_entry      | 其他                         | receipt_entry_node（降级引导）
+      group_chat         | *                           | group_chat_node（降级引导）
+      general            | *                           | general_chat_subgraph
     """
     intent = state.get("intent", "general")
     mode = state.get("executor_mode", "chat")
@@ -99,6 +101,8 @@ def route_by_intent(state: RootState) -> Literal[
         return "contract_entry_subgraph"
 
     if intent == "receipt_entry":
+        if mode in ("receipt_income", "receipt_expense"):
+            return "receipt_entry_subgraph"
         return "receipt_entry_node"
 
     if intent == "group_chat":
@@ -274,6 +278,7 @@ def build_root_graph(
         session_context / session_id: ToolExecutor 上下文
     """
     from app.ai.orchestrator.general_chat import GeneralChatSubgraph
+    from app.ai.orchestrator.receipt_entry import ReceiptEntrySubgraph
 
     workflow = StateGraph(RootState)
 
@@ -284,10 +289,20 @@ def build_root_graph(
         )
         general_chat_app = general_chat.build(checkpointer=checkpointer)
 
+    # 凭证录入子图（收入/支出统一）
+    receipt_entry = ReceiptEntrySubgraph(
+        db, user,
+        mode=session_context.get("mode", "chat") if session_context else "chat",
+        session_context=session_context or {},
+        session_id=session_id,
+    )
+    receipt_entry_app = receipt_entry.build(checkpointer=checkpointer)
+
     # 添加节点
     workflow.add_node("intake_node", intake_node)
     workflow.add_node("contract_entry_subgraph", contract_entry_app)
     workflow.add_node("general_chat_subgraph", general_chat_app)
+    workflow.add_node("receipt_entry_subgraph", receipt_entry_app)
     workflow.add_node("receipt_entry_node", receipt_entry_node)
     workflow.add_node("group_chat_node", group_chat_node)
 
@@ -306,6 +321,7 @@ def build_root_graph(
         {
             "contract_entry_subgraph": "contract_entry_subgraph",
             "general_chat_subgraph": "general_chat_subgraph",
+            "receipt_entry_subgraph": "receipt_entry_subgraph",
             "receipt_entry_node": "receipt_entry_node",
             "group_chat_node": "group_chat_node",
         },
@@ -313,6 +329,7 @@ def build_root_graph(
 
     workflow.add_edge("contract_entry_subgraph", "finalize_node")
     workflow.add_edge("general_chat_subgraph", "finalize_node")
+    workflow.add_edge("receipt_entry_subgraph", "finalize_node")
     workflow.add_edge("receipt_entry_node", "finalize_node")
     workflow.add_edge("group_chat_node", "finalize_node")
     workflow.add_edge("finalize_node", END)
