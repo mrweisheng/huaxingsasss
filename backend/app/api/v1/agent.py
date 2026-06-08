@@ -177,7 +177,7 @@ async def chat(
                 session_context=agent._session_context,
                 session_id=session_id,
             )
-            contract_app = contract_entry.build(checkpointer=cp)
+            contract_app = contract_entry.build()
             session_context = dict(agent._session_context or {})
             session_context["mode"] = agent._mode
             root_app = build_root_graph(

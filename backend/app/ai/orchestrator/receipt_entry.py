@@ -180,8 +180,11 @@ class ReceiptEntrySubgraph:
         self.executor.session_id = session_id
         self._llm_client = llm_client
 
-    def build(self, checkpointer=None) -> StateGraph:
-        """编译凭证录入子图"""
+    def build(self) -> StateGraph:
+        """编译凭证录入子图
+
+        注意：不传 checkpointer。由父图编译时传入，LangGraph 自动传播到子图。
+        """
         executor = self.executor
         user = self.user
         session_ctx = self.executor.session_context
@@ -648,7 +651,7 @@ class ReceiptEntrySubgraph:
             "__end__": END,
         })
 
-        return workflow.compile(checkpointer=checkpointer)
+        return workflow.compile()
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

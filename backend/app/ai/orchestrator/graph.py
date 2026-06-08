@@ -297,7 +297,7 @@ def build_root_graph(
         general_chat = GeneralChatSubgraph(
             db, user, session_context=session_context, session_id=session_id,
         )
-        general_chat_app = general_chat.build(checkpointer=checkpointer)
+        general_chat_app = general_chat.build()
 
     # 凭证录入子图（收入/支出统一）
     receipt_entry = ReceiptEntrySubgraph(
@@ -306,7 +306,7 @@ def build_root_graph(
         session_context=session_context or {},
         session_id=session_id,
     )
-    receipt_entry_app = receipt_entry.build(checkpointer=checkpointer)
+    receipt_entry_app = receipt_entry.build()
 
     # 添加节点
     workflow.add_node("intake_node", intake_node)
