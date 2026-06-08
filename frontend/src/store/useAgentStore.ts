@@ -272,7 +272,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           scheduleFlush()
         }
 
-        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+        if (action === 'interrupt' || action === 'done-interrupted' || action === 'done-normal' || action === 'error') {
           // 退出前刷出剩余 text
           if (rafHandle !== null) cancelAnimationFrame(rafHandle)
           flushText()
@@ -357,7 +357,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           scheduleFlush()
         }
 
-        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
+        if (action === 'interrupt' || action === 'done-interrupted' || action === 'done-normal' || action === 'error') {
           if (rafHandle !== null) cancelAnimationFrame(rafHandle)
           flushText()
           return

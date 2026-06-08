@@ -10,6 +10,7 @@ Phase 1 新增 interrupt 事件类型
 import asyncio
 import json
 import logging
+import time
 from typing import AsyncGenerator, Optional, FrozenSet
 
 from app.ai.orchestrator.state import RootState
@@ -42,6 +43,7 @@ async def adapt_langgraph_stream(
     collected_events: list = []
     stream_done = False
     stream_error: Optional[Exception] = None
+    stream_done_event = asyncio.Event()  # 流结束时主动通知主循环，无需等 sleep 超时
 
     # 事件缓冲软上限：超过此值时让 _consume_stream 短暂让步，避免主循环卡顿时 OOM。
     # 50 = 5s × 10 evt/s（极端高速场景的 1 秒产量），给主循环充足窗口消费。
@@ -51,20 +53,34 @@ async def adapt_langgraph_stream(
         """后台任务：消费 astream_events 生成器，事件存入 collected_events。
         事件数达到软上限时短暂 yield，避免主循环卡顿时 OOM。"""
         nonlocal stream_done, stream_error
+        event_count = 0
+        last_event_name = ""
         try:
             async for event in agen:
+                event_count += 1
+                last_event_name = event.get("name", event.get("event", "?"))
                 collected_events.append(event)
                 if len(collected_events) >= _EVENT_BUFFER_SOFT_CAP:
                     await asyncio.sleep(0)
+            logger.info(
+                "SSE adapter: astream_events 正常结束, session_id=%s, events=%d, last=%s",
+                session_id, event_count, last_event_name,
+            )
         except Exception as e:
             stream_error = e
+            logger.error(
+                "SSE adapter: astream_events 异常 (after %d events, last=%s): %s, session_id=%s",
+                event_count, last_event_name, e, session_id,
+            )
         finally:
             stream_done = True
+            stream_done_event.set()  # 通知主循环：流已结束
 
     task = asyncio.create_task(_consume_stream())
     interrupt_emitted = False
     stall_count = 0
     consecutive_failures = 0  # 连续 checkpoint 查询失败计数
+    stall_start_time: Optional[float] = None  # 停滞开始时间，用于超时兜底
 
     try:
         while True:
@@ -75,6 +91,7 @@ async def adapt_langgraph_stream(
                 processed += 1
                 kind = event.get("event", "")
                 stall_count = 0  # 收到事件，重置停滞计数
+                stall_start_time = None  # 收到事件，重置停滞计时
 
                 if interrupt_emitted:
                     continue
@@ -136,18 +153,36 @@ async def adapt_langgraph_stream(
 
             # 检查生成器正常结束
             if stream_done and not collected_events:
+                logger.info("SSE adapter: 流结束, 准备发送 done, session_id=%s", session_id)
                 break
 
-            # 等待新事件或超时（退避：0.5s → 1s → 2s → 4s → 5s 封顶）
+            # 等待新事件或流结束。用 asyncio.Event 通知 + 超时退避结合：
+            # - 流结束时 stream_done_event 立即唤醒，不发 done 延迟
+            # - 超时用于轮询 checkpoint 检测 interrupt
             if stall_count >= 2:
                 sleep_interval = min(0.5 * (2 ** (stall_count - 2)), 5.0)
             else:
                 sleep_interval = 0.5
-            await asyncio.sleep(sleep_interval)
+            try:
+                await asyncio.wait_for(stream_done_event.wait(), timeout=sleep_interval)
+            except asyncio.TimeoutError:
+                pass
 
             # 无新事件时，轮询检查点检测 interrupt（子图 interrupt 阻塞生成器）
             if not collected_events and not stream_done and graph and config:
                 stall_count += 1
+                # 停滞超时兜底：astream_events 可能卡在 checkpoint 写入等场景，
+                # 导致 stream_done 永远不置 True，前端永远转圈。
+                # 连续 30s 无新事件 → 强制 break，让前端收到 done 事件。
+                now = time.monotonic()
+                if stall_start_time is None:
+                    stall_start_time = now
+                elif now - stall_start_time >= 30:
+                    logger.warning(
+                        "SSE adapter: 连续停滞 %.0fs 超时, 强制发 done, session_id=%s",
+                        now - stall_start_time, session_id,
+                    )
+                    break
                 if stall_count >= 2:  # 停滞后开始检查
                     try:
                         state = await graph.aget_state(config)
@@ -216,6 +251,7 @@ async def adapt_langgraph_stream(
 
     # 正常完成
     if not interrupt_emitted:
+        logger.info("SSE adapter: 发送 done 事件, session_id=%s", session_id)
         yield _sse_encode({
             "event": "done",
             "data": {"session_id": session_id, "interrupted": False},
@@ -240,7 +276,6 @@ _NODE_FRIENDLY = {
     "summarize_node": "生成总结",
     "summarize_cancel_node": "取消录入",
     "fallback_node": "处理异常",
-    "finalize_node": "保存记录",
     "call_model_node": "思考中",
     "general_chat_subgraph": "通用对话",
     "execute_tool_node": "执行操作",
@@ -260,6 +295,7 @@ _INTERNAL_NODES = frozenset({
     "should_continue",
     "route_after_analyze",
     "route_after_execute",
+    "finalize_node",
 })
 
 
