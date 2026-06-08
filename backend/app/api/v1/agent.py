@@ -97,8 +97,6 @@ async def chat(
     logger.info("[AGENT CHAT] session_id: %s", request.session_id)
     logger.info("[AGENT CHAT] question: %s", request.question or "(空)")
     logger.info("[AGENT CHAT] attachments: %s", request.attachments)
-    logger.info("[AGENT CHAT] resume: %s", request.resume)
-    logger.info("[AGENT CHAT] interrupt_id: %s", request.interrupt_id)
     if request.attachments:
         for i, att in enumerate(request.attachments):
             logger.info("[AGENT CHAT]   attachment[%d]: file_id=%s, file_type=%s", i, att.file_id, att.file_type)
