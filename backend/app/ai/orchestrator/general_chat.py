@@ -60,8 +60,6 @@ class GeneralChatSubgraph:
         """编译通用对话子图
 
         注意：不传 checkpointer。由父图编译时传入，LangGraph 自动传播到子图。
-        """
-
         llm_client 在 build 时确定优先级：构造注入 > 懒加载默认。
         闭包捕获避免节点内每次调用都重复 resolve。
         """
