@@ -8,16 +8,14 @@ import {
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
-import type { ChatMessage, FileType, InterruptInfo, ReceiptConfirmData } from '@/types/agent'
+import type { ChatMessage, FileType } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
-import ReceiptConfirmPanel from '@/components/ReceiptConfirmPanel'
 import {
   readSSEStream,
   computeEventUpdates,
   applyMessageUpdates,
 } from '@/lib/sseStream'
 import './ReceiptChatModal.css'
-import './ReceiptConfirmPanel.css'
 
 interface ReceiptChatModalProps {
   open: boolean
@@ -118,7 +116,6 @@ export default function ReceiptChatModal({
   const [inputText, setInputText] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const [isStreaming, setIsStreaming] = useState(false)
-  const [interruptInfo, setInterruptInfo] = useState<InterruptInfo | null>(null)
   const abortRef = useRef<AbortController | null>(null)
   const sessionCreatingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -190,11 +187,6 @@ export default function ReceiptChatModal({
       result.thoughtAppend || result.thoughtFinalizeLast
     ) {
       setMessages(prev => applyMessageUpdates(prev, result, assistantId))
-    }
-
-    if (result.interruptInfo) {
-      setInterruptInfo(result.interruptInfo)
-      setIsStreaming(false)
     }
 
     if (result.sessionIdSync && !sessionId) {
@@ -304,8 +296,8 @@ export default function ReceiptChatModal({
       for await (const event of readSSEStream(response, abortRef.current.signal)) {
         const [action, nextThoughtId] = applyEvent(event, assistantId, thoughtStepId)
         thoughtStepId = nextThoughtId
-        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
-          return  // 退出循环，UI 已被 dispatcher 更新
+        if (action === 'done-normal' || action === 'error') {
+          return
         }
       }
     } catch (e: any) {
@@ -336,67 +328,10 @@ export default function ReceiptChatModal({
     setIsStreaming(false)
   }, [])
 
-  // resume interrupt：用户确认或取消后恢复 LangGraph 执行
-  const resumeInterrupt = useCallback(async (resumeValue: Record<string, any>) => {
-    if (!sessionId || !interruptInfo) return
-    const currentInterrupt = interruptInfo
-    setInterruptInfo(null)
-    setIsStreaming(true)
-
-    // 添加助手占位消息
-    const assistantId = Date.now()
-    const assistantMsg: ChatMessage = {
-      id: assistantId,
-      sessionId,
-      role: 'assistant',
-      content: '',
-      thoughts: [{ id: 'resume_0', message: '正在处理...', status: 'running' }],
-      createdAt: new Date().toISOString(),
-    }
-    setMessages(prev => [...prev, assistantMsg])
-
-    abortRef.current = new AbortController()
-    let thoughtStepId = 100  // 避免与之前的 thought ID 冲突
-
-    try {
-      const response = await agentApi.resumeInterrupt(
-        sessionId, resumeValue, currentInterrupt.interrupt_id
-      )
-      if (!response.ok || !response.body) throw new Error(`请求失败: ${response.status}`)
-
-      for await (const event of readSSEStream(response, abortRef.current.signal)) {
-        const [action, nextThoughtId] = applyEvent(event, assistantId, thoughtStepId)
-        thoughtStepId = nextThoughtId
-        if (action === 'interrupt' || action === 'done-interrupted' || action === 'error') {
-          return
-        }
-      }
-    } catch (e: any) {
-      if (e.name !== 'AbortError') {
-        message.error(e.message || '处理出错')
-      }
-    } finally {
-      setIsStreaming(false)
-      abortRef.current = null
-    }
-  }, [sessionId, interruptInfo, applyEvent])
-
-  // 确认录入
-  const handleConfirmReceipt = useCallback((modifiedData: Partial<ReceiptConfirmData>) => {
-    resumeInterrupt({ confirmed: true, receipt_data: modifiedData })
-  }, [resumeInterrupt])
-
-  // 取消录入
-  const handleCancelReceipt = useCallback(() => {
-    resumeInterrupt({ confirmed: false })
-    message.info('已取消录入')
-  }, [resumeInterrupt])
-
   const handleClose = useCallback(() => {
     abortRef.current?.abort()
     setSessionId(null)
     setMessages([])
-    setInterruptInfo(null)
     onClose()
   }, [onClose])
 
@@ -486,21 +421,6 @@ export default function ReceiptChatModal({
           </>
         )}
       </div>
-
-      {/* 凭证确认面板（interrupt） */}
-      {interruptInfo && interruptInfo.type === 'receipt_confirmation' && interruptInfo.receipt_data && (
-        <div className="receipt-chat-interrupt-area">
-          <ReceiptConfirmPanel
-            receiptData={interruptInfo.receipt_data}
-            contractInfo={interruptInfo.contract_info}
-            paymentType={interruptInfo.payment_type}
-            matchWarning={interruptInfo.match_warning}
-            onConfirm={handleConfirmReceipt}
-            onCancel={handleCancelReceipt}
-            loading={isStreaming}
-          />
-        </div>
-      )}
 
       {/* 输入区 */}
       {(

@@ -1,6 +1,6 @@
 ﻿import { create } from 'zustand'
 import { agentApi } from '../services/agent'
-import type { ChatSession, ChatMessage, FileType, InterruptInfo } from '../types/agent'
+import type { ChatSession, ChatMessage, FileType } from '../types/agent'
 import {
   readSSEStream,
   computeEventUpdates,
@@ -15,15 +15,12 @@ interface AgentState {
   isLoading: boolean
   isStreaming: boolean
   error: string | null
-  interruptInfo: InterruptInfo | null
 
   loadSessions: () => Promise<void>
   createSession: () => Promise<string>
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   sendMessage: (content: string, attachments?: File[]) => Promise<void>
-  resumeInterrupt: (resumeValue: Record<string, any>) => Promise<void>
-  dismissInterrupt: () => Promise<void>
   stopGeneration: () => void
   clearError: () => void
 }
@@ -62,10 +59,6 @@ function applyEventToStore(
     set((state) => ({
       messages: applyMessageUpdates(state.messages, result, assistantId),
     }))
-  }
-
-  if (result.interruptInfo) {
-    set({ interruptInfo: result.interruptInfo, isStreaming: false })
   }
 
   if (result.sessionIdSync) {
@@ -272,7 +265,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           scheduleFlush()
         }
 
-        if (action === 'interrupt' || action === 'done-interrupted' || action === 'done-normal' || action === 'error') {
+        if (action === 'done-normal' || action === 'error') {
           // 退出前刷出剩余 text
           if (rafHandle !== null) cancelAnimationFrame(rafHandle)
           flushText()
@@ -290,102 +283,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       set({ isStreaming: false })
       abortController = null
       if (rafHandle !== null) cancelAnimationFrame(rafHandle)
-    }
-  },
-
-  resumeInterrupt: async (resumeValue: Record<string, any>) => {
-    const { currentSessionId, interruptInfo } = get()
-    if (!currentSessionId || !interruptInfo) return
-
-    set({ isStreaming: true, interruptInfo: null, error: null })
-
-    const assistantId = Date.now() + 1
-    const assistantMessage: ChatMessage = {
-      id: assistantId,
-      sessionId: currentSessionId,
-      role: 'assistant',
-      content: '',
-      toolCalls: [],
-      thoughts: [{ id: 'resume_0', message: '正在处理...', status: 'running' }],
-      createdAt: new Date().toISOString(),
-    }
-    set((state) => ({ messages: [...state.messages, assistantMessage] }))
-
-    abortController = new AbortController()
-    let thoughtStepId = 1  // 0 已被 resume_0 占用
-
-    // rAF 合并渲染（同 sendMessage）
-    let pendingTextChunks: string[] = []
-    let rafHandle: number | null = null
-
-    const flushText = () => {
-      if (pendingTextChunks.length === 0) return
-      const merged = mergeTextAppends(pendingTextChunks)
-      pendingTextChunks = []
-      rafHandle = null
-      set((state) => ({
-        messages: applyMessageUpdates(state.messages, {
-          action: 'continue',
-          nextThoughtId: thoughtStepId,
-          textAppend: merged,
-        }, assistantId),
-      }))
-    }
-
-    const scheduleFlush = () => {
-      if (rafHandle === null) {
-        rafHandle = requestAnimationFrame(flushText)
-      }
-    }
-
-    try {
-      const response = await agentApi.resumeInterrupt(
-        currentSessionId,
-        resumeValue,
-        interruptInfo.interrupt_id,
-      )
-      if (!response.ok || !response.body) {
-        throw new Error(`请求失败: ${response.status}`)
-      }
-
-      for await (const event of readSSEStream(response, abortController.signal)) {
-        const [action, nextThoughtId, textAppend] = applyEventToStore(event, assistantId, thoughtStepId, set, get)
-        thoughtStepId = nextThoughtId
-
-        if (textAppend) {
-          pendingTextChunks.push(textAppend)
-          scheduleFlush()
-        }
-
-        if (action === 'interrupt' || action === 'done-interrupted' || action === 'done-normal' || action === 'error') {
-          if (rafHandle !== null) cancelAnimationFrame(rafHandle)
-          flushText()
-          return
-        }
-      }
-      if (rafHandle !== null) cancelAnimationFrame(rafHandle)
-      flushText()
-    } catch (e: any) {
-      if (e.name !== 'AbortError') {
-        set({ error: e.message || '对话出错' })
-      }
-    } finally {
-      set({ isStreaming: false })
-      abortController = null
-      if (rafHandle !== null) cancelAnimationFrame(rafHandle)
-    }
-  },
-
-  dismissInterrupt: async () => {
-    // 通知后端 LangGraph 取消（发送 confirmed: false），让图正常走完
-    // summarize_cancel_node → finalize_node → END，避免 checkpoint 残留。
-    // 加 await：保证后端进入取消流程后才返回，避免后端响应失败时
-    // 前端已清面板但 checkpoint 仍卡在 wait_user_confirm_node 的竞态。
-    const { currentSessionId, interruptInfo } = get()
-    if (currentSessionId && interruptInfo) {
-      await get().resumeInterrupt({ confirmed: false })
-    } else {
-      set({ interruptInfo: null })
     }
   },
 

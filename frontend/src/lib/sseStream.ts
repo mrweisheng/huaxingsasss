@@ -8,7 +8,7 @@
  *
  * 这样 store 和 modal 行为永远一致；新增事件只需在这里改一处。
  */
-import type { SSEEvent, InterruptInfo } from '@/types/agent'
+import type { SSEEvent } from '@/types/agent'
 
 /** 异步读取 SSE 事件流。自动跳过空行和无法解析的 JSON。*/
 export async function* readSSEStream(
@@ -49,8 +49,6 @@ export async function* readSSEStream(
 /** 调度结果：告知调用方该做什么，以及如何更新自己持有的状态。*/
 export type DispatchAction =
   | 'continue'         // 继续读取下一个事件
-  | 'interrupt'        // interrupt 事件已到达，写入 interruptInfo 并退出
-  | 'done-interrupted' // done (interrupted) 已到达，仅同步 session_id
   | 'done-normal'      // done（正常完成），收尾 thought 步骤
   | 'error'            // error 事件，到达
 
@@ -85,9 +83,6 @@ export interface DispatchResult {
 
   /** done 事件（正常完成）：收尾最后一个 running 步骤*/
   thoughtFinalizeLast?: true
-
-  /** interrupt 事件：写入此 InterruptInfo 并停止读取*/
-  interruptInfo?: InterruptInfo
 
   /** done 事件：需要同步的 session_id（仅在调用方还没有时）*/
   sessionIdSync?: string
@@ -142,33 +137,7 @@ export function computeEventUpdates(
     }
   }
 
-  if (event.event === 'interrupt') {
-    return {
-      action: 'interrupt',
-      nextThoughtId: ctx.thoughtStepId,
-      interruptInfo: {
-        type: data.type || 'contract_confirmation',
-        message: data.message || '',
-        tool_calls: data.tool_calls,
-        preview: data.preview,
-        receipt_data: data.receipt_data,
-        contract_info: data.contract_info,
-        payment_type: data.payment_type,
-        match_warning: data.match_warning,
-        options: data.options || [],
-        interrupt_id: data.interrupt_id || '',
-      },
-    }
-  }
-
   if (event.event === 'done') {
-    if (data.interrupted) {
-      return {
-        action: 'done-interrupted',
-        nextThoughtId: ctx.thoughtStepId,
-        sessionIdSync: !ctx.hasCurrentSessionId ? data.session_id : undefined,
-      }
-    }
     return {
       action: 'done-normal',
       nextThoughtId: ctx.thoughtStepId,

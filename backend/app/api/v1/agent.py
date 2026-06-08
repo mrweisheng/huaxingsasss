@@ -143,12 +143,6 @@ async def chat(
             from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream
             from app.ai.orchestrator.checkpointer import get_checkpointer
 
-            # 中断恢复：基本校验
-            if request.resume:
-                if not request.interrupt_id or not isinstance(request.interrupt_id, str):
-                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': '中断恢复缺少有效的 interrupt_id'}}, ensure_ascii=False)}\n\n"
-                    return
-
             try:
                 cp = get_checkpointer()
             except RuntimeError as e:
@@ -166,11 +160,7 @@ async def chat(
             }
             session_id = config["configurable"]["thread_id"]
 
-            # 构建子图 + 根图。mode / session_context 通过构造函数注入到子图闭包
-            # 内的 ToolExecutor。PR-B-4: 子图不再依赖 agent 实例（独立化）。
-            # agent 仅注入到 build_root_graph 的 finalize_node 用于 chat_history 落库（ADR #6）。
-            # 注意：必须在 interrupt_id 校验前构建，因为需要 root_app.aget_state()
-            # 来获取 StateSnapshot（cp.aget 返回原始 dict，不含 .interrupts）。
+            # 构建子图 + 根图
             contract_entry = ContractEntrySubgraph(
                 db, current_user,
                 mode=agent._mode,
@@ -190,84 +180,7 @@ async def chat(
                 session_id=session_id,
             )
 
-            # ━━━ 中断恢复：校验 interrupt_id 与当前待处理中断匹配 ━━━
-            #
-            # 关键设计（修复版 v2）：
-            #   1. sse_adapter._interrupt_from_list() 已将 LangGraph 内部分配的
-            #      Interrupt.id（UUID）覆盖到 SSE payload 的 interrupt_id 字段。
-            #      前端回传的 request.interrupt_id 就是这个 UUID。
-            #   2. 因此校验时必须从 Interrupt.id（而非 value["interrupt_id"]）提取比对。
-            #   3. 冷编译图（每次请求重建）的 aget_state() 在某些 LangGraph 版本中
-            #      可能返回异常数据，因此内置两层兜底：
-            #      a) 防御式 getattr（防止 dict 无 .interrupts 属性崩溃）
-            #      b) 直接查询 checkpointer 获取 pending_writes 中的 interrupt
-            if request.resume:
-                pending_ids = []
-                checkpoint_ok = False
-
-                # ── 主路径：graph.aget_state() → StateSnapshot.interrupts ──
-                try:
-                    state_snapshot = await root_app.aget_state(config)
-                    # 防御式：兼容 StateSnapshot 和原始 dict 两种返回类型
-                    interrupts_raw = (
-                        getattr(state_snapshot, 'interrupts', None) or []
-                        if not isinstance(state_snapshot, dict)
-                        else state_snapshot.get('interrupts', [])
-                    )
-                    for item in interrupts_raw:
-                        lg_id = getattr(item, 'id', None)
-                        if lg_id:
-                            pending_ids.append(lg_id)
-                    checkpoint_ok = True
-                    logger.debug(
-                        "checkpoint 查询成功(aget_state): pending_ids=%s thread=%s",
-                        pending_ids, session_id,
-                    )
-                except Exception as e:
-                    logger.warning(
-                        "aget_state 查询异常（将尝试 fallback）: %s thread=%s",
-                        e, session_id,
-                    )
-
-                # ── 兜底路径：直接查 checkpointer pending_writes ──
-                if not checkpoint_ok:
-                    try:
-                        saved = await cp.aget_tuple(config)
-                        if saved and saved.pending_writes:
-                            for _tid, _chan, _val in saved.pending_writes:
-                                if _chan in ("__interrupt__", "interrupt"):
-                                    items = _val if isinstance(_val, (list, tuple)) else [_val]
-                                    for it in items:
-                                        lg_id = getattr(it, 'id', None)
-                                        if lg_id:
-                                            pending_ids.append(lg_id)
-                        checkpoint_ok = True
-                        logger.debug(
-                            "checkpoint 查询成功(fallback): pending_ids=%s thread=%s",
-                            pending_ids, session_id,
-                        )
-                    except Exception as e2:
-                        logger.warning(
-                            "checkpoint fallback 也失败，放行由 LangGraph 内部校验: %s thread=%s",
-                            e2, session_id,
-                        )
-                        # 不 return，让 LangGraph 内部处理 resume 校验
-
-                # ── 校验（仅在主路径或兜底路径成功时执行） ──
-                if checkpoint_ok and pending_ids and request.interrupt_id not in pending_ids:
-                    logger.warning(
-                        "interrupt_id 不匹配: received=%s pending=%s thread=%s",
-                        request.interrupt_id, pending_ids, session_id,
-                    )
-                    yield f"data: {json.dumps({'event': 'error', 'data': {'message': 'interrupt_id 不匹配当前待处理中断，请刷新页面重试'}}, ensure_ascii=False)}\n\n"
-                    return
-                logger.info(
-                    "interrupt_id 校验通过: id=%s thread=%s",
-                    request.interrupt_id, session_id,
-                )
-
-            # 构造 initial_state。auto_filled 标记透传到 HumanMessage.additional_kwargs，
-            # finalize_node 读取后写入 chat_history.metadata，区分"用户实际输入"与"系统补全"
+            # 构造 initial_state
             from langchain_core.messages import HumanMessage
             initial_state = {
                 "messages": [HumanMessage(
@@ -279,51 +192,24 @@ async def chat(
                 "session_id": session_id,
                 "executor_mode": agent._mode,
                 "session_context": agent._session_context or {},
-                "_finalized": False,  # 每轮新请求重置幂等标记，避免跨轮残留
-                # Defense in depth：analyze 节点也会重置，这里再重置一次保证从入口
-                # 进来时状态干净（防止 checkpoint 残留 should_end=True 导致
-                # route_after_analyze 误判 END、Agent 循环进不去）
+                "_finalized": False,
                 "should_end": False,
                 "iteration_count": 0,
             }
-            # 仅在请求携带附件时才覆盖 checkpoint 中的 attachments，
-            # 否则保留上一轮的附件上下文（支持多轮合同录入等场景）
-            # 注意：无附件时必须显式置 []，否则 checkpoint 中旧 attachments 残留
-            # 会导致 analyze 节点重新分析已处理过的文件（触发重复检测）。
-            # analyze 节点通过 file_context（而非 attachments）判断是否续接。
             if request.attachments:
                 initial_state["attachments"] = [a.model_dump() for a in request.attachments]
             else:
                 initial_state["attachments"] = []
 
-            if request.resume:
-                # 中断恢复（校验已在上方完成）
-                from langgraph.types import Command
-                async for sse_line in adapt_langgraph_stream(
-                    root_app.astream_events(
-                        Command(resume=request.resume),
-                        config, version="v2",
-                    ),
-                    session_id,
-                    graph=root_app,
-                    config=config,
-                ):
-                    if http_request and await http_request.is_disconnected():
-                        return
-                    yield sse_line
-            else:
-                # 正常流
-                async for sse_line in adapt_langgraph_stream(
-                    root_app.astream_events(
-                        initial_state, config, version="v2",
-                    ),
-                    session_id,
-                    graph=root_app,
-                    config=config,
-                ):
-                    if http_request and await http_request.is_disconnected():
-                        return
-                    yield sse_line
+            async for sse_line in adapt_langgraph_stream(
+                root_app.astream_events(
+                    initial_state, config, version="v2",
+                ),
+                session_id,
+            ):
+                if http_request and await http_request.is_disconnected():
+                    return
+                yield sse_line
         except Exception as e:
             logger.exception("Agent chat error")
             error_event = {

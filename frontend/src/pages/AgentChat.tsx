@@ -29,9 +29,7 @@ import {
   MenuUnfoldOutlined,
 } from '@ant-design/icons'
 import { useAgentStore } from '@/store/useAgentStore'
-import type { ChatMessage, ReceiptConfirmData } from '@/types/agent'
-import ReceiptConfirmPanel from '@/components/ReceiptConfirmPanel'
-import '@/components/ReceiptConfirmPanel.css'
+import type { ChatMessage } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
 
 const { Text } = Typography
@@ -66,15 +64,10 @@ function formatTime(iso: string | null | undefined): string {
 }
 
 /* ── 消息气泡（memo 防止已完成消息重复渲染） ── */
-// 触发快捷确认按钮的 AI 文本关键词：含"是否正确/确认后录入/是否需要"等问句
-const CONFIRM_KEYWORDS = /是否正确|确认后|确认录入|是否录入|请确认|需要修改|是否需要|是否同意|是否确认/i
 
-const MessageBubble = memo(function MessageBubble({ msg, streaming, isLast, onQuickConfirm, onQuickModify }: {
+const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
   msg: ChatMessage
   streaming?: boolean
-  isLast?: boolean
-  onQuickConfirm?: () => void
-  onQuickModify?: () => void
 }) {
   if (msg.role === 'user') {
     return (
@@ -133,8 +126,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming, isLast, onQu
     const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
     const hasContent = !!msg.content
     const isThinking = !hasContent && hasThoughts && msg.thoughts!.some(t => t.status === 'running')
-    // AI 文本以问句结尾 + 消息已完成 + 是当前会话最新一条 → 显示快捷确认按钮
-    const showQuickActions = isLast && !streaming && hasContent && CONFIRM_KEYWORDS.test(msg.content)
 
     return (
       <div style={{ display: 'flex', marginBottom: 20 }}>
@@ -186,27 +177,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming, isLast, onQu
           ) : (
             <Spin size="small" style={{ marginTop: 8 }} />
           )}
-
-          {/* 快捷确认按钮：AI 问"是否正确/确认后录入"等问句时显示，避免手输"确认" */}
-          {showQuickActions && (
-            <div style={{ display: 'flex', gap: 8, marginTop: 8, marginLeft: 4 }}>
-              <Button
-                type="primary"
-                size="small"
-                onClick={onQuickConfirm}
-                style={{ borderRadius: 6 }}
-              >
-                ✓ 确认录入
-              </Button>
-              <Button
-                size="small"
-                onClick={onQuickModify}
-                style={{ borderRadius: 6 }}
-              >
-                ✎ 需要修改
-              </Button>
-            </div>
-          )}
         </div>
       </div>
     )
@@ -240,14 +210,11 @@ export default function AgentChat() {
     messages,
     isStreaming,
     error,
-    interruptInfo,
     loadSessions,
     createSession,
     switchSession,
     deleteSession,
     sendMessage,
-    resumeInterrupt,
-    dismissInterrupt,
     stopGeneration,
     clearError,
   } = useAgentStore()
@@ -305,19 +272,6 @@ export default function AgentChat() {
     },
     [handleSend],
   )
-
-  // 快捷确认按钮：AI 问"是否正确"等问句时一键回复"确认"，省去手输
-  const handleQuickConfirm = useCallback(async () => {
-    if (isStreaming) return
-    await sendMessage('确认', undefined)
-  }, [isStreaming, sendMessage])
-
-  // 快捷修改按钮：聚焦输入框，让用户直接打字
-  const handleQuickModify = useCallback(() => {
-    if (isStreaming) return
-    const ta = document.querySelector<HTMLTextAreaElement>('textarea[placeholder^="输入你的问题"]')
-    ta?.focus()
-  }, [isStreaming])
 
   const handleNewSession = useCallback(async () => {
     await createSession()
@@ -729,9 +683,6 @@ export default function AgentChat() {
                     key={msg.id}
                     msg={msg}
                     streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
-                    isLast={idx === arr.length - 1}
-                    onQuickConfirm={handleQuickConfirm}
-                    onQuickModify={handleQuickModify}
                   />
                 ))}
             </>
@@ -796,102 +747,6 @@ export default function AgentChat() {
               </div>
             )}
 
-            {/* 中断确认面板 */}
-            {interruptInfo && (
-              interruptInfo.type === 'receipt_confirmation' && interruptInfo.receipt_data ? (
-                <div style={{ margin: '0 0 12px' }}>
-                  <ReceiptConfirmPanel
-                    receiptData={interruptInfo.receipt_data}
-                    contractInfo={interruptInfo.contract_info}
-                    paymentType={interruptInfo.payment_type}
-                    matchWarning={interruptInfo.match_warning}
-                    onConfirm={(modifiedData: Partial<ReceiptConfirmData>) =>
-                      resumeInterrupt({ confirmed: true, receipt_data: modifiedData })
-                    }
-                    onCancel={() => {
-                      dismissInterrupt()
-                      message.info('已取消操作')
-                    }}
-                    loading={isStreaming}
-                  />
-                </div>
-              ) : (
-              <div style={{
-                margin: '0 0 12px', padding: 16,
-                background: 'var(--bg-elevated)',
-                border: '1px solid var(--border-primary)',
-                borderRadius: 12,
-                boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
-              }}>
-                <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4, color: 'var(--text-primary)' }}>
-                  确认操作
-                </div>
-                <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 12, whiteSpace: 'pre-wrap' }}>
-                  {interruptInfo.message}
-                </div>
-                {interruptInfo.tool_calls && interruptInfo.tool_calls.length > 0 && (
-                  <div style={{
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)',
-                    marginBottom: 12, fontSize: 13, color: 'var(--text-secondary)',
-                    display: 'flex', flexDirection: 'column', gap: 6,
-                  }}>
-                    {interruptInfo.tool_calls.map((tc, i) => (
-                      <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <span style={{
-                          display: 'inline-block', width: 6, height: 6,
-                          borderRadius: '50%', background: 'var(--color-primary)', flexShrink: 0,
-                        }} />
-                        <span>{tc.description}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {interruptInfo.preview && !interruptInfo.tool_calls && (
-                  <div style={{
-                    padding: '8px 12px', borderRadius: 8,
-                    background: 'var(--bg-secondary)',
-                    marginBottom: 12, fontSize: 12, color: 'var(--text-tertiary)',
-                    display: 'flex', flexWrap: 'wrap', gap: '4px 16px',
-                  }}>
-                    {interruptInfo.preview.customer_name && (
-                      <span>客户：<strong>{interruptInfo.preview.customer_name}</strong></span>
-                    )}
-                    {interruptInfo.preview.total_amount && (
-                      <span>金额：<strong>{interruptInfo.preview.total_amount} {interruptInfo.preview.currency || ''}</strong></span>
-                    )}
-                    {interruptInfo.preview.business_type && (
-                      <span>类型：<strong>{interruptInfo.preview.business_type}</strong></span>
-                    )}
-                  </div>
-                )}
-                <div style={{ display: 'flex', gap: 8 }}>
-                  {interruptInfo.options.map((opt, i) => {
-                    const isCancel = /取消|cancel/i.test(opt.label)
-                    return (
-                      <Button
-                        key={i}
-                        type={i === 0 ? 'primary' : 'default'}
-                        loading={isStreaming}
-                        onClick={() => {
-                          if (isCancel) {
-                            dismissInterrupt()
-                            message.info('已取消操作')
-                          } else {
-                            resumeInterrupt(opt.value)
-                          }
-                        }}
-                        style={{ borderRadius: 8 }}
-                      >
-                        {opt.label}
-                      </Button>
-                    )
-                  })}
-                </div>
-              </div>
-              )
-            )}
-
             {/* 输入框 */}
             <div
               style={{
@@ -917,7 +772,7 @@ export default function AgentChat() {
                 <Button
                   type="text"
                   icon={<PaperClipOutlined style={{ fontSize: 18 }} />}
-                  disabled={isStreaming || !!interruptInfo}
+                  disabled={isStreaming}
                   style={{
                     padding: '8px', borderRadius: 8,
                     color: pendingFiles.length > 0 ? 'var(--brand-primary)' : 'var(--text-tertiary)',
@@ -931,18 +786,17 @@ export default function AgentChat() {
                 onKeyDown={handleKeyDown}
                 placeholder={pendingFiles.length > 0 ? '请描述文件内容（必填）...' : '输入你的问题...'}
                 autoSize={{ minRows: 1, maxRows: 5 }}
-                disabled={isStreaming || !!interruptInfo}
+                disabled={isStreaming}
                 bordered={false}
                 style={{ flex: 1, fontSize: 14, lineHeight: '22px', padding: '6px 0', resize: 'none', color: 'var(--text-primary)' }}
               />
-              {(isStreaming || !!interruptInfo) ? (
+              {isStreaming ? (
                 <Button
                   danger size="large" icon={<StopOutlined />}
                   onClick={stopGeneration}
-                  disabled={!!interruptInfo}
                   style={{ borderRadius: 8, height: 40, padding: '0 16px', flexShrink: 0 }}
                 >
-                  {interruptInfo ? '等待确认' : '停止'}
+                  停止
                 </Button>
               ) : (
                 <Button

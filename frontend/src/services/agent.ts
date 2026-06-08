@@ -87,21 +87,6 @@ export const agentApi = {
   },
 
   /**
-   * 中断恢复：前端按钮点击后发送 Command(resume=...) 载荷。
-   */
-  resumeInterrupt: async (
-    sessionId: string,
-    resume: Record<string, any>,
-    interruptId: string,
-  ): Promise<Response> => {
-    return _chatRequest({
-      question: '',
-      session_id: sessionId,
-      attachments: [],
-      resume,
-      interrupt_id: interruptId,
-    })
-  },
 }
 
 function _chatRequest(body: Record<string, any>): Promise<Response> {
