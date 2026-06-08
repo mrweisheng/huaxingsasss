@@ -21,9 +21,17 @@ logger = logging.getLogger(__name__)
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 async def intake_node(state: RootState) -> dict:
-    """入口节点：根据附件类型和用户消息推断意图"""
+    """入口节点：根据附件类型和用户消息推断意图。
+
+    注意：当 Command(resume=...) 重新进入根图时，checkpoint state 中
+    已包含上一轮的 intent。如果没有新附件，应保留现有 intent 避免误路由。
+    """
     attachments = state.get("attachments", [])
     if not attachments:
+        # Resume 场景：checkpoint state 保留了上一轮的 intent
+        existing_intent = state.get("intent", "")
+        if existing_intent and existing_intent not in ("general", ""):
+            return {}  # 保留现有 intent，不重新推断
         return {"intent": "general", "file_context": None}
 
     # 根据文件类型 + 用户消息字符串推断意图

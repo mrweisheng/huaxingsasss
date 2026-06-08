@@ -366,14 +366,17 @@ class ReceiptEntrySubgraph:
                 }
 
             if tool_calls:
-                lc_tool_calls = [
-                    {
+                lc_tool_calls = []
+                for tc in tool_calls:
+                    try:
+                        args = json.loads(tc["arguments"]) if isinstance(tc["arguments"], str) else tc["arguments"]
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    lc_tool_calls.append({
+                        "name": tc["name"],
+                        "args": args,
                         "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                    }
-                    for tc in tool_calls
-                ]
+                    })
                 return {
                     "messages": [AIMessage(
                         content=full_text or None,
@@ -425,7 +428,7 @@ class ReceiptEntrySubgraph:
             approved_ids = set(state.get("approved_tool_ids", []))
             sensitive_calls = [
                 tc for tc in all_tool_calls
-                if tc["function"]["name"] in _SENSITIVE_TOOLS
+                if tc["name"] in _SENSITIVE_TOOLS
                 and tc["id"] not in approved_ids
             ]
             new_approved_ids = []
@@ -434,10 +437,8 @@ class ReceiptEntrySubgraph:
                 # 从第一个敏感工具调用中提取参数
                 tc = sensitive_calls[0]
                 try:
-                    args = (
-                        json.loads(tc["function"]["arguments"])
-                        if isinstance(tc["function"]["arguments"], str)
-                        else tc["function"]["arguments"]
+                    args = tc["args"] if isinstance(tc["args"], dict) else (
+                        json.loads(tc["args"]) if isinstance(tc["args"], str) else {}
                     )
                 except (json.JSONDecodeError, TypeError):
                     args = {}
@@ -506,10 +507,8 @@ class ReceiptEntrySubgraph:
                 if user_data:
                     for stc in sensitive_calls:
                         try:
-                            stc_args = (
-                                json.loads(stc["function"]["arguments"])
-                                if isinstance(stc["function"]["arguments"], str)
-                                else dict(stc["function"]["arguments"])
+                            stc_args = stc["args"] if isinstance(stc["args"], dict) else (
+                                json.loads(stc["args"]) if isinstance(stc["args"], str) else {}
                             )
                         except (json.JSONDecodeError, TypeError):
                             stc_args = {}
@@ -520,7 +519,7 @@ class ReceiptEntrySubgraph:
                             if key in user_data:
                                 stc_args[key] = user_data[key]
 
-                        stc["function"]["arguments"] = json.dumps(stc_args, ensure_ascii=False)
+                        stc["args"] = stc_args
 
                 new_approved_ids = sensitive_ids
                 approved_ids.update(sensitive_ids)
@@ -528,12 +527,10 @@ class ReceiptEntrySubgraph:
             # 执行所有工具调用
             tool_messages = []
             for tc in all_tool_calls:
-                tool_name = tc["function"]["name"]
+                tool_name = tc["name"]
                 try:
-                    args = (
-                        json.loads(tc["function"]["arguments"])
-                        if isinstance(tc["function"]["arguments"], str)
-                        else tc["function"]["arguments"]
+                    args = tc["args"] if isinstance(tc["args"], dict) else (
+                        json.loads(tc["args"]) if isinstance(tc["args"], str) else {}
                     )
                 except json.JSONDecodeError:
                     args = {}

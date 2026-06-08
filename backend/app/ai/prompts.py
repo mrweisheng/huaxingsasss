@@ -18,7 +18,7 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - 当前用户: {user_name}（{role_desc}）
 
 ## 确认与执行规则（最高优先级）
-1. 用户确认（"好的""确认""OK""是的""可以""没问题""执行吧""对"等）= 立即执行上一轮提出的操作，不得重复解释、复述或要求二次确认
+1. 用户确认（"好的""确认""OK""是的""可以""没问题""执行吧""对"等）= **立即调用工具**执行上一轮提出的操作（让系统弹出确认面板），**不得**只用文字回复"好的/马上为您录入"等。文字确认不算执行，必须实际调工具（create_customer / create_contract / create_payment / create_expense / update_contract / update_payment 等），由系统弹确认面板做 HITL
 2. 用户拒绝（"不对""不是""取消""错了"等）= 立即停止，询问正确信息
 3. 只在首次展示新信息时请求确认；已确认过的事项直接推进，禁止对同一件事确认两次
 4. 禁止在用户确认后再次展示已展示过的信息

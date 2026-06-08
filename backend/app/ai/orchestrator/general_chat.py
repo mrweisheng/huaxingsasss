@@ -122,14 +122,17 @@ class GeneralChatSubgraph:
 
             if tool_calls:
                 # 有工具调用 → 返回 AIMessage(含 tool_calls)，路由到 execute_tool_node
-                lc_tool_calls = [
-                    {
+                lc_tool_calls = []
+                for tc in tool_calls:
+                    try:
+                        args = json.loads(tc["arguments"]) if isinstance(tc["arguments"], str) else tc["arguments"]
+                    except (json.JSONDecodeError, TypeError):
+                        args = {}
+                    lc_tool_calls.append({
+                        "name": tc["name"],
+                        "args": args,
                         "id": tc["id"],
-                        "type": "function",
-                        "function": {"name": tc["name"], "arguments": tc["arguments"]},
-                    }
-                    for tc in tool_calls
-                ]
+                    })
                 return {
                     "messages": [AIMessage(
                         content=full_text or None,
@@ -168,12 +171,10 @@ class GeneralChatSubgraph:
 
             tool_messages = []
             for tc in last_msg.tool_calls:
-                tool_name = tc["function"]["name"]
+                tool_name = tc["name"]
                 try:
-                    args = (
-                        json.loads(tc["function"]["arguments"])
-                        if isinstance(tc["function"]["arguments"], str)
-                        else tc["function"]["arguments"]
+                    args = tc["args"] if isinstance(tc["args"], dict) else (
+                        json.loads(tc["args"]) if isinstance(tc["args"], str) else {}
                     )
                 except json.JSONDecodeError:
                     args = {}

@@ -66,7 +66,16 @@ function formatTime(iso: string | null | undefined): string {
 }
 
 /* ── 消息气泡（memo 防止已完成消息重复渲染） ── */
-const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: ChatMessage; streaming?: boolean }) {
+// 触发快捷确认按钮的 AI 文本关键词：含"是否正确/确认后录入/是否需要"等问句
+const CONFIRM_KEYWORDS = /是否正确|确认后|确认录入|是否录入|请确认|需要修改|是否需要|是否同意|是否确认/i
+
+const MessageBubble = memo(function MessageBubble({ msg, streaming, isLast, onQuickConfirm, onQuickModify }: {
+  msg: ChatMessage
+  streaming?: boolean
+  isLast?: boolean
+  onQuickConfirm?: () => void
+  onQuickModify?: () => void
+}) {
   if (msg.role === 'user') {
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
@@ -124,6 +133,8 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
     const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
     const hasContent = !!msg.content
     const isThinking = !hasContent && hasThoughts && msg.thoughts!.some(t => t.status === 'running')
+    // AI 文本以问句结尾 + 消息已完成 + 是当前会话最新一条 → 显示快捷确认按钮
+    const showQuickActions = isLast && !streaming && hasContent && CONFIRM_KEYWORDS.test(msg.content)
 
     return (
       <div style={{ display: 'flex', marginBottom: 20 }}>
@@ -174,6 +185,27 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
             </div>
           ) : (
             <Spin size="small" style={{ marginTop: 8 }} />
+          )}
+
+          {/* 快捷确认按钮：AI 问"是否正确/确认后录入"等问句时显示，避免手输"确认" */}
+          {showQuickActions && (
+            <div style={{ display: 'flex', gap: 8, marginTop: 8, marginLeft: 4 }}>
+              <Button
+                type="primary"
+                size="small"
+                onClick={onQuickConfirm}
+                style={{ borderRadius: 6 }}
+              >
+                ✓ 确认录入
+              </Button>
+              <Button
+                size="small"
+                onClick={onQuickModify}
+                style={{ borderRadius: 6 }}
+              >
+                ✎ 需要修改
+              </Button>
+            </div>
           )}
         </div>
       </div>
@@ -273,6 +305,19 @@ export default function AgentChat() {
     },
     [handleSend],
   )
+
+  // 快捷确认按钮：AI 问"是否正确"等问句时一键回复"确认"，省去手输
+  const handleQuickConfirm = useCallback(async () => {
+    if (isStreaming) return
+    await sendMessage('确认', undefined)
+  }, [isStreaming, sendMessage])
+
+  // 快捷修改按钮：聚焦输入框，让用户直接打字
+  const handleQuickModify = useCallback(() => {
+    if (isStreaming) return
+    const ta = document.querySelector<HTMLTextAreaElement>('textarea[placeholder^="输入你的问题"]')
+    ta?.focus()
+  }, [isStreaming])
 
   const handleNewSession = useCallback(async () => {
     await createSession()
@@ -684,6 +729,9 @@ export default function AgentChat() {
                     key={msg.id}
                     msg={msg}
                     streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
+                    isLast={idx === arr.length - 1}
+                    onQuickConfirm={handleQuickConfirm}
+                    onQuickModify={handleQuickModify}
                   />
                 ))}
             </>
