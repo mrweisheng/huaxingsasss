@@ -254,7 +254,9 @@ def _interrupt_from_list(interrupts: list) -> Optional[dict]:
     """从 Interrupt 列表中提取第一个 interrupt 的 value。
 
     用于 graph.aget_state(config).interrupts 返回的 [Interrupt, ...] 列表。
-    Interrupt.id 覆盖 value 中的 interrupt_id，确保 resume 校验匹配。
+    注意：不要用 Interrupt.id（LangGraph 内部 UUID）覆盖 value 中的 interrupt_id。
+    前后端校验都依赖 execute_tool_node 里生成的 contract_xxx / receipt_xxx；
+    LangGraph 内部 UUID 仅用于日志追溯，作为独立字段 lg_interrupt_id 附带。
     """
     if not interrupts:
         return None
@@ -267,8 +269,8 @@ def _interrupt_from_list(interrupts: list) -> Optional[dict]:
     if not isinstance(value, dict):
         return None
     result = dict(value)
-    if lg_id:
-        result['interrupt_id'] = lg_id
+    if lg_id and 'lg_interrupt_id' not in result:
+        result['lg_interrupt_id'] = lg_id
     return result
 
 
@@ -276,7 +278,7 @@ def _extract_interrupt(output: dict) -> Optional[dict]:
     """从 on_chain_end 事件的 output 中提取 interrupt payload。
 
     LangGraph 1.2+ 使用 __interrupt__ 键名，值为 [Interrupt, ...] 列表。
-    委托 _interrupt_from_list 统一处理 Interrupt 对象解析和 ID 覆盖。
+    委托 _interrupt_from_list 统一处理 Interrupt 对象解析和 ID 透传。
     """
     interrupts = output.get("__interrupt__")
     if not interrupts or not isinstance(interrupts, list):
