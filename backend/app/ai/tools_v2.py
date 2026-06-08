@@ -45,6 +45,47 @@ class ToolExecutorV2(ToolExecutor):
         self._document_context = None
 
     # ═══════════════════════════════════════════════════════════
+    # 辅助方法
+    # ═══════════════════════════════════════════════════════════
+
+    def _resolve_receipt_path(self, receipt_data: dict, explicit_path: str = None) -> Optional[str]:
+        """从 receipt_data 中解析凭证文件路径。
+
+        优先级：explicit_path > receipt_data._source_file_id > receipt_data.file_id
+        """
+        if explicit_path:
+            return self._ensure_file_in_receipt_dir(explicit_path)
+        if isinstance(receipt_data, dict):
+            src_id = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
+            if src_id:
+                return self._ensure_file_in_receipt_dir(f"agent_upload/{src_id}")
+        return None
+
+    def _build_payment_description(
+        self, amount: float, currency: str, installment_name: str = "",
+        business_hint: str = "", payee_name: str = None, contract=None,
+    ) -> str:
+        """自动生成付款记录的 description 字段。
+
+        格式："{币种符号}{金额} {期数名} [{业务上下文}]"
+        例如："港币5万 定金 30系埃尔法"、"人民币5万 定金 购买现牌粤Z7N80港"
+        """
+        symbol = "HK$" if currency == "HKD" else "¥"
+        amt = f"{amount:,.0f}" if amount >= 1000 else str(int(amount))
+        parts = [f"{symbol}{amt}"]
+        if installment_name:
+            parts.append(installment_name)
+        if payee_name:
+            parts.append(f"→{payee_name}")
+        # 补充业务上下文
+        ctx = business_hint or ""
+        if contract and hasattr(contract, 'business_description') and contract.business_description:
+            ctx = contract.business_description
+        if ctx:
+            parts.append(ctx[:20])
+        return " ".join(parts)[:100]
+
+    # ═══════════════════════════════════════════════════════════
     # 统一执行入口（简化版，无 mode guard / document guard）
     # ═══════════════════════════════════════════════════════════
 
@@ -114,10 +155,13 @@ class ToolExecutorV2(ToolExecutor):
                 cached = self._get_cached_analysis(file_id, "contract") \
                     or self._get_cached_analysis(file_id, "receipt")
                 if cached and purpose not in ("auto",):
-                    # 有缓存且 purpose 匹配 → 直接返回
+                    # 注入 file_id 到缓存数据中
+                    cached_with_fid = dict(cached) if isinstance(cached, dict) else cached
+                    if isinstance(cached_with_fid, dict):
+                        cached_with_fid.setdefault("_source_file_id", file_id)
                     results.append({
                         "file_id": file_id, "success": True,
-                        "type": purpose, "data": cached,
+                        "type": purpose, "data": cached_with_fid,
                         "source": "cache",
                     })
                     continue
@@ -140,10 +184,14 @@ class ToolExecutorV2(ToolExecutor):
                         "message": "该文件已在系统中存在对应的合同记录",
                     })
                 elif analysis.get("success"):
+                    # 注入 _source_file_id 到 data 中（供后续工具解析凭证路径）
+                    data_with_fid = dict(analysis["data"]) if isinstance(analysis["data"], dict) else analysis["data"]
+                    if isinstance(data_with_fid, dict):
+                        data_with_fid["_source_file_id"] = file_id
                     results.append({
                         "file_id": file_id, "success": True,
                         "type": analysis["type"],
-                        "data": analysis["data"],
+                        "data": data_with_fid,
                         "confidence": analysis.get("confidence"),
                         "file_type": analysis.get("file_type"),
                     })
@@ -212,6 +260,14 @@ class ToolExecutorV2(ToolExecutor):
         transaction_date = receipt_data.get("transaction_date", "")
         business_hint = receipt_data.get("business_hint", "")
         description = receipt_data.get("description", "") or business_hint or ""
+        # 自动生成更可读的描述
+        auto_desc = _build_payment_description(
+            amount=amount, currency=currency,
+            installment_name=receipt_data.get("installment_name", ""),
+            business_hint=business_hint,
+            payee_name=payee_name if payment_type == "expense" else None,
+        )
+        description = description or auto_desc
         document_type = receipt_data.get("document_type", "")
 
         # 查该合同所有 pending 状态同类型付款记录
@@ -248,13 +304,14 @@ class ToolExecutorV2(ToolExecutor):
                 # 匹配成功 → 更新为 paid
                 payment = best_match
                 try:
-                    # 获取凭证路径
-                    receipt_path = None
-                    receipt_file_id = receipt_data.get("file_id")
-                    if receipt_file_id:
-                        receipt_path = self._ensure_file_in_receipt_dir(
-                            f"agent_upload/{receipt_file_id}"
-                        )
+                    # 获取凭证路径（优先 explicit path，其次 _source_file_id）
+                    receipt_path = self._resolve_receipt_path(receipt_data, None)
+                    if not receipt_path:
+                        receipt_file_id = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
+                        if receipt_file_id:
+                            receipt_path = self._ensure_file_in_receipt_dir(
+                                f"agent_upload/{receipt_file_id}"
+                            )
 
                     payment.status = "paid"
                     payment.paid_amount = Decimal(str(amount))
@@ -306,13 +363,14 @@ class ToolExecutorV2(ToolExecutor):
                     self.db, contract_id, payment_type
                 )
 
-                # 获取凭证路径
-                receipt_path = None
-                receipt_file_id = receipt_data.get("file_id")
-                if receipt_file_id:
-                    receipt_path = self._ensure_file_in_receipt_dir(
-                        f"agent_upload/{receipt_file_id}"
-                    )
+                # 获取凭证路径（优先 explicit，其次 _source_file_id）
+                receipt_path = self._resolve_receipt_path(receipt_data, None)
+                if not receipt_path:
+                    receipt_src_id = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
+                    if receipt_src_id:
+                        receipt_path = self._ensure_file_in_receipt_dir(
+                            f"agent_upload/{receipt_src_id}"
+                        )
 
                 paid_date = date.today()
                 if transaction_date:
@@ -416,9 +474,23 @@ class ToolExecutorV2(ToolExecutor):
         if type == "expense" and not payee_name:
             return json.dumps({"error": "创建支出记录必须指定收款方名称"}, ensure_ascii=False)
 
-        # 凭证路径处理
-        if receipt_image_path:
-            receipt_image_path = self._ensure_file_in_receipt_dir(receipt_image_path)
+        # 凭证路径处理（优先 explicit path，其次 receipt_data._source_file_id）
+        resolved_path = self._resolve_receipt_path(receipt_data or {}, receipt_image_path)
+        if resolved_path:
+            receipt_image_path = resolved_path
+
+        # 自动生成 description（如果 Agent 未提供）
+        if not description:
+            hint = ""
+            if isinstance(receipt_data, dict):
+                hint = receipt_data.get("business_hint", "")
+            description = self._build_payment_description(
+                amount=amount, currency=currency,
+                installment_name=installment_name or "",
+                business_hint=hint,
+                payee_name=payee_name if type == "expense" else None,
+                contract=contract,
+            )
 
         # 期数
         if not installment_number:
@@ -448,13 +520,16 @@ class ToolExecutorV2(ToolExecutor):
                 installment_name=installment_name,
             )
 
-            # 补充字段
+            # 补充字段 + 凭证状态
             if payee_name and type == "expense":
                 payment.payee_name = payee_name
             if description:
                 payment.description = description[:30]
-            if receipt_data:
+            has_receipt = bool(receipt_data or receipt_image_path)
+            if has_receipt:
                 payment.receipt_data = receipt_data
+                payment.status = "paid"  # 有凭证 → 直接确认
+                payment.notes = (notes or "") + "（附凭证）" if notes else "凭证录入"
 
             self.db.commit()
             self.db.refresh(payment)
