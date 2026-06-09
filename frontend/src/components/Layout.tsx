@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout as AntLayout, Menu, Avatar, Dropdown, Typography, Space, Modal, Form, Input, Button, message, Drawer, Grid, Tag } from 'antd'
 import {
@@ -14,32 +14,13 @@ import {
   PieChartOutlined,
   CloseOutlined,
   StarFilled,
-  PlusOutlined,
-  DeleteOutlined,
-  MessageOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '@/store/useAuthStore'
-import { useAgentStore } from '@/store/useAgentStore'
 import { userApi } from '@/services/user'
 import MobileNav from './MobileNav'
 
 const { Header, Sider, Content } = AntLayout
 const { Text } = Typography
-
-/* ── 聊天记录时间格式化（Layout 侧栏专用）── */
-function formatSessionTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const now = new Date()
-  const diffMin = Math.floor((now.getTime() - d.getTime()) / 60000)
-  if (diffMin < 1) return '刚刚'
-  if (diffMin < 60) return `${diffMin}分钟前`
-  const diffHour = Math.floor(diffMin / 60)
-  if (diffHour < 24) return `${diffHour}小时前`
-  const diffDay = Math.floor(diffHour / 24)
-  if (diffDay < 7) return `${diffDay}天前`
-  return `${d.getMonth() + 1}/${d.getDate()}`
-}
 
 export default function Layout() {
   const navigate = useNavigate()
@@ -50,20 +31,6 @@ export default function Layout() {
   const [passwordLoading, setPasswordLoading] = useState(false)
   const [passwordForm] = Form.useForm()
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
-  const [hoveredSession, setHoveredSession] = useState<string | null>(null)
-
-  // 聊天记录 store（Layout 直接消费）
-  const {
-    sessions,
-    currentSessionId,
-    loadSessions,
-    createSession,
-    switchSession,
-    deleteSession,
-  } = useAgentStore()
-
-  // Layout 挂载时拉一次 sessions（AgentChat 也会拉，但 Layout 是全局，优先拉）
-  useEffect(() => { loadSessions() }, [])
 
   // 移动端断点检测 — 默认 desktop，避免首次渲染闪烁
   const screens = Grid.useBreakpoint()
@@ -124,29 +91,6 @@ export default function Layout() {
 
   const handleBusinessMenuClick = ({ key }: { key: string }) => {
     navigate(key)
-  }
-
-  const handleNewChat = async () => {
-    // 创建新会话，然后跳到 /agent
-    await createSession()
-    navigate('/agent')
-  }
-
-  const handleClickSession = (sessionId: string) => {
-    switchSession(sessionId)
-    navigate('/agent')
-  }
-
-  const handleDeleteSession = (sessionId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    Modal.confirm({
-      title: '删除会话',
-      content: '确定要删除此会话吗？删除后无法恢复。',
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: () => deleteSession(sessionId),
-    })
   }
 
   const handleLogout = () => {
@@ -351,113 +295,6 @@ export default function Layout() {
             className="sider-menu"
             style={{ borderInlineEnd: 'none' }}
           />
-
-          {/* ══════ ③ 聊天记录（侧边栏下半部分）══════ */}
-          {!collapsed && (
-            <div style={{
-              marginTop: 16, paddingTop: 12,
-              borderTop: '1px solid rgba(255,255,255,0.06)',
-              display: 'flex', flexDirection: 'column',
-              minHeight: 0, flex: 1,
-            }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '0 16px 8px', flexShrink: 0,
-              }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <MessageOutlined style={{ fontSize: 13, color: 'rgba(201,149,43,0.85)' }} />
-                  <Text style={{
-                    fontSize: 12, fontWeight: 600,
-                    color: 'rgba(255,255,255,0.7)',
-                    letterSpacing: 0.5,
-                  }}>
-                    聊天记录
-                  </Text>
-                  <span style={{
-                    fontSize: 10, color: 'rgba(255,255,255,0.4)',
-                    background: 'rgba(255,255,255,0.06)', padding: '0 5px',
-                    borderRadius: 3,
-                  }}>
-                    {sessions.length}
-                  </span>
-                </div>
-                <Button
-                  type="text" size="small"
-                  icon={<PlusOutlined style={{ fontSize: 12 }} />}
-                  onClick={handleNewChat}
-                  style={{ color: 'var(--brand-gold)', fontSize: 11, padding: '0 6px', height: 22 }}
-                >
-                  新建
-                </Button>
-              </div>
-              <div style={{ flex: 1, overflow: 'auto', padding: '0 8px 8px' }}>
-                {sessions.length === 0 ? (
-                  <div style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>
-                    暂无对话
-                  </div>
-                ) : (
-                  sessions.map((session) => {
-                    const isActive = session.sessionId === currentSessionId
-                    const isHovered = hoveredSession === session.sessionId
-                    return (
-                      <div
-                        key={session.sessionId}
-                        onClick={() => handleClickSession(session.sessionId)}
-                        onMouseEnter={() => setHoveredSession(session.sessionId)}
-                        onMouseLeave={() => setHoveredSession(null)}
-                        style={{
-                          padding: '8px 10px',
-                          borderRadius: 8,
-                          cursor: 'pointer',
-                          marginBottom: 2,
-                          background: isActive
-                            ? 'rgba(201, 149, 43, 0.15)'
-                            : isHovered
-                              ? 'rgba(255,255,255,0.06)'
-                              : 'transparent',
-                          border: isActive ? '1px solid rgba(201,149,43,0.3)' : '1px solid transparent',
-                          transition: 'all 0.15s',
-                          position: 'relative',
-                        }}
-                      >
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
-                          <Text style={{
-                            fontSize: 12,
-                            fontWeight: isActive ? 600 : 400,
-                            color: isActive ? '#f1f5f9' : 'rgba(255,255,255,0.75)',
-                            display: 'block',
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                            flex: 1, minWidth: 0,
-                          }}>
-                            {session.title || '新对话'}
-                          </Text>
-                          <DeleteOutlined
-                            onClick={(e) => handleDeleteSession(session.sessionId, e)}
-                            style={{
-                              fontSize: 11,
-                              color: isHovered ? 'rgba(255,255,255,0.5)' : 'transparent',
-                              padding: 2, flexShrink: 0,
-                              cursor: 'pointer', transition: 'color 0.15s',
-                            }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = '#ef4444' }}
-                            onMouseLeave={(e) => { e.currentTarget.style.color = isHovered ? 'rgba(255,255,255,0.5)' : 'transparent' }}
-                          />
-                        </div>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 2 }}>
-                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
-                            {formatSessionTime(session.createdAt)}
-                          </span>
-                          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
-                            {session.messageCount} 条
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })
-                )}
-              </div>
-            </div>
-          )}
         </div>
 
         {!collapsed && (

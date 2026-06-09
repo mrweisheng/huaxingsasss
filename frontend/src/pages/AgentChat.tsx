@@ -9,6 +9,7 @@ import {
   Spin,
   Typography,
   Grid,
+  Modal,
 } from 'antd'
 import {
   SendOutlined,
@@ -26,7 +27,11 @@ import {
   FileSearchOutlined,
   PictureOutlined,
   CreditCardOutlined,
-  UserAddOutlined,
+  PlusOutlined,
+  DeleteOutlined,
+  MessageOutlined,
+  RightOutlined,
+  LeftOutlined,
 } from '@ant-design/icons'
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage } from '@/types/agent'
@@ -45,6 +50,21 @@ const TOOL_LABELS: Record<string, string> = {
   get_payment_summary: '付款汇总',
   get_expiring_contracts: '到期合同',
   analyze_image: '文件分析',
+}
+
+/* ── 会话时间格式化 ── */
+function formatSessionTime(iso: string | null | undefined): string {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const diffMin = Math.floor((now.getTime() - d.getTime()) / 60000)
+  if (diffMin < 1) return '刚刚'
+  if (diffMin < 60) return `${diffMin}分钟前`
+  const diffHour = Math.floor(diffMin / 60)
+  if (diffHour < 24) return `${diffHour}小时前`
+  const diffDay = Math.floor(diffHour / 24)
+  if (diffDay < 7) return `${diffDay}天前`
+  return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 /* ── 消息气泡（memo 防止已完成消息重复渲染） ── */
@@ -67,7 +87,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
     const attachments = msg.attachments || []
     const hasText = !!msg.content
     const hasAttachments = attachments.length > 0
-    // 分离图片 / 文件
     const imageAttachments = attachments.filter(a => a.fileType === 'image' && a.preview)
     const fileAttachments = attachments.filter(a => !(a.fileType === 'image' && a.preview))
 
@@ -77,7 +96,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
           maxWidth: '85%',
           display: 'flex', flexDirection: 'column', alignItems: 'flex-end',
         }}>
-          {/* ════════ 统一气泡：附件 + 文字 共一个容器 ════════ */}
           {(hasText || hasAttachments) && (
             <div
               className="user-bubble"
@@ -86,19 +104,18 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
                 color: '#fff',
                 borderRadius: '16px 16px 4px 16px',
                 boxShadow: '0 4px 16px rgba(30,58,95,0.20)',
-                overflow: 'hidden',  // 内部子元素圆角融入
+                overflow: 'hidden',
                 minWidth: 60,
               }}
             >
-              {/* 图片附件：单张大图 / 多张网格 */}
               {imageAttachments.length > 0 && (
                 <div
                   className="user-bubble-images"
                   style={{
                     display: 'grid',
-                    gap: 2,  // 图片间细缝
+                    gap: 2,
                     padding: imageAttachments.length === 1 ? 6 : 4,
-                    background: 'rgba(255,255,255,0.06)',  // 微妙对比，让图片边界清晰
+                    background: 'rgba(255,255,255,0.06)',
                     gridTemplateColumns:
                       imageAttachments.length === 1 ? '1fr' :
                       imageAttachments.length === 2 ? '1fr 1fr' :
@@ -123,11 +140,9 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
                 </div>
               )}
 
-              {/* 文件附件：每个文件一张卡片 */}
               {fileAttachments.length > 0 && (
                 <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
                   {fileAttachments.map((att, i) => {
-                    const ext = (att.fileName || '').toLowerCase().split('.').pop() || ''
                     const cfg = FILE_TYPE_META[att.fileType] || FILE_TYPE_META.default
                     return (
                       <div
@@ -141,7 +156,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
                           minWidth: 200,
                         }}
                       >
-                        {/* 大色块图标 */}
                         <div style={{
                           width: 40, height: 48, borderRadius: 6,
                           background: cfg.bg,
@@ -151,7 +165,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
                         }}>
                           {cfg.icon}
                         </div>
-                        {/* 文件信息 */}
                         <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
                           <span style={{
                             fontSize: 13, color: '#fff', fontWeight: 500,
@@ -163,7 +176,7 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
                             fontSize: 11, color: 'rgba(255,255,255,0.7)',
                             marginTop: 2,
                           }}>
-                            {ext.toUpperCase()} 文件
+                            {(att.fileName || '').toLowerCase().split('.').pop()?.toUpperCase() || ''} 文件
                           </span>
                         </div>
                       </div>
@@ -172,7 +185,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
                 </div>
               )}
 
-              {/* 文字内容：紧贴附件下方 */}
               {hasText && (
                 <div style={{
                   padding: hasAttachments ? '8px 14px 12px' : '10px 16px',
@@ -204,7 +216,6 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
     const hasThoughts = msg.thoughts && msg.thoughts.length > 0
     const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
     const hasContent = !!msg.content
-    // 找到当前正在运行的 thought（决定 Witty 场景）
     const runningStep = msg.thoughts?.find(t => t.status === 'running')
     const isThinking = !hasContent && hasThoughts && !!runningStep
 
@@ -221,22 +232,17 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
           size={36}
         />
         <div style={{ maxWidth: '85%', minWidth: 0, flex: 1 }}>
-          {/* ── Witty 俏皮文案（持续显示在 Assistant 头部）──
-              位置：头像正下方，最终内容上方
-              key 绑定 runningStep.id：每次 thought 切换时强制重渲染，触发新场景文案 */}
           {isThinking && runningStep && (
             <div
-              key={runningStep.id}  // 关键：每次新 thought 触发组件重建，刷新文案
+              key={runningStep.id}
               style={{ marginBottom: 8 }}
             >
               <WittyLoadingText message={runningStep.message} />
             </div>
           )}
 
-          {/* 工具调用可折叠区块（显示在 Witty 下方）*/}
           {hasToolCalls && <ToolCallBlock toolCalls={msg.toolCalls!} toolLabels={TOOL_LABELS} />}
 
-          {/* 最终回答内容 */}
           {hasContent ? (
             <div
               style={{
@@ -267,17 +273,13 @@ const suggestions = [
   { icon: <FileSearchOutlined />, text: '上传合同文件进行录入' },
 ]
 
-/* ── 三个工具（核心卖点）──
-   - 选完后给当前对话打标签，sendMessage 时把 mode 透传给后端
-   - 后端 mode guard 拦截越权工具（防御性）
-   - 点不同工具 = 切换；点 ×  = 退回通用模式 */
+/* ── 三个工具（核心卖点）── */
 const TOOLS = [
   { key: 'contract_entry' as const, icon: <FileTextOutlined />, label: '录合同', color: '#1e3a5f' },
   { key: 'receipt_income' as const, icon: <CreditCardOutlined />, label: '录收入', color: '#0d9488' },
   { key: 'receipt_expense' as const, icon: <DollarOutlined />, label: '录支出', color: '#dc2626' },
 ]
 
-/* ── 工具选择器组件（空状态居中版 + 底部版通用）── */
 const ToolSelector = memo(function ToolSelector({ value, onChange }: {
   value: typeof TOOLS[number]['key'] | null
   onChange: (k: typeof TOOLS[number]['key'] | null) => void
@@ -337,7 +339,6 @@ const ToolSelector = memo(function ToolSelector({ value, onChange }: {
   )
 })
 
-/* ── 工具标签（贴在输入框前面，× 删除）── */
 const ToolTag = ({ value, onRemove }: { value: string; onRemove: () => void }) => {
   const t = TOOLS.find(x => x.key === value)
   if (!t) return null
@@ -373,7 +374,6 @@ const ToolTag = ({ value, onRemove }: { value: string; onRemove: () => void }) =
   )
 }
 
-/* ── 居中输入框（与底部输入框视觉一致，单独抽出便于复用）── */
 const CenterInputBox = memo(function CenterInputBox({
   value, onChange, onSend, onFileSelect, isStreaming, onStop, pendingFiles, onRemoveFile, toolTag,
 }: {
@@ -407,12 +407,10 @@ const CenterInputBox = memo(function CenterInputBox({
         e.currentTarget.style.boxShadow = '0 4px 20px rgba(15, 23, 42, 0.06)'
       }}
     >
-      {/* 工具标签（如有）—— 贴在 textarea 上方 */}
       {toolTag && (
         <div style={{ marginBottom: 8 }}>{toolTag}</div>
       )}
 
-      {/* 待发附件 */}
       {pendingFiles.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
           {pendingFiles.map((f, i) => {
@@ -477,18 +475,22 @@ export default function AgentChat() {
   const [inputText, setInputText] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const messageListRef = useRef<HTMLDivElement>(null)
+  const [rightPanelOpen, setRightPanelOpen] = useState(true)
+  const [hoveredSession, setHoveredSession] = useState<string | null>(null)
 
-  // 移动端断点检测
   const screens = Grid.useBreakpoint()
   const isMobile = !(screens.md ?? true)
 
   const {
+    sessions,
     currentSessionId,
     messages,
     isStreaming,
     error,
     loadSessions,
     createSession,
+    switchSession,
+    deleteSession,
     sendMessage,
     stopGeneration,
     clearError,
@@ -498,12 +500,10 @@ export default function AgentChat() {
 
   useEffect(() => { loadSessions() }, [])
 
-  // 默认进入 /agent 时若没有会话，自动建一个（不显示"未选会话"中间态）
   useEffect(() => {
     if (!currentSessionId) {
       createSession()
     }
-    // 仅在 mount 时检查一次
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
@@ -540,12 +540,10 @@ export default function AgentChat() {
       message.warning('请输入内容或上传文件')
       return
     }
-    // Phase 2.5：有附件时文本必填（凭证录入需要辅助文字供 VL 分析）
     if (pendingFiles.length > 0 && !text) {
       message.warning('上传文件时必须添加文字说明')
       return
     }
-    // 立即清空输入框和待发文件，防止重复提交
     const filesToSend = pendingFiles.length > 0 ? [...pendingFiles] : undefined
     setInputText('')
     setPendingFiles([])
@@ -568,16 +566,174 @@ export default function AgentChat() {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
+  // ── 会话管理（左侧面板）──
+  const handleNewChat = useCallback(async () => {
+    await createSession()
+  }, [createSession])
+
+  const handleClickSession = useCallback((sessionId: string) => {
+    switchSession(sessionId)
+  }, [switchSession])
+
+  const handleDeleteSession = useCallback((sessionId: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    Modal.confirm({
+      title: '删除会话',
+      content: '确定要删除此会话吗？删除后无法恢复。',
+      okText: '删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk: () => deleteSession(sessionId),
+    })
+  }, [deleteSession])
+
   const hasMessages = messages.some((m) => m.role === 'user' || m.role === 'assistant')
-  // currentSession 字段已不再使用（顶部 header 已删除，会话标题在侧边栏展示）
+
+  // ── 活跃助手消息：取最后一条助手的 toolCalls / thoughts 用于右侧面板 ──
+  const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant')
 
   return (
     <div style={{ display: 'flex', height: 'calc(100vh - 56px)' }}>
-      {/* 会话列表已迁移到 Layout 侧边栏下半部分；本页面单栏全宽 */}
 
-      {/* ════════ 聊天主区域（单栏全宽，无 header 沉浸式）══════ */}
+      {/* ══════ 左侧面板 — 会话管理 ══════ */}
+      {!isMobile && (
+        <div style={{
+          width: 200, minWidth: 200,
+          background: 'linear-gradient(180deg, #0f1a2e 0%, #162240 100%)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+          borderRight: '1px solid rgba(255,255,255,0.06)',
+        }}>
+          <div style={{
+            padding: '12px 12px',
+            display: 'flex', alignItems: 'center', gap: 8,
+            borderBottom: '1px solid rgba(255,255,255,0.06)',
+          }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: 'linear-gradient(135deg, var(--brand-gold), #e8b84b)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#0f1a2e', flexShrink: 0,
+            }}>
+              <StarFilled style={{ fontSize: 14 }} />
+            </div>
+            <Text style={{ fontSize: 13, fontWeight: 500, color: '#e2e8f0' }}>
+              小星助手
+            </Text>
+            <Tag color="gold" style={{ margin: 0, fontSize: 9, lineHeight: '14px', padding: '0 4px', borderRadius: 3 }}>
+              AI
+            </Tag>
+          </div>
+
+          <div
+            onClick={handleNewChat}
+            style={{
+              margin: '8px 10px 6px',
+              padding: '7px 12px',
+              borderRadius: 8,
+              border: '1px solid rgba(255,255,255,0.10)',
+              cursor: 'pointer',
+              display: 'flex', alignItems: 'center', gap: 6,
+              color: 'rgba(255,255,255,0.6)',
+              fontSize: 12, fontWeight: 500,
+              transition: 'all 0.15s',
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
+              e.currentTarget.style.color = '#e2e8f0'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.background = 'transparent'
+              e.currentTarget.style.color = 'rgba(255,255,255,0.6)'
+            }}
+          >
+            <PlusOutlined style={{ fontSize: 11 }} />
+            新对话
+          </div>
+
+          <div style={{
+            margin: '0 10px 8px',
+            padding: '6px 10px',
+            borderRadius: 6,
+            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid rgba(255,255,255,0.06)',
+            fontSize: 11, color: 'rgba(255,255,255,0.3)',
+          }}>
+            <MessageOutlined style={{ marginRight: 6, fontSize: 11 }} />
+            搜索会话...
+          </div>
+
+          <div style={{ flex: 1, overflow: 'auto', padding: '0 8px 8px', minHeight: 0 }}>
+            {sessions.length === 0 ? (
+              <div style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
+                暂无对话
+              </div>
+            ) : (
+              sessions.map((session) => {
+                const isActive = session.sessionId === currentSessionId
+                const isHovered = hoveredSession === session.sessionId
+                return (
+                  <div
+                    key={session.sessionId}
+                    onClick={() => handleClickSession(session.sessionId)}
+                    onMouseEnter={() => setHoveredSession(session.sessionId)}
+                    onMouseLeave={() => setHoveredSession(null)}
+                    style={{
+                      padding: '7px 10px',
+                      borderRadius: 6,
+                      cursor: 'pointer',
+                      marginBottom: 2,
+                      background: isActive
+                        ? 'rgba(201, 149, 43, 0.15)'
+                        : isHovered
+                          ? 'rgba(255,255,255,0.05)'
+                          : 'transparent',
+                      border: isActive ? '1px solid rgba(201,149,43,0.25)' : '1px solid transparent',
+                      transition: 'all 0.15s',
+                      position: 'relative',
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
+                      <Text style={{
+                        fontSize: 11,
+                        fontWeight: isActive ? 600 : 400,
+                        color: isActive ? '#f1f5f9' : 'rgba(255,255,255,0.7)',
+                        display: 'block',
+                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        flex: 1, minWidth: 0,
+                      }}>
+                        {session.title || '新对话'}
+                      </Text>
+                      <DeleteOutlined
+                        onClick={(e) => handleDeleteSession(session.sessionId, e)}
+                        style={{
+                          fontSize: 10,
+                          color: isHovered ? 'rgba(255,255,255,0.45)' : 'transparent',
+                          padding: 2, flexShrink: 0,
+                          cursor: 'pointer', transition: 'color 0.15s',
+                        }}
+                        onMouseEnter={(ev) => { ev.currentTarget.style.color = '#ef4444' }}
+                        onMouseLeave={(ev) => { ev.currentTarget.style.color = isHovered ? 'rgba(255,255,255,0.45)' : 'transparent' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
+                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>
+                        {formatSessionTime(session.createdAt)}
+                      </span>
+                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>
+                        {session.messageCount} 条
+                      </span>
+                    </div>
+                  </div>
+                )
+              })
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ══════ 中央主区域 — 对话 ══════ */}
       <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        {/* 消息区域 */}
         <div
           ref={messageListRef}
           className={hasMessages ? 'chat-grid-bg' : ''}
@@ -589,7 +745,6 @@ export default function AgentChat() {
           }}
         >
           {!currentSessionId ? (
-            /* 默认新会话空状态（首次进入会自动建一个 session，这里兜底）*/
             <div className="chat-grid-bg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
               <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 640 }}>
                 <div
@@ -624,7 +779,6 @@ export default function AgentChat() {
                   ) : null}
                 />
 
-                {/* ── 三个工具（核心卖点）── */}
                 <div style={{ marginTop: 32 }}>
                   <div style={{
                     textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)',
@@ -672,7 +826,6 @@ export default function AgentChat() {
               </div>
             </div>
           ) : !hasMessages ? (
-            /* 空会话 — 居中欢迎页 + 居中输入框 */
             <div className="chat-grid-bg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
               <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 700 }}>
                 <div
@@ -693,7 +846,6 @@ export default function AgentChat() {
                   查询合同付款 · 上传凭证登记 · 查看收支统计 · 合同条款问答
                 </Text>
 
-                {/* 居中输入框（带工具标签） */}
                 <CenterInputBox
                   value={inputText}
                   onChange={setInputText}
@@ -708,7 +860,6 @@ export default function AgentChat() {
                   ) : null}
                 />
 
-                {/* 三个工具（核心卖点） */}
                 <div style={{ marginTop: 32 }}>
                   <div style={{
                     textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)',
@@ -719,7 +870,6 @@ export default function AgentChat() {
                   <ToolSelector value={selectedTool} onChange={setSelectedTool} />
                 </div>
 
-                {/* 快捷建议 */}
                 <div style={{
                   display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center',
                   marginTop: 28, maxWidth: 640,
@@ -771,18 +921,17 @@ export default function AgentChat() {
           )}
         </div>
 
-        {/* 输入区域：仅在有消息时显示底部输入框（空状态时用居中输入框，互斥）*/}
+        {/* 输入区域 */}
         {currentSessionId && hasMessages && (
           <div
             style={{
               padding: isMobile ? '8px 12px 12px' : '14px 24px 18px',
-              background: 'transparent',  // 让网格底纹透过来，跟聊天区统一
+              background: 'transparent',
               borderTop: '1px solid var(--border-light)',
               flexShrink: 0,
             }}
           >
             <div style={{ maxWidth: 768, margin: '0 auto' }}>
-              {/* ── 工具条（始终可见，切换工具不消失）── */}
               <div style={{
                 display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
                 flexWrap: 'wrap',
@@ -844,7 +993,6 @@ export default function AgentChat() {
                 )}
               </div>
 
-              {/* 文件预览 */}
               {pendingFiles.length > 0 && (
                 <div
                   style={{
@@ -892,7 +1040,6 @@ export default function AgentChat() {
                 </div>
               )}
 
-              {/* 输入框 —— 透明背景，让网格底纹透过来；只保留边框做视觉边界 */}
               <div
                 style={{
                   display: 'flex', gap: 10, alignItems: 'flex-end',
@@ -961,6 +1108,170 @@ export default function AgentChat() {
           </div>
         )}
       </div>
+
+      {/* ══════ 右侧面板 — 活动面板 ══════ */}
+      {!isMobile && (
+        <div style={{
+          width: rightPanelOpen ? 240 : 0,
+          minWidth: rightPanelOpen ? 240 : 0,
+          background: 'var(--bg-surface)',
+          display: 'flex', flexDirection: 'column',
+          overflow: 'hidden',
+          borderLeft: rightPanelOpen ? '1px solid var(--border-light)' : 'none',
+          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
+        }}>
+          <div style={{
+            padding: '10px 14px',
+            borderBottom: '1px solid var(--border-light)',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+            flexShrink: 0,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+              <Text style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>
+                活动面板
+              </Text>
+            </div>
+            <Button
+              type="text"
+              size="small"
+              icon={rightPanelOpen ? <RightOutlined /> : <LeftOutlined />}
+              onClick={() => setRightPanelOpen(!rightPanelOpen)}
+              style={{ color: 'var(--text-tertiary)', padding: '0 4px', height: 22, fontSize: 10 }}
+            />
+          </div>
+
+          {rightPanelOpen && (
+            <div style={{ flex: 1, overflow: 'auto', padding: '8px 10px', minHeight: 0 }}>
+              {/* ── 思考链 ── */}
+              {lastAssistantMsg?.thoughts && lastAssistantMsg.thoughts.length > 0 && (
+                <div style={{
+                  padding: '8px 10px', borderRadius: 6, marginBottom: 8,
+                  border: '1px solid var(--border-light)',
+                  background: 'var(--bg-subtle)',
+                }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
+                  }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: 5,
+                      background: 'var(--brand-primary-lighter)', color: 'var(--brand-primary)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, flexShrink: 0,
+                    }}>
+                      ⚡
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)' }}>思考链</span>
+                  </div>
+                  {lastAssistantMsg.thoughts.map((step, i) => (
+                    <div key={step.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 6,
+                      padding: '3px 0', fontSize: 11, color: 'var(--text-secondary)',
+                    }}>
+                      <span style={{
+                        width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
+                        background: step.status === 'done' ? 'var(--color-success)' : 'var(--brand-gold)',
+                        opacity: step.status === 'running' ? 1 : 0.6,
+                      }} />
+                      {step.message}
+                    </span>
+                  ))}
+                </div>
+              )}
+
+              {/* ── 工具调用 ── */}
+              {lastAssistantMsg?.toolCalls && lastAssistantMsg.toolCalls.length > 0 && (
+                <div style={{
+                  padding: '8px 10px', borderRadius: 6, marginBottom: 8,
+                  border: '1px solid var(--border-light)',
+                  background: 'var(--bg-subtle)',
+                }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
+                  }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: 5,
+                      background: 'var(--brand-gold-bg)', color: 'var(--brand-gold)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, flexShrink: 0,
+                    }}>
+                      🔧
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)' }}>工具调用</span>
+                  </div>
+                  {lastAssistantMsg.toolCalls.map((tc, i) => (
+                    <div key={tc.id} style={{
+                      display: 'flex', alignItems: 'center', gap: 4,
+                      padding: '2px 0', fontSize: 11,
+                    }}>
+                      <span style={{ color: tc.result ? 'var(--color-success)' : 'var(--brand-gold)', fontSize: 10 }}>
+                        {tc.result ? '✓' : '◌'}
+                      </span>
+                      <span style={{
+                        color: 'var(--text-secondary)',
+                        fontFamily: 'var(--font-mono)', fontSize: 10,
+                      }}>
+                        {tc.name}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── 数据引用 ── */}
+              {lastAssistantMsg?.toolCalls?.some(tc => tc.summary?.items?.length) && (
+                <div style={{
+                  padding: '8px 10px', borderRadius: 6, marginBottom: 8,
+                  border: '1px solid var(--border-light)',
+                  background: 'var(--bg-subtle)',
+                }}>
+                  <div style={{
+                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
+                  }}>
+                    <div style={{
+                      width: 22, height: 22, borderRadius: 5,
+                      background: 'var(--color-success-bg)', color: 'var(--color-success)',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                      fontSize: 11, flexShrink: 0,
+                    }}>
+                      📊
+                    </div>
+                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)' }}>数据引用</span>
+                  </div>
+                  {lastAssistantMsg.toolCalls.filter(tc => tc.summary?.items?.length).map((tc) => (
+                    <div key={tc.id}>
+                      {tc.summary!.items.map((item, j) => (
+                        <div key={j} style={{
+                          display: 'flex', justifyContent: 'space-between',
+                          padding: '2px 0', fontSize: 11,
+                        }}>
+                          <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
+                          <span style={{
+                            color: item.highlight === 'warning' ? 'var(--color-danger)' : 'var(--text-primary)',
+                            fontWeight: 500,
+                          }}>
+                            {item.value}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* ── 空状态 ── */}
+              {!(lastAssistantMsg?.thoughts?.length || lastAssistantMsg?.toolCalls?.length) && (
+                <div style={{
+                  textAlign: 'center', padding: '32px 8px',
+                  color: 'var(--text-tertiary)', fontSize: 11,
+                }}>
+                  <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.4 }}>⚡</div>
+                  发送消息后，这里将显示<br />AI 的思考和工具调用过程
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
