@@ -15,14 +15,21 @@ interface AgentState {
   isLoading: boolean
   isStreaming: boolean
   error: string | null
+  /**
+   * 当前会话选中的工具标签（贴在输入框前的标签）。
+   * contract_entry: 录合同；receipt_income: 录收入；receipt_expense: 录支出；null: 通用
+   * 选中工具后，sendMessage 会把 mode 透传给后端（防御：后端 mode guard 拦截越权工具）。
+   */
+  selectedTool: 'contract_entry' | 'receipt_income' | 'receipt_expense' | null
 
   loadSessions: () => Promise<void>
-  createSession: () => Promise<string>
+  createSession: (mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense') => Promise<string>
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   sendMessage: (content: string, attachments?: File[]) => Promise<void>
   stopGeneration: () => void
   clearError: () => void
+  setSelectedTool: (tool: AgentState['selectedTool']) => void
 }
 
 let abortController: AbortController | null = null
@@ -97,6 +104,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   isStreaming: false,
   error: null,
   interruptInfo: null,
+  selectedTool: null,
 
   loadSessions: async () => {
     try {
@@ -107,8 +115,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  createSession: async () => {
-    const res = await agentApi.createSession()
+  createSession: async (mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense') => {
+    const res = await agentApi.createSession({ mode: mode || 'chat' })
     const session = res.data
     set((state) => ({
       sessions: [session, ...state.sessions],
@@ -119,7 +127,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   switchSession: async (sessionId: string) => {
-    set({ isLoading: true, currentSessionId: sessionId })
+    set({ isLoading: true, currentSessionId: sessionId, selectedTool: null })
     try {
       const res = await agentApi.getHistory(sessionId)
       set({ messages: res.data || [] })
@@ -140,14 +148,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }))
   },
 
+  setSelectedTool: (tool) => set({ selectedTool: tool }),
+
   sendMessage: async (content: string, attachments?: File[]) => {
-    const { currentSessionId } = get()
+    const { currentSessionId, selectedTool } = get()
     let sessionId = currentSessionId
 
     set({ isStreaming: true, error: null })
 
     if (!sessionId) {
-      sessionId = await get().createSession()
+      // 第一次发消息：把工具 mode 传给 create_session
+      sessionId = await get().createSession(selectedTool || 'chat')
     }
 
     // 生成本地附件预览（图片 base64），不阻塞 UI
@@ -250,7 +261,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
 
     try {
-      const response = await agentApi.chatStream(content, sessionId, uploadedAttachments)
+      const response = await agentApi.chatStream(content, sessionId, uploadedAttachments, selectedTool || undefined)
       if (!response.ok || !response.body) {
         throw new Error(`请求失败: ${response.status}`)
       }

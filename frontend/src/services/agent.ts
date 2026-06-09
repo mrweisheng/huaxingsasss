@@ -78,11 +78,13 @@ export const agentApi = {
     question: string,
     sessionId?: string | null,
     attachments?: { file_id: string; file_type: string }[],
+    mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense',
   ): Promise<Response> => {
     return _chatRequest({
       question,
       session_id: sessionId || null,
       attachments: attachments || null,
+      mode: mode || null,  // 后端步骤2 会加这个字段
     })
   },
 }

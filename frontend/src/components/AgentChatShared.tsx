@@ -1,4 +1,4 @@
-import { useState, memo } from 'react'
+import { useState, useEffect, memo, useRef } from 'react'
 import { Spin } from 'antd'
 import {
   CheckCircleOutlined,
@@ -6,10 +6,113 @@ import {
   DownOutlined,
   RightOutlined,
   ToolOutlined,
+  FileTextOutlined,
+  FileSearchOutlined,
+  UserAddOutlined,
+  CreditCardOutlined,
+  DollarOutlined,
+  CalendarOutlined,
+  BarChartOutlined,
+  PictureOutlined,
+  FunctionOutlined,
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { ThoughtStep, ToolCall } from '@/types/agent'
+
+/* ═══════════════════════════════════════════════════════════
+   工具 → 业务图标 映射（让 ToolCallBlock 更可读）
+   ═══════════════════════════════════════════════════════════ */
+const TOOL_ICONS: Record<string, JSX.Element> = {
+  search_customers: <UserAddOutlined style={{ color: '#1e3a5f' }} />,
+  search_contracts: <FileSearchOutlined style={{ color: '#1e3a5f' }} />,
+  get_contract_detail: <FileTextOutlined style={{ color: '#1e3a5f' }} />,
+  get_customer_contracts: <FileTextOutlined style={{ color: '#1e3a5f' }} />,
+  query_payments: <CreditCardOutlined style={{ color: '#1e3a5f' }} />,
+  create_payment: <CreditCardOutlined style={{ color: '#0d9488' }} />,
+  get_payment_summary: <BarChartOutlined style={{ color: '#1e3a5f' }} />,
+  get_expiring_contracts: <CalendarOutlined style={{ color: '#d97706' }} />,
+  analyze_image: <PictureOutlined style={{ color: '#1e3a5f' }} />,
+  create_customer: <UserAddOutlined style={{ color: '#0d9488' }} />,
+  create_contract: <FileTextOutlined style={{ color: '#0d9488' }} />,
+  create_expense: <DollarOutlined style={{ color: '#0d9488' }} />,
+}
+const DEFAULT_TOOL_ICON = <FunctionOutlined style={{ color: '#1e3a5f' }} />
+
+/* ═══════════════════════════════════════════════════════════
+   俏皮文案库（场景感知 + 随机抽取）
+   设计思路：thought.message 是后端给的中性描述（如"正在识别合同..."），
+   我们根据关键词匹配场景，给出更有人情味的副标题。
+   ═══════════════════════════════════════════════════════════ */
+
+const WITTY_PHRASES = {
+  contract_entry: {
+    // 关键词：识别、合同、读取、OCR、解析
+    keywords: ['合同', '识别', 'OCR', '读取', '解析', '提取', '字段'],
+    phrases: [
+      '正在细读这份合同，条款有点多，给我点时间 📄',
+      '这份合同金额有点大，我得慎重一点 💰',
+      'OCR 启动中，合同里的每一个字都别想跑 ✍️',
+      '翻合同中...遇到手写体我得瞪大眼睛看 🔍',
+    ],
+  },
+  contract_confirm: {
+    // 关键词：确认、字段、待
+    keywords: ['确认', '待您', '字段已'],
+    phrases: [
+      '一切就绪，要不要确认一下我提取的信息？✨',
+      '我整理好了，您过目一下，心里更有底 👀',
+      '材料已备齐，等您点头就入库 📦',
+    ],
+  },
+  receipt_entry: {
+    // 关键词：凭证、发票、票据、收据
+    keywords: ['凭证', '发票', '票据', '收据', '看图'],
+    phrases: [
+      '看图识账中，这笔是收是支？🤔',
+      '正在核对发票真伪，税务上可不能马虎 🧾',
+      '在数钱了在数钱了 💵',
+    ],
+  },
+  search_query: {
+    // 关键词：搜索、查询、查找、检索
+    keywords: ['搜索', '查询', '查找', '检索', '翻', '查'],
+    phrases: [
+      '翻一翻数据库，给您找出来 🗂️',
+      '在查了在查了，马上就好 ⏳',
+      '这事儿我有印象，让我去翻翻档案 📚',
+    ],
+  },
+  payment_summary: {
+    // 关键词：汇总、统计、合计
+    keywords: ['汇总', '统计', '合计', '总数'],
+    phrases: [
+      '数字在跳，让我加一下 ➕',
+      '财务小算盘已经拨起来 🧮',
+    ],
+  },
+  default: {
+    keywords: [],
+    phrases: [
+      '思考中，让我捋一捋 🤔',
+      '在想了在想了，别催我嘛 🧠',
+      '脑子转啊转，灵感快来了 💡',
+    ],
+  },
+} as const
+
+type SceneKey = keyof typeof WITTY_PHRASES
+
+function detectScene(message: string): SceneKey {
+  for (const [scene, def] of Object.entries(WITTY_PHRASES) as [SceneKey, typeof WITTY_PHRASES[SceneKey]][]) {
+    if (def.keywords.some((kw) => message.includes(kw))) return scene
+  }
+  return 'default'
+}
+
+function pickRandom<T>(arr: readonly T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)]
+}
 
 /* ── Markdown 组件通用样式（含完整表格支持） ── */
 const MARKDOWN_COMPONENTS = {
@@ -77,6 +180,82 @@ export function MarkdownRenderer({ content, streaming, className }: {
   )
 }
 
+/* ═══════════════════════════════════════════════════════════
+   俏皮 Loading 文字
+   行为：传入中性 message，自动匹配场景、随机抽一句俏皮副标题，
+   并用 shimmer + bounce 微动效呈现。
+   ═══════════════════════════════════════════════════════════ */
+export const WittyLoadingText = memo(function WittyLoadingText({ message }: { message: string }) {
+  const scene = detectScene(message)
+  const phrase = pickRandom(WITTY_PHRASES[scene].phrases)
+  // 关键：用 message 作为 seed，相同 message 抽到同一句（避免一直跳）
+  const [stablePhrase, setStablePhrase] = useState(phrase)
+  useEffect(() => {
+    setStablePhrase(phrase)
+    // 仅在 message 变化时重新抽
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [message])
+
+  return (
+    <div className="witty-loading" style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span
+        className="witty-bounce-icon"
+        style={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          width: 24, height: 24, borderRadius: 8,
+          background: 'linear-gradient(135deg, var(--brand-gold), #e8b84b)',
+          color: '#0f1a2e',
+          fontSize: 13, fontWeight: 700,
+          boxShadow: '0 2px 8px rgba(201,149,43,0.25)',
+        }}
+      >
+        ✨
+      </span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0, flex: 1 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span
+            className="shimmer-text"
+            style={{
+              fontSize: 13, fontWeight: 500, color: 'var(--text-primary)',
+            }}
+          >
+            {message}
+          </span>
+          {/* ── 心跳：三个点循环跳动（"还在干活"）── */}
+          <span className="typing-dots" style={{ display: 'inline-flex', gap: 2, marginLeft: 2, flexShrink: 0 }}>
+            <span style={{
+              width: 4, height: 4, borderRadius: '50%',
+              background: 'var(--brand-primary)',
+              animation: 'typingDot 1.2s ease-in-out infinite',
+            }} />
+            <span style={{
+              width: 4, height: 4, borderRadius: '50%',
+              background: 'var(--brand-primary)',
+              animation: 'typingDot 1.2s ease-in-out infinite 0.2s',
+            }} />
+            <span style={{
+              width: 4, height: 4, borderRadius: '50%',
+              background: 'var(--brand-primary)',
+              animation: 'typingDot 1.2s ease-in-out infinite 0.4s',
+            }} />
+          </span>
+        </div>
+        <span
+          className="witty-phrase"
+          style={{
+            fontSize: 12, color: 'var(--text-tertiary)',
+            fontStyle: 'italic',
+          }}
+        >
+          {stablePhrase}
+        </span>
+      </div>
+    </div>
+  )
+})
+
 /* ── 思考步骤指示器 ── */
 export const ThoughtStepIndicator = memo(function ThoughtStepIndicator({ thoughts }: { thoughts: ThoughtStep[] }) {
   if (!thoughts.length) return null
@@ -122,23 +301,40 @@ export const ThoughtStepIndicator = memo(function ThoughtStepIndicator({ thought
   )
 })
 
-/* ── 工具调用可折叠区块 ── */
+/* ═══════════════════════════════════════════════════════════
+   工具调用可折叠区块（升级版）
+   - 业务图标替换 ToolOutlined
+   - 进度提示 n/total
+   - 折叠态显示最近一个工具的结果摘要
+   ═══════════════════════════════════════════════════════════ */
 export function ToolCallBlock({ toolCalls, toolLabels }: {
   toolCalls: ToolCall[]
   toolLabels: Record<string, string>
 }) {
   const [expanded, setExpanded] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
   if (!toolCalls.length) return null
 
   const completedCount = toolCalls.filter(tc => tc.result).length
   const totalCount = toolCalls.length
   const allDone = completedCount === totalCount
 
+  // 最近一个已完成工具的"摘要"：截取 result 前 60 字符
+  const lastDone = [...toolCalls].reverse().find(tc => tc.result)
+  const summary = lastDone?.result
+    ? lastDone.result.replace(/[\n\r]/g, ' ').slice(0, 60) + (lastDone.result.length > 60 ? '…' : '')
+    : null
+
   return (
-    <div style={{
-      marginBottom: 8, border: '1px solid var(--border-light)', borderRadius: 8,
-      overflow: 'hidden', background: 'var(--bg-subtle)',
-    }}>
+    <div
+      ref={ref}
+      className="tool-call-block"
+      style={{
+        marginBottom: 8, border: '1px solid var(--border-light)', borderRadius: 8,
+        overflow: 'hidden', background: 'var(--bg-subtle)',
+        transition: 'box-shadow 0.3s',
+      }}
+    >
       <div
         onClick={() => setExpanded(!expanded)}
         style={{
@@ -148,22 +344,38 @@ export function ToolCallBlock({ toolCalls, toolLabels }: {
       >
         {expanded ? <DownOutlined /> : <RightOutlined />}
         <ToolOutlined />
-        <span>执行了 {totalCount} 个操作</span>
+        <span>
+          {allDone
+            ? `已完成 ${totalCount} 个操作`
+            : `执行中 ${completedCount}/${totalCount}`}
+        </span>
         {allDone && <CheckCircleOutlined style={{ color: 'var(--color-success)', marginLeft: 4 }} />}
         {!allDone && <Spin size="small" style={{ marginLeft: 4 }} />}
+        {!expanded && summary && (
+          <span style={{
+            marginLeft: 'auto', color: 'var(--text-tertiary)', fontSize: 11,
+            maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {summary}
+          </span>
+        )}
       </div>
       {expanded && (
         <div style={{ padding: '0 10px 8px', borderTop: '1px solid var(--border-light)' }}>
           {toolCalls.map((tc, i) => {
             const label = toolLabels[tc.name] || tc.name
+            const icon = TOOL_ICONS[tc.name] || DEFAULT_TOOL_ICON
             const hasResult = !!tc.result
             return (
               <div key={i} style={{
-                display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0',
+                display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0',
                 fontSize: 12, color: hasResult ? 'var(--text-secondary)' : 'var(--text-tertiary)',
                 borderBottom: i < toolCalls.length - 1 ? '1px solid var(--border-light)' : 'none',
               }}>
-                {hasResult ? <CheckCircleOutlined style={{ color: 'var(--color-success)' }} /> : <Spin size="small" />}
+                {hasResult
+                  ? <CheckCircleOutlined style={{ color: 'var(--color-success)' }} />
+                  : <Spin size="small" />}
+                <span style={{ fontSize: 14, display: 'inline-flex' }}>{icon}</span>
                 <span>{label}</span>
               </div>
             )

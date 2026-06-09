@@ -818,3 +818,147 @@ body {
     font-size: 16px !important; /* 防止 iOS 自动缩放 */
   }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   小星助手 · 等待动效系统
+   哲学：等待不是空转，而是"小星正在做事"——用微动效 + 俏皮文案
+   让用户感知到进度、缓解焦虑、产生陪伴感。
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── 1. 文字流光（shimmer）—— 正在处理的视觉暗示 ── */
+@keyframes shimmerSweep {
+  0%   { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--text-primary) 0%,
+    var(--text-primary) 40%,
+    var(--brand-gold) 50%,
+    var(--text-primary) 60%,
+    var(--text-primary) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: shimmerSweep 2.4s ease-in-out infinite;
+}
+
+/* ── 2. 弹跳图标 —— 轻快的"我来了"感 ── */
+@keyframes wittyBounce {
+  0%, 100% { transform: translateY(0) rotate(0deg); }
+  25%      { transform: translateY(-3px) rotate(-4deg); }
+  50%      { transform: translateY(0) rotate(0deg); }
+  75%      { transform: translateY(-2px) rotate(4deg); }
+}
+
+.witty-bounce-icon {
+  animation: wittyBounce 1.6s ease-in-out infinite;
+  display: inline-flex;
+}
+
+/* ── 3. 副标题淡入 —— 俏皮文案进场不抢戏 ── */
+@keyframes wittyPhraseIn {
+  0%   { opacity: 0; transform: translateY(2px); }
+  100% { opacity: 0.85; transform: translateY(0); }
+}
+
+.witty-phrase {
+  animation: wittyPhraseIn 0.4s ease-out;
+}
+
+/* ── 4. 整体呼吸 —— 容器微微"活"着 ── */
+@keyframes wittyBreathe {
+  0%, 100% { box-shadow: 0 1px 4px rgba(0,0,0,0.03); }
+  50%      { box-shadow: 0 2px 14px rgba(201, 149, 43, 0.10); }
+}
+
+.witty-loading {
+  padding: 4px 0;
+  border-radius: 8px;
+  animation: wittyBreathe 2.6s ease-in-out infinite;
+}
+
+/* ── 4.5 心跳：三个点循环跳动（"还在干活"）── */
+@keyframes typingDot {
+  0%, 60%, 100% {
+    transform: translateY(0);
+    opacity: 0.4;
+  }
+  30% {
+    transform: translateY(-4px);
+    opacity: 1;
+  }
+}
+
+/* ── 5. 工具块 hover 微反馈 ── */
+.tool-call-block:hover {
+  box-shadow: 0 2px 8px rgba(30, 58, 95, 0.06);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   小星助手 · 欢迎页（空会话）
+   设计参考 MiniMax Code：居中 Logo + 欢迎语 + 居中输入框
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Logo 金色光晕呼吸 ── */
+@keyframes starHaloPulse {
+  0%, 100% {
+    box-shadow:
+      0 8px 24px rgba(201, 149, 43, 0.20),
+      0 0 0 0 rgba(201, 149, 43, 0.18);
+  }
+  50% {
+    box-shadow:
+      0 12px 36px rgba(201, 149, 43, 0.32),
+      0 0 0 14px rgba(201, 149, 43, 0);
+  }
+}
+
+.star-logo-halo {
+  animation: starHaloPulse 3s ease-in-out infinite;
+}
+
+/* ── 欢迎语进场 —— 从下方淡入上移 ── */
+@keyframes welcomeFadeUp {
+  0%   { opacity: 0; transform: translateY(14px); }
+  100% { opacity: 1; transform: translateY(0); }
+}
+
+.welcome-stagger > * {
+  opacity: 0;
+  animation: welcomeFadeUp 0.5s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+.welcome-stagger > *:nth-child(1) { animation-delay: 0.05s; }
+.welcome-stagger > *:nth-child(2) { animation-delay: 0.18s; }
+.welcome-stagger > *:nth-child(3) { animation-delay: 0.32s; }
+.welcome-stagger > *:nth-child(4) { animation-delay: 0.46s; }
+.welcome-stagger > *:nth-child(5) { animation-delay: 0.60s; }
+
+/* ── 快捷建议胶囊 hover ── */
+.quick-pill {
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+.quick-pill:hover {
+  transform: translateY(-2px) !important;
+  box-shadow: 0 6px 20px rgba(30, 58, 95, 0.10) !important;
+  border-color: var(--brand-primary) !important;
+  color: var(--brand-primary) !important;
+}
+.quick-pill:hover .quick-pill-icon {
+  background: var(--brand-primary) !important;
+  color: #fff !important;
+}
+
+/* ── 网格底纹（聊天背景）── */
+.chat-grid-bg {
+  background-color: #fafbfc;
+  background-image:
+    linear-gradient(rgba(30, 58, 95, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(30, 58, 95, 0.025) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: -1px -1px;
+}
