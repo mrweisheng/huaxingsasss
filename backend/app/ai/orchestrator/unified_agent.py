@@ -422,7 +422,7 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
                     question="", answer=getattr(msg, "content", "") or "",
                     role="assistant",
                     tool_calls=getattr(msg, "tool_calls", None),
-                    llm_model=settings.SILICONFLOW_AGENT_MODEL,
+                    llm_model=settings.DEEPSEEK_AGENT_MODEL,
                 )
                 db.add(record)
             elif msg_type == "human":
@@ -431,7 +431,7 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
                     question=getattr(msg, "content", "") or "", answer=None,
                     role="user",
                     extra_metadata=user_metadata or {},
-                    llm_model=settings.SILICONFLOW_AGENT_MODEL,
+                    llm_model=settings.DEEPSEEK_AGENT_MODEL,
                 )
                 db.add(record)
             elif msg_type == "tool":
@@ -441,7 +441,7 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
                     role="tool",
                     intent_type=getattr(msg, "name", ""),
                     extra_metadata={"tool_call_id": getattr(msg, "tool_call_id", "")},
-                    llm_model=settings.SILICONFLOW_AGENT_MODEL,
+                    llm_model=settings.DEEPSEEK_AGENT_MODEL,
                 )
                 db.add(record)
         except Exception:

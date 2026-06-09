@@ -106,7 +106,7 @@ class ContractAgent:
             role=role,
             tool_calls=tool_calls,
             extra_metadata=metadata or {},
-            llm_model=settings.SILICONFLOW_AGENT_MODEL,
+            llm_model=settings.DEEPSEEK_AGENT_MODEL,
             tokens_used=tokens_used or None,
         )
         self.db.add(record)
@@ -128,7 +128,7 @@ class ContractAgent:
             role="tool",
             intent_type=tool_name,
             extra_metadata={"tool_call_id": tool_call_id},
-            llm_model=settings.SILICONFLOW_AGENT_MODEL,
+            llm_model=settings.DEEPSEEK_AGENT_MODEL,
         )
         self.db.add(record)
         self.db.commit()

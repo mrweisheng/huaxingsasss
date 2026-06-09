@@ -140,20 +140,20 @@ def call_vl_model(file_bytes: bytes, mime: str, prompt: str) -> dict:
 
 
 def call_text_model(text: str, prompt: str) -> dict:
-    """调用 DashScope 文本模型分析文本，返回结构化 JSON dict。"""
+    """调用 DeepSeek 文本模型分析文本，返回结构化 JSON dict。"""
     payload = {
-        "model": settings.DASHSCOPE_TEXT_MODEL,
+        "model": settings.DEEPSEEK_AGENT_MODEL,
         "messages": [{"role": "user", "content": f"{prompt}\n\n以下是文件的文字内容，请提取结构化信息：\n\n{text[:8000]}"}],
         "temperature": 0.1,
         "max_tokens": 4096,
     }
     headers = {
-        "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+        "Authorization": f"Bearer {settings.DEEPSEEK_API_KEY}",
         "Content-Type": "application/json",
     }
     with httpx.Client(timeout=120.0) as client:
         response = client.post(
-            f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
+            f"{settings.DEEPSEEK_BASE_URL}/chat/completions",
             json=payload, headers=headers,
         )
     if response.status_code != 200:

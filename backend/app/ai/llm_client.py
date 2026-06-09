@@ -1,9 +1,9 @@
 """
-LLM客户端 - 阿里云百炼 DashScope（qwen3-vl-flash 视觉模型）+ SiliconFlow（DeepSeek-V4-Flash Agent 推理）
+LLM客户端 - 阿里云百炼 DashScope（qwen3-vl-flash 视觉模型）+ DeepSeek 官方（Agent 推理 + 文本结构化）
 
 类名说明：
   - VisionModelClient: 百炼 qwen3-vl-flash 视觉模型（合同/凭证图片分析）
-  - AgentModelClient:  SiliconFlow DeepSeek-V4-Flash（Agent 推理 + 工具调用）
+  - AgentModelClient:  DeepSeek 官方（Agent 推理 + 工具调用 + PDF/Word 文本结构化）
 """
 import asyncio
 import base64
@@ -131,16 +131,16 @@ class VisionModelClient:
 
 
 class AgentModelClient:
-    """Agent 推理客户端（硅基流动 SiliconFlow DeepSeek-V4-Flash）
+    """Agent 推理客户端（DeepSeek 官方 API）
 
     通过 OpenAI 兼容 API 调用，支持流式输出、函数调用和指数退避重试。
-    使用 SILICONFLOW_* 配置，与视觉模型（DASHSCOPE_*）独立。
+    使用 DEEPSEEK_* 配置，与视觉模型（DASHSCOPE_*）独立。
     """
 
     def __init__(self):
-        self.api_key = settings.SILICONFLOW_API_KEY
-        self.base_url = settings.SILICONFLOW_BASE_URL
-        self.model = settings.SILICONFLOW_AGENT_MODEL
+        self.api_key = settings.DEEPSEEK_API_KEY
+        self.base_url = settings.DEEPSEEK_BASE_URL
+        self.model = settings.DEEPSEEK_AGENT_MODEL
         self.max_retries = getattr(settings, 'AGENT_MAX_RETRIES', 3)
         self.retry_base_delay = getattr(settings, 'AGENT_RETRY_BASE_DELAY', 1.0)
 
