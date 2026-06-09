@@ -1148,7 +1148,7 @@ export default function AgentChat() {
                         opacity: step.status === 'running' ? 1 : 0.6,
                       }} />
                       {step.message}
-                    </span>
+                    </div>
                   ))}
                 </div>
               )}
