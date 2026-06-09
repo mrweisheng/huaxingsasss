@@ -165,9 +165,22 @@ export function MarkdownRenderer({ content, streaming, className }: {
 }) {
   if (streaming) {
     // 流式阶段用纯文本，避免每次 chunk 重解析 Markdown（尤其表格代价高）
+    // 末尾加打字光标动画，给用户"还在写"的视觉反馈
     return (
       <div className={className} style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', lineHeight: 1.7, fontSize: 14 }}>
         {content}
+        <span
+          className="typing-cursor"
+          style={{
+            display: 'inline-block',
+            width: 2,
+            height: '1em',
+            background: 'var(--brand-primary)',
+            marginLeft: 1,
+            verticalAlign: 'text-bottom',
+            animation: 'cursorBlink 0.8s steps(1) infinite',
+          }}
+        />
       </div>
     )
   }
@@ -319,11 +332,19 @@ export function ToolCallBlock({ toolCalls, toolLabels }: {
   const totalCount = toolCalls.length
   const allDone = completedCount === totalCount
 
-  // 最近一个已完成工具的"摘要"：截取 result 前 60 字符
+  // 最近一个已完成工具的"摘要"：
+  // 1. 优先用后端发来的结构化 summary（DataReferenceSummary）
+  // 2. 没有结构化 summary → 显示友好占位，绝不直接展示 raw JSON
   const lastDone = [...toolCalls].reverse().find(tc => tc.result)
-  const summary = lastDone?.result
-    ? lastDone.result.replace(/[\n\r]/g, ' ').slice(0, 60) + (lastDone.result.length > 60 ? '…' : '')
-    : null
+  const structuredSummary = lastDone?.summary
+  const summaryText = structuredSummary?.items?.length
+    ? structuredSummary.items
+        .map(it => `${it.label} ${it.value}`)
+        .join(' · ')
+        .slice(0, 60)
+    : lastDone?.result
+      ? '已获取数据'
+      : null
 
   return (
     <div
@@ -351,12 +372,12 @@ export function ToolCallBlock({ toolCalls, toolLabels }: {
         </span>
         {allDone && <CheckCircleOutlined style={{ color: 'var(--color-success)', marginLeft: 4 }} />}
         {!allDone && <Spin size="small" style={{ marginLeft: 4 }} />}
-        {!expanded && summary && (
+        {!expanded && summaryText && (
           <span style={{
             marginLeft: 'auto', color: 'var(--text-tertiary)', fontSize: 11,
             maxWidth: 280, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
           }}>
-            {summary}
+            {summaryText}
           </span>
         )}
       </div>

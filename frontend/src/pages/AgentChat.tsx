@@ -9,7 +9,6 @@ import {
   Spin,
   Typography,
   Grid,
-  Modal,
 } from 'antd'
 import {
   SendOutlined,
@@ -28,10 +27,6 @@ import {
   PictureOutlined,
   CreditCardOutlined,
   PlusOutlined,
-  DeleteOutlined,
-  MessageOutlined,
-  RightOutlined,
-  LeftOutlined,
 } from '@ant-design/icons'
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage } from '@/types/agent'
@@ -50,21 +45,6 @@ const TOOL_LABELS: Record<string, string> = {
   get_payment_summary: '付款汇总',
   get_expiring_contracts: '到期合同',
   analyze_image: '文件分析',
-}
-
-/* ── 会话时间格式化 ── */
-function formatSessionTime(iso: string | null | undefined): string {
-  if (!iso) return ''
-  const d = new Date(iso)
-  const now = new Date()
-  const diffMin = Math.floor((now.getTime() - d.getTime()) / 60000)
-  if (diffMin < 1) return '刚刚'
-  if (diffMin < 60) return `${diffMin}分钟前`
-  const diffHour = Math.floor(diffMin / 60)
-  if (diffHour < 24) return `${diffHour}小时前`
-  const diffDay = Math.floor(diffHour / 24)
-  if (diffDay < 7) return `${diffDay}天前`
-  return `${d.getMonth() + 1}/${d.getDate()}`
 }
 
 /* ── 消息气泡（memo 防止已完成消息重复渲染） ── */
@@ -217,7 +197,17 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
     const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
     const hasContent = !!msg.content
     const runningStep = msg.thoughts?.find(t => t.status === 'running')
+    // 有 tool_call 但最后一个还没 result → 工具正在执行
+    const hasRunningTool = hasToolCalls && msg.toolCalls!.some(tc => !tc.result)
+    // 显示俏皮动效：思考中 或 工具执行中（且正在 streaming）
     const isThinking = !hasContent && hasThoughts && !!runningStep
+    const isToolRunning = streaming && hasRunningTool
+
+    // 俏皮动效用哪个 message：优先用 thinking 步骤文案，否则根据工具名生成
+    const wittyMessage = runningStep?.message
+      || (hasRunningTool
+        ? `正在执行${TOOL_LABELS[msg.toolCalls!.find(tc => !tc.result)?.name || ''] || '操作'}...`
+        : '思考中...')
 
     return (
       <div style={{ display: 'flex', marginBottom: 20 }}>
@@ -232,12 +222,12 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
           size={36}
         />
         <div style={{ maxWidth: '85%', minWidth: 0, flex: 1 }}>
-          {isThinking && runningStep && (
+          {(isThinking || isToolRunning) && (
             <div
-              key={runningStep.id}
+              key={runningStep?.id || 'tool-running'}
               style={{ marginBottom: 8 }}
             >
-              <WittyLoadingText message={runningStep.message} />
+              <WittyLoadingText message={wittyMessage} />
             </div>
           )}
 
@@ -256,7 +246,7 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
             >
               <MarkdownRenderer content={msg.content} streaming={streaming} />
             </div>
-          ) : !isThinking && (
+          ) : !isThinking && !isToolRunning && (
             <Spin size="small" style={{ marginTop: 8 }} />
           )}
         </div>
@@ -295,13 +285,6 @@ const CAPABILITIES = [
     title: '支出管理',
     desc: '支出记录凭证归档',
     bg: '#fef2f2', fg: '#dc2626',
-  },
-  {
-    key: null,
-    icon: <FileSearchOutlined />,
-    title: '智能问答',
-    desc: '合同查询数据分析',
-    bg: '#fdf8ef', fg: '#c9952b',
   },
 ]
 
@@ -407,7 +390,7 @@ const CenterInputBox = memo(function CenterInputBox({
         onKeyDown={(e) => {
           if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSend() }
         }}
-        placeholder={pendingFiles.length > 0 ? '请描述文件内容（必填）...' : '问点什么？试试："查询最近付款" 或上传一份合同…'}
+        placeholder={pendingFiles.length > 0 ? '上传文件后可直接发送，也可补充说明...' : '问点什么？试试："查询最近付款" 或上传一份合同…'}
         autoSize={{ minRows: 2, maxRows: 6 }}
         disabled={isStreaming}
         bordered={false}
@@ -432,7 +415,7 @@ const CenterInputBox = memo(function CenterInputBox({
             type="primary"
             icon={<SendOutlined />}
             onClick={onSend}
-            disabled={!value.trim()}
+            disabled={!value.trim() && pendingFiles.length === 0}
             style={{ borderRadius: 8, height: 36, padding: '0 18px', fontSize: 14 }}
           >
             发送
@@ -461,7 +444,7 @@ const WelcomeContent = memo(function WelcomeContent({
 }) {
   return (
     <div className="chat-grid-bg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
-      <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 640 }}>
+      <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 760 }}>
         <div
           className="star-logo-halo"
           style={{
@@ -599,30 +582,23 @@ export default function AgentChat() {
   const [inputText, setInputText] = useState('')
   const [pendingFiles, setPendingFiles] = useState<File[]>([])
   const messageListRef = useRef<HTMLDivElement>(null)
-  const [rightPanelOpen, setRightPanelOpen] = useState(true)
-  const [hoveredSession, setHoveredSession] = useState<string | null>(null)
 
   const screens = Grid.useBreakpoint()
   const isMobile = !(screens.md ?? true)
 
   const {
-    sessions,
     currentSessionId,
+    sessions,
     messages,
     isStreaming,
     error,
-    loadSessions,
     createSession,
-    switchSession,
-    deleteSession,
     sendMessage,
     stopGeneration,
     clearError,
     selectedTool,
     setSelectedTool,
   } = useAgentStore()
-
-  useEffect(() => { loadSessions() }, [])
 
   useEffect(() => {
     if (!currentSessionId) {
@@ -658,21 +634,34 @@ export default function AgentChat() {
     return () => document.removeEventListener('paste', handlePaste)
   }, [])
 
+  const TOOL_DEFAULT_TEXT: Record<string, string> = {
+    contract_entry: '录入合同',
+    receipt_income: '录入收入',
+    receipt_expense: '录入支出',
+  }
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
     if (!text && pendingFiles.length === 0) {
       message.warning('请输入内容或上传文件')
       return
     }
-    if (pendingFiles.length > 0 && !text) {
-      message.warning('上传文件时必须添加文字说明')
-      return
-    }
+    // 有文件无文字时：优先用工具标签的默认文案，否则用"录入了文件"
+    const finalText = text || TOOL_DEFAULT_TEXT[selectedTool || ''] || '录入了文件'
     const filesToSend = pendingFiles.length > 0 ? [...pendingFiles] : undefined
     setInputText('')
     setPendingFiles([])
-    await sendMessage(text, filesToSend)
-  }, [inputText, pendingFiles, sendMessage])
+    await sendMessage(finalText, filesToSend)
+  }, [inputText, pendingFiles, sendMessage, selectedTool])
+
+  // 新建会话（清空当前消息，副作用：store 会自动重置 messages=[]）
+  const handleNewChat = useCallback(async () => {
+    if (isStreaming) {
+      message.warning('正在生成中，请先停止当前对话')
+      return
+    }
+    await createSession('chat')
+  }, [createSession, isStreaming])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -690,561 +679,278 @@ export default function AgentChat() {
     setPendingFiles((prev) => prev.filter((_, i) => i !== index))
   }, [])
 
-  // ── 会话管理（左侧面板）──
-  const handleNewChat = useCallback(async () => {
-    await createSession()
-  }, [createSession])
-
-  const handleClickSession = useCallback((sessionId: string) => {
-    switchSession(sessionId)
-  }, [switchSession])
-
-  const handleDeleteSession = useCallback((sessionId: string, e: React.MouseEvent) => {
-    e.stopPropagation()
-    Modal.confirm({
-      title: '删除会话',
-      content: '确定要删除此会话吗？删除后无法恢复。',
-      okText: '删除',
-      okType: 'danger',
-      cancelText: '取消',
-      onOk: () => deleteSession(sessionId),
-    })
-  }, [deleteSession])
-
   const hasMessages = messages.some((m) => m.role === 'user' || m.role === 'assistant')
 
-  // ── 活跃助手消息：取最后一条助手的 toolCalls / thoughts 用于右侧面板 ──
-  const lastAssistantMsg = [...messages].reverse().find(m => m.role === 'assistant')
-
   return (
-    <div style={{ display: 'flex', height: 'calc(100vh - 56px)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', height: 'calc(100vh - 56px)', position: 'relative' }}>
+      {/* ══════ 悬浮"新对话"主按钮（钉在视口左上角，不被消息滚动带走）══════ */}
+      <div
+        onClick={handleNewChat}
+        title={sessions.length > 0 ? '开启新对话（不会删除历史）' : '开始新对话'}
+        style={{
+          position: 'absolute',
+          top: isMobile ? 12 : 16,
+          left: isMobile ? 12 : 20,
+          zIndex: 10,
+          display: 'inline-flex',
+          alignItems: 'center',
+          gap: 6,
+          height: isMobile ? 32 : 36,
+          padding: isMobile ? '0 12px' : '0 16px',
+          background: 'linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-light) 100%)',
+          color: '#fff',
+          border: 'none',
+          borderRadius: 20,
+          fontSize: 13,
+          fontWeight: 600,
+          cursor: isStreaming ? 'not-allowed' : 'pointer',
+          opacity: isStreaming ? 0.55 : 1,
+          boxShadow: '0 2px 8px rgba(30, 58, 95, 0.22), 0 0 0 1px rgba(255,255,255,0.08) inset',
+          transition: 'transform 0.18s, box-shadow 0.18s, opacity 0.18s',
+          userSelect: 'none',
+        }}
+        onMouseEnter={(e) => {
+          if (isStreaming) return
+          e.currentTarget.style.transform = 'translateY(-1px)'
+          e.currentTarget.style.boxShadow = '0 6px 16px rgba(30, 58, 95, 0.28), 0 0 0 1px rgba(255,255,255,0.12) inset'
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.transform = 'translateY(0)'
+          e.currentTarget.style.boxShadow = '0 2px 8px rgba(30, 58, 95, 0.22), 0 0 0 1px rgba(255,255,255,0.08) inset'
+        }}
+        onMouseDown={(e) => {
+          if (!isStreaming) e.currentTarget.style.transform = 'translateY(0) scale(0.97)'
+        }}
+        onMouseUp={(e) => {
+          if (!isStreaming) e.currentTarget.style.transform = 'translateY(-1px)'
+        }}
+      >
+        <PlusOutlined style={{ fontSize: 13, fontWeight: 700 }} />
+        <span>新对话</span>
+      </div>
 
-      {/* ══════ 左侧面板 — 会话管理 ══════ */}
-      {!isMobile && (
-        <div style={{
-          width: 200, minWidth: 200,
-          background: 'linear-gradient(180deg, #0f1a2e 0%, #162240 100%)',
-          display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
-          borderRight: '1px solid rgba(255,255,255,0.06)',
-        }}>
-          <div style={{
-            padding: '12px 12px',
-            display: 'flex', alignItems: 'center', gap: 8,
-            borderBottom: '1px solid rgba(255,255,255,0.06)',
-          }}>
-            <div style={{
-              width: 28, height: 28, borderRadius: 8,
-              background: 'linear-gradient(135deg, var(--brand-gold), #e8b84b)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: '#0f1a2e', flexShrink: 0,
-            }}>
-              <StarFilled style={{ fontSize: 14 }} />
-            </div>
-            <Text style={{ fontSize: 13, fontWeight: 500, color: '#e2e8f0' }}>
-              小星助手
-            </Text>
-            <Tag color="gold" style={{ margin: 0, fontSize: 9, lineHeight: '14px', padding: '0 4px', borderRadius: 3 }}>
-              AI
-            </Tag>
-          </div>
-
-          <div
-            onClick={handleNewChat}
-            style={{
-              margin: '8px 10px 6px',
-              padding: '7px 12px',
-              borderRadius: 8,
-              border: '1px solid rgba(255,255,255,0.10)',
-              cursor: 'pointer',
-              display: 'flex', alignItems: 'center', gap: 6,
-              color: 'rgba(255,255,255,0.6)',
-              fontSize: 12, fontWeight: 500,
-              transition: 'all 0.15s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.background = 'rgba(255,255,255,0.05)'
-              e.currentTarget.style.color = '#e2e8f0'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.background = 'transparent'
-              e.currentTarget.style.color = 'rgba(255,255,255,0.6)'
-            }}
-          >
-            <PlusOutlined style={{ fontSize: 11 }} />
-            新对话
-          </div>
-
-          <div style={{
-            margin: '0 10px 8px',
-            padding: '6px 10px',
-            borderRadius: 6,
-            background: 'rgba(255,255,255,0.04)',
-            border: '1px solid rgba(255,255,255,0.06)',
-            fontSize: 11, color: 'rgba(255,255,255,0.3)',
-          }}>
-            <MessageOutlined style={{ marginRight: 6, fontSize: 11 }} />
-            搜索会话...
-          </div>
-
-          <div style={{ flex: 1, overflow: 'auto', padding: '0 8px 8px', minHeight: 0 }}>
-            {sessions.length === 0 ? (
-              <div style={{ textAlign: 'center', padding: '24px 8px', color: 'rgba(255,255,255,0.3)', fontSize: 11 }}>
-                暂无对话
-              </div>
-            ) : (
-              sessions.map((session) => {
-                const isActive = session.sessionId === currentSessionId
-                const isHovered = hoveredSession === session.sessionId
-                return (
-                  <div
-                    key={session.sessionId}
-                    onClick={() => handleClickSession(session.sessionId)}
-                    onMouseEnter={() => setHoveredSession(session.sessionId)}
-                    onMouseLeave={() => setHoveredSession(null)}
-                    style={{
-                      padding: '7px 10px',
-                      borderRadius: 6,
-                      cursor: 'pointer',
-                      marginBottom: 2,
-                      background: isActive
-                        ? 'rgba(201, 149, 43, 0.15)'
-                        : isHovered
-                          ? 'rgba(255,255,255,0.05)'
-                          : 'transparent',
-                      border: isActive ? '1px solid rgba(201,149,43,0.25)' : '1px solid transparent',
-                      transition: 'all 0.15s',
-                      position: 'relative',
-                    }}
-                  >
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 4 }}>
-                      <Text style={{
-                        fontSize: 11,
-                        fontWeight: isActive ? 600 : 400,
-                        color: isActive ? '#f1f5f9' : 'rgba(255,255,255,0.7)',
-                        display: 'block',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                        flex: 1, minWidth: 0,
-                      }}>
-                        {session.title || '新对话'}
-                      </Text>
-                      <DeleteOutlined
-                        onClick={(e) => handleDeleteSession(session.sessionId, e)}
-                        style={{
-                          fontSize: 10,
-                          color: isHovered ? 'rgba(255,255,255,0.45)' : 'transparent',
-                          padding: 2, flexShrink: 0,
-                          cursor: 'pointer', transition: 'color 0.15s',
-                        }}
-                        onMouseEnter={(ev) => { ev.currentTarget.style.color = '#ef4444' }}
-                        onMouseLeave={(ev) => { ev.currentTarget.style.color = isHovered ? 'rgba(255,255,255,0.45)' : 'transparent' }}
-                      />
-                    </div>
-                    <div style={{ display: 'flex', gap: 6, marginTop: 2 }}>
-                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>
-                        {formatSessionTime(session.createdAt)}
-                      </span>
-                      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)' }}>
-                        {session.messageCount} 条
-                      </span>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* ══════ 中央主区域 — 对话 ══════ */}
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-        <div
-          ref={messageListRef}
-          className={hasMessages ? 'chat-grid-bg' : ''}
-          style={{
-            flex: 1,
-            overflow: 'auto',
-            padding: hasMessages ? (isMobile ? '12px 14px' : '20px 24px') : 0,
-            background: hasMessages ? undefined : 'linear-gradient(180deg, var(--bg-page) 0%, #f0f2f5 100%)',
-          }}
-        >
-          {(!currentSessionId || !hasMessages) ? (
-            <WelcomeContent
-              inputText={inputText}
-              onChange={setInputText}
-              onSend={handleSend}
-              onFileSelect={handleFileSelect}
-              isStreaming={isStreaming}
-              onStop={stopGeneration}
-              pendingFiles={pendingFiles}
-              onRemoveFile={removePendingFile}
-              selectedTool={selectedTool}
-              setSelectedTool={setSelectedTool}
-            />
-          ) : (
-            <div style={{ maxWidth: 768, margin: '0 auto' }}>
-              {messages
-                .filter((m) => m.role === 'user' || m.role === 'assistant')
-                .map((msg, idx, arr) => (
-                  <MessageBubble
-                    key={msg.id}
-                    msg={msg}
-                    streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
-                  />
-                ))}
-            </div>
-          )}
-        </div>
-
-        {/* 输入区域 */}
-        {currentSessionId && hasMessages && (
-          <div
-            style={{
-              padding: isMobile ? '8px 12px 12px' : '14px 24px 18px',
-              background: 'transparent',
-              borderTop: '1px solid var(--border-light)',
-              flexShrink: 0,
-            }}
-          >
-            <div style={{ maxWidth: 768, margin: '0 auto' }}>
-              <div style={{
-                display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
-                flexWrap: 'wrap',
-              }}>
-                <span style={{
-                  fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500,
-                  marginRight: 4, flexShrink: 0,
-                }}>
-                  工具：
-                </span>
-                {TOOLS.map((t) => {
-                  const isActive = selectedTool === t.key
-                  return (
-                    <div
-                      key={t.key}
-                      onClick={() => setSelectedTool(isActive ? null : t.key)}
-                      className="tool-pill"
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 6,
-                        padding: '5px 12px',
-                        background: isActive ? t.color : 'transparent',
-                        border: `1px solid ${isActive ? t.color : 'var(--border-light)'}`,
-                        borderRadius: 14,
-                        cursor: 'pointer',
-                        fontSize: 12, fontWeight: isActive ? 600 : 400,
-                        color: isActive ? '#fff' : 'var(--text-secondary)',
-                        transition: 'all 0.18s',
-                      }}
-                      onMouseEnter={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.borderColor = t.color
-                          e.currentTarget.style.color = t.color
-                        }
-                      }}
-                      onMouseLeave={(e) => {
-                        if (!isActive) {
-                          e.currentTarget.style.borderColor = 'var(--border-light)'
-                          e.currentTarget.style.color = 'var(--text-secondary)'
-                        }
-                      }}
-                    >
-                      <span style={{ display: 'inline-flex', fontSize: 12 }}>{t.icon}</span>
-                      {t.label}
-                    </div>
-                  )
-                })}
-                {selectedTool && (
-                  <span
-                    onClick={() => setSelectedTool(null)}
-                    style={{
-                      fontSize: 11, color: 'var(--text-tertiary)',
-                      cursor: 'pointer', marginLeft: 4, textDecoration: 'underline',
-                    }}
-                    onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-danger)' }}
-                    onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)' }}
-                  >
-                    清除
-                  </span>
-                )}
-              </div>
-
-              {pendingFiles.length > 0 && (
-                <div
-                  style={{
-                    background: 'var(--bg-subtle)', border: '1px solid var(--border-light)',
-                    borderBottom: 'none', borderRadius: '12px 12px 0 0',
-                    padding: '10px 14px', display: 'flex', gap: 8,
-                    flexWrap: 'wrap', alignItems: 'center',
-                  }}
-                >
-                  <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4, whiteSpace: 'nowrap' }}>
-                    待发送附件
-                  </span>
-                  {pendingFiles.map((f, i) => {
-                    const name = f.name.toLowerCase()
-                    if (f.type.startsWith('image/')) {
-                      return (
-                        <span
-                          key={i} style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
-                          onClick={() => removePendingFile(i)}
-                        >
-                          <img
-                            src={URL.createObjectURL(f)} alt={f.name}
-                            style={{ height: 40, width: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--border-default)' }}
-                          />
-                          <span style={{
-                            position: 'absolute', top: -6, right: -6,
-                            background: 'var(--color-danger)', color: '#fff',
-                            borderRadius: '50%', width: 16, height: 16,
-                            fontSize: 10, lineHeight: '16px', textAlign: 'center',
-                            boxShadow: '0 2px 4px rgba(220,38,38,0.3)',
-                          }}>×</span>
-                        </span>
-                      )
-                    }
-                    const icon = name.endsWith('.pdf') ? <FilePdfOutlined style={{ color: '#dc2626' }} />
-                      : name.endsWith('.docx') || name.endsWith('.doc') ? <FileWordOutlined style={{ color: 'var(--brand-primary)' }} />
-                      : name.endsWith('.xlsx') || name.endsWith('.xls') ? <FileExcelOutlined style={{ color: 'var(--color-success)' }} />
-                      : <FileTextOutlined style={{ color: 'var(--color-warning)' }} />
-                    return (
-                      <Tag key={i} closable onClose={() => removePendingFile(i)} color="default" style={{ margin: 0, fontSize: 12, borderRadius: 4 }}>
-                        {icon} {f.name.length > 20 ? f.name.slice(0, 18) + '…' : f.name}
-                      </Tag>
-                    )
-                  })}
-                </div>
-              )}
-
-              <div
-                style={{
-                  display: 'flex', gap: 10, alignItems: 'flex-end',
-                  background: 'transparent', border: '1px solid var(--border-default)',
-                  borderRadius: pendingFiles.length > 0 ? '0 0 14px 14px' : 14,
-                  padding: '10px 10px 10px 16px',
-                  boxShadow: '0 2px 12px rgba(15,23,42,0.05)',
-                  transition: 'border-color 0.2s, box-shadow 0.2s',
-                }}
-                onMouseEnter={(e) => {
-                  if (!e.currentTarget.querySelector(':focus-within')) e.currentTarget.style.borderColor = 'var(--border-hover)'
-                }}
-                onMouseLeave={(e) => {
-                  if (!e.currentTarget.querySelector(':focus-within')) e.currentTarget.style.borderColor = 'var(--border-default)'
-                }}
-              >
-                <Upload
-                  beforeUpload={handleFileSelect}
-                  showUploadList={false}
-                  accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
-                >
-                  <Button
-                    type="text"
-                    icon={<PaperClipOutlined style={{ fontSize: 18 }} />}
-                    disabled={isStreaming}
-                    style={{
-                      padding: '8px', borderRadius: 8,
-                      color: pendingFiles.length > 0 ? 'var(--brand-primary)' : 'var(--text-tertiary)',
-                      flexShrink: 0, fontSize: 16,
-                    }}
-                  />
-                </Upload>
-                <Input.TextArea
-                  value={inputText}
-                  onChange={(e) => setInputText(e.target.value)}
-                  onKeyDown={handleKeyDown}
-                  placeholder={pendingFiles.length > 0 ? '请描述文件内容（必填）...' : '输入你的问题...'}
-                  autoSize={{ minRows: 1, maxRows: 5 }}
-                  disabled={isStreaming}
-                  bordered={false}
-                  style={{ flex: 1, fontSize: 15, lineHeight: '24px', padding: '6px 0', resize: 'none', color: 'var(--text-primary)' }}
+      <div
+        ref={messageListRef}
+        className={hasMessages ? 'chat-grid-bg' : ''}
+        style={{
+          flex: 1,
+          overflow: 'auto',
+          padding: isMobile ? '56px 14px 12px' : '64px 24px 20px',
+          background: hasMessages ? undefined : 'linear-gradient(180deg, var(--bg-page) 0%, #f0f2f5 100%)',
+        }}
+      >
+        {(!currentSessionId || !hasMessages) ? (
+          <WelcomeContent
+            inputText={inputText}
+            onChange={setInputText}
+            onSend={handleSend}
+            onFileSelect={handleFileSelect}
+            isStreaming={isStreaming}
+            onStop={stopGeneration}
+            pendingFiles={pendingFiles}
+            onRemoveFile={removePendingFile}
+            selectedTool={selectedTool}
+            setSelectedTool={setSelectedTool}
+          />
+        ) : (
+          <div style={{ maxWidth: 768, margin: '0 auto' }}>
+            {messages
+              .filter((m) => m.role === 'user' || m.role === 'assistant')
+              .map((msg, idx, arr) => (
+                <MessageBubble
+                  key={msg.id}
+                  msg={msg}
+                  streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
                 />
-                {isStreaming ? (
-                  <Button
-                    danger size="large" icon={<StopOutlined />}
-                    onClick={stopGeneration}
-                    style={{ borderRadius: 8, height: 40, padding: '0 16px', flexShrink: 0 }}
-                  >
-                    停止
-                  </Button>
-                ) : (
-                  <Button
-                    type="primary" size="large" icon={<SendOutlined />}
-                    onClick={handleSend}
-                    disabled={!inputText.trim()}
-                    style={{ borderRadius: 8, height: 40, padding: '0 20px', flexShrink: 0, fontSize: 14 }}
-                  >
-                    发送
-                  </Button>
-                )}
-              </div>
-              <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>
-                Ctrl/Cmd + V 粘贴图片 · AI 可能产生错误信息，请核实重要数据
-              </div>
-            </div>
+              ))}
           </div>
         )}
       </div>
 
-      {/* ══════ 右侧面板 — 活动面板 ══════ */}
-      {!isMobile && (
-        <div style={{
-          width: rightPanelOpen ? 240 : 0,
-          minWidth: rightPanelOpen ? 240 : 0,
-          background: 'var(--bg-surface)',
-          display: 'flex', flexDirection: 'column',
-          overflow: 'hidden',
-          borderLeft: rightPanelOpen ? '1px solid var(--border-light)' : 'none',
-          transition: 'width 0.25s cubic-bezier(0.4, 0, 0.2, 1), min-width 0.25s cubic-bezier(0.4, 0, 0.2, 1)',
-        }}>
-          <div style={{
-            padding: '10px 14px',
-            borderBottom: '1px solid var(--border-light)',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+      {/* 输入区域 */}
+      {currentSessionId && hasMessages && (
+        <div
+          style={{
+            padding: isMobile ? '8px 12px 12px' : '14px 24px 18px',
+            background: 'transparent',
+            borderTop: '1px solid var(--border-light)',
             flexShrink: 0,
-          }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Text style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-primary)' }}>
-                活动面板
-              </Text>
+          }}
+        >
+          <div style={{ maxWidth: 768, margin: '0 auto' }}>
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10,
+              flexWrap: 'wrap',
+            }}>
+              <span style={{
+                fontSize: 12, color: 'var(--text-tertiary)', fontWeight: 500,
+                marginRight: 4, flexShrink: 0,
+              }}>
+                工具：
+              </span>
+              {TOOLS.map((t) => {
+                const isActive = selectedTool === t.key
+                return (
+                  <div
+                    key={t.key}
+                    onClick={() => setSelectedTool(isActive ? null : t.key)}
+                    className="tool-pill"
+                    style={{
+                      display: 'inline-flex', alignItems: 'center', gap: 6,
+                      padding: '5px 12px',
+                      background: isActive ? t.color : 'transparent',
+                      border: `1px solid ${isActive ? t.color : 'var(--border-light)'}`,
+                      borderRadius: 14,
+                      cursor: 'pointer',
+                      fontSize: 12, fontWeight: isActive ? 600 : 400,
+                      color: isActive ? '#fff' : 'var(--text-secondary)',
+                      transition: 'all 0.18s',
+                    }}
+                    onMouseEnter={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.borderColor = t.color
+                        e.currentTarget.style.color = t.color
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (!isActive) {
+                        e.currentTarget.style.borderColor = 'var(--border-light)'
+                        e.currentTarget.style.color = 'var(--text-secondary)'
+                      }
+                    }}
+                  >
+                    <span style={{ display: 'inline-flex', fontSize: 12 }}>{t.icon}</span>
+                    {t.label}
+                  </div>
+                )
+              })}
+              {selectedTool && (
+                <span
+                  onClick={() => setSelectedTool(null)}
+                  style={{
+                    fontSize: 11, color: 'var(--text-tertiary)',
+                    cursor: 'pointer', marginLeft: 4, textDecoration: 'underline',
+                  }}
+                  onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--color-danger)' }}
+                  onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--text-tertiary)' }}
+                >
+                  清除
+                </span>
+              )}
             </div>
-            <Button
-              type="text"
-              size="small"
-              icon={rightPanelOpen ? <RightOutlined /> : <LeftOutlined />}
-              onClick={() => setRightPanelOpen(!rightPanelOpen)}
-              style={{ color: 'var(--text-tertiary)', padding: '0 4px', height: 22, fontSize: 10 }}
-            />
+
+            {pendingFiles.length > 0 && (
+              <div
+                style={{
+                  background: 'var(--bg-subtle)', border: '1px solid var(--border-light)',
+                  borderBottom: 'none', borderRadius: '12px 12px 0 0',
+                  padding: '10px 14px', display: 'flex', gap: 8,
+                  flexWrap: 'wrap', alignItems: 'center',
+                }}
+              >
+                <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4, whiteSpace: 'nowrap' }}>
+                  待发送附件
+                </span>
+                {pendingFiles.map((f, i) => {
+                  const name = f.name.toLowerCase()
+                  if (f.type.startsWith('image/')) {
+                    return (
+                      <span
+                        key={i} style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                        onClick={() => removePendingFile(i)}
+                      >
+                        <img
+                          src={URL.createObjectURL(f)} alt={f.name}
+                          style={{ height: 40, width: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--border-default)' }}
+                        />
+                        <span style={{
+                          position: 'absolute', top: -6, right: -6,
+                          background: 'var(--color-danger)', color: '#fff',
+                          borderRadius: '50%', width: 16, height: 16,
+                          fontSize: 10, lineHeight: '16px', textAlign: 'center',
+                          boxShadow: '0 2px 4px rgba(220,38,38,0.3)',
+                        }}>×</span>
+                      </span>
+                    )
+                  }
+                  const icon = name.endsWith('.pdf') ? <FilePdfOutlined style={{ color: '#dc2626' }} />
+                    : name.endsWith('.docx') || name.endsWith('.doc') ? <FileWordOutlined style={{ color: 'var(--brand-primary)' }} />
+                    : name.endsWith('.xlsx') || name.endsWith('.xls') ? <FileExcelOutlined style={{ color: 'var(--color-success)' }} />
+                    : <FileTextOutlined style={{ color: 'var(--color-warning)' }} />
+                  return (
+                    <Tag key={i} closable onClose={() => removePendingFile(i)} color="default" style={{ margin: 0, fontSize: 12, borderRadius: 4 }}>
+                      {icon} {f.name.length > 20 ? f.name.slice(0, 18) + '…' : f.name}
+                    </Tag>
+                  )
+                })}
+              </div>
+            )}
+
+            <div
+              style={{
+                display: 'flex', gap: 10, alignItems: 'flex-end',
+                background: 'transparent', border: '1px solid var(--border-default)',
+                borderRadius: pendingFiles.length > 0 ? '0 0 14px 14px' : 14,
+                padding: '10px 10px 10px 16px',
+                boxShadow: '0 2px 12px rgba(15,23,42,0.05)',
+                transition: 'border-color 0.2s, box-shadow 0.2s',
+              }}
+              onMouseEnter={(e) => {
+                if (!e.currentTarget.querySelector(':focus-within')) e.currentTarget.style.borderColor = 'var(--border-hover)'
+              }}
+              onMouseLeave={(e) => {
+                if (!e.currentTarget.querySelector(':focus-within')) e.currentTarget.style.borderColor = 'var(--border-default)'
+              }}
+            >
+              <Upload
+                beforeUpload={handleFileSelect}
+                showUploadList={false}
+                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+              >
+                <Button
+                  type="text"
+                  icon={<PaperClipOutlined style={{ fontSize: 18 }} />}
+                  disabled={isStreaming}
+                  style={{
+                    padding: '8px', borderRadius: 8,
+                    color: pendingFiles.length > 0 ? 'var(--brand-primary)' : 'var(--text-tertiary)',
+                    flexShrink: 0, fontSize: 16,
+                  }}
+                />
+              </Upload>
+              <Input.TextArea
+                value={inputText}
+                onChange={(e) => setInputText(e.target.value)}
+                onKeyDown={handleKeyDown}
+                placeholder={pendingFiles.length > 0 ? '上传文件后可直接发送，也可补充说明...' : '输入你的问题...'}
+                autoSize={{ minRows: 1, maxRows: 5 }}
+                disabled={isStreaming}
+                bordered={false}
+                style={{ flex: 1, fontSize: 15, lineHeight: '24px', padding: '6px 0', resize: 'none', color: 'var(--text-primary)' }}
+              />
+              {isStreaming ? (
+                <Button
+                  danger size="large" icon={<StopOutlined />}
+                  onClick={stopGeneration}
+                  style={{ borderRadius: 8, height: 40, padding: '0 16px', flexShrink: 0 }}
+                >
+                  停止
+                </Button>
+              ) : (
+                <Button
+                  type="primary" size="large" icon={<SendOutlined />}
+                  onClick={handleSend}
+                  disabled={!inputText.trim() && pendingFiles.length === 0}
+                  style={{ borderRadius: 8, height: 40, padding: '0 20px', flexShrink: 0, fontSize: 14 }}
+                >
+                  发送
+                </Button>
+              )}
+            </div>
+            <div style={{ textAlign: 'center', fontSize: 11, color: 'var(--text-tertiary)', marginTop: 8 }}>
+              Ctrl/Cmd + V 粘贴图片 · AI 可能产生错误信息，请核实重要数据
+            </div>
           </div>
-
-          {rightPanelOpen && (
-            <div style={{ flex: 1, overflow: 'auto', padding: '8px 10px', minHeight: 0 }}>
-              {/* ── 思考链 ── */}
-              {lastAssistantMsg?.thoughts && lastAssistantMsg.thoughts.length > 0 && (
-                <div style={{
-                  padding: '8px 10px', borderRadius: 6, marginBottom: 8,
-                  border: '1px solid var(--border-light)',
-                  background: 'var(--bg-subtle)',
-                }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
-                  }}>
-                    <div style={{
-                      width: 22, height: 22, borderRadius: 5,
-                      background: 'var(--brand-primary-lighter)', color: 'var(--brand-primary)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, flexShrink: 0,
-                    }}>
-                      ⚡
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)' }}>思考链</span>
-                  </div>
-                  {lastAssistantMsg.thoughts.map((step, i) => (
-                    <div key={step.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 6,
-                      padding: '3px 0', fontSize: 11, color: 'var(--text-secondary)',
-                    }}>
-                      <span style={{
-                        width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                        background: step.status === 'done' ? 'var(--color-success)' : 'var(--brand-gold)',
-                        opacity: step.status === 'running' ? 1 : 0.6,
-                      }} />
-                      {step.message}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── 工具调用 ── */}
-              {lastAssistantMsg?.toolCalls && lastAssistantMsg.toolCalls.length > 0 && (
-                <div style={{
-                  padding: '8px 10px', borderRadius: 6, marginBottom: 8,
-                  border: '1px solid var(--border-light)',
-                  background: 'var(--bg-subtle)',
-                }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
-                  }}>
-                    <div style={{
-                      width: 22, height: 22, borderRadius: 5,
-                      background: 'var(--brand-gold-bg)', color: 'var(--brand-gold)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, flexShrink: 0,
-                    }}>
-                      🔧
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)' }}>工具调用</span>
-                  </div>
-                  {lastAssistantMsg.toolCalls.map((tc, i) => (
-                    <div key={tc.id} style={{
-                      display: 'flex', alignItems: 'center', gap: 4,
-                      padding: '2px 0', fontSize: 11,
-                    }}>
-                      <span style={{ color: tc.result ? 'var(--color-success)' : 'var(--brand-gold)', fontSize: 10 }}>
-                        {tc.result ? '✓' : '◌'}
-                      </span>
-                      <span style={{
-                        color: 'var(--text-secondary)',
-                        fontFamily: 'var(--font-mono)', fontSize: 10,
-                      }}>
-                        {tc.name}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── 数据引用 ── */}
-              {lastAssistantMsg?.toolCalls?.some(tc => tc.summary?.items?.length) && (
-                <div style={{
-                  padding: '8px 10px', borderRadius: 6, marginBottom: 8,
-                  border: '1px solid var(--border-light)',
-                  background: 'var(--bg-subtle)',
-                }}>
-                  <div style={{
-                    display: 'flex', alignItems: 'center', gap: 6, marginBottom: 8,
-                  }}>
-                    <div style={{
-                      width: 22, height: 22, borderRadius: 5,
-                      background: 'var(--color-success-bg)', color: 'var(--color-success)',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, flexShrink: 0,
-                    }}>
-                      📊
-                    </div>
-                    <span style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-primary)' }}>数据引用</span>
-                  </div>
-                  {lastAssistantMsg.toolCalls.filter(tc => tc.summary?.items?.length).map((tc) => (
-                    <div key={tc.id}>
-                      {tc.summary!.items.map((item, j) => (
-                        <div key={j} style={{
-                          display: 'flex', justifyContent: 'space-between',
-                          padding: '2px 0', fontSize: 11,
-                        }}>
-                          <span style={{ color: 'var(--text-secondary)' }}>{item.label}</span>
-                          <span style={{
-                            color: item.highlight === 'warning' ? 'var(--color-danger)' : 'var(--text-primary)',
-                            fontWeight: 500,
-                          }}>
-                            {item.value}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {/* ── 空状态 ── */}
-              {!(lastAssistantMsg?.thoughts?.length || lastAssistantMsg?.toolCalls?.length) && (
-                <div style={{
-                  textAlign: 'center', padding: '32px 8px',
-                  color: 'var(--text-tertiary)', fontSize: 11,
-                }}>
-                  <div style={{ fontSize: 28, marginBottom: 8, opacity: 0.4 }}>⚡</div>
-                  发送消息后，这里将显示<br />AI 的思考和工具调用过程
-                </div>
-              )}
-            </div>
-          )}
         </div>
       )}
     </div>

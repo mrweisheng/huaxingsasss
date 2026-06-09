@@ -1,20 +1,33 @@
-"""LangGraph astream_events -> SSE 事件格式适配器 v2.1
+"""LangGraph astream_events -> SSE 事件格式适配器 v2.2
 
 适配统一 Agent 图（call_model_node / execute_tool_node / finalize_node）。
 
 SSE 事件输出：
-  - thinking    — 节点启动提示
+  - thinking    — 节点启动提示 + 工具执行期心跳
   - text        — LLM 流式输出 / text_chunk 自定义事件
   - tool_call   — 工具调用开始（tool_start 自定义事件）
   - tool_result — 工具调用结束（tool_end 自定义事件，含 summary）
   - done        — 流结束
   - error       — 异常
 """
+import asyncio
 import json
 import logging
 from typing import AsyncGenerator, Optional
 
 logger = logging.getLogger(__name__)
+
+# 心跳间隔（秒）：当两个事件之间间隔超过此值，自动发 thinking 心跳
+_HEARTBEAT_INTERVAL = 3.0
+
+# 心跳文案池（复用前端 WittyLoadingText 的关键词触发场景）
+_HEARTBEAT_MESSAGES = [
+    "正在处理中...",
+    "还在努力干活...",
+    "数据量有点大，稍等一下...",
+    "快好了，再给我一点时间...",
+    "正在核对信息...",
+]
 
 
 def _sse_encode(event: dict) -> str:
@@ -51,12 +64,42 @@ async def adapt_langgraph_stream_v2(
     """将 LangGraph astream_events 流转换为 SSE 事件格式。
 
     适配统一 Agent 图（call_model_node / execute_tool_node / finalize_node）。
+    当两个事件之间间隔超过 _HEARTBEAT_INTERVAL 秒时，自动发 thinking 心跳事件，
+    防止前端因长时间无事件而看起来"卡住"。
     """
     event_count = 0
     last_event_name = ""
+    heartbeat_idx = 0
+
+    async def _next_event(aiter):
+        """包装 __anext__，返回 (event, done) 而非抛 StopAsyncIteration。"""
+        try:
+            return await aiter.__anext__(), False
+        except StopAsyncIteration:
+            return None, True
+
+    aiter = agen.__aiter__()
 
     try:
-        async for event in agen:
+        while True:
+            # 用 wait_for 实现超时：正常事件到达 or 超时心跳
+            try:
+                event = await asyncio.wait_for(
+                    aiter.__anext__(),
+                    timeout=_HEARTBEAT_INTERVAL,
+                )
+            except asyncio.TimeoutError:
+                # 超时 → 发心跳
+                heartbeat_msg = _HEARTBEAT_MESSAGES[heartbeat_idx % len(_HEARTBEAT_MESSAGES)]
+                heartbeat_idx += 1
+                yield _sse_encode({
+                    "event": "thinking",
+                    "data": {"message": heartbeat_msg},
+                })
+                continue
+            except StopAsyncIteration:
+                break
+
             event_count += 1
             last_event_name = event.get("name", event.get("event", "?"))
             kind = event.get("event", "")
@@ -115,8 +158,8 @@ async def adapt_langgraph_stream_v2(
                     })
 
         logger.info(
-            "SSE adapter: astream_events 正常结束, session_id=%s, events=%d, last=%s",
-            session_id, event_count, last_event_name,
+            "SSE adapter: astream_events 正常结束, session_id=%s, events=%d, last=%s, heartbeats=%d",
+            session_id, event_count, last_event_name, heartbeat_idx,
         )
     except Exception as e:
         logger.error(

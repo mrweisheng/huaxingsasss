@@ -894,6 +894,12 @@ body {
   }
 }
 
+/* ── 4.6 打字光标闪烁（流式输出时末尾竖线）── */
+@keyframes cursorBlink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
 /* ── 5. 工具块 hover 微反馈 ── */
 .tool-call-block:hover {
   box-shadow: 0 2px 8px rgba(30, 58, 95, 0.06);
