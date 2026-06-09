@@ -31,6 +31,7 @@ import {
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage } from '@/types/agent'
 import { MarkdownRenderer, ToolCallBlock, WittyLoadingText } from '@/components/AgentChatShared'
+import { compressImage } from '@/utils/imageCompress'
 
 const { Text } = Typography
 
@@ -592,20 +593,13 @@ export default function AgentChat() {
     messages,
     isStreaming,
     error,
-    createSession,
     sendMessage,
     stopGeneration,
     clearError,
     selectedTool,
     setSelectedTool,
+    resetChat,
   } = useAgentStore()
-
-  useEffect(() => {
-    if (!currentSessionId) {
-      createSession()
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
 
   useEffect(() => {
     if (messageListRef.current) {
@@ -654,14 +648,14 @@ export default function AgentChat() {
     await sendMessage(finalText, filesToSend)
   }, [inputText, pendingFiles, sendMessage, selectedTool])
 
-  // 新建会话（清空当前消息，副作用：store 会自动重置 messages=[]）
-  const handleNewChat = useCallback(async () => {
+  // 新建会话：只重置本地状态，不创建后端 session（延迟到发第一条消息时）
+  const handleNewChat = useCallback(() => {
     if (isStreaming) {
       message.warning('正在生成中，请先停止当前对话')
       return
     }
-    await createSession('chat')
-  }, [createSession, isStreaming])
+    resetChat()
+  }, [resetChat, isStreaming])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -671,7 +665,10 @@ export default function AgentChat() {
   )
 
   const handleFileSelect = useCallback((file: File) => {
-    setPendingFiles((prev) => [...prev, file])
+    // 先同步阻止 antd Upload 自动上传，再异步压缩后加入待发列表
+    compressImage(file).then((compressed) => {
+      setPendingFiles((prev) => [...prev, compressed])
+    })
     return false
   }, [])
 

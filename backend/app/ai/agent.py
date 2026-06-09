@@ -281,19 +281,18 @@ class ContractAgent:
             )
             .delete()
         )
-        session_deleted = 0
-        if history_deleted:
-            session_deleted = (
-                self.db.query(ChatSession)
-                .filter(
-                    ChatSession.session_id == session_id,
-                    ChatSession.user_id == self.user.id,
-                )
-                .delete()
+        # 始终尝试删除 ChatSession 行（即使没有 chat_history 记录）
+        session_deleted = (
+            self.db.query(ChatSession)
+            .filter(
+                ChatSession.session_id == session_id,
+                ChatSession.user_id == self.user.id,
             )
-            logger.info(
-                "delete_session: history=%d session_row=%d session=%s",
-                history_deleted, session_deleted, session_id[:8],
-            )
+            .delete()
+        )
         self.db.commit()
-        return history_deleted > 0
+        logger.info(
+            "delete_session: history=%d session_row=%d session=%s",
+            history_deleted, session_deleted, session_id[:8],
+        )
+        return (history_deleted + session_deleted) > 0

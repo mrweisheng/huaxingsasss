@@ -48,7 +48,7 @@ def create_session(
         "code": 200,
         "data": {
             "session_id": session_id,
-            "created_at": None,
+            "created_at": chat_session.created_at.isoformat() if chat_session.created_at else None,
             "message_count": 0,
             "title": req.title,
             "mode": req.mode,

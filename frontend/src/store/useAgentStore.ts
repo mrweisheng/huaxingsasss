@@ -23,13 +23,14 @@ interface AgentState {
   selectedTool: 'contract_entry' | 'receipt_income' | 'receipt_expense' | null
 
   loadSessions: () => Promise<void>
-  createSession: (mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense') => Promise<string>
+  createSession: (mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense', title?: string) => Promise<string>
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   sendMessage: (content: string, attachments?: File[]) => Promise<void>
   stopGeneration: () => void
   clearError: () => void
   setSelectedTool: (tool: AgentState['selectedTool']) => void
+  resetChat: () => void
 }
 
 let abortController: AbortController | null = null
@@ -114,8 +115,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
-  createSession: async (mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense') => {
-    const res = await agentApi.createSession({ mode: mode || 'chat' })
+  createSession: async (mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense', title?: string) => {
+    const res = await agentApi.createSession({ mode: mode || 'chat', title })
     const session = res.data
     set((state) => ({
       sessions: [session, ...state.sessions],
@@ -156,8 +157,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set({ isStreaming: true, error: null, selectedTool: null })
 
     if (!sessionId) {
-      // 第一次发消息：把工具 mode 传给 create_session
-      sessionId = await get().createSession(selectedTool || 'chat')
+      // 第一次发消息：用消息内容前 50 字作标题
+      const title = content.slice(0, 50)
+      sessionId = await get().createSession(selectedTool || 'chat', title)
     }
 
     // 生成本地附件预览（图片 base64），不阻塞 UI
@@ -308,4 +310,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  resetChat: () => set({ currentSessionId: null, messages: [], selectedTool: null }),
 }))
