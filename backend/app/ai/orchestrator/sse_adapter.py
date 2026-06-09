@@ -1,6 +1,14 @@
-"""LangGraph astream_events -> SSE 事件格式适配器 v2
+"""LangGraph astream_events -> SSE 事件格式适配器 v2.1
 
 适配统一 Agent 图（call_model_node / execute_tool_node / finalize_node）。
+
+SSE 事件输出：
+  - thinking    — 节点启动提示
+  - text        — LLM 流式输出 / text_chunk 自定义事件
+  - tool_call   — 工具调用开始（tool_start 自定义事件）
+  - tool_result — 工具调用结束（tool_end 自定义事件，含 summary）
+  - done        — 流结束
+  - error       — 异常
 """
 import json
 import logging
@@ -77,6 +85,33 @@ async def adapt_langgraph_stream_v2(
                     yield _sse_encode({
                         "event": "text",
                         "data": {"content": content},
+                    })
+
+            elif kind == "on_custom_event" and event.get("name") == "tool_start":
+                data = event.get("data", {})
+                if data.get("name"):
+                    yield _sse_encode({
+                        "event": "tool_call",
+                        "data": {
+                            "id": data.get("id", ""),
+                            "name": data["name"],
+                            "arguments": data.get("arguments", "{}"),
+                        },
+                    })
+
+            elif kind == "on_custom_event" and event.get("name") == "tool_end":
+                data = event.get("data", {})
+                if data.get("name"):
+                    payload: dict = {
+                        "id": data.get("id", ""),
+                        "name": data["name"],
+                        "result": data.get("result", ""),
+                    }
+                    if data.get("summary") is not None:
+                        payload["summary"] = data["summary"]
+                    yield _sse_encode({
+                        "event": "tool_result",
+                        "data": payload,
                     })
 
         logger.info(

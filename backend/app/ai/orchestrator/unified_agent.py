@@ -18,7 +18,7 @@ import asyncio
 import json
 import logging
 from datetime import date
-from typing import Optional, Literal
+from typing import Optional, Literal, Any
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
@@ -38,6 +38,106 @@ _WRITABLE_TOOLS = frozenset({
     "create_payment_record", "match_and_confirm_payment",
     "update_payment",
 })
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# extract_tool_summary — 从工具返回的 JSON 字符串中提取结构化摘要
+# 用于右侧活动面板的「数据引用」卡片
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+def _safe_parse_result(result: str) -> Optional[dict[str, Any]]:
+    """安全解析工具返回的 JSON 字符串，失败返回 None。"""
+    try:
+        return json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _fmt(value: Any) -> str:
+    """格式化摘要值：数字加千分位，其余直接转字符串。"""
+    if isinstance(value, float):
+        return f"{value:,.2f}"
+    if isinstance(value, int):
+        return f"{value:,}"
+    return str(value)
+
+
+def extract_tool_summary(tool_name: str, result: str) -> Optional[dict[str, Any]]:
+    """根据工具名从返回结果中提取摘要信息。返回 None 表示无法提取。"""
+    data = _safe_parse_result(result)
+    if not data:
+        return None
+
+    items: list[dict[str, str]] = []
+
+    if tool_name == "analyze_files":
+        success = sum(1 for f in data.get("files", []) if f.get("success"))
+        rejected = len(data.get("files", [])) - success
+        if rejected > 0:
+            items.append({"label": "分析成功", "value": _fmt(success)})
+            items.append({"label": "无法识别", "value": _fmt(rejected), "highlight": "warning"})
+        else:
+            items.append({"label": "分析文件", "value": _fmt(len(data.get("files", [])))})
+
+    elif tool_name == "get_overview":
+        items.append({"label": "客户总数", "value": _fmt(data.get("customers_total", 0))})
+        items.append({"label": "合同总数", "value": _fmt(data.get("contracts_total", 0))})
+        if data.get("expiring_contracts_30days", 0) > 0:
+            items.append({"label": "30天内到期", "value": _fmt(data["expiring_contracts_30days"]), "highlight": "warning"})
+
+    elif tool_name == "search_customers":
+        total = data.get("total") or data.get("summary", {}).get("total_customers", 0)
+        items.append({"label": "匹配客户", "value": _fmt(total)})
+
+    elif tool_name == "search_contracts":
+        total = data.get("total") or data.get("summary", {}).get("total_contracts", 0)
+        items.append({"label": "匹配合同", "value": _fmt(total)})
+
+    elif tool_name == "get_contract_detail":
+        income = data.get("income", {})
+        if income.get("total_amount"):
+            items.append({"label": "合同总额", "value": _fmt(income["total_amount"])})
+        if income.get("remaining_amount"):
+            items.append({"label": "待付金额", "value": _fmt(income["remaining_amount"])})
+        expense = data.get("expense", {})
+        if expense.get("total_expense"):
+            items.append({"label": "累计支出", "value": _fmt(expense["total_expense"])})
+
+    elif tool_name in ("create_customer", "update_customer"):
+        if data.get("success") and data.get("customer"):
+            items.append({"label": "客户", "value": data["customer"].get("name", "—")})
+
+    elif tool_name in ("create_contract", "update_contract"):
+        if data.get("success") and data.get("contract"):
+            c = data["contract"]
+            items.append({"label": "合同编号", "value": c.get("contract_number", "—")})
+            if c.get("total_amount"):
+                items.append({"label": "金额", "value": _fmt(c["total_amount"])})
+
+    elif tool_name == "query_payments":
+        items.append({"label": "匹配记录", "value": _fmt(data.get("total", 0))})
+
+    elif tool_name == "create_payment_record":
+        if data.get("success") and data.get("payment"):
+            p = data["payment"]
+            items.append({"label": "金额", "value": _fmt(p.get("amount", 0))})
+            items.append({"label": "状态", "value": p.get("status", "—")})
+
+    elif tool_name == "match_and_confirm_payment":
+        items.append({"label": "匹配结果", "value": "已匹配" if data.get("matched") else "未匹配"})
+        if data.get("payment") and data["payment"].get("amount"):
+            items.append({"label": "金额", "value": _fmt(data["payment"]["amount"])})
+
+    elif tool_name == "update_payment":
+        items.append({"label": "更新结果", "value": "成功" if data.get("success") else "失败"})
+
+    elif tool_name == "search_contract_text":
+        items.append({"label": "匹配结果", "value": _fmt(len(data.get("matches", [])))})
+
+    if not items:
+        return None
+
+    return {"type": "data_reference", "items": items}
 
 
 def _default_llm_client():
@@ -267,27 +367,51 @@ class UnifiedAgentGraph:
                 except json.JSONDecodeError:
                     args = {}
 
+                # ── SSE: 工具开始事件（通知前端活动面板） ──
+                await adispatch_custom_event("tool_start", {
+                    "id": tc["id"],
+                    "name": tool_name,
+                    "arguments": tc.get("arguments", "{}"),
+                })
+
                 # ── 轻量确认防护 ──
                 if tool_name in _WRITABLE_TOOLS:
                     if not _has_confirmation_in_context(state.get("messages", [])):
                         logger.warning("确认防护拦截: tool=%s（上文无确认询问）", tool_name)
+                        error_content = json.dumps({
+                            "error": f"请先向用户展示操作计划并请求确认后，再调用 {tool_name}。",
+                            "tool": tool_name,
+                            "hint": "你应该先回复用户（不调任何写入工具），列出将要创建/修改的内容（客户名、金额、业务类型），"
+                                    "明确问「是否确认？」，等用户回复「确认」后再在下一轮调用此工具。",
+                        }, ensure_ascii=False)
                         tool_messages.append(ToolMessage(
-                            content=json.dumps({
-                                "error": f"请先向用户展示操作计划并请求确认后，再调用 {tool_name}。",
-                                "tool": tool_name,
-                                "hint": "你应该先回复用户（不调任何写入工具），列出将要创建/修改的内容（客户名、金额、业务类型），"
-                                        "明确问「是否确认？」，等用户回复「确认」后再在下一轮调用此工具。",
-                            }, ensure_ascii=False),
+                            content=error_content,
                             tool_call_id=tc["id"],
                         ))
+                        # SSE: 工具结束事件（被拦截）
+                        await adispatch_custom_event("tool_end", {
+                            "id": tc["id"],
+                            "name": tool_name,
+                            "result": error_content,
+                            "summary": None,
+                        })
                         continue
 
                 # ── 执行工具 ──
                 try:
                     result = await asyncio.to_thread(executor.execute, tool_name, args)
                 except Exception as e:
-                    result = f"工具执行出错: {tool_name} → {e}"
-                    logger.warning(result, exc_info=True)
+                    result = json.dumps({"error": f"工具执行出错: {tool_name} → {e}"}, ensure_ascii=False)
+                    logger.warning("工具执行出错: %s → %s", tool_name, e)
+
+                # SSE: 工具结束事件（附带结构化摘要）
+                summary = extract_tool_summary(tool_name, result)
+                await adispatch_custom_event("tool_end", {
+                    "id": tc["id"],
+                    "name": tool_name,
+                    "result": result,
+                    "summary": summary,
+                })
 
                 tool_messages.append(ToolMessage(
                     content=result,

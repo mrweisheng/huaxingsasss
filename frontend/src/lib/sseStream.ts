@@ -1,4 +1,4 @@
-﻿/**
+/**
  * SSE 流读取 + 事件分发（共享给 useAgentStore / ReceiptChatModal）
  *
  * 设计：
@@ -8,7 +8,7 @@
  *
  * 这样 store 和 modal 行为永远一致；新增事件只需在这里改一处。
  */
-import type { SSEEvent } from '@/types/agent'
+import type { SSEEvent, DataReferenceSummary } from '@/types/agent'
 
 /** 异步读取 SSE 事件流。自动跳过空行和无法解析的 JSON。*/
 export async function* readSSEStream(
@@ -75,8 +75,8 @@ export interface DispatchResult {
     arguments: string
   }
 
-  /** tool_result 事件：填充最后一个 toolCall.result*/
-  toolResultLast?: { result: string }
+  /** tool_result 事件：填充最后一个 toolCall.result + summary*/
+  toolResultLast?: { result: string; summary?: DataReferenceSummary | null }
 
   /** thinking 事件：推入新的 running 步骤，并标记上一个为 done*/
   thoughtAppend?: { id: string; message: string }
@@ -122,7 +122,10 @@ export function computeEventUpdates(
     return {
       action: 'continue',
       nextThoughtId: ctx.thoughtStepId,
-      toolResultLast: { result: data.result },
+      toolResultLast: {
+        result: data.result,
+        summary: data.summary ?? undefined,
+      },
     }
   }
 
@@ -205,12 +208,13 @@ export function applyMessageUpdates(
     return next
   }
 
-  // tool_result: 填充最后一个 toolCall.result
+  // tool_result: 填充最后一个 toolCall.result + summary
   if (result.toolResultLast && m.toolCalls?.length) {
     const calls = [...m.toolCalls]
     calls[calls.length - 1] = {
       ...calls[calls.length - 1],
       result: result.toolResultLast.result,
+      summary: result.toolResultLast.summary,
     }
     const next = messages.slice()
     next[idx] = { ...m, toolCalls: calls }

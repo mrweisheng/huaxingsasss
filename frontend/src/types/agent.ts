@@ -17,11 +17,23 @@ export interface ThoughtStep {
   status: 'running' | 'done'
 }
 
+export interface DataReferenceItem {
+  label: string
+  value: string
+  highlight?: 'warning' | 'success'
+}
+
+export interface DataReferenceSummary {
+  type: 'data_reference'
+  items: DataReferenceItem[]
+}
+
 export interface ToolCall {
   id: string
   name: string
   arguments: string
   result?: string
+  summary?: DataReferenceSummary | null
 }
 
 export interface ChatMessage {
