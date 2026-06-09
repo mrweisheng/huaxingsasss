@@ -1,4 +1,4 @@
-"""LangGraph astream_events -> SSE 事件格式适配器 v2.2
+"""LangGraph astream_events -> SSE 事件格式适配器 v2.3
 
 适配统一 Agent 图（call_model_node / execute_tool_node / finalize_node）。
 
@@ -9,6 +9,10 @@ SSE 事件输出：
   - tool_result — 工具调用结束（tool_end 自定义事件，含 summary）
   - done        — 流结束
   - error       — 异常
+
+v2.3 修复：用 asyncio.wait 替代 asyncio.wait_for 实现心跳。
+wait_for 在超时时会取消底层 async generator 的 __anext__()，
+导致工具执行超过 3 秒时生成器被关闭、SSE 流提前结束。
 """
 import asyncio
 import json
@@ -28,6 +32,9 @@ _HEARTBEAT_MESSAGES = [
     "快好了，再给我一点时间...",
     "正在核对信息...",
 ]
+
+# 哨兵值：标记 async generator 迭代结束
+_STREAM_END = object()
 
 
 def _sse_encode(event: dict) -> str:
@@ -57,6 +64,17 @@ def _node_friendly_name(node_name: str) -> Optional[str]:
     return _NODE_FRIENDLY.get(node_name, "处理中")
 
 
+async def _safe_anext(aiter):
+    """安全包装 aiter.__anext__()，将 StopAsyncIteration 转为哨兵值。
+
+    这样 asyncio.create_task 不会因 StopAsyncIteration 产生意外行为。
+    """
+    try:
+        return await aiter.__anext__()
+    except StopAsyncIteration:
+        return _STREAM_END
+
+
 async def adapt_langgraph_stream_v2(
     agen,
     session_id: str,
@@ -66,30 +84,31 @@ async def adapt_langgraph_stream_v2(
     适配统一 Agent 图（call_model_node / execute_tool_node / finalize_node）。
     当两个事件之间间隔超过 _HEARTBEAT_INTERVAL 秒时，自动发 thinking 心跳事件，
     防止前端因长时间无事件而看起来"卡住"。
+
+    v2.3: 使用 asyncio.wait + Task 实现心跳，避免 wait_for 取消 async generator。
     """
     event_count = 0
     last_event_name = ""
     heartbeat_idx = 0
 
-    async def _next_event(aiter):
-        """包装 __anext__，返回 (event, done) 而非抛 StopAsyncIteration。"""
-        try:
-            return await aiter.__anext__(), False
-        except StopAsyncIteration:
-            return None, True
-
     aiter = agen.__aiter__()
+    # 用 Task 包装 __anext__()，以便 asyncio.wait 可以只检测完成而不取消
+    _next_task: Optional[asyncio.Task] = None
 
     try:
         while True:
-            # 用 wait_for 实现超时：正常事件到达 or 超时心跳
-            try:
-                event = await asyncio.wait_for(
-                    aiter.__anext__(),
-                    timeout=_HEARTBEAT_INTERVAL,
-                )
-            except asyncio.TimeoutError:
-                # 超时 → 发心跳
+            # 确保 always have a pending task for the next event
+            if _next_task is None:
+                _next_task = asyncio.create_task(_safe_anext(aiter))
+
+            # asyncio.wait 不会取消未完成的 task —— 这是关键区别
+            done, _ = await asyncio.wait(
+                {_next_task},
+                timeout=_HEARTBEAT_INTERVAL,
+            )
+
+            if not done:
+                # 超时 → 发心跳（task 仍在运行，不被取消）
                 heartbeat_msg = _HEARTBEAT_MESSAGES[heartbeat_idx % len(_HEARTBEAT_MESSAGES)]
                 heartbeat_idx += 1
                 yield _sse_encode({
@@ -97,7 +116,13 @@ async def adapt_langgraph_stream_v2(
                     "data": {"message": heartbeat_msg},
                 })
                 continue
-            except StopAsyncIteration:
+
+            # 事件到达 → 取结果，清理 task 引用
+            _next_task = None
+            event = done.pop().result()
+
+            # 检查哨兵：生成器结束
+            if event is _STREAM_END:
                 break
 
             event_count += 1
