@@ -1,8 +1,9 @@
 """
-LLM客户端 - 阿里云百炼 DashScope（qwen3-vl-flash 视觉模型 + deepseek-v4-flash Agent 推理）
+LLM客户端 - 阿里云百炼 DashScope（qwen3-vl-flash 视觉模型）+ SiliconFlow（DeepSeek-V4-Flash Agent 推理）
 
-⚠️ 历史命名说明：类名 SiliconFlowClient 实际调 DashScope、类名 DashScopeAgentClient
-实际调 SiliconFlow，是历史命名错误。出于对调用方的影响考虑暂不重命名。
+类名说明：
+  - VisionModelClient: 百炼 qwen3-vl-flash 视觉模型（合同/凭证图片分析）
+  - AgentModelClient:  SiliconFlow DeepSeek-V4-Flash（Agent 推理 + 工具调用）
 """
 import asyncio
 import base64
@@ -19,7 +20,7 @@ from app.ai.prompts_v2 import CONTRACT_ANALYSIS_PROMPT
 logger = logging.getLogger(__name__)
 
 
-class SiliconFlowClient:
+class VisionModelClient:
     """VL 视觉模型客户端（阿里云百炼 qwen3-vl-flash，兼容模式 API）"""
 
     def __init__(self):
@@ -129,7 +130,7 @@ class SiliconFlowClient:
         return min(base_confidence, 1.0)
 
 
-class DashScopeAgentClient:
+class AgentModelClient:
     """Agent 推理客户端（硅基流动 SiliconFlow DeepSeek-V4-Flash）
 
     通过 OpenAI 兼容 API 调用，支持流式输出、函数调用和指数退避重试。
@@ -362,14 +363,13 @@ class DashScopeAgentClient:
         image_path: str,
         prompt: str,
     ) -> Dict[str, Any]:
-        """使用百炼 VL 模型分析图片（复用 SiliconFlowClient）"""
-        sf_client = SiliconFlowClient()
-
+        """使用百炼 VL 模型分析图片（复用 VisionModelClient 配置）"""
+        # 直接读 settings，不需要实例化 VisionModelClient
         with open(image_path, "rb") as f:
             image_base64 = base64.b64encode(f.read()).decode()
 
         payload = {
-            "model": sf_client.vision_model,
+            "model": settings.DASHSCOPE_VISION_MODEL,
             "messages": [
                 {
                     "role": "user",
@@ -387,13 +387,13 @@ class DashScopeAgentClient:
         }
 
         headers = {
-            "Authorization": f"Bearer {sf_client.api_key}",
+            "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
             "Content-Type": "application/json",
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             response = await client.post(
-                f"{sf_client.base_url}/chat/completions",
+                f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
                 json=payload,
                 headers=headers,
             )

@@ -5,7 +5,7 @@ import asyncio
 import logging
 from celery import current_task
 from app.tasks.celery_app import celery_app
-from app.ai.llm_client import SiliconFlowClient
+from app.ai.llm_client import VisionModelClient
 from app.db.session import SessionLocal
 from app.models.payment import Payment
 from app.services.exchange_rate_service import ExchangeRateService
@@ -36,7 +36,7 @@ def ocr_receipt_task(self, payment_id: int, file_path: str):
 
         current_task.update_state(state="PROCESSING", meta={"progress": 60})
 
-        client = SiliconFlowClient()
+        client = VisionModelClient()
         result = asyncio.run(client.parse_contract_image(file_path))
 
         recognized_data = result["data"]

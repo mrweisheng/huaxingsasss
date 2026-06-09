@@ -136,8 +136,9 @@ async def chat(
 
     async def event_generator():
         try:
-            # ━━━ v2 统一 Agent 图（单层循环） ━━━
-            from app.ai.orchestrator.unified_agent import build_unified_agent
+            # ━━━ v2 统一 Agent 图（单层循环，进程级缓存） ━━━
+            from app.ai.orchestrator.unified_agent import get_compiled_graph, _default_llm_client
+            from app.ai.tools_v2 import ToolExecutorV2
             from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream_v2
             from app.ai.orchestrator.checkpointer import get_checkpointer
 
@@ -150,14 +151,24 @@ async def chat(
                     detail="LangGraph checkpointer 未初始化，请联系管理员",
                 )
 
-            config = {
-                "configurable": {"thread_id": request.session_id or str(uuid.uuid4())},
-            }
-            session_id = config["configurable"]["thread_id"]
+            session_id = request.session_id or str(uuid.uuid4())
 
-            # 构建统一 Agent 图
-            agent_workflow = build_unified_agent(db, current_user)
-            compiled_app = agent_workflow.compile(checkpointer=cp)
+            # 请求级依赖注入（db/user/executor/llm_client 不参与 checkpoint）
+            deps = {
+                "db": db,
+                "user": current_user,
+                "executor": ToolExecutorV2(db, current_user),
+                "llm_client": _default_llm_client(),
+            }
+            config = {
+                "configurable": {
+                    "thread_id": session_id,
+                    "_deps": deps,
+                },
+            }
+
+            # 获取缓存的编译图（按 checkpointer 实例区分）
+            compiled_app = get_compiled_graph(checkpointer=cp)
 
             # 构造 initial_state
             from langchain_core.messages import HumanMessage

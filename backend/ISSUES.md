@@ -43,4 +43,4 @@
 - [ ] Celery worker 的健康检查与重启策略
 - [ ] Redis 连接池配置优化
 - [ ] tools.py:2151 遗留注释清理（AGENT_AUDIT A4 残留）
-- [ ] `SiliconFlowClient` / `DashScopeAgentClient` 类名反转（历史遗留，可不改）
+- [x] `SiliconFlowClient` / `DashScopeAgentClient` 类名反转（已 rename 为 `VisionModelClient` / `AgentModelClient`）

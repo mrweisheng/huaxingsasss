@@ -437,7 +437,7 @@ class FileAnalyzer:
         """主分析失败时的 fallback 策略。
 
         当前 fallback：返回错误 + 提示用户手动提供关键信息。
-        未来可扩展：切换到 SiliconFlowClient VL 模型。
+        未来可扩展：切换到 VisionModelClient VL 模型。
         """
         return {
             "success": False,
