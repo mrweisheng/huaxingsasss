@@ -43,6 +43,10 @@ class ToolExecutorV2(ToolExecutor):
         self.mode = None
         self.session_context = None
         self._document_context = None
+        # 凭证文件追踪：analyze_files 分析到 receipt 类型文件时记录 file_id，
+        # 供后续 create_payment_record / match_and_confirm_payment 解析文件路径。
+        # 不再依赖 LLM 在 receipt_data 中传递 _source_file_id。
+        self._pending_receipt_file_ids: list[str] = []
 
     # 增强 _payment_to_dict_lite：加上 description 字段（供 LLM 查看上下文）
     def _payment_to_dict_lite(self, p) -> dict:
@@ -58,6 +62,7 @@ class ToolExecutorV2(ToolExecutor):
         """从 receipt_data 中解析凭证文件路径。
 
         优先级：explicit_path > receipt_data._source_file_id > receipt_data.file_id
+                  > _pending_receipt_file_ids 队列（analyze_files 时自动追踪）
         """
         if explicit_path:
             return self._ensure_file_in_receipt_dir(explicit_path)
@@ -65,6 +70,12 @@ class ToolExecutorV2(ToolExecutor):
             src_id = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
             if src_id:
                 return self._ensure_file_in_receipt_dir(f"agent_upload/{src_id}")
+        # Fallback: 从 analyze_files 追踪的凭证文件队列中取（不依赖 LLM 传递 file_id）
+        if self._pending_receipt_file_ids:
+            fid = self._pending_receipt_file_ids.pop(0)
+            path = self._ensure_file_in_receipt_dir(f"agent_upload/{fid}")
+            if path:
+                return path
         return None
 
     def _build_payment_description(
@@ -194,6 +205,9 @@ class ToolExecutorV2(ToolExecutor):
                     data_with_fid = dict(analysis["data"]) if isinstance(analysis["data"], dict) else analysis["data"]
                     if isinstance(data_with_fid, dict):
                         data_with_fid["_source_file_id"] = file_id
+                    # 追踪凭证文件 file_id（不依赖 LLM 回传 _source_file_id）
+                    if analysis.get("type") == "receipt":
+                        self._pending_receipt_file_ids.append(file_id)
                     results.append({
                         "file_id": file_id, "success": True,
                         "type": analysis["type"],
@@ -346,6 +360,21 @@ class ToolExecutorV2(ToolExecutor):
                                 payment.paid_amount_in_cny = amount_in_cny
                         except Exception:
                             pass
+
+                    # 更新合同汇总金额（pending→paid 必须累加，否则合同已收为 0）
+                    contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
+                    if contract:
+                        amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                        if payment_type == "expense":
+                            PaymentService._add_to_contract_expense(
+                                self.db, contract, payment.paid_amount, payment.currency,
+                                amt_cny, payment.paid_date,
+                            )
+                        else:
+                            PaymentService._add_to_contract_paid(
+                                self.db, contract, payment.paid_amount, payment.currency,
+                                amt_cny, payment.paid_date,
+                            )
 
                     self.db.commit()
                     self.db.refresh(payment)
@@ -534,8 +563,23 @@ class ToolExecutorV2(ToolExecutor):
             has_receipt = bool(receipt_data or receipt_image_path)
             if has_receipt:
                 payment.receipt_data = receipt_data
+                # 如果 service 层因无 receipt_image_path 创建了 pending 记录，
+                # 需要手动更新合同金额（有 receipt_image_path 时 service 已处理）
+                needs_contract_update = payment.status == "pending"
                 payment.status = "paid"  # 有凭证 → 直接确认
                 payment.notes = (notes or "") + "（附凭证）" if notes else "凭证录入"
+                if needs_contract_update:
+                    amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                    if type == "expense":
+                        PaymentService._add_to_contract_expense(
+                            self.db, contract, payment.paid_amount, payment.currency,
+                            amt_cny, payment.paid_date,
+                        )
+                    else:
+                        PaymentService._add_to_contract_paid(
+                            self.db, contract, payment.paid_amount, payment.currency,
+                            amt_cny, payment.paid_date,
+                        )
 
             self.db.commit()
             self.db.refresh(payment)
