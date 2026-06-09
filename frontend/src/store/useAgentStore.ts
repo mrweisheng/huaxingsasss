@@ -35,7 +35,7 @@ interface AgentState {
 let abortController: AbortController | null = null
 
 /**
- * 把单个 SSE 事件应用到 store：消息列表更新 + 外层状态（interruptInfo / error / sessionId）。
+ * 把单个 SSE 事件应用到 store：消息列表更新 + 外层状态（error / sessionId）。
  * text 事件除外：textAppend 由调用方通过 rAF 合并机制刷入，此处跳过。
  * 返回 [action, nextThoughtId, textAppend]，调用方根据 action 决定是否提前退出循环。
  */
@@ -103,7 +103,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   isLoading: false,
   isStreaming: false,
   error: null,
-  interruptInfo: null,
   selectedTool: null,
 
   loadSessions: async () => {
@@ -154,7 +153,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const { currentSessionId, selectedTool } = get()
     let sessionId = currentSessionId
 
-    set({ isStreaming: true, error: null })
+    set({ isStreaming: true, error: null, selectedTool: null })
 
     if (!sessionId) {
       // 第一次发消息：把工具 mode 传给 create_session
@@ -291,7 +290,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set({ error: e.message || '对话出错' })
       }
     } finally {
-      set({ isStreaming: false })
+      // 阅后即焚：消息生命周期结束（流完成/中断/出错）→ 清掉工具高亮态。
+      // 注意：session.mode 还在（跟着 session 走），后端会自动让后续消息继续走对应 subgraph；
+      // 前端按钮只是"下一次发送是否注入 intent"的开关，发完就清，避免视觉上"一直按下"的违和感。
+      set({ isStreaming: false, selectedTool: null })
       abortController = null
       if (rafHandle !== null) cancelAnimationFrame(rafHandle)
     }

@@ -1,5 +1,8 @@
 """
 LLM客户端 - 阿里云百炼 DashScope（qwen3-vl-flash 视觉模型 + deepseek-v4-flash Agent 推理）
+
+⚠️ 历史命名说明：类名 SiliconFlowClient 实际调 DashScope、类名 DashScopeAgentClient
+实际调 SiliconFlow，是历史命名错误。出于对调用方的影响考虑暂不重命名。
 """
 import asyncio
 import base64
@@ -9,6 +12,9 @@ import re
 from typing import Dict, Any, Optional, AsyncGenerator, List
 import httpx
 from app.config import settings
+# Prompt 统一：parse_contract_image 改用 prompts_v2 的权威常量，
+# 消除内联旧版与 prompts_v2.py 新版 business_type 枚举不一致的问题。
+from app.ai.prompts_v2 import CONTRACT_ANALYSIS_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +61,8 @@ class SiliconFlowClient:
                         },
                         {
                             "type": "text",
-                            "text": self._build_contract_extraction_prompt()
+                            # 修复（P2-5）：统一使用 prompts_v2 中的权威 Prompt
+                            "text": CONTRACT_ANALYSIS_PROMPT
                         }
                     ]
                 }
@@ -95,79 +102,14 @@ class SiliconFlowClient:
             "raw_response": content,
             "tokens_used": result.get("usage", {}).get("total_tokens", 0)
         }
-    
-    def _build_contract_extraction_prompt(self) -> str:
-        """构建合同解析Prompt"""
-        return """
-你是一个专业的合同信息提取助手，专门处理两地车牌指标过户服务相关的合同。请仔细分析这张合同图片，提取以下关键信息并以严格的JSON格式返回：
 
-{
-  "contract_number": "合同编号（字符串）",
-  "title": "合同标题（字符串）",
-  "signed_date": "签订日期（YYYY-MM-DD格式）",
-  "business_type": "业务类型：车辆业务 或 中港牌业务",
-  "business_description": "一句话业务描述，如：购买丰田阿尔法30系、办理深圳湾口岸中港车牌",
-  "party_a": {
-    "name": "甲方名称（字符串）",
-    "contact": "联系方式（字符串）",
-    "address": "地址（字符串，如无则为null）"
-  },
-  "party_b": {
-    "name": "乙方姓名（字符串）",
-    "id_info": "证件信息（字符串，原文照抄：可能含证件名称+号码，也可能只有号码。不要根据号码特征推断证件类型——F/字母开头不一定是通行证，18位数字不一定是身份证）",
-    "phone": "联系电话（字符串）",
-    "address": "地址（字符串，如无则为null）"
-  },
-  "vehicle_info": {
-    "plate_number": "车牌号（字符串，如无则为null）",
-    "vehicle_model": "车型，如丰田阿尔法30系（字符串，如无则为null）",
-    "registration_number": "登记编号（字符串，如无则为null）"
-  },
-  "port": "通行口岸，如深圳湾口岸、皇岗口岸（仅中港牌业务，如无则为null）",
-  "service_items": [
-    {
-      "name": "服务项目名称",
-      "description": "描述",
-      "amount": 项目金额（数字）
-    }
-  ],
-  "payment_terms": [
-    {
-      "name": "款项名称（如定金/尾款/第一期）",
-      "amount": 金额（数字类型）,
-      "due_date": "应付款日期（YYYY-MM-DD格式，如无则为null）",
-      "condition": "支付条件",
-      "is_paid": 是否已支付（布尔值）。根据合同原文判断：合同明确标注已付/已缴纳/付清/已收则为true，否则为false
-    }
-  ],
-  "total_amount": 合同总金额（数字类型）,
-  "currency": "币种（CNY/HKD）",
-  "validity_period": {
-    "start_date": "生效日期（YYYY-MM-DD格式，如无则为null）",
-    "end_date": "到期日期（YYYY-MM-DD格式，如无则为null）"
-  },
-  "special_terms": ["特殊条款列表"],
-  "confidence": 置信度（0-1之间的数字）,
-  "full_text": "合同的完整文本内容。将图片/PDF中所有可见的文字逐字转录，包括全部条款、双方信息、金额、日期、签名栏等。保持原文段落结构，不要总结或省略。繁体中文原样保留。"
-}
-
-严格要求：
-1. 只返回纯JSON，不要包含markdown格式或其他文字说明
-2. 如果某个字段无法识别，设为null，数组字段设为空数组[]
-3. 金额统一转换为数字类型
-4. 日期统一为YYYY-MM-DD格式
-5. business_type判断规则：涉及购车/卖车为"车辆业务"，涉及车牌办理/过户/新办为"中港牌业务"
-6. business_description要具体，提取车型、口岸等关键信息
-7. full_text 必须完整转录合同中的所有文字，不得省略条款、不得改写内容。繁体中文原样保留，不得转为简体。
-8. 确保JSON格式合法
-        """.strip()
-    
     def _extract_json_from_text(self, text: str) -> Dict[str, Any]:
         """从文本中提取JSON部分"""
-        match = re.search(r'```json\s*(\{.*\})\s*```', text, re.DOTALL)
+        match = re.search(r'```json\s*(\{.*?\})\s*```', text, re.DOTALL)
         if match:
             return json.loads(match.group(1))
 
+        # 通用 fallback：必须用贪婪匹配，非贪婪会在嵌套 JSON 的第一个 } 处截断
         match = re.search(r'\{.*\}', text, re.DOTALL)
         if match:
             return json.loads(match.group(0))

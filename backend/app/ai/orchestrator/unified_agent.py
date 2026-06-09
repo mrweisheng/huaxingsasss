@@ -155,30 +155,30 @@ _CONFIRM_KEYWORDS = frozenset({
 
 
 def _has_confirmation_in_context(messages: list, current_tool_name: str = "") -> bool:
-    """检查 LLM 是否在「用户上一条消息之前」展示过确认询问。
+    """检查 LLM 是否在「当前轮」展示过确认询问。
 
-    正确逻辑：确认一定是上一轮 AI 回复的内容，位于当前 HumanMessage 之前。
-    不检查当前轮（HumanMessage 之后）的 AIMessage，防止同轮 tool_calls 自确认。
+    修复（防绕过）：
+    - LLM 一次返回 text + tool_calls，text 中的「是否确认？」与 tool_call 写入工具
+      在同一条 AIMessage 中。所以只检查最后一条 AIMessage 的 content。
+    - 不再回溯历史 AIMessage，否则 5 轮前的「对吗」会让后续所有写入工具绕过防护。
+    - 如果最后一条不是 AIMessage（例如只有 HumanMessage），视为未确认。
+
+    Args:
+        messages: 完整消息列表（execute_tool_node 调用时已包含 LLM 本轮 AIMessage）
+        current_tool_name: 当前要执行的工具名（保留参数以备未来按工具定制策略）
+
+    Returns:
+        bool: True 表示已确认，False 表示未确认需拦截
     """
-    # 找到最后一条 HumanMessage 的位置（用户最新输入）
-    last_human_idx = -1
-    for i in range(len(messages) - 1, -1, -1):
-        if isinstance(messages[i], HumanMessage):
-            last_human_idx = i
-            break
-
-    if last_human_idx < 0:
+    if not messages:
         return False
 
-    # 只检查 last_human_idx 之前的 AIMessage（即用户上一条消息之前 AI 的回复）
-    for i in range(last_human_idx):
-        msg = messages[i]
-        if not isinstance(msg, AIMessage):
-            continue
-        content = (msg.content or "").lower()
-        if any(kw in content for kw in _CONFIRM_KEYWORDS):
-            return True
-    return False
+    last_msg = messages[-1]
+    if not isinstance(last_msg, AIMessage):
+        return False
+
+    content = (last_msg.content or "").lower()
+    return any(kw in content for kw in _CONFIRM_KEYWORDS)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

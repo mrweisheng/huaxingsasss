@@ -131,7 +131,8 @@ async def chat(
         else:
             question = "请分析上传的文件内容"
 
-    # 注意：不再需要 agent._load_session_meta()，unified_agent 不依赖 mode/session_context
+    # 注意：POST /chat 主链路不消费 mode。session.mode 字段记录能力卡片意图供 LLM 上下文参考，
+    # 实际意图推断由 LLM 通过 analyze_files 工具自主决定。
 
     async def event_generator():
         try:

@@ -29,6 +29,10 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+# 工具白名单：与文件末尾 TOOL_DEFINITIONS 同步。模块加载时由下方 _ALLOWED_TOOLS
+# 重新赋值（Python 同一模块内语句按顺序执行；这里先用占位避免导入期未定义）。
+_ALLOWED_TOOLS: frozenset = frozenset()  # type: ignore[assignment]
+
 
 class ToolExecutorV2(ToolExecutor):
     """精简版工具执行器。
@@ -108,8 +112,18 @@ class ToolExecutorV2(ToolExecutor):
 
     def execute(self, tool_name: str, arguments: dict) -> str:
         """统一执行入口 — 无模式守卫，仅角色权限控制"""
+        # 白名单校验：阻止 LLM 误传/恶意传非 TOOL_DEFINITIONS 中的方法名
+        # 防止 getattr(self, tool_name) 命中父类继承的 dunder 或私有方法
+        if tool_name not in _ALLOWED_TOOLS:
+            logger.warning("非白名单工具调用拒绝: %s", tool_name)
+            return json.dumps({
+                "error": f"未知工具: {tool_name}",
+                "hint": "仅允许调用 TOOL_DEFINITIONS 中声明的工具。",
+            }, ensure_ascii=False)
+
         handler = getattr(self, tool_name, None)
         if not handler:
+            # 理论上白名单已过滤，这里是双保险
             logger.warning("未知工具调用: %s", tool_name)
             return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
 
@@ -171,6 +185,8 @@ class ToolExecutorV2(ToolExecutor):
                 # 检查缓存
                 cached = self._get_cached_analysis(file_id, "contract") \
                     or self._get_cached_analysis(file_id, "receipt")
+                # 故意不缓存 auto 模式：auto 是探索性入口，每次重新分析以获取最新结果；
+                # purpose=contract/receipt 时走缓存，避免重复消耗 token。
                 if cached and purpose not in ("auto",):
                     # 注入 file_id 到缓存数据中
                     cached_with_fid = dict(cached) if isinstance(cached, dict) else cached
@@ -304,6 +320,7 @@ class ToolExecutorV2(ToolExecutor):
         )
 
         matched = None
+        match_error = None  # 匹配分支异常标记，阻断后续创建新记录的 fallback
         if pending_payments and amount and amount > 0:
             # 匹配策略：金额最接近 + 币种相同优先
             best_match = None
@@ -324,14 +341,8 @@ class ToolExecutorV2(ToolExecutor):
                 # 匹配成功 → 更新为 paid
                 payment = best_match
                 try:
-                    # 获取凭证路径（优先 explicit path，其次 _source_file_id）
+                    # 凭证路径解析由 _resolve_receipt_path 统一处理
                     receipt_path = self._resolve_receipt_path(receipt_data, None)
-                    if not receipt_path:
-                        receipt_file_id = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
-                        if receipt_file_id:
-                            receipt_path = self._ensure_file_in_receipt_dir(
-                                f"agent_upload/{receipt_file_id}"
-                            )
 
                     payment.status = "paid"
                     payment.paid_amount = Decimal(str(amount))
@@ -344,7 +355,7 @@ class ToolExecutorV2(ToolExecutor):
                             pass
                     payment.payment_method = document_type or "unknown"
                     payment.notes = f"凭证自动匹配确认: {description}" if description else "凭证自动匹配确认"
-                    payment.description = description[:30] if description else None
+                    payment.description = description[:100] if description else None
                     payment.receipt_data = receipt_data
                     if receipt_path:
                         payment.receipt_image_path = receipt_path
@@ -390,6 +401,15 @@ class ToolExecutorV2(ToolExecutor):
                 except Exception as e:
                     self.db.rollback()
                     logger.exception("match_and_confirm 匹配更新失败")
+                    match_error = "匹配更新失败，请重试或转人工"
+
+        # 匹配阶段异常 → 阻断创建新记录，向上抛错让 LLM 看到失败并重试或询问用户
+        if match_error:
+            return json.dumps({
+                "error": match_error,
+                "matched": False,
+                "hint": "匹配过程出错，请勿静默创建新记录。请向用户说明情况并重试或转人工。",
+            }, ensure_ascii=False)
 
         # 无匹配 → 创建新记录
         if not matched:
@@ -398,14 +418,8 @@ class ToolExecutorV2(ToolExecutor):
                     self.db, contract_id, payment_type
                 )
 
-                # 获取凭证路径（优先 explicit，其次 _source_file_id）
+                # 修复（P2-8）：凭证路径解析由 _resolve_receipt_path 统一处理
                 receipt_path = self._resolve_receipt_path(receipt_data, None)
-                if not receipt_path:
-                    receipt_src_id = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
-                    if receipt_src_id:
-                        receipt_path = self._ensure_file_in_receipt_dir(
-                            f"agent_upload/{receipt_src_id}"
-                        )
 
                 paid_date = date.today()
                 if transaction_date:
@@ -432,7 +446,7 @@ class ToolExecutorV2(ToolExecutor):
                 # 补充 receipt_data
                 if receipt_data:
                     payment.receipt_data = receipt_data
-                    payment.description = description[:30] if description else None
+                    payment.description = description[:100] if description else None
                     if payee_name and payment_type == "expense":
                         payment.payee_name = payee_name
                     self.db.commit()
@@ -450,7 +464,7 @@ class ToolExecutorV2(ToolExecutor):
                 self.db.rollback()
                 logger.exception("match_and_confirm 创建新记录失败")
                 return json.dumps({
-                    "error": f"创建付款记录失败: {str(e)}",
+                    "error": "创建付款记录失败，请重试或转人工",
                     "matched": False,
                 }, ensure_ascii=False)
 
@@ -559,7 +573,7 @@ class ToolExecutorV2(ToolExecutor):
             if payee_name and type == "expense":
                 payment.payee_name = payee_name
             if description:
-                payment.description = description[:30]
+                payment.description = description[:100]
             has_receipt = bool(receipt_data or receipt_image_path)
             if has_receipt:
                 payment.receipt_data = receipt_data
@@ -601,7 +615,7 @@ class ToolExecutorV2(ToolExecutor):
         except Exception as e:
             self.db.rollback()
             logger.exception("create_payment_record 失败")
-            return json.dumps({"error": f"创建付款记录失败: {str(e)}"}, ensure_ascii=False)
+            return json.dumps({"error": "创建付款记录失败，请重试或转人工"}, ensure_ascii=False)
 
     # ═══════════════════════════════════════════════════════════
     # 🔄 update_payment — 增强：支持 description 自动生成
@@ -722,17 +736,29 @@ class ToolExecutorV2(ToolExecutor):
 
         rows = query.all()
 
+        # 一次性查出所有相关合同 + 客户（避免 N+1）
+        contract_ids = {row.contract_id for row in rows}
+        contract_map = {}
+        if contract_ids:
+            from app.models.customer import Customer
+            stmt = (
+                self.db.query(Contract, Customer)
+                .outerjoin(Customer, Contract.customer_id == Customer.id)
+                .filter(Contract.id.in_(contract_ids))
+            )
+            for contract, customer in stmt.all():
+                contract_map[contract.id] = (contract, customer)
+
         # 按 contract_id 汇总
         result = {}
         for row in rows:
             cid = row.contract_id
             if cid not in result:
-                # 获取合同编号和客户名
-                contract = self.db.query(Contract).filter(Contract.id == cid).first()
+                contract, customer = contract_map.get(cid, (None, None))
                 result[cid] = {
                     "contract_id": cid,
                     "contract_number": contract.contract_number if contract else "",
-                    "customer_name": contract.customer.name if contract and contract.customer else "",
+                    "customer_name": customer.name if customer else "",
                     "income": {"CNY": 0.0, "HKD": 0.0},
                     "expense": {"CNY": 0.0, "HKD": 0.0},
                 }
@@ -1014,3 +1040,13 @@ TOOL_DEFINITIONS = [
         },
     },
 ]
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 模块加载完成后填充工具白名单（供 ToolExecutorV2.execute 校验）
+# 防御性检查：TOOL_DEFINITIONS 为空时 _ALLOWED_TOOLS 必须是空集，execute 拒绝一切
+# 防止误删 TOOL_DEFINITIONS 后白名单被错误地填充
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+_ALLOWED_TOOLS = frozenset(
+    t["function"]["name"] for t in TOOL_DEFINITIONS if "function" in t and "name" in t["function"]
+)
