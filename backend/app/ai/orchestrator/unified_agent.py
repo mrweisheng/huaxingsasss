@@ -310,7 +310,7 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
                 "id": tc["id"],
             })
         return {
-            "messages": [AIMessage(content=full_text or None, tool_calls=lc_tool_calls)],
+            "messages": [AIMessage(content=full_text or "", tool_calls=lc_tool_calls)],
             "iteration_count": iteration + 1,
         }
 
