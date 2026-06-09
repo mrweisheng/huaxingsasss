@@ -273,71 +273,44 @@ const suggestions = [
   { icon: <FileSearchOutlined />, text: '上传合同文件进行录入' },
 ]
 
+/* ── 能力卡片 ── */
+const CAPABILITIES = [
+  {
+    key: 'contract_entry' as const,
+    icon: <FileTextOutlined />,
+    title: '合同录入',
+    desc: '上传合同自动解析',
+    bg: '#e8edf5', fg: '#1e3a5f',
+  },
+  {
+    key: 'receipt_income' as const,
+    icon: <CreditCardOutlined />,
+    title: '收入登记',
+    desc: '凭证上传智能匹配',
+    bg: '#edfaf8', fg: '#0d9488',
+  },
+  {
+    key: 'receipt_expense' as const,
+    icon: <DollarOutlined />,
+    title: '支出管理',
+    desc: '支出记录凭证归档',
+    bg: '#fef2f2', fg: '#dc2626',
+  },
+  {
+    key: null,
+    icon: <FileSearchOutlined />,
+    title: '智能问答',
+    desc: '合同查询数据分析',
+    bg: '#fdf8ef', fg: '#c9952b',
+  },
+]
+
 /* ── 三个工具（核心卖点）── */
 const TOOLS = [
   { key: 'contract_entry' as const, icon: <FileTextOutlined />, label: '录合同', color: '#1e3a5f' },
   { key: 'receipt_income' as const, icon: <CreditCardOutlined />, label: '录收入', color: '#0d9488' },
   { key: 'receipt_expense' as const, icon: <DollarOutlined />, label: '录支出', color: '#dc2626' },
 ]
-
-const ToolSelector = memo(function ToolSelector({ value, onChange }: {
-  value: typeof TOOLS[number]['key'] | null
-  onChange: (k: typeof TOOLS[number]['key'] | null) => void
-}) {
-  return (
-    <div style={{
-      display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center',
-    }}>
-      {TOOLS.map((t) => {
-        const isActive = value === t.key
-        return (
-          <div
-            key={t.key}
-            onClick={() => onChange(isActive ? null : t.key)}
-            className="tool-capsule"
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: 8,
-              padding: '10px 20px',
-              background: isActive ? t.color : 'var(--bg-surface)',
-              border: `1.5px solid ${isActive ? t.color : 'var(--border-light)'}`,
-              borderRadius: 22,
-              cursor: 'pointer',
-              fontSize: 14, fontWeight: isActive ? 600 : 500,
-              color: isActive ? '#fff' : 'var(--text-secondary)',
-              boxShadow: isActive
-                ? `0 6px 20px ${t.color}33`
-                : '0 1px 3px rgba(0,0,0,0.03)',
-              transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-            onMouseEnter={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.borderColor = t.color
-                e.currentTarget.style.color = t.color
-              }
-            }}
-            onMouseLeave={(e) => {
-              if (!isActive) {
-                e.currentTarget.style.borderColor = 'var(--border-light)'
-                e.currentTarget.style.color = 'var(--text-secondary)'
-              }
-            }}
-          >
-            <span style={{
-              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-              width: 24, height: 24, borderRadius: 7,
-              background: isActive ? 'rgba(255,255,255,0.18)' : `${t.color}14`,
-              color: isActive ? '#fff' : t.color,
-              fontSize: 13, transition: 'all 0.2s',
-            }}>
-              {t.icon}
-            </span>
-            {t.label}
-          </div>
-        )
-      })}
-    </div>
-  )
-})
 
 const ToolTag = ({ value, onRemove }: { value: string; onRemove: () => void }) => {
   const t = TOOLS.find(x => x.key === value)
@@ -465,6 +438,157 @@ const CenterInputBox = memo(function CenterInputBox({
             发送
           </Button>
         )}
+      </div>
+    </div>
+  )
+})
+
+/* ── 欢迎内容（空状态共享）── */
+const WelcomeContent = memo(function WelcomeContent({
+  inputText, onChange, onSend, onFileSelect, isStreaming, onStop,
+  pendingFiles, onRemoveFile, selectedTool, setSelectedTool,
+}: {
+  inputText: string
+  onChange: (v: string) => void
+  onSend: () => void
+  onFileSelect: (f: File) => boolean
+  isStreaming: boolean
+  onStop: () => void
+  pendingFiles: File[]
+  onRemoveFile: (i: number) => void
+  selectedTool: string | null
+  setSelectedTool: (v: string | null) => void
+}) {
+  return (
+    <div className="chat-grid-bg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
+      <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 640 }}>
+        <div
+          className="star-logo-halo"
+          style={{
+            width: 60, height: 60, borderRadius: 18,
+            background: 'linear-gradient(135deg, var(--brand-gold) 0%, #e8b84b 100%)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            marginBottom: 14,
+          }}
+        >
+          <StarFilled style={{ fontSize: 28, color: '#0f1a2e' }} />
+        </div>
+        <Text style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: 4, letterSpacing: 0.3 }}>
+          你好，我是小星
+        </Text>
+        <Text style={{ fontSize: 14, color: 'var(--text-tertiary)', marginBottom: 20, textAlign: 'center' }}>
+          选择一种能力，或直接输入你的问题
+        </Text>
+
+        {/* ── 能力卡片 ── */}
+        <div style={{
+          display: 'flex', gap: 10, marginBottom: 20,
+          flexWrap: 'wrap', justifyContent: 'center',
+          maxWidth: 520,
+        }}>
+          {CAPABILITIES.map((cap) => {
+            const isActive = cap.key !== null && selectedTool === cap.key
+            return (
+              <div
+                key={cap.title}
+                onClick={() => {
+                  if (cap.key !== null) setSelectedTool(isActive ? null : cap.key)
+                }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10,
+                  padding: '10px 16px',
+                  background: isActive ? cap.bg : 'var(--bg-surface)',
+                  border: isActive ? `1.5px solid ${cap.fg}` : '1px solid var(--border-light)',
+                  borderRadius: 12,
+                  cursor: 'pointer',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  boxShadow: isActive ? `0 4px 12px ${cap.fg}18` : '0 1px 3px rgba(0,0,0,0.03)',
+                }}
+                onMouseEnter={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.borderColor = cap.fg
+                    e.currentTarget.style.boxShadow = `0 2px 8px ${cap.fg}10`
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isActive) {
+                    e.currentTarget.style.borderColor = 'var(--border-light)'
+                    e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.03)'
+                  }
+                }}
+              >
+                <div style={{
+                  width: 32, height: 32, borderRadius: 8,
+                  background: isActive ? 'rgba(255,255,255,0.7)' : cap.bg,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: cap.fg, fontSize: 15, flexShrink: 0,
+                  transition: 'all 0.2s',
+                }}>
+                  {cap.icon}
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: isActive ? cap.fg : 'var(--text-primary)', transition: 'color 0.2s' }}>
+                    {cap.title}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-tertiary)', marginTop: 1 }}>
+                    {cap.desc}
+                  </div>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+
+        {/* ── 居中输入框 ── */}
+        <CenterInputBox
+          value={inputText}
+          onChange={onChange}
+          onSend={onSend}
+          onFileSelect={onFileSelect}
+          isStreaming={isStreaming}
+          onStop={onStop}
+          pendingFiles={pendingFiles}
+          onRemoveFile={onRemoveFile}
+          toolTag={selectedTool ? (
+            <ToolTag value={selectedTool} onRemove={() => setSelectedTool(null)} />
+          ) : null}
+        />
+
+        {/* ── 快捷建议 ── */}
+        <div style={{
+          display: 'flex', flexWrap: 'wrap', gap: 10, justifyContent: 'center',
+          marginTop: 20, maxWidth: 580,
+        }}>
+          {suggestions.map((s, i) => (
+            <div
+              key={i}
+              className="quick-pill"
+              onClick={() => onChange(s.text)}
+              style={{
+                display: 'inline-flex', alignItems: 'center', gap: 8,
+                padding: '8px 16px',
+                background: 'var(--bg-surface)',
+                border: '1px solid var(--border-light)',
+                borderRadius: 20,
+                cursor: 'pointer', fontSize: 13, color: 'var(--text-secondary)',
+                boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
+              }}
+            >
+              <span
+                className="quick-pill-icon"
+                style={{
+                  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                  width: 22, height: 22, borderRadius: 6,
+                  background: 'var(--brand-gold-bg)', color: 'var(--brand-gold)',
+                  fontSize: 12, transition: 'all 0.2s',
+                }}
+              >
+                {s.icon}
+              </span>
+              {s.text}
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   )
@@ -744,168 +868,19 @@ export default function AgentChat() {
             background: hasMessages ? undefined : 'linear-gradient(180deg, var(--bg-page) 0%, #f0f2f5 100%)',
           }}
         >
-          {!currentSessionId ? (
-            <div className="chat-grid-bg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
-              <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 640 }}>
-                <div
-                  className="star-logo-halo"
-                  style={{
-                    width: 64, height: 64, borderRadius: 20,
-                    background: 'linear-gradient(135deg, var(--brand-gold) 0%, #e8b84b 100%)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    marginBottom: 18,
-                  }}
-                >
-                  <StarFilled style={{ fontSize: 30, color: '#0f1a2e' }} />
-                </div>
-                <Text style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: 8, letterSpacing: 0.5 }}>
-                  你好，我是小星
-                </Text>
-                <Text style={{ fontSize: 15, color: 'var(--text-tertiary)', marginBottom: 28, textAlign: 'center' }}>
-                  查询合同付款 · 上传凭证登记 · 查看收支统计 · 合同条款问答
-                </Text>
-
-                <CenterInputBox
-                  value={inputText}
-                  onChange={setInputText}
-                  onSend={handleSend}
-                  onFileSelect={handleFileSelect}
-                  isStreaming={isStreaming}
-                  onStop={stopGeneration}
-                  pendingFiles={pendingFiles}
-                  onRemoveFile={removePendingFile}
-                  toolTag={selectedTool ? (
-                    <ToolTag value={selectedTool} onRemove={() => setSelectedTool(null)} />
-                  ) : null}
-                />
-
-                <div style={{ marginTop: 32 }}>
-                  <div style={{
-                    textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)',
-                    marginBottom: 14, fontWeight: 500, letterSpacing: 0.3,
-                  }}>
-                    ✦ 先选一个工具，让小星为你做更精准的事
-                  </div>
-                  <ToolSelector value={selectedTool} onChange={setSelectedTool} />
-                </div>
-
-                <div style={{
-                  display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center',
-                  marginTop: 28, maxWidth: 600,
-                }}>
-                  {suggestions.map((s, i) => (
-                    <div
-                      key={i}
-                      className="quick-pill"
-                      onClick={() => setInputText(s.text)}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 10,
-                        padding: '10px 20px',
-                        background: 'var(--bg-surface)',
-                        border: '1px solid var(--border-light)',
-                        borderRadius: 22,
-                        cursor: 'pointer', fontSize: 14, color: 'var(--text-secondary)',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                      }}
-                    >
-                      <span
-                        className="quick-pill-icon"
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          width: 26, height: 26, borderRadius: 7,
-                          background: 'var(--brand-gold-bg)', color: 'var(--brand-gold)',
-                          fontSize: 14, transition: 'all 0.2s',
-                        }}
-                      >
-                        {s.icon}
-                      </span>
-                      {s.text}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
-          ) : !hasMessages ? (
-            <div className="chat-grid-bg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
-              <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 700 }}>
-                <div
-                  className="star-logo-halo"
-                  style={{
-                    width: 72, height: 72, borderRadius: 22,
-                    background: 'linear-gradient(135deg, var(--brand-gold) 0%, #e8b84b 100%)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    marginBottom: 20,
-                  }}
-                >
-                  <StarFilled style={{ fontSize: 34, color: '#0f1a2e' }} />
-                </div>
-                <Text style={{ fontSize: 28, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: 8, letterSpacing: 0.5 }}>
-                  你好，我是小星
-                </Text>
-                <Text style={{ fontSize: 15, color: 'var(--text-tertiary)', marginBottom: 28, textAlign: 'center' }}>
-                  查询合同付款 · 上传凭证登记 · 查看收支统计 · 合同条款问答
-                </Text>
-
-                <CenterInputBox
-                  value={inputText}
-                  onChange={setInputText}
-                  onSend={handleSend}
-                  onFileSelect={handleFileSelect}
-                  isStreaming={isStreaming}
-                  onStop={stopGeneration}
-                  pendingFiles={pendingFiles}
-                  onRemoveFile={removePendingFile}
-                  toolTag={selectedTool ? (
-                    <ToolTag value={selectedTool} onRemove={() => setSelectedTool(null)} />
-                  ) : null}
-                />
-
-                <div style={{ marginTop: 32 }}>
-                  <div style={{
-                    textAlign: 'center', fontSize: 13, color: 'var(--text-tertiary)',
-                    marginBottom: 14, fontWeight: 500, letterSpacing: 0.3,
-                  }}>
-                    ✦ 先选一个工具，让小星为你做更精准的事
-                  </div>
-                  <ToolSelector value={selectedTool} onChange={setSelectedTool} />
-                </div>
-
-                <div style={{
-                  display: 'flex', flexWrap: 'wrap', gap: 12, justifyContent: 'center',
-                  marginTop: 28, maxWidth: 640,
-                }}>
-                  {suggestions.map((s, i) => (
-                    <div
-                      key={i}
-                      className="quick-pill"
-                      onClick={() => setInputText(s.text)}
-                      style={{
-                        display: 'inline-flex', alignItems: 'center', gap: 10,
-                        padding: '10px 20px',
-                        background: 'var(--bg-surface)',
-                        border: '1px solid var(--border-light)',
-                        borderRadius: 22,
-                        cursor: 'pointer', fontSize: 14, color: 'var(--text-secondary)',
-                        boxShadow: '0 1px 3px rgba(0,0,0,0.03)',
-                      }}
-                    >
-                      <span
-                        className="quick-pill-icon"
-                        style={{
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          width: 26, height: 26, borderRadius: 7,
-                          background: 'var(--brand-gold-bg)', color: 'var(--brand-gold)',
-                          fontSize: 14, transition: 'all 0.2s',
-                        }}
-                      >
-                        {s.icon}
-                      </span>
-                      {s.text}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            </div>
+          {(!currentSessionId || !hasMessages) ? (
+            <WelcomeContent
+              inputText={inputText}
+              onChange={setInputText}
+              onSend={handleSend}
+              onFileSelect={handleFileSelect}
+              isStreaming={isStreaming}
+              onStop={stopGeneration}
+              pendingFiles={pendingFiles}
+              onRemoveFile={removePendingFile}
+              selectedTool={selectedTool}
+              setSelectedTool={setSelectedTool}
+            />
           ) : (
             <div style={{ maxWidth: 768, margin: '0 auto' }}>
               {messages
