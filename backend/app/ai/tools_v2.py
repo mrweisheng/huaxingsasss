@@ -344,6 +344,24 @@ class ToolExecutorV2(ToolExecutor):
                     # 凭证路径解析由 _resolve_receipt_path 统一处理
                     receipt_path = self._resolve_receipt_path(receipt_data, None)
 
+                    # 凭证去重：同合同下相同文件哈希不允许重复（排除自身）
+                    file_hash = self._last_receipt_file_hash
+                    if receipt_path and file_hash:
+                        dup = self.db.query(Payment).filter(
+                            Payment.contract_id == contract_id,
+                            Payment.receipt_file_hash == file_hash,
+                            Payment.id != payment.id,
+                            Payment.is_deleted == False,
+                        ).first()
+                        if dup:
+                            self.db.rollback()
+                            info = self._payment_to_dict_lite(dup)
+                            return json.dumps({
+                                "duplicate": True,
+                                "existing_payment": info,
+                                "message": "该凭证已在此合同下录入过",
+                            }, ensure_ascii=False)
+
                     payment.status = "paid"
                     payment.paid_amount = Decimal(str(amount))
                     payment.currency = currency
@@ -359,6 +377,8 @@ class ToolExecutorV2(ToolExecutor):
                     payment.receipt_data = receipt_data
                     if receipt_path:
                         payment.receipt_image_path = receipt_path
+                    if file_hash:
+                        payment.receipt_file_hash = file_hash
 
                     # 计算汇率
                     if currency and currency != "CNY":
@@ -421,6 +441,22 @@ class ToolExecutorV2(ToolExecutor):
                 # 修复（P2-8）：凭证路径解析由 _resolve_receipt_path 统一处理
                 receipt_path = self._resolve_receipt_path(receipt_data, None)
 
+                # 凭证去重：同合同下相同文件哈希不允许重复录入
+                file_hash = self._last_receipt_file_hash
+                if receipt_path and file_hash:
+                    dup = self.db.query(Payment).filter(
+                        Payment.contract_id == contract_id,
+                        Payment.receipt_file_hash == file_hash,
+                        Payment.is_deleted == False,
+                    ).first()
+                    if dup:
+                        info = self._payment_to_dict_lite(dup)
+                        return json.dumps({
+                            "duplicate": True,
+                            "existing_payment": info,
+                            "message": "该凭证已在此合同下录入过",
+                        }, ensure_ascii=False)
+
                 paid_date = date.today()
                 if transaction_date:
                     try:
@@ -441,6 +477,7 @@ class ToolExecutorV2(ToolExecutor):
                     created_by=self.user.id,
                     type=payment_type,
                     installment_name=receipt_data.get("installment_name"),
+                    receipt_file_hash=file_hash,
                 )
 
                 # 补充 receipt_data
@@ -528,6 +565,22 @@ class ToolExecutorV2(ToolExecutor):
         if resolved_path:
             receipt_image_path = resolved_path
 
+        # 凭证去重：同合同下相同文件哈希的凭证不允许重复录入
+        file_hash = self._last_receipt_file_hash
+        if resolved_path and file_hash:
+            existing = self.db.query(Payment).filter(
+                Payment.contract_id == contract_id,
+                Payment.receipt_file_hash == file_hash,
+                Payment.is_deleted == False,
+            ).first()
+            if existing:
+                info = self._payment_to_dict_lite(existing)
+                return json.dumps({
+                    "duplicate": True,
+                    "existing_payment": info,
+                    "message": "该凭证已在此合同下录入过",
+                }, ensure_ascii=False)
+
         # 自动生成 description（如果 Agent 未提供）
         if not description:
             hint = ""
@@ -567,6 +620,7 @@ class ToolExecutorV2(ToolExecutor):
                 created_by=self.user.id,
                 type=type,
                 installment_name=installment_name,
+                receipt_file_hash=file_hash,
             )
 
             # 补充字段 + 凭证状态
