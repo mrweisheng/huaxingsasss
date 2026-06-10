@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Select, DatePicker, Button, Popconfirm, message, Empty } from 'antd'
+import { Input, Select, DatePicker, Button, Popconfirm, message, Empty, Tooltip } from 'antd'
 import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
@@ -8,6 +8,7 @@ import ContractChatModal from '@/components/ContractChatModal'
 import ReceiptChatModal from '@/components/ReceiptChatModal'
 import type { Contract } from '@/types'
 import dayjs from 'dayjs'
+import { formatMoney } from '@/utils/money'
 import './ContractList.css'
 
 const { RangePicker } = DatePicker
@@ -17,41 +18,45 @@ const statusConfig: Record<string, { color: string; bg: string; text: string }> 
   completed: { color: '#52c41a', bg: '#f6ffed', text: '已完成' },
 }
 
-const businessTypeConfig: Record<string, {
-  accent: string;       /* 左侧色条 */
-  badgeBg: string;      /* 徽章背景 */
-  badgeBorder: string;  /* 徽章边框 */
-  icon: React.ReactNode;/* 前置图标 */
-  shortLabel: string;   /* 徽章显示文字（完整业务名称） */
-  label: string;        /* 完整名称 */
-}> = {
-  '车辆业务': {
-    accent: 'linear-gradient(180deg, #667eea 0%, #764ba2 100%)',
-    badgeBg: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-    badgeBorder: '#667eea',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="6" width="20" height="11" rx="3"/>
-        <circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
-        <line x1="6" y1="11" x2="10" y2="11"/><line x1="14" y1="11" x2="18" y2="11"/>
-      </svg>
-    ),
-    shortLabel: '车辆业务',
-    label: '车辆业务',
-  },
-  '中港牌业务': {
-    accent: 'linear-gradient(180deg, #0d9488 0%, #14b8a6 100%)',
-    badgeBg: 'linear-gradient(135deg, #0d9488 0%, #14b8a6 100%)',
-    badgeBorder: '#0d9488',
-    icon: (
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/>
-        <line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/>
-      </svg>
-    ),
-    shortLabel: '中港牌业务',
-    label: '中港牌业务',
-  },
+// 业务视觉映射 —— 与 CustomerList 完全一致的范式
+// 业务色见 CLAUDE.md：车辆=钢蓝 #2d5b8a，两地牌=朱砂 #b8423b
+// 后端枚举见 backend/app/core/business_types.py（标准值 + legacy 值都要覆盖）
+type BizVisual = {
+  className: string         // 卡片根类名（驱动业务色 CSS 变量）
+  icon: React.ReactNode     // 业务图标
+  label: string             // 显示文字
+}
+
+const vehicleVisual: BizVisual = {
+  className: 'biz-vehicle',
+  label: '车辆买卖',
+  icon: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="11" rx="3"/>
+      <circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
+      <line x1="6" y1="11" x2="10" y2="11"/><line x1="14" y1="11" x2="18" y2="11"/>
+    </svg>
+  ),
+}
+
+const crossVisual: BizVisual = {
+  className: 'biz-cross',
+  label: '两地牌过户',
+  icon: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/>
+      <line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/>
+    </svg>
+  ),
+}
+
+const bizVisual: Record<string, BizVisual> = {
+  // 标准值
+  '车辆买卖': vehicleVisual,
+  '两地牌过户': crossVisual,
+  // legacy 兼容
+  '车辆业务': vehicleVisual,
+  '中港牌业务': crossVisual,
 }
 
 const currencySymbol: Record<string, string> = {
@@ -59,10 +64,25 @@ const currencySymbol: Record<string, string> = {
   HKD: 'HK$',
 }
 
-function formatAmount(amount: number | null | undefined, currency: string): string {
+// 缩写金额渲染：货币符号 + 数字（万/亿 自动缩写）+ 单位 chip
+// 完整精确值通过 Tooltip 暴露，避免 26px 大字撑爆卡片
+function renderAmount(amount: number | null | undefined, currency: string) {
   const symbol = currencySymbol[currency] || '¥'
-  if (amount == null) return `${symbol}--`
-  return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  if (amount == null) return <>{symbol}--</>
+  const m = formatMoney(amount)
+  const node = (
+    <>
+      <span className="money-sym">{symbol}</span>
+      <span className="money-num">{m.display}</span>
+      {m.unit && <span className="money-unit">{m.unit}</span>}
+    </>
+  )
+  if (!m.unit) return node  // 万以下不缩写，无需 tooltip
+  return (
+    <Tooltip title={`${symbol}${m.full}`} placement="top" mouseEnterDelay={0.3}>
+      {node}
+    </Tooltip>
+  )
 }
 
 function formatDate(date: string | undefined): string {
@@ -193,10 +213,13 @@ export default function ContractList() {
               { label: '已完成', value: 'completed' },
             ]}
           />
-          <RangePicker
-            onChange={handleDateChange}
-            value={dateRange}
-          />
+          <div className="date-range-wrap">
+            <span className="date-range-label">签订日期</span>
+            <RangePicker
+              onChange={handleDateChange}
+              value={dateRange}
+            />
+          </div>
           {(role === 'admin' || role === 'income') && (
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
               上传
@@ -212,35 +235,35 @@ export default function ContractList() {
           <div className="contract-grid">
             {contracts.map((contract, index) => {
               const status = statusConfig[contract.status] || statusConfig.active
-              const businessType = businessTypeConfig[contract.business_type || '']
+              const biz = contract.business_type ? bizVisual[contract.business_type] : null
+              const bizClass = biz?.className || (contract.business_type ? 'biz-other' : '')
+              const bizMiniSuffix = bizClass.replace('biz-', '')
               const progress = calculateProgress(contract.paid_amount, contract.total_amount)
               const isHovered = hoveredCard === contract.id
 
               return (
                 <div
                   key={contract.id}
-                  className={`contract-card ${businessType ? `biz-${businessType.shortLabel.toLowerCase()}` : contract.business_type ? 'biz-unknown' : ''} ${isHovered ? 'hovered' : ''}`}
+                  className={`contract-card ${bizClass} ${isHovered ? 'hovered' : ''}`}
                   onClick={() => navigate(`/contracts/${contract.id}`)}
                   onMouseEnter={() => setHoveredCard(contract.id)}
                   onMouseLeave={() => setHoveredCard(null)}
                   style={{ animationDelay: `${index * 50}ms` }}
                 >
-                  {/* ── 左侧色条（业务类型视觉标识）── */}
-                  {businessType ? (
-                    <div className="card-accent-bar" style={{ background: businessType.accent }} />
-                  ) : contract.business_type ? (
-                    <div className="card-accent-bar card-accent-bar--fallback" />
-                  ) : null}
+                  {/* ── 左侧色条（业务色 base）—— 由 .biz-vehicle/.biz-cross CSS 驱动 ── */}
+                  {(biz || contract.business_type) && (
+                    <div className="card-accent-bar" />
+                  )}
 
-                  {/* ── 顶栏：业务类型徽章 + 状态 ── */}
+                  {/* ── 顶栏：业务徽章（soft 底 + deep 字）+ 状态 ── */}
                   <div className="card-top-row">
-                    {businessType ? (
-                      <span className="biz-badge" style={{ background: businessType.badgeBg }}>
-                        <span className="biz-badge-icon">{businessType.icon}</span>
-                        <span className="biz-badge-label">{businessType.shortLabel}</span>
+                    {biz ? (
+                      <span className={`biz-badge biz-badge--${bizMiniSuffix}`}>
+                        <span className="biz-badge-icon">{biz.icon}</span>
+                        <span className="biz-badge-label">{biz.label}</span>
                       </span>
                     ) : contract.business_type ? (
-                      <span className="biz-badge biz-badge--fallback">
+                      <span className="biz-badge biz-badge--other">
                         <FileTextOutlined className="biz-badge-icon" />
                         <span className="biz-badge-label">{contract.business_type}</span>
                       </span>
@@ -255,9 +278,10 @@ export default function ContractList() {
                     </span>
                   </div>
 
-                  {/* 客户名称行 — 第二视觉权重，仅次于金额 */}
+                  {/* 客户名称行 + 签订日期 */}
                   <div className="customer-name-hero" style={{ paddingTop: '6px' }}>
                     <span className="customer-name-text">{contract.customer_name || '未关联客户'}</span>
+                    <span className="customer-date-text">{formatDate(contract.signed_date)}</span>
                   </div>
 
                   {/* 合同元信息：编号 + 标题 紧凑一行 */}
@@ -280,7 +304,7 @@ export default function ContractList() {
                     <div className="amount-hero">
                       <span className="amount-hero-label">合同总额</span>
                       <span className="amount-hero-value">
-                        {formatAmount(contract.total_amount, contract.currency)}
+                        {renderAmount(contract.total_amount, contract.currency)}
                       </span>
                     </div>
 
@@ -292,7 +316,7 @@ export default function ContractList() {
                           <span className="split-label">已付</span>
                         </div>
                         <div className="split-value paid">
-                          {formatAmount(contract.paid_amount, contract.currency)}
+                          {renderAmount(contract.paid_amount, contract.currency)}
                         </div>
                         {contract.payment_total_count > 0 && (
                           <div className="split-meta">
@@ -312,7 +336,7 @@ export default function ContractList() {
                           <span className="split-label">未付</span>
                         </div>
                         <div className={`split-value ${contract.remaining_amount > 0 ? 'unpaid' : 'paid'}`}>
-                          {formatAmount(contract.remaining_amount, contract.currency)}
+                          {renderAmount(contract.remaining_amount, contract.currency)}
                         </div>
                         {contract.payment_total_count > 0 && (
                           <div className="split-meta">
@@ -357,10 +381,6 @@ export default function ContractList() {
                   </div>
 
                   <div className="card-footer">
-                    <div className="footer-item">
-                      <span className="footer-label">签订日期</span>
-                      <span className="footer-value">{formatDate(contract.signed_date)}</span>
-                    </div>
                     <div className="footer-actions" onClick={(e) => e.stopPropagation()}>
                       <Popconfirm
                         title="确认删除"

@@ -7,6 +7,46 @@
 .contract-list-container {
   padding: 20px 24px;
   min-height: calc(100vh - 112px);
+
+  /* —— 业务色 token（与 CustomerList 一致，源自 CLAUDE.md 设计系统）—— */
+  --biz-vehicle: #2d5b8a;
+  --biz-vehicle-deep: #1e3f63;
+  --biz-vehicle-soft: #e5edf6;
+  --biz-vehicle-bg: #f4f7fb;
+
+  --biz-cross: #b8423b;
+  --biz-cross-deep: #8f2d28;
+  --biz-cross-soft: #fbe9e7;
+  --biz-cross-bg: #fdf4f3;
+
+  /* —— 状态色（金额/进度专用，业务色不可借用）—— */
+  --money-paid: var(--brand-gold);
+  --money-paid-deep: #a87a18;
+  --money-due: #dc6b3d;
+  --money-done: #0d9488;
+
+  /* —— 动作色（仅用于「录入收入」按钮，独立于 teal 结清色）——
+     鼠尾草绿，会计语境的"收钱入账"动作专色 */
+  --action-income: #5b8c63;
+  --action-income-deep: #3d6644;
+
+  /* —— 卡身极淡业务色染（B whisper 方案）——
+     单看几乎察觉不到，并排能看出冷暖倾向，
+     8 张同色排开也不闷 */
+  --biz-vehicle-whisper: #fbfcfd;
+  --biz-cross-whisper: #fdfafa;
+}
+
+/* ── 签订日期范围选择器 ── */
+.date-range-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.date-range-label {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
 }
 
 /* ── 快速录入按钮（topbar）── */
@@ -77,7 +117,7 @@
 }
 
 /* ══════════════════════════════════════════════
-   业务类型 · 左侧色条（视觉区分核心）
+   业务类型 · 左侧色条（业务色 base，三层语义之一）
    ══════════════════════════════════════════════ */
 .card-accent-bar {
   position: absolute;
@@ -88,22 +128,28 @@
   border-radius: var(--radius-lg) 0 0 var(--radius-lg);
   z-index: 2;
   pointer-events: none;
+  background: var(--border-default); /* 兜底（biz-other） */
 }
 
-.card-accent-bar--fallback {
-  background: var(--border-default);
-}
+.contract-card.biz-vehicle .card-accent-bar { background: var(--biz-vehicle); }
+.contract-card.biz-cross   .card-accent-bar { background: var(--biz-cross); }
 
-/* 业务类型对应的卡片悬浮增强 */
-.contract-card.biz-车辆:hover {
-  border-color: rgba(102, 126, 234, 0.25);
+/* —— 卡身极淡业务色染（whisper 强度，单卡几乎察觉不到，并排能看出冷暖）—— */
+.contract-card.biz-vehicle { background: var(--biz-vehicle-whisper); }
+.contract-card.biz-cross   { background: var(--biz-cross-whisper); }
+
+/* 业务类型对应的卡片悬浮增强（边框染业务色，强化区分） */
+.contract-card.biz-vehicle:hover {
+  border-color: rgba(45, 91, 138, 0.30);
+  box-shadow: 0 8px 24px rgba(45, 91, 138, 0.10), var(--shadow-md);
 }
-.contract-card.biz-中港牌:hover {
-  border-color: rgba(13, 148, 136, 0.25);
+.contract-card.biz-cross:hover {
+  border-color: rgba(184, 66, 59, 0.30);
+  box-shadow: 0 8px 24px rgba(184, 66, 59, 0.10), var(--shadow-md);
 }
 
 /* ══════════════════════════════════════════════
-   业务类型 · 图标徽章（增强版）
+   业务类型 · 徽章（soft 浅底 + deep 深字 · 与 CustomerList 一致）
    ══════════════════════════════════════════════ */
 
 /* ── 卡片顶栏（徽章 + 状态 同行）── */
@@ -114,27 +160,33 @@
   padding: 14px 18px 0;
 }
 
-/* ── 业务类型徽章 · 全新设计 ── */
 .biz-badge {
   display: inline-flex;
   align-items: center;
   gap: 5px;
   font-size: 11px;
   font-weight: 600;
-  color: white;
-  padding: 3px 12px 3px 10px;
-  border-radius: 20px;
-  letter-spacing: 0.3px;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.10);
+  padding: 3px 10px 3px 9px;
+  border-radius: 4px;
+  letter-spacing: 0.2px;
+  line-height: 1.5;
+  flex-shrink: 0;
 }
 
+.biz-badge--vehicle {
+  color: var(--biz-vehicle-deep);
+  background: var(--biz-vehicle-soft);
+}
+
+.biz-badge--cross {
+  color: var(--biz-cross-deep);
+  background: var(--biz-cross-soft);
+}
+
+.biz-badge--other,
 .biz-badge--default {
-  background: var(--text-tertiary);
-}
-
-/* 有业务类型字段但未命中配置的兜底样式 */
-.biz-badge--fallback {
-  background: var(--text-secondary);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
 }
 
 .biz-badge-icon {
@@ -147,7 +199,7 @@
 }
 
 .biz-badge-label {
-  line-height: 1;
+  line-height: 1.3;
 }
 
 /* ── 状态徽章 ── */
@@ -180,6 +232,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.customer-date-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 /* ── 合同元信息行（编号 + 标题 紧凑一行）── */
@@ -250,6 +310,20 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
+  transition: background 0.25s ease;
+}
+
+/* 业务色染 hero 底（与 CustomerList 收据同款语义）
+   —— 未结清状态下显示业务色，已结清时保持中性绿底
+   —— 因合同列表 .is-done 状态由数据而非样式判断，
+      暂仅按业务色染色；结清状态由 status-badge 标识 */
+.contract-card.biz-vehicle .amount-hero {
+  background: linear-gradient(135deg, var(--biz-vehicle-bg) 0%, #ffffff 100%);
+  border-bottom-color: #d6e2ee;
+}
+.contract-card.biz-cross .amount-hero {
+  background: linear-gradient(135deg, var(--biz-cross-bg) 0%, #ffffff 100%);
+  border-bottom-color: #f3d4d1;
 }
 
 .amount-hero-label {
@@ -269,6 +343,28 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: help;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+}
+
+/* 货币符号：略小、半透明 —— 让数字本身做主角 */
+.amount-hero-value .money-sym {
+  font-size: 18px;
+  font-weight: 600;
+  opacity: 0.55;
+  margin-right: 1px;
+}
+
+/* 单位后缀（万/亿）：18px 半透明同色，单位做辅助 */
+.amount-hero-value .money-unit {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 700;
+  opacity: 0.7;
+  letter-spacing: 0.5px;
+  margin-left: 2px;
 }
 
 /* ── 已付 / 未付（双栏对比）── */
@@ -301,13 +397,13 @@
 }
 
 .split-dot.paid {
-  background: #0d9488;
-  box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15);
+  background: var(--money-paid);
+  box-shadow: 0 0 0 2px rgba(201, 149, 43, 0.18);
 }
 
 .split-dot.unpaid {
-  background: #d97706;
-  box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15);
+  background: var(--money-due);
+  box-shadow: 0 0 0 2px rgba(220, 107, 61, 0.18);
 }
 
 .split-label {
@@ -325,14 +421,33 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  cursor: help;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 1px;
+}
+
+.split-value .money-sym {
+  font-size: 13px;
+  opacity: 0.55;
+  margin-right: 1px;
+}
+
+.split-value .money-unit {
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 700;
+  opacity: 0.75;
+  letter-spacing: 0.3px;
+  margin-left: 2px;
 }
 
 .split-value.paid {
-  color: #0d9488;
+  color: var(--money-paid-deep);
 }
 
 .split-value.unpaid {
-  color: #d97706;
+  color: var(--money-due);
   font-weight: 700;
 }
 
@@ -394,7 +509,7 @@
 .split-progress-fill {
   height: 100%;
   border-radius: 2px;
-  background: linear-gradient(90deg, #0d9488, #14b8a6);
+  background: linear-gradient(90deg, var(--money-paid) 0%, #e0b04e 100%);
   transition: width 0.4s ease;
 }
 
@@ -408,13 +523,9 @@
   font-variant-numeric: tabular-nums;
 }
 
-/* ── 悬停卡片时金额区块微亮 ── */
+/* ── 悬停卡片时金额区块边框微亮 —— 中性，避免覆盖业务色 ── */
 .contract-card:hover .amount-section {
-  border-color: rgba(13, 148, 136, 0.12);
-}
-
-.contract-card:hover .amount-hero {
-  background: linear-gradient(135deg, #f0f9f9 0%, #ecf5f5 100%);
+  border-color: var(--border-default);
 }
 
 /* ══════════════════════════════════════════════
@@ -458,18 +569,18 @@
   line-height: 1;
 }
 
-/* 收入按钮 */
+/* 收入按钮（鼠尾草绿 = 会计语境"收钱入账"动作专色，避开 teal 结清色） */
 .qa-btn-income {
-  color: #0d9488;
-  background: rgba(13, 148, 136, 0.07);
-  border-color: rgba(13, 148, 136, 0.18);
+  color: var(--action-income-deep);
+  background: rgba(91, 140, 99, 0.08);
+  border-color: rgba(91, 140, 99, 0.25);
 }
 
 .qa-btn-income:hover {
   color: #fff;
-  background: #0d9488;
-  border-color: #0d9488;
-  box-shadow: 0 2px 8px rgba(13, 148, 136, 0.25);
+  background: var(--action-income);
+  border-color: var(--action-income);
+  box-shadow: 0 2px 8px rgba(91, 140, 99, 0.30);
   transform: translateY(-1px);
 }
 
@@ -477,18 +588,18 @@
   transform: translateY(0);
 }
 
-/* 支出按钮 */
+/* 支出按钮（暖橙 = 钱出账的动作，与"未收警示"颜色同色但语境不同） */
 .qa-btn-expense {
-  color: #d97706;
-  background: rgba(217, 119, 6, 0.07);
-  border-color: rgba(217, 119, 6, 0.18);
+  color: var(--money-due);
+  background: rgba(220, 107, 61, 0.08);
+  border-color: rgba(220, 107, 61, 0.22);
 }
 
 .qa-btn-expense:hover {
   color: #fff;
-  background: #d97706;
-  border-color: #d97706;
-  box-shadow: 0 2px 8px rgba(217, 119, 6, 0.25);
+  background: var(--money-due);
+  border-color: var(--money-due);
+  box-shadow: 0 2px 8px rgba(220, 107, 61, 0.30);
   transform: translateY(-1px);
 }
 
@@ -517,10 +628,10 @@
 
 /* 悬停卡片时录入按钮强化 */
 .contract-card:hover .qa-btn-income {
-  border-color: rgba(13, 148, 136, 0.30);
+  border-color: rgba(91, 140, 99, 0.42);
 }
 .contract-card:hover .qa-btn-expense {
-  border-color: rgba(217, 119, 6, 0.30);
+  border-color: rgba(220, 107, 61, 0.36);
 }
 
 /* ── 卡片底部 ── */

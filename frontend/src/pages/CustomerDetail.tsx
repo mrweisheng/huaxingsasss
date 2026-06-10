@@ -1,362 +1,513 @@
-import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Spin, Table, Tag, Empty, Tooltip } from 'antd'
-import { ArrowLeftOutlined, EyeOutlined, UserOutlined, FileTextOutlined } from '@ant-design/icons'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
+import { Button, message, Spin, Empty, Popconfirm, Tooltip } from 'antd'
+import {
+  ArrowLeftOutlined,
+  PhoneOutlined,
+  MailOutlined,
+  IdcardOutlined,
+  EnvironmentOutlined,
+  EditOutlined,
+  DeleteOutlined,
+  FileTextOutlined,
+  UserOutlined,
+  WechatOutlined,
+  MessageOutlined,
+} from '@ant-design/icons'
 import { customerApi } from '@/services/customer'
 import { contractApi } from '@/services/contract'
 import type { Customer, Contract } from '@/types'
+import dayjs from 'dayjs'
+import { formatMoney } from '@/utils/money'
+import './ContractList.css' // 复用合同管理卡片样式（biz-badge / amount-section / contract-card 等）
 import './CustomerDetail.css'
 
-const STATUS_MAP: Record<string, { label: string; color: string }> = {
-  draft: { label: '草稿', color: 'default' },
-  active: { label: '执行中', color: 'blue' },
-  completed: { label: '已完成', color: 'green' },
+// 业务视觉映射（与 ContractList 完全一致）
+// 业务色见 CLAUDE.md：车辆=钢蓝 #2d5b8a，两地牌=朱砂 #b8423b
+type BizVisual = {
+  className: string         // 卡片根类名（驱动业务色 CSS 变量）
+  icon: React.ReactNode
+  label: string
 }
 
-const BUSINESS_TYPE_MAP: Record<string, string> = {
-  '买港车': '买港车',
-  '办两地牌': '办两地牌',
+const vehicleVisual: BizVisual = {
+  className: 'biz-vehicle',
+  label: '车辆买卖',
+  icon: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="11" rx="3"/>
+      <circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
+      <line x1="6" y1="11" x2="10" y2="11"/><line x1="14" y1="11" x2="18" y2="11"/>
+    </svg>
+  ),
 }
 
-const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
+const crossVisual: BizVisual = {
+  className: 'biz-cross',
+  label: '两地牌过户',
+  icon: (
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/>
+      <line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/>
+    </svg>
+  ),
+}
 
-function fmt(amount: number | undefined | null, currency: string): string {
-  if (amount === undefined || amount === null) return '-'
+const bizVisual: Record<string, BizVisual> = {
+  // 标准值
+  '车辆买卖': vehicleVisual,
+  '两地牌过户': crossVisual,
+  // legacy 兼容
+  '车辆业务': vehicleVisual,
+  '中港牌业务': crossVisual,
+}
+
+const statusConfig: Record<string, { color: string; bg: string; text: string }> = {
+  active: { color: '#1890ff', bg: '#e6f7ff', text: '执行中' },
+  completed: { color: '#52c41a', bg: '#f6ffed', text: '已完成' },
+}
+
+const currencySymbol: Record<string, string> = {
+  CNY: '¥',
+  HKD: 'HK$',
+}
+
+// 缩写金额渲染：与 ContractList 同款（货币符号 + 数字 + 万/亿 chip + Tooltip 全值）
+function renderAmount(amount: number | null | undefined, currency: string) {
   const symbol = currencySymbol[currency] || '¥'
-  return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  if (amount == null) return <>{symbol}--</>
+  const m = formatMoney(amount)
+  const node = (
+    <>
+      <span className="money-sym">{symbol}</span>
+      <span className="money-num">{m.display}</span>
+      {m.unit && <span className="money-unit">{m.unit}</span>}
+    </>
+  )
+  if (!m.unit) return node
+  return (
+    <Tooltip title={`${symbol}${m.full}`} placement="top" mouseEnterDelay={0.3}>
+      {node}
+    </Tooltip>
+  )
 }
 
-function fmtCny(amount: number | undefined | null): string {
-  if (amount === undefined || amount === null || amount === 0) return ''
-  return `≈ ¥${Math.round(amount).toLocaleString('zh-CN')}`
+function calculateProgress(paid: number, total: number): number {
+  if (total === 0) return 0
+  return Math.round((paid / total) * 100)
 }
 
 export default function CustomerDetail() {
-  const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
+  const { id } = useParams<{ id: string }>()
+  const customerId = Number(id)
+
   const [customer, setCustomer] = useState<Customer | null>(null)
   const [contracts, setContracts] = useState<Contract[]>([])
-  const [loading, setLoading] = useState(false)
-  const [contractsLoading, setContractsLoading] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState(false)
+  const [editForm, setEditForm] = useState<Partial<Customer>>({})
+  const [saving, setSaving] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  useEffect(() => {
-    if (!id) return
+  const loadData = useCallback(async () => {
+    if (!customerId || Number.isNaN(customerId)) {
+      message.error('客户 ID 无效')
+      navigate('/customers')
+      return
+    }
 
     abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
 
     setLoading(true)
-    customerApi.getById(Number(id), controller.signal)
-      .then((data) => {
-        if (!controller.signal.aborted) {
-          setCustomer(data)
-        }
-      })
-      .catch((error) => {
-        if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
-        console.error(error)
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setLoading(false)
-        }
-      })
-
-    setContractsLoading(true)
-    contractApi.getList({ customer_id: Number(id), per_page: 100 }, controller.signal)
-      .then((res) => {
-        if (!controller.signal.aborted) {
-          setContracts(res.items || [])
-        }
-      })
-      .catch((error) => {
-        if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
-        console.error(error)
-      })
-      .finally(() => {
-        if (!controller.signal.aborted) {
-          setContractsLoading(false)
-        }
-      })
-
-    return () => {
-      controller.abort()
+    try {
+      const [cust, ctRes] = await Promise.all([
+        customerApi.getById(customerId, controller.signal),
+        contractApi.getList({ customer_id: customerId, per_page: 200 }, controller.signal),
+      ])
+      if (controller.signal.aborted) return
+      setCustomer(cust)
+      setContracts(ctRes.items)
+      setEditForm(cust)
+    } catch (error: any) {
+      if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
+      message.error(error?.response?.data?.detail || '加载客户详情失败')
+    } finally {
+      if (!controller.signal.aborted) setLoading(false)
     }
-  }, [id])
+  }, [customerId, navigate])
 
-  if (loading) return <div className="app-loading-page"><Spin tip="加载中..." /></div>
-  if (!customer) return <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-tertiary)' }}>客户不存在</div>
+  useEffect(() => {
+    loadData()
+    return () => { abortControllerRef.current?.abort() }
+  }, [loadData])
 
-  // 合同汇总统计 — 检测是否单币种
-  const currencies = [...new Set(contracts.map(c => c.currency))]
-  const singleCurrency = currencies.length === 1 ? currencies[0] : null
+  const handleDelete = async () => {
+    if (!customer) return
+    try {
+      await customerApi.delete(customer.id)
+      message.success(`已删除「${customer.name}」`)
+      navigate('/customers')
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '删除失败')
+    }
+  }
 
-  // 单币种时：用原币汇总；多币种时：用 CNY 汇总
-  const totalAmount = singleCurrency
-    ? contracts.reduce((sum, c) => sum + (c.total_amount || 0), 0)
-    : contracts.reduce((sum, c) => sum + (c.total_amount_in_cny || c.total_amount), 0)
-  const totalPaid = singleCurrency
-    ? contracts.reduce((sum, c) => sum + (c.paid_amount || 0), 0)
-    : contracts.reduce((sum, c) => sum + (c.paid_amount_in_cny || c.paid_amount), 0)
-  const totalAmountCny = contracts.reduce((sum, c) => sum + (c.total_amount_in_cny || c.total_amount), 0)
-  const totalPaidCny = contracts.reduce((sum, c) => sum + (c.paid_amount_in_cny || c.paid_amount), 0)
-  const summaryCur = singleCurrency || 'CNY'
+  const handleSave = async () => {
+    if (!customer) return
+    if (!editForm.name?.trim()) {
+      message.error('客户名称不能为空')
+      return
+    }
+    setSaving(true)
+    try {
+      await customerApi.update(customer.id, editForm)
+      message.success('已更新')
+      setEditing(false)
+      loadData()
+    } catch (error: any) {
+      message.error(error?.response?.data?.detail || '更新失败')
+    } finally {
+      setSaving(false)
+    }
+  }
 
-  const columns = [
-    {
-      title: '合同编号',
-      dataIndex: 'contract_number',
-      width: 140,
-      render: (text: string, record: Contract) => (
-        <a onClick={() => navigate(`/contracts/${record.id}`)} style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-          {text}
-        </a>
-      ),
-    },
-    {
-      title: '业务类型',
-      dataIndex: 'business_type',
-      width: 100,
-      render: (val: string) => BUSINESS_TYPE_MAP[val] || val || '-',
-    },
-    {
-      title: '合同金额',
-      dataIndex: 'total_amount',
-      width: 130,
-      align: 'right' as const,
-      render: (val: number, record: Contract) => (
-        <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-          {fmt(val, record.currency)}
-        </span>
-      ),
-    },
-    {
-      title: '已付',
-      dataIndex: 'paid_amount',
-      width: 120,
-      align: 'right' as const,
-      render: (val: number, record: Contract) => (
-        <div>
-          <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-success)' }}>
-            {fmt(val, record.currency)}
-          </span>
-          {record.currency !== 'CNY' && record.paid_amount_in_cny != null && (
-            <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-              {fmtCny(record.paid_amount_in_cny)}
-            </div>
-          )}
-        </div>
-      ),
-    },
-    {
-      title: '剩余',
-      dataIndex: 'remaining_amount',
-      width: 120,
-      align: 'right' as const,
-      render: (val: number, record: Contract) => {
-        if (val <= 0) return <span style={{ color: 'var(--text-tertiary)' }}>已结清</span>
-        return (
-          <div>
-            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-danger)' }}>
-              {fmt(val, record.currency)}
-            </span>
-            {record.currency !== 'CNY' && record.remaining_amount_in_cny != null && (
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                {fmtCny(record.remaining_amount_in_cny)}
-              </div>
-            )}
-          </div>
-        )
-      },
-    },
-    {
-      title: '付款进度',
-      key: 'progress',
-      width: 100,
-      align: 'center' as const,
-      render: (_: unknown, record: Contract) => {
-        const { paid_count, payment_total_count } = record
-        if (!payment_total_count) return '-'
-        const ratio = paid_count / payment_total_count
-        const color = ratio >= 1 ? 'green' : ratio > 0 ? 'blue' : 'default'
-        return <Tag color={color}>{paid_count}/{payment_total_count}</Tag>
-      },
-    },
-    {
-      title: '状态',
-      dataIndex: 'status',
-      width: 80,
-      render: (status: string) => {
-        const s = STATUS_MAP[status] || { label: status, color: 'default' }
-        return <Tag color={s.color}>{s.label}</Tag>
-      },
-    },
-    {
-      title: '签订日期',
-      dataIndex: 'signed_date',
-      width: 100,
-      render: (val: string) => val || '-',
-    },
-    {
-      title: '',
-      key: 'action',
-      width: 60,
-      render: (_: unknown, record: Contract) => (
-        <Tooltip title="查看合同详情">
-          <Button
-            type="text"
-            size="small"
-            icon={<EyeOutlined />}
-            onClick={() => navigate(`/contracts/${record.id}`)}
-          />
-        </Tooltip>
-      ),
-    },
-  ]
+  // 计算该客户的主业务类型（按合同数最多的）
+  const dominantBiz = (() => {
+    if (contracts.length === 0) return null
+    const counts: Record<string, number> = {}
+    contracts.forEach(ct => {
+      if (ct.business_type) counts[ct.business_type] = (counts[ct.business_type] || 0) + 1
+    })
+    const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1])
+    return sorted[0]?.[0] || null
+  })()
+  const dominantVisual = dominantBiz ? bizVisual[dominantBiz] : null
+  const dominantBizClass = dominantVisual?.className || ''
+  const dominantBizSuffix = dominantBizClass.replace('biz-', '')
+
+  if (loading) {
+    return (
+      <div className="cd-wrap app-loading-page">
+        <Spin size="large" />
+      </div>
+    )
+  }
+
+  if (!customer) {
+    return (
+      <div className="cd-wrap">
+        <Empty description="未找到客户" />
+      </div>
+    )
+  }
 
   return (
-    <div className="cd-customer-container">
-      {/* 顶部操作栏 */}
-      <div className="detail-header">
-        <div className="back-btn" onClick={() => navigate('/customers')}>
-          <ArrowLeftOutlined /> 返回列表
-        </div>
+    <div className="cd-wrap">
+      {/* 返回按钮 */}
+      <div className="cd-back">
+        <Button
+          type="text"
+          icon={<ArrowLeftOutlined />}
+          onClick={() => navigate('/customers')}
+        >
+          返回客户列表
+        </Button>
       </div>
 
-      {/* ① 客户名称顶栏 */}
-      <div className="cd-topbar">
-        <div className="cd-topbar-left">
-          <UserOutlined style={{ color: 'var(--brand-primary)', fontSize: 15 }} />
-          <span className="cd-customer-name">{customer.name}</span>
-          {customer.contact_person && (
-            <>
-              <span className="cd-topbar-sep">·</span>
-              <span className="cd-contact-info">联系人：{customer.contact_person}</span>
-            </>
-          )}
-          {customer.phone && (
-            <>
-              <span className="cd-topbar-sep">·</span>
-              <span className="cd-contact-info">{customer.phone}</span>
-            </>
-          )}
-        </div>
-        <div className="cd-topbar-right">
-          {customer.email && (
-            <span>{customer.email}</span>
-          )}
-        </div>
-      </div>
+      {/* 客户档案卡片 */}
+      <div className={`cd-profile ${dominantBizClass}`}>
+        {dominantVisual && (
+          <div className="card-accent-bar" />
+        )}
 
-      {/* ② 客户详细信息网格 */}
-      <div className="cd-info-strip">
+        <div className="cd-profile-top">
+          <div className="cd-profile-id">
+            <div className="cd-avatar">
+              <UserOutlined />
+            </div>
+            <div>
+              {editing ? (
+                <input
+                  className="cd-name-input"
+                  value={editForm.name || ''}
+                  onChange={e => setEditForm({ ...editForm, name: e.target.value })}
+                  placeholder="客户名称"
+                />
+              ) : (
+                <h1 className="cd-name">{customer.name}</h1>
+              )}
+              <div className="cd-tags">
+                {dominantVisual && (
+                  <span className={`biz-badge biz-badge--${dominantBizSuffix}`}>
+                    <span className="biz-badge-icon">{dominantVisual.icon}</span>
+                    <span className="biz-badge-label">主业务 · {dominantVisual.label}</span>
+                  </span>
+                )}
+                {contracts.length > 0 && (
+                  <span className="cd-tag-count">
+                    <FileTextOutlined /> {contracts.length} 份合同
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+
+          <div className="cd-profile-actions">
+            {editing ? (
+              <>
+                <Button onClick={() => { setEditForm(customer); setEditing(false) }}>取消</Button>
+                <Button type="primary" loading={saving} onClick={handleSave}>保存</Button>
+              </>
+            ) : (
+              <>
+                <Button icon={<EditOutlined />} onClick={() => setEditing(true)}>编辑</Button>
+                <Popconfirm
+                  title="确认删除"
+                  description={`确定要删除客户「${customer.name}」吗？关联合同不会被删除。`}
+                  onConfirm={handleDelete}
+                  okText="删除"
+                  cancelText="取消"
+                  okButtonProps={{ danger: true }}
+                >
+                  <Button danger icon={<DeleteOutlined />}>删除</Button>
+                </Popconfirm>
+              </>
+            )}
+          </div>
+        </div>
+
+        <div className="divider-gold" style={{ margin: '16px 0 14px' }} />
+
         <div className="cd-info-grid">
           <div className="cd-info-item">
-            <div className="cd-info-label">联系人</div>
-            <div className="cd-info-value">{customer.contact_person || '-'}</div>
+            <span className="cd-info-label"><PhoneOutlined /> 联系电话</span>
+            {editing ? (
+              <input
+                className="cd-info-input"
+                value={editForm.phone || ''}
+                onChange={e => setEditForm({ ...editForm, phone: e.target.value })}
+                placeholder="--"
+              />
+            ) : (
+              <span className="cd-info-value">{customer.phone || '--'}</span>
+            )}
           </div>
+
           <div className="cd-info-item">
-            <div className="cd-info-label">电话</div>
-            <div className="cd-info-value">{customer.phone || '-'}</div>
+            <span className="cd-info-label"><MailOutlined /> 邮箱</span>
+            {editing ? (
+              <input
+                className="cd-info-input"
+                value={editForm.email || ''}
+                onChange={e => setEditForm({ ...editForm, email: e.target.value })}
+                placeholder="--"
+              />
+            ) : (
+              <span className="cd-info-value">{customer.email || '--'}</span>
+            )}
           </div>
+
           <div className="cd-info-item">
-            <div className="cd-info-label">邮箱</div>
-            <div className="cd-info-value">{customer.email || '-'}</div>
+            <span className="cd-info-label"><IdcardOutlined /> 证件号码</span>
+            {editing ? (
+              <input
+                className="cd-info-input"
+                value={editForm.id_card_number || ''}
+                onChange={e => setEditForm({ ...editForm, id_card_number: e.target.value })}
+                placeholder="--"
+              />
+            ) : (
+              <span className="cd-info-value cd-info-mono">{customer.id_card_number || '--'}</span>
+            )}
           </div>
+
           <div className="cd-info-item">
-            <div className="cd-info-label">证件号码</div>
-            <div className="cd-info-value">{customer.id_card_number || '-'}</div>
+            <span className="cd-info-label"><UserOutlined /> 联系人</span>
+            {editing ? (
+              <input
+                className="cd-info-input"
+                value={editForm.contact_person || ''}
+                onChange={e => setEditForm({ ...editForm, contact_person: e.target.value })}
+                placeholder="--"
+              />
+            ) : (
+              <span className="cd-info-value">{customer.contact_person || '--'}</span>
+            )}
           </div>
-          <div className="cd-info-item">
-            <div className="cd-info-label">营业执照号</div>
-            <div className="cd-info-value">{customer.business_license || '-'}</div>
+
+          <div className="cd-info-item cd-info-item-wide">
+            <span className="cd-info-label"><EnvironmentOutlined /> 地址</span>
+            {editing ? (
+              <input
+                className="cd-info-input"
+                value={editForm.address || ''}
+                onChange={e => setEditForm({ ...editForm, address: e.target.value })}
+                placeholder="--"
+              />
+            ) : (
+              <span className="cd-info-value">{customer.address || '--'}</span>
+            )}
           </div>
-          <div className="cd-info-item span2">
-            <div className="cd-info-label">地址</div>
-            <div className="cd-info-value multiline">{customer.address || '-'}</div>
-          </div>
-          <div className="cd-info-item">
-            <div className="cd-info-label">微信群</div>
-            <div className="cd-info-value">{customer.wechat_group_name || '-'}</div>
-          </div>
-          <div className="cd-info-item">
-            <div className="cd-info-label">备注</div>
-            <div className="cd-info-value multiline">{customer.remarks || '-'}</div>
-          </div>
+
+          {customer.remarks && (
+            <div className="cd-info-item cd-info-item-wide">
+              <span className="cd-info-label"><MessageOutlined /> 备注</span>
+              {editing ? (
+                <textarea
+                  className="cd-info-textarea"
+                  value={editForm.remarks || ''}
+                  onChange={e => setEditForm({ ...editForm, remarks: e.target.value })}
+                  rows={2}
+                  placeholder="--"
+                />
+              ) : (
+                <span className="cd-info-value">{customer.remarks}</span>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* ③ KPI 指标卡：合同统计 */}
-      {contracts.length > 0 && (
-        <div className="cd-kpi-row">
-          <div className="cd-kpi-card primary">
-            <div className="cd-kpi-label">合同总数</div>
-            <div className="cd-kpi-value small">
-              {contracts.length}
-              <span style={{ fontSize: 14, fontWeight: 500, color: 'var(--text-secondary)', letterSpacing: 0 }}> 份</span>
-            </div>
-            <div className="cd-kpi-sub">
-              {contracts.filter(c => c.status === 'active').length} 份执行中
-              · {contracts.filter(c => c.status === 'completed').length} 份已完成
-            </div>
-          </div>
-          <div className="cd-kpi-card income">
-            <div className="cd-kpi-label">
-              合同总额{!singleCurrency ? '（CNY）' : ''}
-            </div>
-            <div className="cd-kpi-value success">
-              {fmt(totalAmount, summaryCur)}
-            </div>
-            <div className="cd-kpi-sub">
-              全量合同金额汇总
-              {singleCurrency && singleCurrency !== 'CNY' && (
-                <span style={{ marginLeft: 6, opacity: 0.65 }}>{fmtCny(totalAmountCny)}</span>
-              )}
-            </div>
-          </div>
-          <div className="cd-kpi-card expense">
-            <div className="cd-kpi-label">
-              已付总额{!singleCurrency ? '（CNY）' : ''}
-            </div>
-            <div className="cd-kpi-value" style={{ color: totalPaid >= totalAmount ? 'var(--color-success)' : 'var(--brand-primary)' }}>
-              {fmt(totalPaid, summaryCur)}
-            </div>
-            <div className="cd-kpi-sub">
-              {totalAmount > 0 ? `${Math.round((totalPaid / totalAmount) * 100)}% 已支付` : '-'}
-              {singleCurrency && singleCurrency !== 'CNY' && (
-                <span style={{ marginLeft: 6, opacity: 0.65 }}>{fmtCny(totalPaidCny)}</span>
-              )}
-            </div>
-          </div>
+      {/* 合同一览 */}
+      <div className="cd-contracts">
+        <div className="cd-contracts-header">
+          <h2 className="cd-section-title">
+            <FileTextOutlined /> 合同一览
+            <span className="cd-section-count">{contracts.length} 份</span>
+          </h2>
         </div>
-      )}
 
-      {/* ④ 关联合同 */}
-      <div className="cd-payment-section">
-        <div className="cd-payment-header">
-          <span className="cd-payment-title">
-            <FileTextOutlined style={{ marginRight: 6 }} />
-            关联合同
-          </span>
-          <span className="cd-payment-count">{contracts.length} 份</span>
-        </div>
-        {contracts.length > 0 ? (
-          <Table
-            dataSource={contracts}
-            columns={columns}
-            rowKey="id"
-            loading={contractsLoading}
-            pagination={false}
-            size="middle"
-            locale={{ emptyText: <Empty description="暂无关联合同" /> }}
-            style={{ padding: '0 4px' }}
-          />
+        {contracts.length === 0 ? (
+          <Empty description="该客户暂无合同" className="empty-state" />
         ) : (
-          <div style={{ textAlign: 'center', padding: '40px 24px', color: 'var(--text-tertiary)' }}>
-            <FileTextOutlined style={{ fontSize: 28, marginBottom: 10, display: 'block', opacity: 0.3 }} />
-            暂无关联合同
+          <div className="contract-grid">
+            {contracts.map((contract, index) => {
+              const status = statusConfig[contract.status] || statusConfig.active
+              const biz = contract.business_type ? bizVisual[contract.business_type] : null
+              const bizClass = biz?.className || (contract.business_type ? 'biz-other' : '')
+              const bizMiniSuffix = bizClass.replace('biz-', '')
+              const progress = calculateProgress(contract.paid_amount, contract.total_amount)
+
+              return (
+                <div
+                  key={contract.id}
+                  className={`contract-card ${bizClass}`}
+                  onClick={() => navigate(`/contracts/${contract.id}`)}
+                  style={{ animationDelay: `${index * 50}ms` }}
+                >
+                  {/* ── 左侧色条（业务色 base）── */}
+                  {(biz || contract.business_type) && (
+                    <div className="card-accent-bar" />
+                  )}
+
+                  {/* ── 顶栏：业务徽章 + 状态 ── */}
+                  <div className="card-top-row">
+                    {biz ? (
+                      <span className={`biz-badge biz-badge--${bizMiniSuffix}`}>
+                        <span className="biz-badge-icon">{biz.icon}</span>
+                        <span className="biz-badge-label">{biz.label}</span>
+                      </span>
+                    ) : contract.business_type ? (
+                      <span className="biz-badge biz-badge--other">
+                        <FileTextOutlined className="biz-badge-icon" />
+                        <span className="biz-badge-label">{contract.business_type}</span>
+                      </span>
+                    ) : (
+                      <span className="biz-badge biz-badge--default">
+                        <FileTextOutlined className="biz-badge-icon" />
+                        <span className="biz-badge-label">合同</span>
+                      </span>
+                    )}
+                    <span className="status-badge" style={{ color: status.color, backgroundColor: status.bg }}>
+                      {status.text}
+                    </span>
+                  </div>
+
+                  {/* 标题行 + 签订日期（客户详情页客户名重复，改显合同标题）*/}
+                  <div className="customer-name-hero" style={{ paddingTop: '6px' }}>
+                    <span className="customer-name-text">{contract.title || '合同详情'}</span>
+                    <span className="customer-date-text">
+                      {contract.signed_date ? dayjs(contract.signed_date).format('YYYY-MM-DD') : '--'}
+                    </span>
+                  </div>
+
+                  {/* 合同元信息：编号 + 微信群 */}
+                  <div className="contract-meta-row">
+                    <span className="contract-meta-number">{contract.contract_number}</span>
+                    {contract.wechat_group && (
+                      <>
+                        <span className="contract-meta-sep">·</span>
+                        <span className="contract-meta-title">
+                          <WechatOutlined style={{ color: '#07c160', marginRight: 4 }} />
+                          {contract.wechat_group}
+                        </span>
+                      </>
+                    )}
+                  </div>
+
+                  {/* 业务描述 */}
+                  <div className="business-desc">{contract.business_description || ''}</div>
+
+                  {/* 金色分割线 */}
+                  <div className="divider-gold card-divider" />
+
+                  <div className="amount-section">
+                    {/* 总金额 */}
+                    <div className="amount-hero">
+                      <span className="amount-hero-label">合同总额</span>
+                      <span className="amount-hero-value">
+                        {renderAmount(contract.total_amount, contract.currency)}
+                      </span>
+                    </div>
+
+                    {/* 已付 / 未付 */}
+                    <div className="amount-split">
+                      <div className="amount-split-item is-paid">
+                        <div className="split-item-header">
+                          <span className="split-dot paid" />
+                          <span className="split-label">已付</span>
+                        </div>
+                        <div className="split-value paid">
+                          {renderAmount(contract.paid_amount, contract.currency)}
+                        </div>
+                        {contract.payment_total_count > 0 && (
+                          <div className="split-meta">
+                            <span className="split-count">{contract.paid_count}/{contract.payment_total_count}笔</span>
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="amount-split-vert" />
+
+                      <div className="amount-split-item is-unpaid">
+                        <div className="split-item-header">
+                          <span className="split-dot unpaid" />
+                          <span className="split-label">未付</span>
+                        </div>
+                        <div className={`split-value ${contract.remaining_amount > 0 ? 'unpaid' : 'paid'}`}>
+                          {renderAmount(contract.remaining_amount, contract.currency)}
+                        </div>
+                        {contract.payment_total_count > 0 && (
+                          <div className="split-meta">
+                            <div className="split-progress">
+                              <div className="split-progress-track">
+                                <div className="split-progress-fill" style={{ width: `${progress}%` }} />
+                              </div>
+                              <span className="split-progress-text">{progress}%</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="card-decoration" />
+                </div>
+              )
+            })}
           </div>
         )}
       </div>
