@@ -106,15 +106,23 @@ def _get_redis_client() -> Optional[redis_lib.Redis]:
         return None
 
 
-def cache_analysis(file_id: str, data: dict) -> None:
-    """将分析结果缓存（供 create_contract 等工具复用）。"""
+def cache_analysis(file_id: str, data: dict, analysis_type: str = "contract") -> None:
+    """将分析结果缓存（供 create_contract 等工具复用）。
+
+    仅对 contract 类型写入 file_analyzer 层的全局缓存（key=vl:contract:{file_id}，无 session 维度）；
+    receipt/group_chat 等需要 session 隔离的类型由 ToolExecutor._cache_analysis 负责写入，
+    避免在此处用 contract 前缀污染其它类型的缓存命名空间。
+    """
     if not isinstance(data, dict):
+        return
+    if analysis_type != "contract":
         return
     redis = _get_redis_client()
     if redis:
         try:
             key = f"{_CACHE_PREFIX}{file_id}"
             redis.setex(key, _CACHE_TTL, json.dumps(data, ensure_ascii=False))
+            logger.info("analysis_cache 写入Redis: key=%s, ttl=%ds", key, _CACHE_TTL)
             return
         except Exception:
             logger.warning("cache_analysis Redis 写入失败，降级内存: file_id=%s", file_id)
@@ -312,8 +320,9 @@ class FileAnalyzer:
 
         # ── 缓存 ──
         # file_id 从 file_name 提取（去掉扩展名），与 tools.py 保持一致
+        # 仅 contract 在此层缓存；receipt/group_chat 由 ToolExecutor 按 session 维度缓存
         file_id = os.path.splitext(os.path.basename(file_path))[0]
-        cache_analysis(file_id, structured)
+        cache_analysis(file_id, structured, actual_purpose)
 
         result = {
             "success": True,

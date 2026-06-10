@@ -141,6 +141,8 @@ def call_vl_model(file_bytes: bytes, mime: str, prompt: str) -> dict:
 
 def call_text_model(text: str, prompt: str) -> dict:
     """调用 DeepSeek 文本模型分析文本，返回结构化 JSON dict。"""
+    import time
+    start = time.perf_counter()
     payload = {
         "model": settings.DEEPSEEK_AGENT_MODEL,
         "messages": [{"role": "user", "content": f"{prompt}\n\n以下是文件的文字内容，请提取结构化信息：\n\n{text[:8000]}"}],
@@ -160,6 +162,8 @@ def call_text_model(text: str, prompt: str) -> dict:
         raise RuntimeError(f"DashScope API 错误: {response.text}")
 
     content = response.json()["choices"][0]["message"]["content"]
+    elapsed = time.perf_counter() - start
+    logger.info("call_text_model: elapsed=%.2fs, text_len=%d, model=%s", elapsed, len(text), settings.DEEPSEEK_AGENT_MODEL)
     try:
         return json.loads(content)
     except json.JSONDecodeError:
