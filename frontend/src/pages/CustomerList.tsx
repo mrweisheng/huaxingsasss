@@ -1,101 +1,173 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Button, Popconfirm, message, Empty } from 'antd'
+import { Input, Button, message, Empty, Modal, Form } from 'antd'
 import {
   SearchOutlined,
-  TeamOutlined,
-  UserOutlined,
+  PlusOutlined,
   PhoneOutlined,
-  DeleteOutlined,
-  EyeOutlined,
+  IdcardOutlined,
   FileTextOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { useDebounce } from '@/hooks/useDebounce'
 import { customerApi } from '@/services/customer'
 import { contractApi } from '@/services/contract'
 import type { Customer, Contract } from '@/types'
-import dayjs from 'dayjs'
 import './CustomerList.css'
 
-const STATUS_CONFIG: Record<string, { label: string; dotClass: string }> = {
-  active: { label: '执行中', dotClass: 'status-dot-active' },
-  completed: { label: '已完成', dotClass: 'status-dot-completed' },
-  draft: { label: '草稿', dotClass: 'status-dot-draft' },
+interface CustomerWithContracts {
+  customer: Customer
+  contracts: Contract[]
 }
 
-const BUSINESS_TYPE_MAP: Record<string, string> = {
-  '买港车': '买港车',
-  '办两地牌': '办两地牌',
+// 业务视觉映射 —— 两个核心业务各对应一组视觉资产
+// 后端枚举见 backend/app/core/business_types.py（标准值 + legacy 值都要覆盖）
+type BizVisual = { className: string; icon: React.ReactNode; label: string }
+
+const vehicleVisual: BizVisual = {
+  className: 'biz-vehicle',
+  label: '车辆买卖',
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="2" y="6" width="20" height="11" rx="3"/>
+      <circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/>
+      <line x1="6" y1="11" x2="10" y2="11"/><line x1="14" y1="11" x2="18" y2="11"/>
+    </svg>
+  ),
 }
 
-function formatDate(date: string | undefined): string {
-  if (!date) return '--'
-  return dayjs(date).format('YYYY-MM-DD')
+const crossVisual: BizVisual = {
+  className: 'biz-cross',
+  label: '两地牌过户',
+  icon: (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/>
+      <line x1="8" y1="14" x2="10" y2="14"/><line x1="14" y1="14" x2="16" y2="14"/>
+    </svg>
+  ),
 }
 
-function getAvatarLetter(name: string): string {
-  return name.charAt(0).toUpperCase()
+const bizVisual: Record<string, BizVisual> = {
+  // 标准值
+  '车辆买卖': vehicleVisual,
+  '两地牌过户': crossVisual,
+  // legacy 兼容
+  '车辆业务': vehicleVisual,
+  '中港牌业务': crossVisual,
 }
 
-function formatAmount(amount: number, currency: string): string {
-  if (currency === 'CNY') return `¥${amount.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
-  return `${currency} ${amount.toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
+
+// 纯数字千分位（不带货币符号），用于收据样式里货币符号单独 span
+function formatNumber(amount: number | null | undefined): string {
+  if (amount == null) return '--'
+  return Number(amount).toLocaleString('zh-CN', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
 }
 
-function getProgressPercent(paid: number, total: number): number {
-  if (total <= 0) return 0
-  return Math.min(Math.round((paid / total) * 100), 100)
+function calcProgress(paid: number, total: number): number {
+  if (!total || total <= 0) return 0
+  return Math.min(100, Math.round((Number(paid) / Number(total)) * 100))
+}
+
+// 取客户名首字（中文取首字，英文取首字母大写）
+function getAvatarChar(name: string): string {
+  if (!name) return '?'
+  const trimmed = name.trim()
+  return /^[A-Za-z]/.test(trimmed) ? trimmed[0].toUpperCase() : trimmed[0]
+}
+
+// 从 contract_data 里抽取一组「车牌 / 口岸」之类的轻量 tag，最多 2 个
+function extractContractTags(data: any): string[] {
+  if (!data || typeof data !== 'object') return []
+  const tags: string[] = []
+  const plate = data?.vehicle_info?.plate_number
+  if (plate && typeof plate === 'string') tags.push(plate.trim())
+  if (data.port && typeof data.port === 'string') tags.push(data.port.trim())
+  return tags.filter(Boolean).slice(0, 2)
+}
+
+// 取一段合同摘要：优先 business_description，其次 title，再次合同号
+function getContractSummary(ct: Contract): string {
+  const desc = (ct.business_description || '').trim()
+  if (desc) return desc
+  const title = (ct.title || '').trim()
+  if (title) return title
+  return ct.contract_number || '未命名合同'
+}
+
+// 期数显示：paid_count / payment_total_count，未配置时返回空
+function getStageText(ct: Contract): string {
+  const paid = Number(ct.paid_count || 0)
+  const total = Number(ct.payment_total_count || 0)
+  if (total <= 0) return ''
+  return `${paid}/${total} 期`
+}
+
+// 签约日格式化为 MM-DD
+function formatSignedDate(date?: string): string {
+  if (!date) return ''
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(date)
+  return m ? `${m[2]}-${m[3]}` : date
 }
 
 export default function CustomerList() {
   const navigate = useNavigate()
-  const [customers, setCustomers] = useState<Customer[]>([])
-  const [contractsByCustomer, setContractsByCustomer] = useState<Record<number, Contract[]>>({})
+  const [items, setItems] = useState<CustomerWithContracts[]>([])
   const [loading, setLoading] = useState(false)
-  const [contractsLoading, setContractsLoading] = useState(false)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(1)
   const [keyword, setKeyword] = useState('')
-  const [hoveredCard, setHoveredCard] = useState<number | null>(null)
+  const [modalOpen, setModalOpen] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [form] = Form.useForm()
   const abortControllerRef = useRef<AbortController | null>(null)
 
-  const loadCustomers = useCallback(async () => {
+  const loadData = useCallback(async () => {
     abortControllerRef.current?.abort()
     const controller = new AbortController()
     abortControllerRef.current = controller
 
     setLoading(true)
-    setContractsByCustomer({})
     try {
-      const response = await customerApi.getList({ page, per_page: 20, keyword: keyword || undefined }, controller.signal)
+      const response = await customerApi.getList(
+        { page, per_page: 20, keyword: keyword || undefined },
+        controller.signal,
+      )
       if (controller.signal.aborted) return
-      setCustomers(response.items)
       setTotal(response.pagination.total)
+      setTotalPages(response.pagination.total_pages)
 
-      // 批量加载这批客户的所有合同
-      const customerIds = response.items.map(c => c.id)
+      const customers = response.items
+      const customerIds = customers.map(c => c.id)
+      const contractsByCustomer: Record<number, Contract[]> = {}
+
       if (customerIds.length > 0) {
-        setContractsLoading(true)
         try {
-          const contractsRes = await contractApi.getList({
-            customer_ids: customerIds.join(','),
-            per_page: 500,
-          }, controller.signal)
+          const contractsRes = await contractApi.getList(
+            { customer_ids: customerIds.join(','), per_page: 500 },
+            controller.signal,
+          )
           if (!controller.signal.aborted) {
-            const grouped: Record<number, Contract[]> = {}
-            for (const c of contractsRes.items) {
-              if (!grouped[c.customer_id]) grouped[c.customer_id] = []
-              grouped[c.customer_id].push(c)
+            for (const ct of contractsRes.items) {
+              if (!contractsByCustomer[ct.customer_id]) contractsByCustomer[ct.customer_id] = []
+              contractsByCustomer[ct.customer_id].push(ct)
             }
-            setContractsByCustomer(grouped)
           }
         } catch (err: any) {
           if (err?.name === 'AbortError' || err?.code === 'ERR_CANCELED') return
           console.error('加载合同失败:', err)
-        } finally {
-          if (!controller.signal.aborted) setContractsLoading(false)
         }
       }
+
+      if (controller.signal.aborted) return
+
+      const merged: CustomerWithContracts[] = customers.map(c => ({
+        customer: c,
+        contracts: contractsByCustomer[c.id] || [],
+      }))
+
+      setItems(merged)
     } catch (error: any) {
       if (error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
       console.error(error)
@@ -105,31 +177,35 @@ export default function CustomerList() {
   }, [page, keyword])
 
   useEffect(() => {
-    loadCustomers()
-    return () => {
-      abortControllerRef.current?.abort()
-    }
-  }, [loadCustomers])
+    loadData()
+    return () => { abortControllerRef.current?.abort() }
+  }, [loadData])
 
   const handleSearch = useDebounce((value: string) => {
     setKeyword(value)
     setPage(1)
   }, 400)
 
-  const handleDelete = async (id: number, _name: string) => {
+  const handleAddCustomer = async () => {
     try {
-      await customerApi.delete(id)
-      message.success('删除成功')
-      loadCustomers()
-    } catch (error: any) {
-      message.error(error.response?.data?.detail || '删除失败')
+      const values = await form.validateFields()
+      setSubmitting(true)
+      await customerApi.create(values)
+      message.success('已新增「' + values.name + '」')
+      setModalOpen(false)
+      form.resetFields()
+      loadData()
+    } catch (err: any) {
+      if (err?.errorFields) return
+      message.error(err?.response?.data?.detail || '创建失败')
+    } finally {
+      setSubmitting(false)
     }
   }
 
-  const totalPages = Math.ceil(total / 20)
-
   return (
-    <div className="customer-list-container">
+    <div className="cl-wrap">
+      {/* 顶栏 */}
       <div className="page-topbar">
         <div className="page-topbar-left">
           <div className="page-title-wrap">
@@ -137,191 +213,255 @@ export default function CustomerList() {
               <TeamOutlined />
             </div>
             <span className="page-title-text">客户管理</span>
-            <span className="page-title-count">{total} 个客户</span>
+            <span className="page-title-count">{total} 位客户</span>
           </div>
         </div>
         <div className="page-topbar-right">
           <Input
-            placeholder="搜索客户名称/联系人/电话..."
+            placeholder="搜索客户名称/电话/证件号"
             allowClear
             onChange={e => handleSearch(e.target.value)}
-            style={{ width: 220 }}
+            style={{ width: 260 }}
             prefix={<SearchOutlined />}
           />
+          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
+            新增客户
+          </Button>
         </div>
       </div>
 
-      {loading && customers.length === 0 ? (
-        <div style={{ padding: '60px 0', textAlign: 'center' }}>
-          <div style={{ fontSize: 14, color: '#94a3b8' }}>加载中...</div>
-        </div>
-      ) : customers.length === 0 ? (
-        <Empty description="暂无客户数据" className="empty-state" />
+      {/* 客户卡片网格 */}
+      {items.length === 0 && !loading ? (
+        <Empty description="暂无客户" className="empty-state" />
       ) : (
-        <>
-          <div className="customer-grid">
-            {customers.map((customer, index) => {
-              const isHovered = hoveredCard === customer.id
-              const customerContracts = contractsByCustomer[customer.id] || []
-              const displayContracts = customerContracts.slice(0, 2)
-              const moreCount = customerContracts.length - 2
-              const showContractSection = customerContracts.length > 0
-
-              return (
-                <div
-                  key={customer.id}
-                  className={`customer-card ${isHovered ? 'hovered' : ''}`}
-                  onClick={() => navigate(`/customers/${customer.id}`)}
-                  onMouseEnter={() => setHoveredCard(customer.id)}
-                  onMouseLeave={() => setHoveredCard(null)}
-                  style={{ animationDelay: `${index * 50}ms` }}
-                >
-                  <div className="card-accent" />
-
-                  <div className="card-body">
-                    {/* 客户名称行 */}
-                    <div className="card-name-row">
-                      <div className="customer-name" title={customer.name}>{customer.name}</div>
-                      <div className="card-avatar">{getAvatarLetter(customer.name)}</div>
-                    </div>
-
-                    {/* 联系人信息：紧凑一行 */}
-                    <div className="contact-inline">
-                      {customer.contact_person && (
-                        <span className="contact-inline-item">
-                          <UserOutlined />
-                          <span>{customer.contact_person}</span>
-                        </span>
-                      )}
-                      {customer.phone && (
-                        <span className="contact-inline-item">
-                          <PhoneOutlined />
-                          <span>{customer.phone}</span>
-                        </span>
-                      )}
-                      {!customer.contact_person && !customer.phone && (
-                        <span className="contact-inline-empty">暂无联系方式</span>
-                      )}
-                    </div>
-
-                    {/* 关联合同区域 */}
-                    {contractsLoading && !showContractSection ? (
-                      <div className="contracts-skeleton">
-                        <div className="skeleton-line" />
-                        <div className="skeleton-line short" />
-                      </div>
-                    ) : showContractSection ? (
-                      <div className="contracts-section">
-                        <div className="contracts-header">
-                          <FileTextOutlined className="contracts-header-icon" />
-                          <span className="contracts-header-label">关联合同</span>
-                          <span className="contracts-header-count">{customerContracts.length} 份</span>
-                        </div>
-                        <div className="contracts-list">
-                          {displayContracts.map(contract => {
-                            const statusCfg = STATUS_CONFIG[contract.status] || STATUS_CONFIG.active
-                            const progressPercent = getProgressPercent(contract.paid_amount, contract.total_amount)
-                            const isCompleted = progressPercent >= 100 || contract.status === 'completed'
-
-                            return (
-                              <div
-                                key={contract.id}
-                                className="contract-row"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  navigate(`/contracts/${contract.id}`)
-                                }}
-                                title="点击查看合同详情"
-                              >
-                                <div className="contract-row-top">
-                                  <span className="contract-number">{contract.contract_number}</span>
-                                  <div className="contract-row-tags">
-                                    {contract.business_type && (
-                                      <span className="business-type-tag">{BUSINESS_TYPE_MAP[contract.business_type] || contract.business_type}</span>
-                                    )}
-                                    <span className={`status-dot ${statusCfg.dotClass}`} />
-                                  </div>
-                                </div>
-                                <div className="contract-row-bottom">
-                                  <span className="contract-amount">{formatAmount(contract.total_amount, contract.currency)}</span>
-                                  <div className="contract-progress">
-                                    <div className="progress-track">
-                                      <div
-                                        className={`progress-fill ${isCompleted ? 'fill-completed' : 'fill-active'}`}
-                                        style={{ width: `${progressPercent}%` }}
-                                      />
-                                    </div>
-                                    <span className="progress-text">
-                                      {isCompleted ? '已结清' : `已付${progressPercent}%`}
-                                    </span>
-                                  </div>
-                                </div>
-                              </div>
-                            )
-                          })}
-                          {moreCount > 0 && (
-                            <div className="contracts-more">
-                              还有 {moreCount} 份合同
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="contracts-empty">
-                        <FileTextOutlined style={{ fontSize: 18, opacity: 0.25 }} />
-                        <span>暂无关联合同</span>
-                      </div>
+        <div className="cl-grid">
+          {items.map((item, index) => {
+            const { customer: c, contracts } = item
+            return (
+              <div
+                key={c.id}
+                className="cl-card"
+                onClick={() => navigate(`/customers/${c.id}`)}
+                style={{ animationDelay: `${index * 50}ms` }}
+              >
+                {/* ── 身份区 ── */}
+                <div className="cl-identity">
+                  <div className="cl-identity-top">
+                    <div className="cl-avatar">{getAvatarChar(c.name)}</div>
+                    <div className="cl-name" title={c.name}>{c.name}</div>
+                    {contracts.length > 0 && (
+                      <span className="cl-contracts-pill">
+                        <FileTextOutlined />
+                        <span className="cl-contracts-pill-num">{contracts.length}</span>
+                        <span>份</span>
+                      </span>
                     )}
-
-                    {/* 底部 */}
-                    <div className="card-footer">
-                      <div className="footer-date">
-                        <span className="footer-label">创建日期</span>
-                        <span className="footer-value">{formatDate(customer.created_at)}</span>
-                      </div>
-                      <div className="footer-actions" onClick={(e) => e.stopPropagation()}>
-                        <EyeOutlined
-                          className="action-icon detail"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            navigate(`/customers/${customer.id}`)
-                          }}
-                        />
-                        <Popconfirm
-                          title="确认删除"
-                          description={`确定要删除客户「${customer.name}」吗？`}
-                          onConfirm={() => handleDelete(customer.id, customer.name)}
-                          okText="删除"
-                          cancelText="取消"
-                          okButtonProps={{ danger: true }}
-                        >
-                          <DeleteOutlined className="action-icon delete" />
-                        </Popconfirm>
-                      </div>
-                    </div>
                   </div>
-
-                  <div className="card-decoration" />
+                  <div className="cl-meta">
+                    {c.phone && (
+                      <span className="cl-meta-item" title={c.phone}>
+                        <PhoneOutlined />
+                        <span>{c.phone}</span>
+                      </span>
+                    )}
+                    {c.id_card_number && (
+                      <span className="cl-meta-item cl-meta-item--mono" title={c.id_card_number}>
+                        <IdcardOutlined />
+                        <span>{c.id_card_number}</span>
+                      </span>
+                    )}
+                    {!c.phone && !c.id_card_number && (
+                      <span className="cl-meta-empty">暂无联系方式</span>
+                    )}
+                  </div>
                 </div>
-              )
-            })}
-          </div>
 
-          {totalPages > 1 && (
-            <div className="pagination">
-              <div className="pagination-info">
-                第 {page} / {totalPages} 页，共 {total} 条
+                {/* ── 合同区 ── */}
+                {contracts.length === 0 ? (
+                  <div className="cl-empty">
+                    <svg className="cl-empty-icon" width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                      <polyline points="14 2 14 8 20 8"/>
+                    </svg>
+                    <span>暂无关联合同</span>
+                  </div>
+                ) : (
+                  <div className="cl-contracts">
+                    {contracts.map(ct => {
+                      const biz = ct.business_type ? bizVisual[ct.business_type] : null
+                      const bizClass = biz?.className || 'biz-other'
+                      const bizMiniSuffix = bizClass.replace('biz-', '')
+                      const pct = calcProgress(ct.paid_amount, ct.total_amount)
+                      const progressState =
+                        pct >= 100 ? 'full' : pct > 0 ? 'partial' : 'empty'
+                      const isDone = pct >= 100
+                      const paidNum = Number(ct.paid_amount || 0)
+                      const totalNum = Number(ct.total_amount || 0)
+                      const dueNum = Math.max(0, totalNum - paidNum)
+                      const paidClass = isDone ? 'is-done' : paidNum > 0 ? '' : 'is-zero'
+                      const cur = currencySymbol[ct.currency] || '¥'
+                      const summary = getContractSummary(ct)
+                      const tags = extractContractTags(ct.contract_data)
+                      const stageText = getStageText(ct)
+                      const signed = formatSignedDate(ct.signed_date)
+                      const metaText = [signed && `${signed} 签约`, ct.contract_number]
+                        .filter(Boolean)
+                        .join(' · ')
+                      return (
+                        <div
+                          key={ct.id}
+                          className={`cl-ct ${bizClass}`}
+                          onClick={e => {
+                            e.stopPropagation()
+                            navigate(`/contracts/${ct.id}`)
+                          }}
+                        >
+                          {/* 合同头：业务徽章 + 签约日/合同号 */}
+                          <div className="cl-ct-head">
+                            <span className={`cl-biz-mini cl-biz-mini--${bizMiniSuffix}`}>
+                              {biz ? (
+                                <>
+                                  <span className="cl-biz-mini-icon">{biz.icon}</span>
+                                  {biz.label}
+                                </>
+                              ) : (
+                                ct.business_type || '其他业务'
+                              )}
+                            </span>
+                            {metaText && (
+                              <span className="cl-ct-meta" title={metaText}>{metaText}</span>
+                            )}
+                          </div>
+
+                          {/* 金额收据区：已收 / 总额 / 未收（或全额结清） */}
+                          <div className={`cl-receipt${isDone ? ' is-done' : ''}`}>
+                            <div className="cl-receipt-row">
+                              <span className={`cl-receipt-label${isDone ? ' cl-receipt-label--done' : ''}`}>
+                                已收
+                              </span>
+                              <span className={`cl-receipt-num cl-receipt-num--paid ${paidClass}`}>
+                                <span className="cl-cur">{cur}</span>{formatNumber(paidNum)}
+                              </span>
+                            </div>
+                            <div className="cl-receipt-row">
+                              <span className={`cl-receipt-label${isDone ? ' cl-receipt-label--done' : ''}`}>
+                                合同总额
+                              </span>
+                              <span className="cl-receipt-num cl-receipt-num--total">
+                                <span className="cl-cur">{cur}</span>{formatNumber(totalNum)}
+                              </span>
+                            </div>
+                            <div className="cl-receipt-row is-divider">
+                              {isDone ? (
+                                <>
+                                  <span className="cl-receipt-label cl-receipt-label--done">✓ 全额结清</span>
+                                  <span className="cl-receipt-num cl-receipt-num--done-text">100%</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="cl-receipt-label cl-receipt-label--due">未收</span>
+                                  <span className="cl-receipt-num cl-receipt-num--due">
+                                    <span className="cl-cur">{cur}</span>{formatNumber(dueNum)}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* 合同信息：业务摘要 + tag + 进度 */}
+                          <div className="cl-ct-info">
+                            <div className={`cl-info-desc${summary ? '' : ' is-empty'}`} title={summary}>
+                              {summary || '—'}
+                            </div>
+                            {tags.length > 0 && (
+                              <div className="cl-info-tags">
+                                {tags.map(t => (
+                                  <span key={t} className="cl-info-tag" title={t}>{t}</span>
+                                ))}
+                              </div>
+                            )}
+                            <div className="cl-info-progress">
+                              <div className="cl-info-bar">
+                                <div
+                                  className={`cl-info-bar-fill cl-info-bar-fill--${progressState}`}
+                                  style={{ width: `${pct}%` }}
+                                />
+                              </div>
+                              <span className={`cl-info-pct cl-info-pct--${progressState}`}>
+                                {pct}%
+                              </span>
+                              {stageText && (
+                                <span className={`cl-info-stage${isDone ? ' is-done' : ''}`}>
+                                  · <b>{ct.paid_count}</b>/{ct.payment_total_count} 期
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
               </div>
-              <div className="pagination-buttons">
-                <Button disabled={page <= 1} onClick={() => setPage(1)}>首页</Button>
-                <Button disabled={page <= 1} onClick={() => setPage(p => p - 1)}>上一页</Button>
-                <Button disabled={page >= totalPages} onClick={() => setPage(p => p + 1)}>下一页</Button>
-                <Button disabled={page >= totalPages} onClick={() => setPage(totalPages)}>末页</Button>
-              </div>
-            </div>
-          )}
-        </>
+            )
+          })}
+        </div>
       )}
+
+      {/* 分页 */}
+      {totalPages > 1 && (
+        <div className="page-footer">
+          <div className="page-footer-info">
+            第 {page} / {totalPages} 页，共 {total} 位客户
+          </div>
+          <div className="page-footer-actions">
+            <Button disabled={page <= 1} onClick={() => { setPage(1); window.scrollTo(0, 0) }}>首页</Button>
+            <Button disabled={page <= 1} onClick={() => { setPage(p => p - 1); window.scrollTo(0, 0) }}>上一页</Button>
+            <Button disabled={page >= totalPages} onClick={() => { setPage(p => p + 1); window.scrollTo(0, 0) }}>下一页</Button>
+            <Button disabled={page >= totalPages} onClick={() => { setPage(totalPages); window.scrollTo(0, 0) }}>末页</Button>
+          </div>
+        </div>
+      )}
+
+      {/* 新增客户 Modal */}
+      <Modal
+        title="新增客户"
+        open={modalOpen}
+        onOk={handleAddCustomer}
+        onCancel={() => { setModalOpen(false); form.resetFields() }}
+        confirmLoading={submitting}
+        okText="确认新增"
+        cancelText="取消"
+        destroyOnClose
+        centered
+      >
+        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
+          <Form.Item name="name" label="客户名称" rules={[{ required: true, message: '请输入客户名称' }]}>
+            <Input placeholder="公司名称或个人姓名" />
+          </Form.Item>
+          <div style={{ display: 'flex', gap: 12 }}>
+            <Form.Item name="contact_person" label="联系人" style={{ flex: 1 }}>
+              <Input placeholder="联系人姓名" />
+            </Form.Item>
+            <Form.Item name="phone" label="联系电话" style={{ flex: 1 }}
+              rules={[{ pattern: /^(\+?852[2-9]\d{7}|\+?861[3-9]\d{9}|\+?[1-9]\d{6,14})$/, message: '请输入有效号码' }]}>
+              <Input placeholder="内地/香港号码" />
+            </Form.Item>
+          </div>
+          <Form.Item name="email" label="邮箱" rules={[{ type: 'email', message: '格式有误' }]}>
+            <Input placeholder="电子邮箱" />
+          </Form.Item>
+          <Form.Item name="id_card_number" label="证件号码">
+            <Input placeholder="身份证/回乡证" />
+          </Form.Item>
+          <Form.Item name="address" label="地址">
+            <Input.TextArea rows={2} placeholder="详细地址" />
+          </Form.Item>
+          <Form.Item name="remarks" label="备注">
+            <Input.TextArea rows={2} placeholder="备注信息" />
+          </Form.Item>
+        </Form>
+      </Modal>
     </div>
   )
 }

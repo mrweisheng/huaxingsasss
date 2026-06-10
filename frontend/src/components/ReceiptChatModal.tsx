@@ -130,7 +130,6 @@ export default function ReceiptChatModal({
     setInputText('')
     setPendingFiles([])
     setSessionId(null)
-    setInterruptInfo(null)
     sessionCreatingRef.current = false
 
     setMessages([{
@@ -361,6 +360,7 @@ export default function ReceiptChatModal({
       onCancel={handleClose}
       footer={null}
       width={600}
+      centered
       destroyOnHidden
       className={`receipt-chat-modal receipt-chat-modal--${paymentType}`}
       styles={{ body: { padding: 0, height: '70vh', display: 'flex', flexDirection: 'column' } }}

@@ -377,6 +377,7 @@ export default function UserList() {
         destroyOnClose
         okText="创建"
         cancelText="取消"
+        centered
       >
         <Alert
           message="默认密码为 123456，用户登录后可自行修改"
@@ -435,6 +436,7 @@ export default function UserList() {
         destroyOnClose
         okText="保存"
         cancelText="取消"
+        centered
       >
         <Form form={editForm} layout="vertical">
           <Form.Item
