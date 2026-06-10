@@ -928,6 +928,236 @@ body {
   animation: starHaloPulse 3s ease-in-out infinite;
 }
 
+/* ═══════════════════════════════════════════════════════════
+   小星助手 · 品牌 Logo 组件（StarLogo.tsx）
+   猫耳小机器人 · 纯 CSS keyframes 驱动 · 无 JS · 无外部资源
+   ═══════════════════════════════════════════════════════════ */
+
+.star-logo {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.star-logo__svg {
+  width: 100%;
+  height: 100%;
+  overflow: visible;       /* 允许阴影/光晕溢出 */
+  filter: drop-shadow(0 4px 8px rgba(201, 149, 43, 0.25));
+}
+
+/* ── 整体悬浮 + 头摆动（合并到 head 组，作为一个整体动） ── */
+.star-logo__head {
+  transform-origin: 32px 56px;
+  animation: sl-head-life 4s ease-in-out infinite;
+}
+
+/* ── 眨眼（眼皮通过 scaleY 压扁瞳孔实现） ── */
+.star-logo__eye-pupil,
+.star-logo__eye-shine {
+  transform-origin: center;
+  animation: sl-blink 3.8s ease-in-out infinite;
+}
+
+/* ── 左耳抖动（先动） ── */
+.star-logo__ear--l {
+  transform-origin: 22px 16px;
+  animation: sl-ear-l 5s ease-in-out infinite;
+}
+
+/* ── 右耳抖动（错相位） ── */
+.star-logo__ear--r {
+  transform-origin: 42px 16px;
+  animation: sl-ear-r 5s ease-in-out infinite;
+}
+
+/* ── 胸口小星呼吸 ── */
+.star-logo__chest-star {
+  transform-origin: 32px 55px;
+  animation: sl-star-pulse 2.4s ease-in-out infinite;
+}
+
+/* ═══════ Keyframes ═══════ */
+
+/* 头组动效：浮动 + 摆头合并为一个 keyframe
+   （两个 animation 同时写 transform 会互相覆盖，必须合成） */
+@keyframes sl-head-life {
+  0%   { transform: translateY(0)    rotate(0deg); }
+  25%  { transform: translateY(-3px) rotate(1.8deg); }
+  50%  { transform: translateY(-5px) rotate(0deg); }
+  75%  { transform: translateY(-3px) rotate(-1.8deg); }
+  100% { transform: translateY(0)    rotate(0deg); }
+}
+
+@keyframes sl-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94%, 96%      { transform: scaleY(0.1); }
+}
+
+@keyframes sl-ear-l {
+  0%, 100% { transform: rotate(0deg); }
+  20%      { transform: rotate(-10deg); }
+  40%      { transform: rotate(3deg); }
+  60%      { transform: rotate(-4deg); }
+  80%      { transform: rotate(2deg); }
+}
+
+@keyframes sl-ear-r {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(8deg); }
+  50%      { transform: rotate(-3deg); }
+  75%      { transform: rotate(5deg); }
+}
+
+@keyframes sl-star-pulse {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50%      { opacity: 1;    transform: scale(1.3); }
+}
+
+/* ── 减少动画偏好：无障碍支持 ── */
+@media (prefers-reduced-motion: reduce) {
+  .star-logo__head,
+  .star-logo__body,
+  .star-logo__face,
+  .star-logo__eye-pupil,
+  .star-logo__eye-shine,
+  .star-logo__ear--l,
+  .star-logo__ear--r,
+  .star-logo__chest-star {
+    animation: none !important;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   小星助手 · 欢迎页专属 Logo（StarLogoWelcome.tsx）
+   复刻 mockup-welcome.png：奶油金猫耳机器人 + 外圈金色光晕
+   推荐尺寸 ≥ 80px，缩到 32px 以下细节会丢
+   ═══════════════════════════════════════════════════════════ */
+
+.star-logo-welcome {
+  display: inline-block;
+  /* 整体呼吸节奏（轻微缩放） */
+  animation: sw-breathe 4s ease-in-out infinite;
+}
+
+/* ── 外圈光晕呼吸（最显眼，节奏稍慢） ── */
+.sw-halo {
+  transform-origin: 100px 100px;
+  animation: sw-halo-pulse 3.5s ease-in-out infinite;
+}
+
+/* ── 猫耳（左/右错相位抖） ── */
+.sw-ear--l {
+  transform-origin: 80px 78px;
+  animation: sw-ear-l 5s ease-in-out infinite;
+}
+.sw-ear--r {
+  transform-origin: 120px 78px;
+  animation: sw-ear-r 5s ease-in-out infinite;
+}
+
+/* ── 身体轻微点头 ── */
+.sw-body {
+  transform-origin: 100px 148px;
+  animation: sw-body-bob 4.5s ease-in-out infinite;
+}
+
+/* ── 扬声器侧耳（随身体一起轻微浮动） ── */
+.sw-side-speakers {
+  animation: sw-side-float 4.5s ease-in-out infinite;
+}
+
+/* ── 眨眼（同时压扁瞳孔） ── */
+.sw-eye-pupil {
+  transform-origin: center;
+  transform-box: fill-box;
+  animation: sw-blink 4.2s ease-in-out infinite;
+}
+/* 左右眼错相位 */
+.sw-eye--r .sw-eye-pupil {
+  animation-delay: 0.05s;
+}
+
+/* ── 嘴巴笑（路径 d 形态变化用 SMIL/CSS 不便，用 stroke-dasharray 玩"画"动画） ── */
+.sw-mouth {
+  stroke-dasharray: 20;
+  stroke-dashoffset: 20;
+  animation: sw-mouth-draw 0.6s ease-out 0.4s forwards, sw-mouth-pulse 4.2s ease-in-out 1s infinite;
+}
+
+/* ── 胸口小星 ── */
+.sw-chest-star {
+  transform-origin: 100px 162px;
+  transform-box: fill-box;
+  animation: sw-star-pulse 2.2s ease-in-out infinite;
+}
+
+/* ═══════ Keyframes ═══════ */
+
+@keyframes sw-breathe {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.02); }
+}
+
+@keyframes sw-halo-pulse {
+  0%, 100% { transform: scale(1);   opacity: 0.85; }
+  50%      { transform: scale(1.08); opacity: 1; }
+}
+
+@keyframes sw-body-bob {
+  0%, 100% { transform: rotate(0deg) translateY(0); }
+  25%      { transform: rotate(1deg) translateY(-1.5px); }
+  75%      { transform: rotate(-1deg) translateY(0.5px); }
+}
+
+@keyframes sw-side-float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-1.5px); }
+}
+
+@keyframes sw-blink {
+  0%, 92%, 100% { transform: scaleY(1); }
+  94%, 96%      { transform: scaleY(0.15); }
+}
+
+@keyframes sw-mouth-draw {
+  to { stroke-dashoffset: 0; }
+}
+@keyframes sw-mouth-pulse {
+  0%, 100% { transform: scaleY(1); }
+  50%      { transform: scaleY(1.15); }
+}
+
+@keyframes sw-ear-l {
+  0%, 100% { transform: rotate(0deg); }
+  20%      { transform: rotate(-7deg); }
+  45%      { transform: rotate(3deg); }
+  70%      { transform: rotate(-2deg); }
+}
+@keyframes sw-ear-r {
+  0%, 100% { transform: rotate(0deg); }
+  25%      { transform: rotate(7deg); }
+  50%      { transform: rotate(-3deg); }
+  75%      { transform: rotate(2deg); }
+}
+
+@keyframes sw-star-pulse {
+  0%, 100% { transform: scale(1);    filter: drop-shadow(0 0 2px #f5d573); }
+  50%      { transform: scale(1.18); filter: drop-shadow(0 0 6px #f5d573); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .star-logo-welcome,
+  .sw-halo, .sw-body, .sw-side-speakers,
+  .sw-ear--l, .sw-ear--r,
+  .sw-eye-pupil, .sw-mouth, .sw-chest-star {
+    animation: none !important;
+  }
+}
+
 /* ── 欢迎语进场 —— 从下方淡入上移 ── */
 @keyframes welcomeFadeUp {
   0%   { opacity: 0; transform: translateY(14px); }

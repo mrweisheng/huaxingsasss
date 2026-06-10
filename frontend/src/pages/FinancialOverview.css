@@ -1,172 +1,266 @@
 /* ============================================================
-   财务总览页面 · 专用样式
-   ============================================================ */
-
-.fo-loading {
-  display: flex;
-  justify-content: center;
-  align-items: center;
-  min-height: 60vh;
-}
+   财务总览页面 · 编辑式财务公报风格
+   ============================================================
+   设计语言：
+   - 标签上位：标题 15px Bold 紧贴顶部色条，绝不让数字埋了标题
+   - 双币种平权：CNY/HKD 同字号 24px、账本式两行对齐，无主副之分
+   - 数字尊严：tabular-nums + Noto Serif SC 衬线显示，财务质感
+   - 上下文叙述：应收账款带"回款进度"FT 风 dotted leader
+*/
 
 .fo-container {
-  padding: 20px 24px;
+  padding: 22px 24px 32px;
   min-height: calc(100vh - 112px);
-  animation: foFadeIn 0.35s ease-out;
+  animation: foFadeIn 0.4s ease-out;
 }
 
 @keyframes foFadeIn {
-  from { opacity: 0; transform: translateY(10px); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* ── KPI 卡片行 ── */
-
+/* ── KPI 网格：2 张计数卡 + 4 张金额卡 ──
+   计数卡 0.7fr 紧凑、金额卡 1.1fr 让大数字呼吸。
+*/
 .fo-kpi-row {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 16px;
-  margin-bottom: 20px;
+  grid-template-columns: 0.78fr 0.78fr 1.11fr 1.11fr 1.11fr 1.11fr;
+  gap: 14px;
+  margin-bottom: 22px;
 }
 
+/* ── 卡片基础 ── */
 .fo-kpi-card {
+  position: relative;
   background: var(--bg-surface);
   border-radius: var(--radius-lg);
-  padding: 20px;
-  position: relative;
-  overflow: hidden;
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-sm);
-  transition: box-shadow 0.2s, transform 0.2s;
+  padding: 16px 18px 14px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: box-shadow 0.2s, transform 0.2s, border-color 0.2s;
+  min-height: 158px;
 }
 
 .fo-kpi-card:hover {
-  box-shadow: var(--shadow-md);
-  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(15, 23, 42, 0.07);
+  transform: translateY(-2px);
 }
 
-.fo-kpi-card__icon {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-md);
+/* ── 卡片头部：色条 tick + 大标题 + 角章 icon ── */
+.fo-kpi-card__header {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 18px;
+  gap: 8px;
   margin-bottom: 14px;
 }
 
-.fo-kpi-card--contracts .fo-kpi-card__icon {
-  background: var(--color-info-bg);
-  color: var(--color-info);
+/* tick：3px 宽 14px 高色条，紧贴标题左侧 — 替代原来的大圆装饰 */
+.fo-kpi-card__tick {
+  display: inline-block;
+  width: 3px;
+  height: 16px;
+  border-radius: 2px;
+  flex-shrink: 0;
 }
 
-.fo-kpi-card--customers .fo-kpi-card__icon {
-  background: var(--color-warning-bg);
-  color: var(--color-warning);
+.fo-kpi-card__title {
+  flex: 1;
+  margin: 0;
+  font-family: var(--font-sans);
+  font-size: 15px;             /* 关键：标题放大到 15px，再也不用费眼找 */
+  font-weight: 600;
+  color: var(--text-primary);  /* primary 色，不再 tertiary */
+  letter-spacing: 0.3px;
+  line-height: 1.2;
 }
 
-.fo-kpi-card--income .fo-kpi-card__icon {
-  background: var(--color-success-bg);
-  color: var(--color-success);
+.fo-kpi-card__icon {
+  width: 26px;
+  height: 26px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
-.fo-kpi-card--expense .fo-kpi-card__icon {
-  background: var(--color-danger-bg);
-  color: var(--color-danger);
-}
+/* ── 业务/状态色映射：tick + icon 配套 ── */
+.fo-kpi-card--contracts .fo-kpi-card__tick { background: var(--color-info); }
+.fo-kpi-card--contracts .fo-kpi-card__icon { background: var(--color-info-bg); color: var(--color-info); }
 
-.fo-kpi-card--profit .fo-kpi-card__icon {
-  background: var(--brand-gold-bg);
-  color: var(--brand-gold);
-}
+.fo-kpi-card--customers .fo-kpi-card__tick { background: var(--color-warning); }
+.fo-kpi-card--customers .fo-kpi-card__icon { background: var(--color-warning-bg); color: var(--color-warning); }
 
-.fo-kpi-card--remaining .fo-kpi-card__icon {
-  background: #f0f0ff;
-  color: #6366f1;
-}
+.fo-kpi-card--income .fo-kpi-card__tick { background: var(--color-success); }
+.fo-kpi-card--income .fo-kpi-card__icon { background: var(--color-success-bg); color: var(--color-success); }
 
-.fo-kpi-card__body {
-  min-height: 0;
-}
+.fo-kpi-card--expense .fo-kpi-card__tick { background: var(--color-danger); }
+.fo-kpi-card--expense .fo-kpi-card__icon { background: var(--color-danger-bg); color: var(--color-danger); }
 
-.fo-kpi-card__value {
-  font-family: var(--font-mono);
-  font-size: 22px;
+.fo-kpi-card--profit .fo-kpi-card__tick { background: var(--brand-gold); }
+.fo-kpi-card--profit .fo-kpi-card__icon { background: var(--brand-gold-bg); color: var(--brand-gold); }
+
+.fo-kpi-card--remaining .fo-kpi-card__tick { background: #6366f1; }
+.fo-kpi-card--remaining .fo-kpi-card__icon { background: #eef0ff; color: #6366f1; }
+
+/* ── 计数卡数字：38px 居中、衬线显示字 ── */
+.fo-kpi-card__count {
+  font-family: var(--font-display);  /* Noto Serif SC，财务报表感 */
+  font-variant-numeric: tabular-nums;
+  font-size: 44px;
   font-weight: 700;
-  line-height: 1.3;
+  line-height: 1;
   color: var(--text-primary);
+  letter-spacing: -1px;
+  margin: 8px 0 6px;
+}
+
+.fo-kpi-card--count .fo-kpi-card__count { color: var(--brand-primary); }
+
+.fo-kpi-card__footnote {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed var(--border-light);
+}
+
+.fo-kpi-card__footnote b {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── 金额卡：账本式双币种，CNY/HKD 完全平权 ── */
+.fo-kpi-ledger {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+.fo-kpi-ledger__row {
+  display: grid;
+  /* 币种 chip (带可选 万/亿 后缀) │ 货币符号 │ 数字（占满剩余）*/
+  grid-template-columns: 54px 22px 1fr;
+  align-items: baseline;
+  gap: 4px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 币种代码：左侧灰色 chip，让数字本身保持纯净 */
+.fo-kpi-ledger__code {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary);
+  letter-spacing: 0.8px;
+  background: var(--bg-elevated, #f4f6f9);
+  padding: 2px 5px;
+  border-radius: 3px;
+  text-align: center;
+  align-self: center;
+  line-height: 1.4;
   white-space: nowrap;
 }
 
-.fo-kpi-card__value--sub {
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  margin-top: 4px;
+/* 单位后缀（万/亿）：附在币种 chip 内右侧，金色强调让单位醒目但不抢数字 */
+.fo-kpi-ledger__unit {
+  display: inline-block;
+  margin-left: 3px;
+  padding-left: 4px;
+  border-left: 1px solid rgba(148, 163, 184, 0.4);
+  font-style: normal;
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--brand-gold);
+  letter-spacing: 0;
 }
 
-.fo-kpi-card__currency {
+.fo-kpi-ledger__sym {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  text-align: right;
+}
+
+/* 关键：两行数字完全相同字号字重 — 业务上 CNY/HKD 平权 */
+.fo-kpi-ledger__num {
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--text-primary);
+  letter-spacing: -0.3px;
+  text-align: right;
+  padding-right: 2px;
+  /* 保底兜底：极端数据时省略号截断（兜不住时用户 hover 看 tooltip 全值） */
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* 业务色作用于数字本身 — 已收=teal、支出=红、利润=金、应收=靛蓝 */
+.fo-kpi-card--income .fo-kpi-ledger__num    { color: var(--color-success); }
+.fo-kpi-card--expense .fo-kpi-ledger__num   { color: var(--color-danger); }
+.fo-kpi-card--profit .fo-kpi-ledger__num    { color: var(--brand-gold); }
+.fo-kpi-card--remaining .fo-kpi-ledger__num { color: #6366f1; }
+
+/* ── 上下文叙述行（FT 财务版面 dotted leader） ── */
+.fo-kpi-card__context {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed var(--border-light);
+  font-size: 11px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.fo-kpi-card__context-label {
+  font-weight: 600;
+  color: var(--text-secondary);
+  letter-spacing: 0.4px;
+}
+
+.fo-kpi-card__context-leader {
+  flex: 1;
+  height: 1px;
+  border-bottom: 1px dotted var(--border-light);
+  transform: translateY(-3px);
+  min-width: 8px;
+}
+
+.fo-kpi-card__context-val {
   font-family: var(--font-mono);
-  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: #6366f1;             /* 与应收账款同色，呼应 */
+  font-size: 12px;
+}
+
+.fo-kpi-card__context-tag {
+  font-size: 9px;
   font-weight: 600;
   color: var(--text-tertiary);
   letter-spacing: 0.5px;
-  margin-right: 4px;
-}
-
-.fo-kpi-card__symbol {
-  font-size: 0.7em;
-  opacity: 0.6;
   margin-right: 2px;
 }
 
-.fo-kpi-card--income .fo-kpi-card__value { color: var(--color-success); }
-.fo-kpi-card--expense .fo-kpi-card__value { color: var(--color-danger); }
-.fo-kpi-card--profit .fo-kpi-card__value { color: var(--brand-gold); }
-.fo-kpi-card--remaining .fo-kpi-card__value { color: #6366f1; }
-
-.fo-kpi-card__label {
-  font-size: 12px;
+.fo-kpi-card__context-sep {
+  margin: 0 6px;
   color: var(--text-tertiary);
-  margin-top: 8px;
+  font-weight: 400;
 }
 
-.fo-kpi-card__sub {
-  font-size: 11px;
-  color: var(--text-tertiary);
-  margin-top: 6px;
-  padding-top: 8px;
-  border-top: 1px solid var(--border-light);
-}
-
-/* 背景装饰圆 */
-.fo-kpi-card--contracts::before,
-.fo-kpi-card--customers::before,
-.fo-kpi-card--income::before,
-.fo-kpi-card--expense::before,
-.fo-kpi-card--profit::before,
-.fo-kpi-card--remaining::before {
-  content: '';
-  position: absolute;
-  top: -20px;
-  right: -20px;
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  pointer-events: none;
-  opacity: 0.06;
-}
-
-.fo-kpi-card--contracts::before { background: var(--color-info); }
-.fo-kpi-card--customers::before { background: var(--color-warning); }
-.fo-kpi-card--income::before { background: var(--color-success); }
-.fo-kpi-card--expense::before { background: var(--color-danger); }
-.fo-kpi-card--profit::before { background: var(--brand-gold); }
-.fo-kpi-card--remaining::before { background: #6366f1; }
-
-/* ── 图表卡片 ── */
-
+/* ── 图表卡片（保持原样） ── */
 .fo-chart-card {
   background: var(--bg-surface);
   border-radius: var(--radius-lg);
@@ -202,7 +296,7 @@
 
 /* ── 响应式 ── */
 
-@media (max-width: 1400px) {
+@media (max-width: 1500px) {
   .fo-kpi-row {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -215,9 +309,7 @@
 }
 
 @media (max-width: 768px) {
-  .fo-container {
-    padding: 12px;
-  }
+  .fo-container { padding: 14px; }
 
   .fo-kpi-row {
     grid-template-columns: repeat(2, 1fr);
@@ -225,31 +317,21 @@
   }
 
   .fo-kpi-card {
-    padding: 14px;
+    padding: 12px 14px;
+    min-height: 138px;
   }
 
-  .fo-kpi-card__value {
-    font-size: 18px;
-  }
+  .fo-kpi-card__title { font-size: 13px; }
+  .fo-kpi-card__icon { width: 22px; height: 22px; font-size: 11px; }
+  .fo-kpi-card__count { font-size: 34px; }
+  .fo-kpi-ledger__num { font-size: 19px; }
+  .fo-kpi-ledger__code { font-size: 9px; padding: 1px 4px; }
+  .fo-kpi-ledger__sym { font-size: 12px; }
+  .fo-kpi-ledger__row { grid-template-columns: 46px 18px 1fr; gap: 3px; }
 
-  .fo-kpi-card__icon {
-    width: 30px;
-    height: 30px;
-    font-size: 15px;
-    margin-bottom: 10px;
-  }
-
-  .fo-kpi-card__label {
-    font-size: 11px;
-  }
-
-  .fo-chart-card {
-    padding: 14px;
-  }
+  .fo-chart-card { padding: 14px; }
 }
 
 @media (max-width: 480px) {
-  .fo-kpi-row {
-    grid-template-columns: 1fr;
-  }
+  .fo-kpi-row { grid-template-columns: 1fr; }
 }

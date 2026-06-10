@@ -104,7 +104,7 @@
   display: flex;
   flex-direction: column;
   justify-content: center;
-  padding: 24px 20px;
+  padding: 10px 20px;
   position: relative;
   overflow: hidden;
   transition: all 0.3s ease;
@@ -136,22 +136,32 @@
   pointer-events: none;
 }
 
-.pl-big-card__currency {
-  font-family: var(--font-mono);
-  font-size: 12px;
+/* 笔数：绝对定位到卡片右上角，不占文档流；让金额行直接顶到卡片顶部 */
+.pl-big-card__count {
+  position: absolute;
+  top: 8px;
+  right: 14px;
+  font-size: 11px;
   font-weight: 600;
   color: var(--text-tertiary);
-  letter-spacing: 1px;
-  text-transform: uppercase;
-  margin-bottom: 8px;
-  opacity: 0.7;
+  font-family: var(--font-mono);
+  letter-spacing: 0.5px;
+  z-index: 2;
 }
 
 .pl-big-card__amount {
   display: flex;
   align-items: baseline;
   gap: 4px;
-  margin-bottom: 10px;
+  margin-bottom: 4px;
+}
+
+/* 包一层让 Tooltip 触发区域更紧凑，同时给 ¥ / 数字 / 万 三件套提供 baseline 对齐 */
+.pl-big-card__amount-inner {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  cursor: help;
 }
 
 .pl-big-card__symbol {
@@ -176,6 +186,20 @@
 .pl-big-card--income .pl-big-card__number { color: var(--color-success); }
 .pl-big-card--expense .pl-big-card__number { color: var(--color-danger); }
 
+/* 单位后缀（万/亿）：24px 半透明的同色字，让数字占主舞台、单位做辅 */
+.pl-big-card__unit {
+  font-family: var(--font-sans);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 1px;
+  margin-left: 2px;
+  opacity: 0.75;
+}
+
+.pl-big-card--income .pl-big-card__unit { color: var(--color-success); }
+.pl-big-card--expense .pl-big-card__unit { color: var(--color-danger); }
+
 .pl-big-card__number--empty {
   color: var(--text-tertiary);
   opacity: 0.3;
@@ -183,19 +207,12 @@
 
 .pl-big-card__chinese {
   font-family: 'STKaiti', 'KaiTi', '楷体', serif;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-secondary);
-  line-height: 1.5;
+  line-height: 1.4;
   letter-spacing: 2px;
-  margin-bottom: 12px;
-  min-height: 60px;
-}
-
-.pl-big-card__count {
-  font-size: 13px;
-  font-weight: 600;
-  color: var(--text-tertiary);
+  min-height: 28px;
 }
 
 .pl-kpi-status-bar {
@@ -487,8 +504,10 @@
 
 /* ── 响应式 ── */
 @media (max-width: 1024px) {
+  .pl-big-card { padding: 8px 16px; }
   .pl-big-card__number { font-size: 38px; }
-  .pl-big-card__chinese { font-size: 18px; }
+  .pl-big-card__unit { font-size: 18px; }
+  .pl-big-card__chinese { font-size: 16px; min-height: 24px; }
   .pl-filter-bar { flex-direction: column; align-items: stretch; }
   .pl-search-box { width: 100%; }
 }

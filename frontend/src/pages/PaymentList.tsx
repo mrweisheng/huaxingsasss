@@ -5,6 +5,7 @@ import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOu
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
+import { formatMoney } from '@/utils/money'
 import type { Payment } from '@/types'
 import './PaymentList.css'
 
@@ -474,17 +475,19 @@ export default function PaymentList() {
               <div className="pl-kpi-col__cards">
                 {['CNY', 'HKD'].map(curr => {
                   const group = incomeGroups.find(g => g.currency === curr)
+                  const m = group ? formatMoney(group.total) : null
                   return (
                     <div key={curr} className="pl-big-card pl-big-card--income">
-                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr}</div>
+                      <span className="pl-big-card__count">{group ? `${group.count} 笔` : '0 笔'}</span>
                       <div className="pl-big-card__amount">
-                        {group ? (
-                          <>
-                            <span className="pl-big-card__symbol">{currencySymbol[curr] || ''}</span>
-                            <span className="pl-big-card__number">
-                              {group.total.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {group && m ? (
+                          <Tooltip title={`${currencySymbol[curr] || ''}${m.full}`} placement="top" mouseEnterDelay={0.3}>
+                            <span className="pl-big-card__amount-inner">
+                              <span className="pl-big-card__symbol">{currencySymbol[curr] || ''}</span>
+                              <span className="pl-big-card__number">{m.display}</span>
+                              {m.unit && <span className="pl-big-card__unit">{m.unit}</span>}
                             </span>
-                          </>
+                          </Tooltip>
                         ) : (
                           <span className="pl-big-card__number pl-big-card__number--empty">--</span>
                         )}
@@ -492,7 +495,6 @@ export default function PaymentList() {
                       <div className="pl-big-card__chinese">
                         {group ? amountToChineseCompact(group.total, curr) : '暂无数据'}
                       </div>
-                      <div className="pl-big-card__count">{group ? `${group.count} 笔` : '0 笔'}</div>
                     </div>
                   )
                 })}
@@ -511,17 +513,19 @@ export default function PaymentList() {
               <div className="pl-kpi-col__cards">
                 {['CNY', 'HKD'].map(curr => {
                   const group = expenseGroups.find(g => g.currency === curr)
+                  const m = group ? formatMoney(group.total) : null
                   return (
                     <div key={curr} className="pl-big-card pl-big-card--expense">
-                      <div className="pl-big-card__currency">{currencySymbol[curr] || curr}</div>
+                      <span className="pl-big-card__count">{group ? `${group.count} 笔` : '0 笔'}</span>
                       <div className="pl-big-card__amount">
-                        {group ? (
-                          <>
-                            <span className="pl-big-card__symbol">{currencySymbol[curr] || ''}</span>
-                            <span className="pl-big-card__number">
-                              {group.total.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                        {group && m ? (
+                          <Tooltip title={`${currencySymbol[curr] || ''}${m.full}`} placement="top" mouseEnterDelay={0.3}>
+                            <span className="pl-big-card__amount-inner">
+                              <span className="pl-big-card__symbol">{currencySymbol[curr] || ''}</span>
+                              <span className="pl-big-card__number">{m.display}</span>
+                              {m.unit && <span className="pl-big-card__unit">{m.unit}</span>}
                             </span>
-                          </>
+                          </Tooltip>
                         ) : (
                           <span className="pl-big-card__number pl-big-card__number--empty">--</span>
                         )}
@@ -529,7 +533,6 @@ export default function PaymentList() {
                       <div className="pl-big-card__chinese">
                         {group ? amountToChineseCompact(group.total, curr) : '暂无数据'}
                       </div>
-                      <div className="pl-big-card__count">{group ? `${group.count} 笔` : '0 笔'}</div>
                     </div>
                   )
                 })}

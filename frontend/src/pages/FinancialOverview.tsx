@@ -1,22 +1,21 @@
 import { useEffect, useState } from 'react'
-import { Spin, Empty, Segmented } from 'antd'
+import { Spin, Empty, Segmented, Tooltip } from 'antd'
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
   TeamOutlined,
   FileTextOutlined,
   DollarOutlined,
+  WalletOutlined,
 } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import { statsApi, FinancialOverview as FinancialOverviewType } from '@/services/stats'
+import { formatMoney, formatMoneyShort } from '@/utils/money'
 import './FinancialOverview.css'
 
 type Currency = 'CNY' | 'HKD'
 
-const CURRENCY_LABEL: Record<Currency, { unit: string; symbol: string }> = {
-  CNY: { unit: 'CNY', symbol: '¥' },
-  HKD: { unit: 'HKD', symbol: 'HK$' },
-}
+const CURRENCY_SYMBOL: Record<Currency, string> = { CNY: '¥', HKD: 'HK$' }
 
 export default function FinancialOverview() {
   const [loading, setLoading] = useState(true)
@@ -47,99 +46,138 @@ export default function FinancialOverview() {
 
   const { kpi, daily_trend, top_customers } = data
 
-  const fmt = (v: number) => v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // 回款率 = 已收 / (已收 + 应收)，分币种算。0 分母时返回 null。
+  const collectionRate = (c: Currency): number | null => {
+    const paid = Number(kpi.total_income[c]) || 0
+    const due = Number(kpi.total_remaining[c]) || 0
+    const total = paid + due
+    if (total <= 0) return null
+    return (paid / total) * 100
+  }
+
+  const rateCNY = collectionRate('CNY')
+  const rateHKD = collectionRate('HKD')
+
+  /** 双币种金额卡通用渲染：CNY/HKD 同字号同字重，账本式对齐
+   *  金额智能缩写为 万/亿，鼠标悬停看完整精确值。
+   */
+  const renderDualCurrency = (cny: number, hkd: number) => {
+    const cnyM = formatMoney(cny)
+    const hkdM = formatMoney(hkd)
+    return (
+      <>
+        <Tooltip title={`CNY ${CURRENCY_SYMBOL.CNY}${cnyM.full}`} placement="top" mouseEnterDelay={0.3}>
+          <div className="fo-kpi-ledger__row">
+            <span className="fo-kpi-ledger__code">
+              CNY{cnyM.unit && <em className="fo-kpi-ledger__unit">{cnyM.unit}</em>}
+            </span>
+            <span className="fo-kpi-ledger__sym">{CURRENCY_SYMBOL.CNY}</span>
+            <span className="fo-kpi-ledger__num">{cnyM.display}</span>
+          </div>
+        </Tooltip>
+        <Tooltip title={`HKD ${CURRENCY_SYMBOL.HKD}${hkdM.full}`} placement="top" mouseEnterDelay={0.3}>
+          <div className="fo-kpi-ledger__row">
+            <span className="fo-kpi-ledger__code">
+              HKD{hkdM.unit && <em className="fo-kpi-ledger__unit">{hkdM.unit}</em>}
+            </span>
+            <span className="fo-kpi-ledger__sym">{CURRENCY_SYMBOL.HKD}</span>
+            <span className="fo-kpi-ledger__num">{hkdM.display}</span>
+          </div>
+        </Tooltip>
+      </>
+    )
+  }
+
+  /** 底部 context 行：FT 财务版面风，dotted leader 引导 */
+  const renderContext = (label: string, valueCNY: string, valueHKD: string) => (
+    <div className="fo-kpi-card__context">
+      <span className="fo-kpi-card__context-label">{label}</span>
+      <span className="fo-kpi-card__context-leader" />
+      <span className="fo-kpi-card__context-val">
+        <span className="fo-kpi-card__context-tag">CNY</span> {valueCNY}
+        <span className="fo-kpi-card__context-sep">·</span>
+        <span className="fo-kpi-card__context-tag">HKD</span> {valueHKD}
+      </span>
+    </div>
+  )
 
   return (
     <div className="fo-container">
-      {/* ── KPI 卡片行：双币种并列 ── */}
+      {/* ── KPI 卡片行 ── */}
       <div className="fo-kpi-row">
-        <div className="fo-kpi-card fo-kpi-card--contracts">
-          <div className="fo-kpi-card__icon">
-            <FileTextOutlined />
-          </div>
-          <div className="fo-kpi-card__body">
-            <div className="fo-kpi-card__value">{kpi.total_contracts}</div>
-            <div className="fo-kpi-card__label">合同总数</div>
-          </div>
-          <div className="fo-kpi-card__sub">进行中 {kpi.active_contracts}</div>
+        {/* 计数：合同 */}
+        <div className="fo-kpi-card fo-kpi-card--count fo-kpi-card--contracts">
+          <header className="fo-kpi-card__header">
+            <span className="fo-kpi-card__tick" />
+            <h3 className="fo-kpi-card__title">合同总数</h3>
+            <span className="fo-kpi-card__icon"><FileTextOutlined /></span>
+          </header>
+          <div className="fo-kpi-card__count">{kpi.total_contracts}</div>
+          <div className="fo-kpi-card__footnote">进行中 <b>{kpi.active_contracts}</b></div>
         </div>
 
-        <div className="fo-kpi-card fo-kpi-card--customers">
-          <div className="fo-kpi-card__icon">
-            <TeamOutlined />
-          </div>
-          <div className="fo-kpi-card__body">
-            <div className="fo-kpi-card__value">{kpi.total_customers}</div>
-            <div className="fo-kpi-card__label">客户总数</div>
-          </div>
+        {/* 计数：客户 */}
+        <div className="fo-kpi-card fo-kpi-card--count fo-kpi-card--customers">
+          <header className="fo-kpi-card__header">
+            <span className="fo-kpi-card__tick" />
+            <h3 className="fo-kpi-card__title">客户总数</h3>
+            <span className="fo-kpi-card__icon"><TeamOutlined /></span>
+          </header>
+          <div className="fo-kpi-card__count">{kpi.total_customers}</div>
+          <div className="fo-kpi-card__footnote">服务中客户</div>
         </div>
 
-        <div className="fo-kpi-card fo-kpi-card--income">
-          <div className="fo-kpi-card__icon">
-            <ArrowUpOutlined />
-          </div>
-          <div className="fo-kpi-card__body">
-            <div className="fo-kpi-card__value">
-              <span className="fo-kpi-card__currency">CNY</span>
-              <span className="fo-kpi-card__symbol">¥</span>{fmt(kpi.total_income.CNY)}
-            </div>
-            <div className="fo-kpi-card__value fo-kpi-card__value--sub">
-              <span className="fo-kpi-card__currency">HKD</span>
-              <span className="fo-kpi-card__symbol">HK$</span>{fmt(kpi.total_income.HKD)}
-            </div>
-            <div className="fo-kpi-card__label">已收总额</div>
+        {/* 已收 */}
+        <div className="fo-kpi-card fo-kpi-card--money fo-kpi-card--income">
+          <header className="fo-kpi-card__header">
+            <span className="fo-kpi-card__tick" />
+            <h3 className="fo-kpi-card__title">已收总额</h3>
+            <span className="fo-kpi-card__icon"><ArrowUpOutlined /></span>
+          </header>
+          <div className="fo-kpi-ledger">
+            {renderDualCurrency(Number(kpi.total_income.CNY), Number(kpi.total_income.HKD))}
           </div>
         </div>
 
-        <div className="fo-kpi-card fo-kpi-card--expense">
-          <div className="fo-kpi-card__icon">
-            <ArrowDownOutlined />
-          </div>
-          <div className="fo-kpi-card__body">
-            <div className="fo-kpi-card__value">
-              <span className="fo-kpi-card__currency">CNY</span>
-              <span className="fo-kpi-card__symbol">¥</span>{fmt(kpi.total_expense.CNY)}
-            </div>
-            <div className="fo-kpi-card__value fo-kpi-card__value--sub">
-              <span className="fo-kpi-card__currency">HKD</span>
-              <span className="fo-kpi-card__symbol">HK$</span>{fmt(kpi.total_expense.HKD)}
-            </div>
-            <div className="fo-kpi-card__label">支出总额</div>
+        {/* 支出 */}
+        <div className="fo-kpi-card fo-kpi-card--money fo-kpi-card--expense">
+          <header className="fo-kpi-card__header">
+            <span className="fo-kpi-card__tick" />
+            <h3 className="fo-kpi-card__title">支出总额</h3>
+            <span className="fo-kpi-card__icon"><ArrowDownOutlined /></span>
+          </header>
+          <div className="fo-kpi-ledger">
+            {renderDualCurrency(Number(kpi.total_expense.CNY), Number(kpi.total_expense.HKD))}
           </div>
         </div>
 
-        <div className="fo-kpi-card fo-kpi-card--profit">
-          <div className="fo-kpi-card__icon">
-            <DollarOutlined />
-          </div>
-          <div className="fo-kpi-card__body">
-            <div className="fo-kpi-card__value">
-              <span className="fo-kpi-card__currency">CNY</span>
-              <span className="fo-kpi-card__symbol">¥</span>{fmt(kpi.total_profit.CNY)}
-            </div>
-            <div className="fo-kpi-card__value fo-kpi-card__value--sub">
-              <span className="fo-kpi-card__currency">HKD</span>
-              <span className="fo-kpi-card__symbol">HK$</span>{fmt(kpi.total_profit.HKD)}
-            </div>
-            <div className="fo-kpi-card__label">利润</div>
+        {/* 利润 */}
+        <div className="fo-kpi-card fo-kpi-card--money fo-kpi-card--profit">
+          <header className="fo-kpi-card__header">
+            <span className="fo-kpi-card__tick" />
+            <h3 className="fo-kpi-card__title">利润</h3>
+            <span className="fo-kpi-card__icon"><DollarOutlined /></span>
+          </header>
+          <div className="fo-kpi-ledger">
+            {renderDualCurrency(Number(kpi.total_profit.CNY), Number(kpi.total_profit.HKD))}
           </div>
         </div>
 
-        <div className="fo-kpi-card fo-kpi-card--remaining">
-          <div className="fo-kpi-card__icon">
-            <DollarOutlined />
+        {/* 应收账款（带回款进度上下文） */}
+        <div className="fo-kpi-card fo-kpi-card--money fo-kpi-card--remaining">
+          <header className="fo-kpi-card__header">
+            <span className="fo-kpi-card__tick" />
+            <h3 className="fo-kpi-card__title">应收账款</h3>
+            <span className="fo-kpi-card__icon"><WalletOutlined /></span>
+          </header>
+          <div className="fo-kpi-ledger">
+            {renderDualCurrency(Number(kpi.total_remaining.CNY), Number(kpi.total_remaining.HKD))}
           </div>
-          <div className="fo-kpi-card__body">
-            <div className="fo-kpi-card__value">
-              <span className="fo-kpi-card__currency">CNY</span>
-              <span className="fo-kpi-card__symbol">¥</span>{fmt(kpi.total_remaining.CNY)}
-            </div>
-            <div className="fo-kpi-card__value fo-kpi-card__value--sub">
-              <span className="fo-kpi-card__currency">HKD</span>
-              <span className="fo-kpi-card__symbol">HK$</span>{fmt(kpi.total_remaining.HKD)}
-            </div>
-            <div className="fo-kpi-card__label">待收金额</div>
-          </div>
+          {(rateCNY !== null || rateHKD !== null) && renderContext(
+            '回款进度',
+            rateCNY !== null ? `${rateCNY.toFixed(1)}%` : '—',
+            rateHKD !== null ? `${rateHKD.toFixed(1)}%` : '—',
+          )}
         </div>
       </div>
 
@@ -289,8 +327,7 @@ function topCustomerOption(data: FinancialOverviewType['top_customers'], currenc
     .sort((a, b) => b.profit[currency] - a.profit[currency])
     .slice(0, 10)
   const names = sorted.map(d => d.customer_name)
-  const sym = CURRENCY_LABEL[currency].symbol
-  const yFormatter = (v: number) => v >= 10000 ? `${(v / 10000).toFixed(0)}万` : v.toString()
+  const sym = CURRENCY_SYMBOL[currency]
   return {
     tooltip: {
       trigger: 'axis',
@@ -299,14 +336,14 @@ function topCustomerOption(data: FinancialOverviewType['top_customers'], currenc
         const idx = params[0].dataIndex
         const item = sorted[idx]
         return `<b>${item.customer_name}</b><br/>合同数：${item.contract_count}<br/>` +
-          params.map(p => `${p.marker} ${p.seriesName}：${sym}${Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`).join('<br/>')
+          params.map(p => `${p.marker} ${p.seriesName}：${sym}${formatMoney(Number(p.value)).full}`).join('<br/>')
       },
     },
     legend: { data: ['已收', '支出', '利润'], top: 0, right: 0 },
     grid: { top: 40, bottom: 24, left: 100, right: 30 },
     xAxis: {
       type: 'value',
-      axisLabel: { fontSize: 12, formatter: yFormatter },
+      axisLabel: { fontSize: 12, formatter: (v: number) => formatMoneyShort(v) },
     },
     yAxis: { type: 'category', data: names, axisLabel: { fontSize: 12 } },
     series: [
