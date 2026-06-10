@@ -11,8 +11,6 @@ import {
   CalendarOutlined,
   FileTextOutlined,
   EyeOutlined,
-  IdcardOutlined,
-  PhoneOutlined,
   EnvironmentOutlined,
   ClockCircleFilled,
   LoadingOutlined,
@@ -21,6 +19,7 @@ import { contractApi } from '@/services/contract'
 import { paymentApi } from '@/services/payment'
 import { useAuthStore } from '@/store/useAuthStore'
 import { API_BASE_URL } from '@/services/api'
+import { formatMoney, formatMoneyShort } from '@/utils/money'
 import type { Contract, Payment } from '@/types'
 import './ContractDetail.css'
 
@@ -36,15 +35,24 @@ const businessTypeCls: Record<string, string> = {
 
 const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
+/** 缩写金额 + 货币符号（主显示用） */
 function fmt(amount: number | undefined | null, currency: string): string {
   if (amount === undefined || amount === null) return '-'
   const symbol = currencySymbol[currency] || '¥'
-  return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+  return `${symbol}${formatMoneyShort(amount)}`
 }
 
+/** 完整精确金额 + 货币符号（Tooltip 用） */
+function fmtFull(amount: number | undefined | null, currency: string): string {
+  if (amount === undefined || amount === null) return '-'
+  const symbol = currencySymbol[currency] || '¥'
+  return `${symbol}${formatMoney(amount).full}`
+}
+
+/** CNY 折算副文字（缩写） */
 function fmtCny(amount: number | undefined | null): string {
   if (amount === undefined || amount === null || amount === 0) return ''
-  return `≈ ¥${Math.round(amount).toLocaleString('zh-CN')}`
+  return `≈ ¥${formatMoneyShort(amount)}`
 }
 
 function calcProgress(paid: number, total: number): number {
@@ -241,9 +249,11 @@ export default function ContractDetail() {
                 </span>
               </div>
               <div className={`cd-pay-card-amount ${isPaid ? 'settled' : isExpense ? 'expense' : 'pending'}`}>
-                {fmt(payment.paid_amount, payment.currency)}
+                <Tooltip title={fmtFull(payment.paid_amount, payment.currency)}>
+                  <span>{fmt(payment.paid_amount, payment.currency)}</span>
+                </Tooltip>
                 {payment.paid_amount_in_cny != null && payment.currency !== 'CNY' && (
-                  <span className="cd-pay-card-cny">≈ ¥{Math.round(payment.paid_amount_in_cny).toLocaleString('zh-CN')}</span>
+                  <span className="cd-pay-card-cny">≈ ¥{formatMoneyShort(payment.paid_amount_in_cny)}</span>
                 )}
               </div>
               <div className="cd-pay-card-meta">
@@ -312,7 +322,6 @@ export default function ContractDetail() {
   }
 
   const cd = contract.contract_data
-  const hasVehicleInfo = cd?.vehicle_info?.plate_number || cd?.vehicle_info?.vehicle_model || cd?.port || cd?.party_b?.id_number || cd?.party_b?.phone
 
   return (
     <div className="contract-detail-container">
@@ -337,9 +346,9 @@ export default function ContractDetail() {
         )}
       </div>
 
-      {/* ① Topbar：身份信息 */}
-      <div className="cd-topbar">
-        <div className="cd-topbar-left">
+      {/* ① 身份 + 基本信息（合并卡片） */}
+      <div className="cd-identity-card">
+        <div className="cd-id-row">
           {contract.status && (
             <span className={`cd-badge ${statusInfo.cls}`}>{statusInfo.text}</span>
           )}
@@ -351,92 +360,57 @@ export default function ContractDetail() {
           <UserOutlined style={{ color: '#8c8c8c', fontSize: 13 }} />
           <span className="cd-customer-name">{contract.customer_name || '无客户名称'}</span>
           {contract.title && (
-            <span style={{ fontSize: 13, color: '#8c8c8c' }}>— {contract.title}</span>
+            <span className="cd-contract-title">— {contract.title}</span>
           )}
+          <div className="cd-id-meta">
+            <span className="cd-contract-num">{contract.contract_number}</span>
+            {contract.signed_date && (
+              <>
+                <span className="cd-id-sep">·</span>
+                <CalendarOutlined style={{ fontSize: 12 }} />
+                <span>{contract.signed_date}</span>
+              </>
+            )}
+            <span className="cd-id-sep">·</span>
+            <span>{cur}</span>
+          </div>
         </div>
-        <div className="cd-topbar-right">
-          <span className="cd-contract-num">{contract.contract_number}</span>
-          {contract.signed_date && (
-            <>
-              <span className="cd-topbar-sep">·</span>
-              <CalendarOutlined style={{ fontSize: 12 }} />
-              <span>{contract.signed_date}</span>
-            </>
-          )}
-          <span className="cd-topbar-sep">·</span>
-          <span>{cur}</span>
-        </div>
-      </div>
-
-      {/* ② 合同基本信息 + 证件号码/客户电话（紧凑条） */}
-      {(contract.business_description || contract.remarks || contract.wechat_group || hasVehicleInfo) && (
-        <div className="cd-info-strip">
-          <div className="cd-info-grid cols3">
+        {(contract.business_description || contract.remarks || contract.wechat_group || cd?.party_b?.id_number || cd?.party_b?.phone) && (
+          <div className="cd-id-row cd-id-row-sub">
             {contract.business_description && (
-              <div className="cd-info-item">
-                <div className="cd-info-label">
-                  <FileTextOutlined className="cd-info-label-icon" />
-                  业务描述
-                </div>
-                <div className="cd-info-value" style={{ whiteSpace: 'normal' }}>{contract.business_description}</div>
-              </div>
+              <span className="cd-id-meta-item"><span className="cd-id-meta-label">业务描述</span>{contract.business_description}</span>
             )}
             {cd?.party_b?.id_number && (
-              <div className="cd-info-item">
-                <div className="cd-info-label">
-                  <IdcardOutlined className="cd-info-label-icon" />
-                  证件号码
-                </div>
-                <div className="cd-info-value">{cd.party_b.id_number}</div>
-              </div>
+              <span className="cd-id-meta-item"><span className="cd-id-meta-label">证件</span>{cd.party_b.id_number}</span>
             )}
             {cd?.party_b?.phone && (
-              <div className="cd-info-item">
-                <div className="cd-info-label">
-                  <PhoneOutlined className="cd-info-label-icon" />
-                  客户电话
-                </div>
-                <div className="cd-info-value">{cd.party_b.phone}</div>
-              </div>
+              <span className="cd-id-meta-item"><span className="cd-id-meta-label">电话</span>{cd.party_b.phone}</span>
             )}
             {contract.wechat_group && (
-              <div className="cd-info-item">
-                <div className="cd-info-label">
-                  <svg className="cd-info-label-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
-                  微信群
-                </div>
-                <div className="cd-info-value">{contract.wechat_group}</div>
-              </div>
+              <span className="cd-id-meta-item"><span className="cd-id-meta-label">微信群</span>{contract.wechat_group}</span>
             )}
             {contract.remarks && (
-              <div className="cd-info-item span2">
-                <div className="cd-info-label">
-                  <FileTextOutlined className="cd-info-label-icon" />
-                  备注
-                </div>
-                <div className="cd-info-value" style={{ whiteSpace: 'normal' }}>{contract.remarks}</div>
-              </div>
+              <span className="cd-id-meta-item"><span className="cd-id-meta-label">备注</span>{contract.remarks}</span>
             )}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* ③ 财务概览 — 统一面板 */}
+      {/* ② 财务概览 — 压缩面板 */}
       <div className="cd-finance-panel">
 
-        {/* ── 行1：合同总额（主角）+ 进度条 ── */}
+        {/* ── 行1：合同总额 + 进度条（单行） ── */}
         <div className="cd-fn-hero">
-          <div className="cd-fn-hero-main">
+          <div className="cd-fn-hero-left">
             <span className="cd-fn-hero-label">合同总额</span>
-            <span className="cd-fn-hero-value">
-              {fmt(contract.total_amount, cur)}
-            </span>
-            <span className="cd-fn-hero-chinese">{amountToChinese(contract.total_amount, cur)}</span>
+            <Tooltip title={`${fmtFull(contract.total_amount, cur)}\n${amountToChinese(contract.total_amount, cur)}`}>
+              <span className="cd-fn-hero-value">{fmt(contract.total_amount, cur)}</span>
+            </Tooltip>
             {showCnyHint && (
-              <span className="cd-fn-hero-sub">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</span>
+              <span className="cd-fn-hero-cny">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</span>
             )}
           </div>
-          <div className="cd-fn-hero-progress">
+          <div className="cd-fn-hero-right">
             <span className="cd-fn-progress-label">收款进度</span>
             <div className="cd-fn-progress-track">
               <div
@@ -448,75 +422,79 @@ export default function ContractDetail() {
           </div>
         </div>
 
-        {/* ── 行2：已收 / 剩余 / 总支出 三栏 ── */}
-        <div className="cd-fn-cards">
+        {/* ── 行2：四栏指标（紧凑） ── */}
+        <div className="cd-fn-metrics">
           {/* 已收 */}
-          <div className="cd-fn-card fn-income">
-            <div className="fn-card-header">
-              <span className="fn-card-dot income" />
-              <span className="fn-card-label">已收金额</span>
+          <div className="cd-fn-metric">
+            <div className="cd-fn-metric-header">
+              <span className="cd-fn-metric-dot income" />
+              <span className="cd-fn-metric-label">已收金额</span>
             </div>
-            <div className="fn-card-value income">{fmt(contract.paid_amount, cur)}</div>
-            <div className="fn-card-chinese">{amountToChinese(contract.paid_amount, cur)}</div>
-            <div className="fn-card-meta">
-              <span className="fn-card-tag">{contract.paid_count}笔</span>
+            <div className="cd-fn-metric-row">
+              <Tooltip title={`${fmtFull(contract.paid_amount, cur)}\n${amountToChinese(contract.paid_amount, cur)}`}>
+                <span className="cd-fn-metric-value income">{fmt(contract.paid_amount, cur)}</span>
+              </Tooltip>
+              <span className="cd-fn-metric-tag">{contract.paid_count}笔</span>
               {showCnyHint && (
-                <span className="fn-card-cny">{fmtCny(contract.paid_amount_in_cny || summary?.income?.total_paid_in_cny)}</span>
+                <span className="cd-fn-metric-cny">{fmtCny(contract.paid_amount_in_cny || summary?.income?.total_paid_in_cny)}</span>
               )}
             </div>
           </div>
 
-          {/* 剩余尾款 — 视觉重点 */}
-          <div className={`cd-fn-card ${isRemaining ? 'fn-remaining' : 'fn-cleared'}`}>
-            <div className="fn-card-header">
-              <span className={`fn-card-dot ${isRemaining ? 'remaining' : 'cleared'}`} />
-              <span className="fn-card-label">剩余尾款</span>
+          {/* 剩余尾款 */}
+          <div className="cd-fn-metric">
+            <div className="cd-fn-metric-header">
+              <span className={`cd-fn-metric-dot ${isRemaining ? 'remaining' : 'cleared'}`} />
+              <span className="cd-fn-metric-label">剩余尾款</span>
             </div>
-            <div className={`fn-card-value ${isRemaining ? 'remaining' : 'cleared'}`}>
-              {fmt(contract.remaining_amount, cur)}
-            </div>
-            <div className="fn-card-chinese">{amountToChinese(contract.remaining_amount, cur)}</div>
-            <div className="fn-card-meta">
-              <span className={`fn-card-status ${isRemaining ? 'remaining' : 'cleared'}`}>
+            <div className="cd-fn-metric-row">
+              <Tooltip title={`${fmtFull(contract.remaining_amount, cur)}\n${amountToChinese(contract.remaining_amount, cur)}`}>
+                <span className={`cd-fn-metric-value ${isRemaining ? 'remaining' : 'cleared'}`}>
+                  {fmt(contract.remaining_amount, cur)}
+                </span>
+              </Tooltip>
+              <span className={`cd-fn-metric-status ${isRemaining ? 'remaining' : 'cleared'}`}>
                 {isRemaining ? '待收中' : '已结清 ✓'}
               </span>
               {showCnyHint && (
-                <span className="fn-card-cny">{fmtCny(contract.remaining_amount_in_cny)}</span>
+                <span className="cd-fn-metric-cny">{fmtCny(contract.remaining_amount_in_cny)}</span>
               )}
             </div>
           </div>
 
           {/* 总支出 */}
-          <div className="cd-fn-card fn-expense">
-            <div className="fn-card-header">
-              <span className="fn-card-dot expense" />
-              <span className="fn-card-label">总支出</span>
+          <div className="cd-fn-metric">
+            <div className="cd-fn-metric-header">
+              <span className="cd-fn-metric-dot expense" />
+              <span className="cd-fn-metric-label">总支出</span>
             </div>
-            <div className="fn-card-value expense">{fmt(contract.total_expense || 0, cur)}</div>
-            <div className="fn-card-chinese">{amountToChinese(contract.total_expense || 0, cur)}</div>
-            <div className="fn-card-meta">
+            <div className="cd-fn-metric-row">
+              <Tooltip title={`${fmtFull(contract.total_expense || 0, cur)}\n${amountToChinese(contract.total_expense || 0, cur)}`}>
+                <span className="cd-fn-metric-value expense">{fmt(contract.total_expense || 0, cur)}</span>
+              </Tooltip>
               {(contract as any).expense_count > 0 && (
-                <span className="fn-card-tag expense">{(contract as any).expense_count}笔</span>
+                <span className="cd-fn-metric-tag expense">{(contract as any).expense_count}笔</span>
               )}
               {showCnyHint && (
-                <span className="fn-card-cny">{fmtCny(contract.total_expense_in_cny || summary?.expense?.total_expense_in_cny)}</span>
+                <span className="cd-fn-metric-cny">{fmtCny(contract.total_expense_in_cny || summary?.expense?.total_expense_in_cny)}</span>
               )}
             </div>
           </div>
 
-          {/* 净利润 — 以合同币种为主，CNY 折算小字 */}
-          <div className={`cd-fn-card fn-profit`}>
-            <div className="fn-card-header">
-              <span className={`fn-card-dot ${profitMain >= 0 ? 'income' : 'expense'}`} />
-              <span className="fn-card-label">净利润</span>
+          {/* 净利润 */}
+          <div className="cd-fn-metric">
+            <div className="cd-fn-metric-header">
+              <span className={`cd-fn-metric-dot ${profitMain >= 0 ? 'income' : 'expense'}`} />
+              <span className="cd-fn-metric-label">净利润</span>
             </div>
-            <div className={`fn-card-value ${profitMain >= 0 ? 'income' : 'expense'}`}>
-              {fmt(profitMain, cur)}
-            </div>
-            <div className="fn-card-chinese">{amountToChinese(Math.abs(profitMain), cur)}</div>
-            <div className="fn-card-meta">
+            <div className="cd-fn-metric-row">
+              <Tooltip title={`${fmtFull(profitMain, cur)}\n${amountToChinese(Math.abs(profitMain), cur)}`}>
+                <span className={`cd-fn-metric-value ${profitMain >= 0 ? 'income' : 'expense'}`}>
+                  {fmt(profitMain, cur)}
+                </span>
+              </Tooltip>
               {showCnyHint && profitCny !== 0 && (
-                <span className="fn-card-cny">{fmtCny(profitCny)}</span>
+                <span className="cd-fn-metric-cny">{fmtCny(profitCny)}</span>
               )}
             </div>
           </div>
@@ -586,9 +564,11 @@ export default function ContractDetail() {
                         <span className="cd-term-step-cond">{condText}</span>
                       )}
                     </div>
-                    <span className="cd-term-step-amount">
-                      {fmt(term.amount, contract.currency)}
-                    </span>
+                    <Tooltip title={fmtFull(term.amount, contract.currency)}>
+                      <span className="cd-term-step-amount">
+                        {fmt(term.amount, contract.currency)}
+                      </span>
+                    </Tooltip>
                   </div>
                 </div>
               )

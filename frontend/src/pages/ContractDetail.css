@@ -44,45 +44,69 @@
   margin-left: auto;
 }
 
-/* ─── 顶部信息条 ─── */
-.cd-topbar {
+/* ─── 身份 + 基本信息合并卡片 ─── */
+.cd-identity-card {
   background: var(--bg-surface);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-lg);
-  padding: 14px 20px;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 14px;
-  gap: 12px;
+  padding: 12px 20px;
+  margin-bottom: 10px;
   box-shadow: var(--shadow-sm);
 }
 
-.cd-topbar-left {
+.cd-id-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
-  min-width: 0;
 }
 
-.cd-topbar-right {
+.cd-id-row-sub {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-light);
+  gap: 16px;
+}
+
+.cd-contract-title {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.cd-id-meta {
   display: flex;
   align-items: center;
-  gap: 16px;
-  flex-shrink: 0;
+  gap: 8px;
   color: var(--text-tertiary);
   font-size: 12px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
-.cd-contract-num {
-  font-family: var(--font-mono);
+.cd-id-sep {
+  color: var(--border-default);
+}
+
+.cd-id-meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cd-id-meta-label {
   color: var(--text-tertiary);
+  font-weight: 500;
+  flex-shrink: 0;
 }
 
 .cd-customer-name {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -91,24 +115,26 @@
 }
 
 .cd-badge {
-  font-size: 12px;
-  font-weight: 500;
-  padding: 3px 10px;
-  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
   white-space: nowrap;
 }
 
-.cd-badge.status-active   { background: var(--color-info-bg); color: var(--color-info); }
+.cd-badge.status-active    { background: var(--color-info-bg);    color: var(--color-info); }
 .cd-badge.status-completed { background: var(--color-success-bg); color: var(--color-success); }
-.cd-badge.type-vehicle  { background: #f0f0ff; color: #5b4ec9; }
-.cd-badge.type-zhonggang { background: #e6fff5; color: #0f7656; }
-.cd-badge.type-default  { background: var(--bg-subtle); color: var(--text-secondary); }
+.cd-badge.type-vehicle     { background: #f0f0ff; color: #5b4ec9; }
+.cd-badge.type-zhonggang   { background: #e6fff5; color: #0f7656; }
+.cd-badge.type-default     { background: var(--bg-subtle); color: var(--text-secondary); }
 
-.cd-topbar-sep {
-  color: var(--border-default);
+.cd-contract-num {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 
-/* ─── 财务概览面板 · 统一设计 ─── */
+/* ─── 财务概览面板 · 压缩版 ─── */
 .cd-finance-panel {
   background: var(--bg-surface);
   border: 1px solid var(--border-light);
@@ -118,21 +144,22 @@
   box-shadow: var(--shadow-sm);
 }
 
-/* ── 行1：合同总额 + 进度条 ── */
+/* ── 行1：合同总额 + 进度条（单行） ── */
 .cd-fn-hero {
-  padding: 20px 24px 18px;
-  border-bottom: 1px solid var(--border-light);
-  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 40px;
+  padding: 14px 20px 12px;
+  border-bottom: 1px solid var(--border-light);
+  background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+  gap: 24px;
 }
 
-.cd-fn-hero-main {
+.cd-fn-hero-left {
   display: flex;
-  flex-direction: column;
-  gap: 2px;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
 }
 
 .cd-fn-hero-label {
@@ -140,61 +167,51 @@
   font-weight: 500;
   color: var(--text-tertiary);
   letter-spacing: 0.5px;
+  flex-shrink: 0;
 }
 
 .cd-fn-hero-value {
   font-family: var(--font-mono);
-  font-size: 42px;
+  font-size: 28px;
   font-weight: 800;
   color: var(--brand-deep);
-  letter-spacing: -2px;
-  line-height: 1.15;
+  letter-spacing: -1.5px;
+  line-height: 1.2;
   font-variant-numeric: tabular-nums;
 }
 
-.cd-fn-hero-sub {
+.cd-fn-hero-cny {
   font-size: 12px;
   color: var(--text-tertiary);
-  margin-top: 2px;
-}
-
-.cd-fn-hero-chinese {
-  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  line-height: 1.5;
-  letter-spacing: 2px;
-  margin-top: 4px;
-}
-
-/* 进度条（Hero 右侧） */
-.cd-fn-hero-progress {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 8px;
-  min-width: 160px;
   flex-shrink: 0;
 }
 
+.cd-fn-hero-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+/* 进度条 */
 .cd-fn-progress-label {
   font-size: 11px;
   color: var(--text-tertiary);
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .cd-fn-progress-track {
-  width: 100%;
-  height: 8px;
+  width: 120px;
+  height: 6px;
   background: rgba(0, 0, 0, 0.06);
-  border-radius: 5px;
+  border-radius: 3px;
   overflow: hidden;
 }
 
 .cd-fn-progress-fill {
   height: 100%;
-  border-radius: 5px;
+  border-radius: 3px;
   background: linear-gradient(90deg, var(--brand-primary), var(--brand-primary-light));
   transition: width 0.8s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -205,144 +222,108 @@
 
 .cd-fn-progress-pct {
   font-family: var(--font-mono);
-  font-size: 26px;
+  font-size: 18px;
   font-weight: 700;
   color: var(--brand-primary);
   font-variant-numeric: tabular-nums;
+  min-width: 42px;
+  text-align: right;
 }
 
 .cd-fn-progress-pct.done {
   color: var(--color-success);
 }
 
-/* ── 行2：四栏指标卡 ── */
-.cd-fn-cards {
+/* ── 行2：四栏指标（紧凑） ── */
+.cd-fn-metrics {
   display: grid;
-  grid-template-columns: 1fr 1.15fr 0.85fr 0.85fr;
+  grid-template-columns: 1fr 1fr 1fr 1fr;
   gap: 0;
 }
 
-.cd-fn-card {
-  padding: 16px 20px;
+.cd-fn-metric {
+  padding: 12px 20px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  position: relative;
+  gap: 3px;
 }
 
-.cd-fn-card:not(:last-child) {
+.cd-fn-metric:not(:last-child) {
   border-right: 1px solid var(--border-light);
 }
 
-.fn-card-header {
+.cd-fn-metric-header {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
 }
 
-.fn-card-dot {
-  width: 7px;
-  height: 7px;
+.cd-fn-metric-dot {
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.fn-card-dot.income    { background: #0d9488; box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15); }
-.fn-card-dot.remaining { background: #d97706; box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15); }
-.fn-card-dot.cleared   { background: #52c41a; box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.15); }
-.fn-card-dot.expense   { background: #dc2626; box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15); }
+.cd-fn-metric-dot.income    { background: #0d9488; box-shadow: 0 0 0 2px rgba(13, 148, 136, 0.15); }
+.cd-fn-metric-dot.remaining { background: #d97706; box-shadow: 0 0 0 2px rgba(217, 119, 6, 0.15); }
+.cd-fn-metric-dot.cleared   { background: #52c41a; box-shadow: 0 0 0 2px rgba(82, 196, 26, 0.15); }
+.cd-fn-metric-dot.expense   { background: #dc2626; box-shadow: 0 0 0 2px rgba(220, 38, 38, 0.15); }
 
-.fn-card-label {
-  font-size: 12px;
+.cd-fn-metric-label {
+  font-size: 11px;
   font-weight: 500;
   color: var(--text-tertiary);
 }
 
-.fn-card-value {
-  font-family: var(--font-mono);
-  font-size: 36px;
-  font-weight: 700;
-  letter-spacing: -1px;
-  font-variant-numeric: tabular-nums;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fn-card-value.income    { color: #0d9488; }
-.fn-card-value.remaining { color: #d97706; }
-.fn-card-value.cleared   { color: #52c41a; }
-.fn-card-value.expense   { color: #dc2626; }
-
-.fn-card-chinese {
-  font-family: 'STKaiti', 'KaiTi', '楷体', serif;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  line-height: 1.4;
-  letter-spacing: 1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-}
-
-.fn-card-meta {
+.cd-fn-metric-row {
   display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px;
 }
 
-.fn-card-tag {
+.cd-fn-metric-value {
+  font-family: var(--font-mono);
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.cd-fn-metric-value.income    { color: #0d9488; }
+.cd-fn-metric-value.remaining { color: #d97706; }
+.cd-fn-metric-value.cleared   { color: #52c41a; }
+.cd-fn-metric-value.expense   { color: #dc2626; }
+
+.cd-fn-metric-tag {
   font-size: 10px;
   font-weight: 500;
-  padding: 1px 7px;
+  padding: 1px 5px;
   border-radius: 3px;
   background: var(--bg-hover);
   color: var(--text-tertiary);
   font-family: var(--font-mono);
 }
 
-.fn-card-tag.expense {
+.cd-fn-metric-tag.expense {
   background: var(--color-danger-bg);
   color: var(--color-danger);
 }
 
-.fn-card-demo-tag {
-  font-size: 9px;
-  font-weight: 500;
-  color: var(--color-warning);
-  background: var(--color-warning-bg);
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: auto;
-}
-
-.fn-card-status {
+.cd-fn-metric-status {
   font-size: 10px;
   font-weight: 500;
-  padding: 1px 7px;
+  padding: 1px 6px;
   border-radius: 3px;
 }
 
-.fn-card-status.remaining { background: rgba(217, 119, 6, 0.08); color: #d97706; }
-.fn-card-status.cleared   { background: rgba(82, 196, 26, 0.08);  color: #52c41a; }
+.cd-fn-metric-status.remaining { background: rgba(217, 119, 6, 0.08); color: #d97706; }
+.cd-fn-metric-status.cleared   { background: rgba(82, 196, 26, 0.08);  color: #52c41a; }
 
-.fn-card-cny {
+.cd-fn-metric-cny {
   font-size: 10px;
   color: var(--text-tertiary);
   font-family: var(--font-mono);
-}
-
-/* 剩余尾款卡片为视觉重点时，微调背景 */
-.cd-fn-card.fn-remaining {
-  background: rgba(217, 119, 6, 0.02);
-}
-
-/* ── 净利润卡 ── */
-.cd-fn-card.fn-profit {
-  background: rgba(13, 148, 136, 0.015);
 }
 
 /* ── 付款记录 · 横向卡片 ── */
@@ -923,30 +904,32 @@
 
 /* ─── 响应式 ─── */
 @media (max-width: 1024px) {
-  .cd-fn-hero { flex-direction: column; align-items: flex-start; gap: 16px; }
-  .cd-fn-hero-progress { width: 100%; align-items: flex-start; }
-  .cd-fn-cards { grid-template-columns: 1fr 1fr; }
-  .cd-fn-cards .cd-fn-card:nth-child(2) { border-right: 1px solid var(--border-light); }
-  .cd-fn-cards .cd-fn-card:nth-child(3),
-  .cd-fn-cards .cd-fn-card:nth-child(4) { border-top: 1px solid var(--border-light); }
-  .fn-card-value { font-size: 28px; }
-  .fn-card-chinese { font-size: 13px; }
-  .cd-fn-hero-chinese { font-size: 18px; }
+  .cd-fn-hero { flex-wrap: wrap; gap: 12px; }
+  .cd-fn-hero-right { width: 100%; }
+  .cd-fn-metrics { grid-template-columns: 1fr 1fr; }
+  .cd-fn-metric:nth-child(2) { border-right: 1px solid var(--border-light); }
+  .cd-fn-metric:nth-child(3),
+  .cd-fn-metric:nth-child(4) { border-top: 1px solid var(--border-light); }
+  .cd-fn-metric-value { font-size: 18px; }
 }
 
 @media (max-width: 768px) {
   .detail-header { flex-wrap: wrap; }
   .complete-btn { margin-left: 0; width: 100%; }
   .contract-detail-container { padding: 12px; }
-  .cd-info-grid { grid-template-columns: 1fr 1fr; }
 
-  .cd-fn-hero-value { font-size: 30px; }
-  .cd-fn-hero-chinese { font-size: 16px; }
-  .cd-fn-progress-pct { font-size: 20px; }
-  .cd-fn-cards { grid-template-columns: 1fr; }
-  .cd-fn-cards .cd-fn-card { border-right: none !important; }
-  .cd-fn-cards .cd-fn-card:not(:last-child) { border-bottom: 1px solid var(--border-light); }
-  .fn-card-value { font-size: 24px; }
+  .cd-id-row { gap: 8px; }
+  .cd-id-meta { margin-left: 0; width: 100%; }
+  .cd-id-row-sub { gap: 8px; }
+  .cd-id-meta-item { max-width: 100%; }
+
+  .cd-fn-hero-value { font-size: 22px; }
+  .cd-fn-progress-pct { font-size: 15px; }
+  .cd-fn-progress-track { width: 80px; }
+  .cd-fn-metrics { grid-template-columns: 1fr; }
+  .cd-fn-metric { border-right: none !important; }
+  .cd-fn-metric:not(:last-child) { border-bottom: 1px solid var(--border-light); }
+  .cd-fn-metric-value { font-size: 17px; }
 
   .cd-payment-row { grid-template-columns: 1fr; }
   .cd-pay-card-amount { font-size: 15px; }
