@@ -33,122 +33,224 @@
 - 数据库操作只走 Service 层，路由层不操作 ORM
 - 禁止把 agent 能做的判断用 Python if/else 硬编码实现（除非属于"工具能力约束"或"数据完整性"边界）
 
-## 业务架构（四大功能 → 三个子图 → 一个 Root Graph）
+## 设计系统 · 业务色彩
+
+**业务色与状态色严格分离**：业务色标识"这是哪种业务"，状态色标识"这单处于什么状态"。两套色系不得互相借用——同色就是同语义，混用会导致用户无法区分"未结清的两地牌"和"已结清的车辆"。
+
+### 业务色（两个核心业务）
+
+| 业务 | 主色 (base) | 深色 (deep) | 浅底 (soft) | 极浅底 (bg) | 语义来源 |
+|---|---|---|---|---|---|
+| **车辆业务** | `#2d5b8a` 钢蓝 | `#1e3f63` | `#e5edf6` | `#f4f7fb` | 汽车工业漆面（保时捷/奔驰深空蓝家族） |
+| **两地牌过户** | `#b8423b` 朱砂 | `#8f2d28` | `#fbe9e7` | `#fdf4f3` | 中港车牌红边 + 通关印章 + 中港旗帜 |
+
+色相距离 218°，扫视区分度最强。两个业务色都避开了 teal（结清状态）和暖橙（未收警示）色相。
+
+### 状态色（金额/付款/系统状态专用，业务色不可占用）
+
+| 状态 | 色值 | 用途 |
+|---|---|---|
+| 已收 / 落袋 | `#c9952b` 金 (`--brand-gold`) | 已收金额数字、付款 paid 状态主指标 |
+| 已收-深字 | `#a87a18` | 金色在白底上的文字对比度补强 |
+| 全额结清 | `#0d9488` teal (`--money-done`) | 100% 回款的金额、绿色 chip、✓ 结清提示 |
+| 未收 / 警示 | `#dc6b3d` 暖橙 (`--money-due`) | 未收金额、逾期、需关注 |
+| 录入收入·动作 | `#5b8c63` 鼠尾草绿 (`--action-income`) | 「录入收入」按钮、收入侧操作专色（避开 teal 结清） |
+| 录入收入·深字 | `#3d6644` (`--action-income-deep`) | 鼠尾草绿在白底上的文字对比度补强 |
+| 中性基准 | `--text-secondary` / `--text-tertiary` | 合同总额作为分母、辅助说明 |
+
+### 用色规则（三层语义）
+
+每个业务色对应三种用法，互不混用：
+
+1. **base 主色** — `border-left` 色条（3px）、icon 描边色、hero 渐变起点、激活状态边框
+2. **soft 浅底** — chip / 业务徽章背景、hover 高亮底
+3. **deep 深字** — 浅底上的文字色（如徽章文字、强调标签）— 保证对比度 ≥ AA
+
+**徽章三件套示例**：
+```css
+.biz-vehicle-chip {
+  color: var(--biz-vehicle-deep);     /* 文字：深钢蓝 */
+  background: var(--biz-vehicle-soft); /* 底色：浅钢蓝 */
+}
+.biz-vehicle-card { border-left: 3px solid var(--biz-vehicle); } /* 主色条 */
+```
+
+### 与「华星」品牌色的关系
+
+- `--brand-primary #1e3a5f` 深蓝 = **品牌/系统色**（侧边栏、主按钮、页头）— 与车辆钢蓝同家族但更冷更暗，不抢戏
+- `--brand-gold #c9952b` 金色 = **价值/金钱色**（金额数字、强调元素）— 朱砂 + 金 形成中式财务美学
+- 业务色只在"标识业务类型"的场合出现，不参与品牌主视觉
+
+### 何时染业务色 / 何时不染
+
+| 场景 | 是否染业务色 |
+|---|---|
+| 业务徽章 / chip / 列表左侧色条 | ✅ 必须 |
+| 合同详情页 hero / 头部背景 | ✅ 必须 |
+| 收据/卡片整体浅底（如 `--biz-*-bg`）+ 虚线齿条 | ✅ 推荐 |
+| 金额数字本身 | ❌ 永远用状态色（已收金/未收橙/结清 teal） |
+| 进度条颜色 | ❌ 用状态色（按回款状态变） |
+| 按钮 / 通用 UI | ❌ 用品牌色 |
+
+## 业务架构（统一单层 Agent 循环）
 
 ```
-用户 → intake_node（推断意图）→ route_by_intent
-  ├─ 上传合同 + 关联客户 → contract_entry_subgraph
-  ├─ 录入收支             → receipt_entry_subgraph
-  └─ 查询                 → general_chat_subgraph
+START → call_model_node（LLM 决策）
+          ↑         ↓
+          │    [有 tool_calls?]
+          │      ↓           ↓
+          │ execute_tool_node  finalize_node → END
+          │      │
+          └──────┘
 ```
 
-前端入口：`AgentChat`（/agent 智能问答） + `ContractChatModal`（/contracts 上传按钮），均走 `POST /api/v1/agent/chat` SSE。合同列表卡片的「收」「支」按钮会创建 `mode=receipt_income|receipt_expense` 的会话，凭证子图通过 session_context 拿到 `contract_id`/`payment_type`，不依赖用户再次输入。
+**统一 Agent 图**（`unified_agent.py`）：不再有子图、意图推断、路由分支。LLM 自主决定调什么工具、何时结束，代码层只提供执行能力 + 写入防护。
+
+前端入口：`AgentChat`（/agent 智能问答，含三个工具标签「录合同」「录收入」「录支出」） + `ReceiptChatModal`（合同列表卡片「收」「支」按钮），均走 `POST /api/v1/agent/chat` SSE。
 
 ### 编排层职责边界
 
 | 层 | 文件 | 职责 | 决策方 |
 |---|---|---|---|
-| Root Graph | `orchestrator/graph.py` | 意图推断 + 路由 + finalize 落库 | 代码（确定性） |
-| 子图 | `orchestrator/{contract,receipt,general}_entry.py` | 循环：analyze → call_model ↔ execute_tool | LLM + 代码混合（敏感工具由计划驱动安全门守门） |
-| 工具执行 | `ai/tools.py` `ToolExecutor` | 调 Service 层，返回纯 JSON 事实 | 代码（确定性） |
+| Agent 图 | `orchestrator/unified_agent.py` | 单层循环：call_model ↔ execute_tool → finalize 落库 | LLM 决策 + 代码执行 |
+| 工具执行 | `ai/tools_v2.py` `ToolExecutorV2` | 调 Service 层，返回纯 JSON 事实；含 mode guard + document guard | 代码（确定性） |
 | Service | `services/*.py` | 业务规则、权限校验、事务边界 | 代码（确定性） |
 | 模型 / DB | `models/*.py` | ORM 映射、表结构 | 代码 |
-| 提示词 | `ai/prompts.py` | 业务偏好、追问策略、字段解释 | LLM 软规则 |
-| 安全门 | 子图 `_SENSITIVE_TOOLS` 集合 + `set_pending_plan` 计划驱动 | 防止 LLM 跳过确认执行高危工具 | 代码硬约束 + LLM 多轮对话确认 |
+| 提示词 | `ai/prompts_v2.py` | 业务偏好、追问策略、字段解释、确认规则 | LLM 软规则 |
+| 写入防护 | `unified_agent.py` `_WRITABLE_TOOLS` + `_CONFIRM_KEYWORDS` | 轻量确认检测：LLM 上轮回复含确认关键词 → 放行写入；不含 → 拦截 | 代码硬约束 |
 
-### Root Graph 路由矩阵
+### Agent 循环架构
 
-| intent | executor_mode | 路由目标 |
+```
+call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
+      ↑                    ↓
+      │              [有 tool_calls?]
+      │                ↓           ↓
+      │       execute_tool_node   finalize_node（chat_history 落库，幂等）
+      │              │
+      │              ├─ 写入工具（_WRITABLE_TOOLS）→ 确认关键词检测
+      │              │   └─ 上文无确认 → 拦截，让 LLM 先展示计划
+      │              │   └─ 上文有确认 → 执行
+      │              └─ 普通工具 → 直接执行 → ToolMessage 回灌
+      └──────────────┘
+```
+
+- `call_model_node`：LLM 决定展示什么、调哪个工具、追问还是结束。附件信息自动注入到用户消息上下文。
+- `execute_tool_node`：执行工具调用。写入工具（`create_customer`/`create_contract`/`create_payment_record`/`match_and_confirm_payment`/`update_payment`）受确认防护——检查 LLM 上轮回复是否含确认关键词（`确认/是否/同意/继续/对吗/正确吗/确认吗/可以吗/行吗`），未展示则拦截并提示 LLM 先向用户确认。同时发 SSE `tool_start`/`tool_end` 事件给前端。
+- `finalize_node`：`chat_history` 落库（checkpoint 存机器可读状态，`chat_history` 存人类可读消息），用 `_finalized` 标记做幂等防护。
+- `should_continue`：有 tool_calls → execute_tool_node，否则 → finalize_node。
+
+### 状态结构
+
+`state_v2.py` — 单一 `AgentState(TypedDict)`：
+
+| 字段 | 类型 | 用途 |
 |---|---|---|
-| `contract_entry` | `chat` | `contract_entry_subgraph` |
-| `receipt_entry` | `receipt_income` / `receipt_expense` | `receipt_entry_subgraph`（完整 Agent 循环） |
-| `receipt_entry` | 其他 | `receipt_entry_node`（降级引导到合同卡片按钮） |
-| `group_chat` | * | `group_chat_node`（降级引导到手动关联） |
-| `general` | * | `general_chat_subgraph` |
-
-意图推断在 `graph.py:_infer_intent()`：文档类（pdf/word/excel）激进路由到 `contract_entry`（子图 VL 二次判断兜底），图片类保持收窄（避免误识别凭证/合同）。
-
-### 子图循环架构（Agent 模式 vs 流水线的边界）
-
-```
-analyze_{file,receipt}_node（确定性）→ call_model_node（LLM 决策）
-                                          ↑                ↓
-                                          └── execute_tool_node ┘
-                                                 │
-                                                 ├─ 敏感工具 → 计划驱动安全门（set_pending_plan）
-                                                 │             └─ LLM 展示计划 → 用户自然语言确认 → LLM 调 set_pending_plan(confirmed=true)
-                                                 └─ 普通工具 → 直接执行 → ToolMessage 回灌
-```
-
-- `analyze_*_node`：确定性预分析（VL/OCR/DB 查询），不消耗 LLM token，结果注入 messages
-- `call_model_node`：LLM 决定展示什么、调哪个工具、追问还是结束（迭代上限 `settings.AGENT_MAX_ITERATIONS=8`）
-- `execute_tool_node`：工具执行；敏感工具走计划驱动安全门——LLM 先调 `set_pending_plan` 声明计划，代码层硬约束校验 `user_confirmed` 后才放行 `create_*`（合同：`create_customer`/`create_contract`；凭证：`create_payment`/`create_expense`）。用户确认通过自然语言（如"确认"），LLM 自行判断语义
-- `finalize_node`（Root 层）：`chat_history` 并行落库（ADR #6，checkpoint 存机器可读状态，`chat_history` 存人类可读消息，职责不同不互相替代），用 `_finalized` 标记做幂等防护
+| `messages` | `Annotated[list, add_messages]` | 对话消息流（LangChain 标准 reducer） |
+| `user_id` | `int` | 当前用户 ID |
+| `user_role` | `str` | admin / income / expense |
+| `session_id` | `str` | 会话 ID |
+| `attachments` | `list[dict]` | 当前轮附件 `[{file_id, file_type, file_name}]` |
+| `iteration_count` | `int` | 迭代计数 |
+| `should_end` | `bool` | 强制结束标记 |
+| `errors` | `Annotated[list[str], operator.add]` | 错误累积 |
+| `_finalized` | `bool` | 落库幂等标记 |
 
 ## 技术锚点
 
-- 后端：uv · FastAPI · SQLAlchemy 2.x · Pydantic v2 · pydantic_settings
-- 前端：npm · Vite · React · TypeScript · Zustand
+- **工具链**：uv（Python 包管理）· npm（前端）。后端 `cd backend && uv run ...`，前端 `cd frontend && npm run ...`
+- 后端：FastAPI · SQLAlchemy 2.x · Pydantic v2 · pydantic_settings
+- 前端：Vite · React · TypeScript · Zustand
 - Agent 编排：LangGraph 1.2.x · `StateGraph` / `astream_events(version="v2")`
 - Checkpoint：`AsyncPostgresSaver` + `psycopg3` `AsyncConnectionPool`（`autocommit=True`、`prepare_threshold=0`），复用现有 PG，`main.py:on_startup` 调 `init_checkpointer()` 自动建表
-- LLM 客户端：`backend/app/ai/llm_client.py` — `DashScopeAgentClient`（百炼 qwen3-vl-flash 视觉 + 文本）、`SiliconFlowClient`（SiliconFlow VL 兜底）。**不引入** `langchain-openai` / `ChatOpenAI`（ADR #2：百炼兼容模式 `tools` 与 `stream=True` 互斥）
-- 工具执行：`backend/app/ai/tools.py` — 17 个工具，`TOOL_DEFINITIONS`（OpenAI function calling 格式）+ `ToolExecutor`（含 `mode guard` 拦截越权工具、`document guard` 防止重复识别）
-- 编排层：`backend/app/ai/orchestrator/` — `graph.py`(Root) / `state.py`(RootState + 3 子 State) / `checkpointer.py` / `contract_entry.py` / `receipt_entry.py` / `general_chat.py` / `sse_adapter.py`
+- LLM 客户端：`backend/app/ai/llm_client.py` — `AgentModelClient`（统一 LLM 客户端，封装百炼 + SiliconFlow）。**不引入** `langchain-openai` / `ChatOpenAI`（ADR #2：百炼兼容模式 `tools` 与 `stream=True` 互斥）
+- 工具执行：`backend/app/ai/tools_v2.py` — 14 个工具（`TOOL_DEFINITIONS`，OpenAI function calling 格式）+ `ToolExecutorV2`（含 `mode guard` 拦截越权工具、`document guard` 按文件类型封锁高危工具）
+- 编排层：`backend/app/ai/orchestrator/` — `unified_agent.py`（Agent 图 + 节点） / `state_v2.py`（AgentState） / `checkpointer.py` / `sse_adapter.py`
 - 业务封装：`backend/app/services/` — 工具层不直接 ORM，统一走 Service
 - 可观测性：`.env` 设 `LANGCHAIN_TRACING_V2=true` 后 LangGraph 节点自动埋点到 LangSmith（`main.py:on_startup` 同步 env）
 
 ## SSE 事件协议（前后端约定）
 
-`POST /api/v1/agent/chat` 流式事件类型（`sse_adapter.py` 适配 LangGraph astream_events → 旧事件格式）：
+`POST /api/v1/agent/chat` 流式事件类型（`sse_adapter.py` 适配 LangGraph astream_events → SSE 格式）：
 
 | event | 用途 | 前端处理 |
 |---|---|---|
-| `thinking` | 节点开始（友好中文提示） | 显示"正在 X..." |
-| `text` | LLM 文本流式增量 | 追加到当前气泡 |
-| `done` | 流正常结束 | 收尾 thought 步骤，关闭流 |
+| `thinking` | 节点开始 / 心跳（友好中文提示） | 显示"正在 X..." |
+| `text` | LLM 文本流式增量（含 on_chat_model_stream + text_chunk 自定义事件） | 追加到当前气泡 |
+| `tool_call` | 工具开始执行 | 显示工具调用状态 |
+| `tool_result` | 工具执行结果（含结构化 summary） | 展示工具结果摘要 |
 | `done` | 流正常结束 | 收尾 thought 步骤，关闭流 |
 | `error` | 异常 | 展示错误提示 |
 
-确认机制：纯聊天交互。敏感工具走计划驱动安全门——LLM 先展示计划，用户自然语言确认，LLM 调 `set_pending_plan(user_confirmed=true)`，代码层硬约束校验后放行。
+心跳机制：事件间隔超过 `_HEARTBEAT_INTERVAL` 秒时自动发 `thinking` 心跳事件，防止前端长时间无事件。
+
+确认机制：纯聊天交互。LLM 先展示操作计划（列客户名、金额、币种等），用户自然语言回复确认，LLM 再调写入工具。代码层通过 `_CONFIRM_KEYWORDS` 检测 LLM 上轮回复是否含确认词——未展示则拦截写入并提示 LLM 先确认。
 
 ## 扩展指引（新增功能时如何不破坏现有架构）
 
-### 新增子图（例：报价单子图）
-1. `orchestrator/` 新建 `quotation_entry.py`，类比 `contract_entry.py` 的 `analyze_node → call_model ↔ execute_tool` 模式
-2. `orchestrator/state.py` 新增 `QuotationState(RootState)`
-3. `orchestrator/graph.py`：`route_by_intent` 加分支；`build_root_graph` 加节点 + 边（子图 → `finalize_node`）
-4. `intake_node` 的 `_infer_intent` 加关键词或文件类型路由
-5. `_SENSITIVE_TOOLS` 列出需要中断确认的工具名
-
-### 新增敏感工具
-1. `tools.py` `TOOL_DEFINITIONS` 加 OpenAI function 定义（描述写清楚字段语义和限制）
-2. 工具方法实现里**只返回事实 JSON**，不嵌入"请先..."等行为指令（铁律）
-3. 子图 `_SENSITIVE_TOOLS` 集合加入工具名
-4. `execute_tool_node` 中加计划驱动安全门校验（`pending_plan.user_confirmed` 检查）
-5. 前端对应增加确认 UI（`ReceiptConfirmPanel.tsx` / `ContractChatModal` 参考）
+### 新增工具
+1. `tools_v2.py` `TOOL_DEFINITIONS` 加 OpenAI function 定义（描述写清楚字段语义和限制）
+2. `ToolExecutorV2` 中实现 `def <tool_name>(self, **kwargs) -> str`，**只返回事实 JSON**，不嵌入"请先..."等行为指令（铁律）
+3. 如果是写入工具，加入 `unified_agent.py` 的 `_WRITABLE_TOOLS` 集合
+4. 如果是查询工具（不写库），直接可用，无需额外配置
+5. 如需前端展示工具摘要，在 `unified_agent.py` `extract_tool_summary()` 加分支
 
 ### 新增 LLM 客户端
 - `llm_client.py` 加新类，暴露 `async chat_completion_stream(messages, tools) -> AsyncGenerator[{type, content/id/name/arguments}, ...]`
 - 兼容 OpenAI function calling 协议即可（流式 + tool_calls 增量）
-- 子图构造函数 `llm_client` 参数支持注入，方便单测 mock
+- 修改 `_default_llm_client()` 或在注入依赖时替换
 
-### 新增可视化分析器（合同/凭证/群聊等）
+### 新增可视化分析器
 1. `services/` 新建 `xxx_analyzer.py`，类比 `ContractAnalyzer.analyze_file` / `ReceiptAnalyzer.analyze_from_file`
-2. 用 `asyncio.to_thread` 在子图 `analyze_xxx_node` 中包装同步方法
-3. `ToolExecutor._cache_analysis` 加新 `analysis_type` 缓存分支
-4. `_summarize_analysis_for_context` 决定哪些大字段剥离出 LLM context
+2. 在 `ToolExecutorV2.execute_analyze_files` 中调用
+3. `prompts_v2.py` 加对应的分析 prompt
+
+## 工具清单（tools_v2.py, 14 个）
+
+| 工具名 | 类型 | 写入防护 | 说明 |
+|---|---|---|---|
+| `analyze_files` | 分析 | - | 统一文件分析（合同/凭证/群聊），自动识别类型 |
+| `get_overview` | 查询 | - | 系统全局统计概览 |
+| `search_customers` | 查询 | - | 搜索客户（模糊匹配，兼容繁简） |
+| `create_customer` | 写入 | ✅ | 创建客户（同名去重） |
+| `update_customer` | 写入 | - | 更新客户信息 |
+| `search_contracts` | 查询 | - | 搜索合同 |
+| `get_contract_detail` | 查询 | - | 合同详情 + 付款记录 |
+| `create_contract` | 写入 | ✅ | 创建合同（自动关联文件分析结果） |
+| `update_contract` | 写入 | - | 更新合同元信息（微信群/备注） |
+| `query_payments` | 查询 | - | 付款记录查询（支持 group_by=contract） |
+| `create_payment_record` | 写入 | ✅ | 统一收入/支出创建（type 字段区分） |
+| `match_and_confirm_payment` | 写入 | ✅ | 凭证自动匹配 pending 付款并确认 |
+| `update_payment` | 写入 | ✅ | 更新付款记录（补充凭证等） |
+| `search_contract_text` | 查询 | - | 合同全文搜索 |
+
+### Mode Guard（模式白名单）
+
+`ToolExecutorV2` 的 `_MODE_ALLOWED_TOOLS` 按 mode 限制可用工具：
+- `receipt_income` → 只能查合同/客户 + `create_payment_record`/`match_and_confirm_payment`（type=income）
+- `receipt_expense` → 同上（type=expense，需 admin/expense 角色）
+- 其他 mode → 全量工具
+
+### Document Guard（文档上下文封锁）
+
+文件分析后设置 `document_context`（receipt/general/group_chat），封锁不兼容工具：
+- receipt 文件 → 不能 `create_customer`/`create_contract`（引导到合同卡片按钮）
+- general/group_chat 文件 → 只能 `update_contract` 关联元信息
 
 ## 关键模块对照表（按职责找文件）
 
 | 找什么 | 在哪 |
 |---|---|
 | 入口路由 | `app/api/v1/agent.py` — `POST /chat`(SSE) / `POST /upload` / `GET/POST/DELETE /sessions` / `GET /history/{id}` |
-| Root 图状态 | `app/ai/orchestrator/state.py` — `RootState` + `ContractEntryState` / `ReceiptEntryState` / `GeneralChatState` |
-| 工具表 | `app/ai/tools.py` 2081 行起 — `TOOL_DEFINITIONS`（17 个） |
-| 工具实现 | `app/ai/tools.py` `ToolExecutor` 类 — 每个 `def execute_<tool>` |
+| Agent 图 + 节点 | `app/ai/orchestrator/unified_agent.py` — `_build_graph` / `get_compiled_graph` / `call_model_node` / `execute_tool_node` / `finalize_node` / `should_continue` |
+| Agent 状态 | `app/ai/orchestrator/state_v2.py` — `AgentState` |
+| Checkpoint | `app/ai/orchestrator/checkpointer.py` — `get_checkpointer()` / `init_checkpointer()` |
+| SSE 适配 | `app/ai/orchestrator/sse_adapter.py` — `adapt_langgraph_stream_v2()` |
+| 工具定义 + 执行 | `app/ai/tools_v2.py` — `TOOL_DEFINITIONS`（14 个）+ `ToolExecutorV2` |
+| 旧工具文件（保留兼容） | `app/ai/tools.py` — `TOOL_DEFINITIONS`（17 个，v1 格式）+ `ToolExecutor` |
+| 提示词 | `app/ai/prompts_v2.py` — `build_system_prompt` + 分析 prompt（`FILE_CLASSIFY_PROMPT` / `CONTRACT_ANALYSIS_PROMPT` / `RECEIPT_ANALYSIS_PROMPT` / `GROUP_CHAT_ANALYSIS_PROMPT`） |
+| LLM 客户端 | `app/ai/llm_client.py` — `AgentModelClient`（统一入口） |
 | 业务 Service | `app/services/{contract,payment,customer,contract_analyzer,receipt_analyzer,...}_service.py` |
-| 提示词 | `app/ai/prompts.py` — `build_system_prompt` + `CONTRACT_ENTRY_PROMPT` / `RECEIPT_ENTRY_PROMPT` / 各种 `_ANALYSIS_PROMPT` |
-| LLM 客户端 | `app/ai/llm_client.py` — `DashScopeAgentClient` / `SiliconFlowClient` |
 | 权限 | `app/core/permissions.py` — `Role` / `is_admin` / `can_view_income` / `can_view_expense` |
 | 配置 | `app/config.py` `Settings`（pydantic_settings，从 `.env` 读取） |
 | 启动/关闭 | `app/main.py` — `on_startup` 调 `init_checkpointer()` + LangSmith env 同步；`on_shutdown` 关闭连接池 |
@@ -159,7 +261,11 @@ analyze_{file,receipt}_node（确定性）→ call_model_node（LLM 决策）
 
 ```bash
 cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-cd backend && uv run pytest
+cd backend && PYTHONIOENCODING=utf-8 uv run pytest
 cd frontend && npm run dev
 cd frontend && npx tsc --noEmit
 ```
+
+⚠️ **Windows 编码问题**：本机 bash 下 Python 默认用 GBK，中文源码会报 `UnicodeDecodeError: 'gbk' codec can't decode byte ...`。所有 `uv run python` 命令前面必须加 `PYTHONIOENCODING=utf-8`，包括 `pytest`。
+
+⚠️ **Python 工具链**：本项目使用 **uv** 管理 Python 依赖（非 pip/poetry）。后端所有命令通过 `cd backend && uv run ...` 执行。
