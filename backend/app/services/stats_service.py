@@ -4,15 +4,12 @@
 import logging
 from datetime import date, timedelta
 from decimal import Decimal
-from collections import defaultdict
 
-from sqlalchemy import func, case, extract
+from sqlalchemy import func, case, cast, Date
 from sqlalchemy.orm import Session
 
 from app.models.contract import Contract
-from app.models.payment import Payment
 from app.models.customer import Customer
-from app.core.business_types import BusinessType
 
 logger = logging.getLogger(__name__)
 
@@ -27,24 +24,16 @@ class StatsService:
         # ── 1. 核心 KPI ──
         kpi = StatsService._build_kpi(db)
 
-        # ── 2. 月度趋势（最近 6 个月） ──
-        monthly_trend = StatsService._build_monthly_trend(db)
+        # ── 2. 每日业务趋势（滚动近 30 天） ──
+        daily_trend = StatsService._build_daily_business_trend(db)
 
-        # ── 3. 业务类型分布 ──
-        business_dist = StatsService._build_business_type_distribution(db)
-
-        # ── 4. TOP 10 客户 ──
+        # ── 3. TOP 10 客户 ──
         top_customers = StatsService._build_top_customers(db)
-
-        # ── 5. 合同状态分布 ──
-        contract_status = StatsService._build_contract_status(db)
 
         return {
             "kpi": kpi,
-            "monthly_trend": monthly_trend,
-            "business_type_distribution": business_dist,
+            "daily_trend": daily_trend,
             "top_customers": top_customers,
-            "contract_status": contract_status,
         }
 
     @staticmethod
@@ -114,122 +103,40 @@ class StatsService:
         }
 
     @staticmethod
-    def _build_monthly_trend(db: Session, months: int = 6) -> list:
-        """构建最近 N 个月的收入/支出趋势（按币种分组，不跨币种合并）"""
+    def _build_daily_business_trend(db: Session, days: int = 30) -> list:
+        """构建滚动近 N 天的每日业务趋势（成交合同数 + 不重复成交客户数）。
+
+        成交日口径：COALESCE(signed_date, created_at::date) —— 老数据可能缺签订日期，
+        回退到系统录入日期，避免丢点。
+        """
         today = date.today()
-        # 从当月开始往前推 N 个月
-        start_month = today.month - months + 1
-        start_year = today.year
-        while start_month <= 0:
-            start_month += 12
-            start_year -= 1
-        start_date = date(start_year, start_month, 1)
+        start = today - timedelta(days=days - 1)
 
-        # 查询 paid 状态的付款，按月+类型+币种汇总原始金额
-        rows = db.query(
-            extract("year", Payment.paid_date).label("yr"),
-            extract("month", Payment.paid_date).label("mo"),
-            Payment.type,
-            Payment.currency,
-            func.sum(Payment.paid_amount).label("total"),
-        ).filter(
-            Payment.is_deleted == False,
-            Payment.status == "paid",
-            Payment.paid_date >= start_date,
-        ).group_by(
-            extract("year", Payment.paid_date),
-            extract("month", Payment.paid_date),
-            Payment.type,
-            Payment.currency,
-        ).all()
-
-        # 按月+币种聚合：每个月的每个币种独立累加
-        # 结构: {month_key: {currency: {"income": D, "expense": D}}}
-        monthly = defaultdict(lambda: {"CNY": {"income": Decimal("0"), "expense": Decimal("0")},
-                                       "HKD": {"income": Decimal("0"), "expense": Decimal("0")}})
-
-        for row in rows:
-            month_key = f"{int(row.yr):04d}-{int(row.mo):02d}"
-            cur = row.currency if row.currency in ("CNY", "HKD") else "CNY"
-            bucket = monthly[month_key][cur]
-            if row.type == "income":
-                bucket["income"] += row.total or Decimal("0")
-            elif row.type == "expense":
-                bucket["expense"] += row.total or Decimal("0")
-
-        # 生成完整的月份列表
-        result = []
-        for i in range(months):
-            m = today.month - months + 1 + i
-            y = today.year
-            while m <= 0:
-                m += 12
-                y -= 1
-            month_key = f"{y:04d}-{m:02d}"
-            by_cur = monthly.get(month_key, {"CNY": {"income": Decimal("0"), "expense": Decimal("0")},
-                                              "HKD": {"income": Decimal("0"), "expense": Decimal("0")}})
-            result.append({
-                "month": month_key,
-                "income": {
-                    "CNY": by_cur["CNY"]["income"],
-                    "HKD": by_cur["HKD"]["income"],
-                },
-                "expense": {
-                    "CNY": by_cur["CNY"]["expense"],
-                    "HKD": by_cur["HKD"]["expense"],
-                },
-                "profit": {
-                    "CNY": by_cur["CNY"]["income"] - by_cur["CNY"]["expense"],
-                    "HKD": by_cur["HKD"]["income"] - by_cur["HKD"]["expense"],
-                },
-            })
-
-        return result
-
-    @staticmethod
-    def _build_business_type_distribution(db: Session) -> list:
-        """按业务类型分布（按币种分组）"""
-        # 按 (business_type, currency) 分组聚合合同原始金额（合同主币种）
-        income_by_cur = func.sum(Contract.paid_amount).label("income")
-        expense_by_cur = func.sum(Contract.total_expense).label("expense")
-        total_by_cur = func.sum(Contract.total_amount).label("total")
+        # COALESCE(signed_date, created_at::date) AS deal_date
+        deal_date = func.coalesce(Contract.signed_date, cast(Contract.created_at, Date)).label("deal_date")
 
         rows = db.query(
-            Contract.business_type,
-            Contract.currency,
+            deal_date,
             func.count(Contract.id).label("contract_count"),
-            income_by_cur,
-            expense_by_cur,
-            total_by_cur,
+            func.count(func.distinct(Contract.customer_id)).label("customer_count"),
         ).filter(
             Contract.is_deleted == False,
-        ).group_by(Contract.business_type, Contract.currency).all()
+            func.coalesce(Contract.signed_date, cast(Contract.created_at, Date)) >= start,
+            func.coalesce(Contract.signed_date, cast(Contract.created_at, Date)) <= today,
+        ).group_by(deal_date).all()
 
-        # 合并到业务类型维度：每个业务类型下按币种拆
-        by_bt: dict[str, dict] = {}
-        for row in rows:
-            bt = BusinessType.normalize(row.business_type) or row.business_type or "其他"
-            cur = row.currency if row.currency in ("CNY", "HKD") else "CNY"
-            if bt not in by_bt:
-                by_bt[bt] = {
-                    "business_type": bt,
-                    "contract_count": 0,
-                    "total_amount": {"CNY": Decimal("0"), "HKD": Decimal("0")},
-                    "income": {"CNY": Decimal("0"), "HKD": Decimal("0")},
-                    "expense": {"CNY": Decimal("0"), "HKD": Decimal("0")},
-                    "profit": {"CNY": Decimal("0"), "HKD": Decimal("0")},
-                }
-            by_bt[bt]["contract_count"] += row.contract_count or 0
-            by_bt[bt]["total_amount"][cur] += row.total or Decimal("0")
-            by_bt[bt]["income"][cur] += row.income or Decimal("0")
-            by_bt[bt]["expense"][cur] += row.expense or Decimal("0")
-            by_bt[bt]["profit"][cur] = (
-                by_bt[bt]["income"][cur] - by_bt[bt]["expense"][cur]
-            )
+        by_day = {r.deal_date: (r.contract_count or 0, r.customer_count or 0) for r in rows}
 
-        result = list(by_bt.values())
-        # 按 CNY 业务量（不跨币种比较）作为排序参考；不强行混币种排名
-        result.sort(key=lambda x: (x["profit"]["CNY"] + x["profit"]["HKD"]), reverse=True)
+        # 补齐 30 天（含今天），缺失日期 0 填充，保证 X 轴等距
+        result = []
+        for i in range(days):
+            d = start + timedelta(days=i)
+            contract_count, customer_count = by_day.get(d, (0, 0))
+            result.append({
+                "date": d.isoformat(),
+                "contract_count": contract_count,
+                "customer_count": customer_count,
+            })
         return result
 
     @staticmethod
@@ -276,25 +183,3 @@ class StatsService:
         # 按 CNY 业务量排序（admin 视角下 CNY 是主要参考币种；HKD 同理可单独看）
         result.sort(key=lambda x: x["total_income"]["CNY"] + x["total_income"]["HKD"], reverse=True)
         return result[:limit]
-
-    @staticmethod
-    def _build_contract_status(db: Session) -> list:
-        """合同状态分布"""
-        rows = db.query(
-            Contract.status,
-            func.count(Contract.id).label("count"),
-        ).filter(
-            Contract.is_deleted == False,
-        ).group_by(Contract.status).all()
-
-        status_labels = {
-            "draft": "草稿",
-            "active": "进行中",
-            "completed": "已完成",
-            "cancelled": "已取消",
-        }
-
-        return [
-            {"status": status_labels.get(r.status, r.status), "count": r.count}
-            for r in rows
-        ]

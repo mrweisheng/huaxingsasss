@@ -21,9 +21,6 @@ const CURRENCY_LABEL: Record<Currency, { unit: string; symbol: string }> = {
 export default function FinancialOverview() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<FinancialOverviewType | null>(null)
-  // 每个图表独立的币种切换器
-  const [trendCurrency, setTrendCurrency] = useState<Currency>('CNY')
-  const [businessCurrency, setBusinessCurrency] = useState<Currency>('CNY')
   const [topCurrency, setTopCurrency] = useState<Currency>('CNY')
 
   useEffect(() => {
@@ -48,7 +45,7 @@ export default function FinancialOverview() {
     )
   }
 
-  const { kpi, monthly_trend, business_type_distribution, top_customers, contract_status } = data
+  const { kpi, daily_trend, top_customers } = data
 
   const fmt = (v: number) => v.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
@@ -146,68 +143,35 @@ export default function FinancialOverview() {
         </div>
       </div>
 
-      {/* ── 图表行 ── */}
-      <div className="fo-chart-row">
-        <div className="fo-chart-card fo-chart-card--wide">
-          <div className="fo-chart-card__title">
-            <span>月度收支趋势</span>
-            <Segmented
-              size="small"
-              value={trendCurrency}
-              onChange={(v) => setTrendCurrency(v as Currency)}
-              options={['CNY', 'HKD']}
-            />
-          </div>
-          <ReactECharts
-            option={monthlyTrendOption(monthly_trend, trendCurrency)}
-            style={{ height: 320 }}
-            notMerge
-          />
+      {/* ── 月度业务趋势（全宽） ── */}
+      <div className="fo-chart-card fo-chart-card--full">
+        <div className="fo-chart-card__title">
+          <span>月度业务趋势</span>
+          <span className="fo-chart-card__subtitle">近 30 天 · 每日成交合同数 与 成交客户数</span>
         </div>
-        <div className="fo-chart-card">
-          <div className="fo-chart-card__title">
-            <span>业务类型分布</span>
-            <Segmented
-              size="small"
-              value={businessCurrency}
-              onChange={(v) => setBusinessCurrency(v as Currency)}
-              options={['CNY', 'HKD']}
-            />
-          </div>
-          <ReactECharts
-            option={businessTypeOption(business_type_distribution, businessCurrency)}
-            style={{ height: 320 }}
-            notMerge
-          />
-        </div>
+        <ReactECharts
+          option={dailyBusinessTrendOption(daily_trend)}
+          style={{ height: 340 }}
+          notMerge
+        />
       </div>
 
-      {/* ── 底部行 ── */}
-      <div className="fo-bottom-row">
-        <div className="fo-chart-card fo-chart-card--wide">
-          <div className="fo-chart-card__title">
-            <span>客户利润排名 TOP 10</span>
-            <Segmented
-              size="small"
-              value={topCurrency}
-              onChange={(v) => setTopCurrency(v as Currency)}
-              options={['CNY', 'HKD']}
-            />
-          </div>
-          <ReactECharts
-            option={topCustomerOption(top_customers, topCurrency)}
-            style={{ height: 320 }}
-            notMerge
+      {/* ── TOP 10 客户利润（全宽） ── */}
+      <div className="fo-chart-card fo-chart-card--full">
+        <div className="fo-chart-card__title">
+          <span>客户利润排名 TOP 10</span>
+          <Segmented
+            size="small"
+            value={topCurrency}
+            onChange={(v) => setTopCurrency(v as Currency)}
+            options={['CNY', 'HKD']}
           />
         </div>
-        <div className="fo-chart-card">
-          <div className="fo-chart-card__title">合同状态分布</div>
-          <ReactECharts
-            option={contractStatusOption(contract_status)}
-            style={{ height: 320 }}
-            notMerge
-          />
-        </div>
+        <ReactECharts
+          option={topCustomerOption(top_customers, topCurrency)}
+          style={{ height: 360 }}
+          notMerge
+        />
       </div>
     </div>
   )
@@ -216,91 +180,126 @@ export default function FinancialOverview() {
 
 /* ── ECharts 配置工厂 ── */
 
-function monthlyTrendOption(data: FinancialOverviewType['monthly_trend'], currency: Currency) {
-  const months = data.map(d => d.month)
-  const sym = CURRENCY_LABEL[currency].symbol
-  const yFormatter = (v: number) => v >= 10000 ? `${(v / 10000).toFixed(0)}万` : v.toString()
+/**
+ * 月度业务趋势：柱状图（合同数）+ 平滑曲线（客户数）+ 双 Y 轴
+ *
+ * 颜色：
+ *   - 合同数柱子：钢蓝 #2d5b8a（系统色家族，非业务色，避免和"车辆"业务色混淆——
+ *     此处仅为图形配色，无业务语义）
+ *   - 客户数曲线：华星金 #c9952b（品牌强调色）
+ */
+function dailyBusinessTrendOption(data: FinancialOverviewType['daily_trend']) {
+  // X 轴日期标签：MM-DD，节省宽度
+  const dates = data.map(d => d.date.slice(5))   // "2026-06-10" → "06-10"
+  const fullDates = data.map(d => d.date)
+  const contractData = data.map(d => d.contract_count)
+  const customerData = data.map(d => d.customer_count)
+
+  const maxContract = Math.max(...contractData, 1)
+  const maxCustomer = Math.max(...customerData, 1)
+
   return {
     tooltip: {
       trigger: 'axis',
       axisPointer: { type: 'shadow' },
       formatter: (params: any[]) => {
-        let s = `<b>${params[0].axisValue}</b><br/>`
+        const idx = params[0].dataIndex
+        const date = fullDates[idx]
+        let s = `<b>${date}</b><br/>`
         params.forEach(p => {
-          s += `${p.marker} ${p.seriesName}：${sym}${Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}<br/>`
+          const unit = p.seriesName === '成交客户数' ? '人' : '单'
+          s += `${p.marker} ${p.seriesName}：<b>${p.value}</b> ${unit}<br/>`
         })
         return s
       },
     },
-    legend: { data: ['收入', '支出', '利润'], top: 0, right: 0 },
-    grid: { top: 40, bottom: 24, left: 60, right: 20 },
-    xAxis: { type: 'category', data: months, axisLabel: { fontSize: 12 } },
-    yAxis: {
-      type: 'value',
-      axisLabel: { fontSize: 12, formatter: yFormatter },
+    legend: {
+      data: ['成交合同数', '成交客户数'],
+      top: 0,
+      right: 8,
+      itemWidth: 14,
+      itemHeight: 10,
+      textStyle: { fontSize: 12 },
     },
+    grid: { top: 50, bottom: 50, left: 50, right: 50 },
+    xAxis: {
+      type: 'category',
+      data: dates,
+      axisLabel: {
+        fontSize: 11,
+        color: '#64748b',
+        interval: dates.length > 20 ? 2 : 1,   // 30 天时跳着显示，避免拥挤
+      },
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisTick: { show: false },
+    },
+    yAxis: [
+      {
+        type: 'value',
+        name: '合同数(单)',
+        position: 'left',
+        nameTextStyle: { fontSize: 11, color: '#64748b', padding: [0, 30, 0, 0] },
+        min: 0,
+        max: Math.ceil(maxContract * 1.2),
+        minInterval: 1,
+        axisLabel: { fontSize: 11, color: '#64748b' },
+        splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } },
+      },
+      {
+        type: 'value',
+        name: '客户数(人)',
+        position: 'right',
+        nameTextStyle: { fontSize: 11, color: '#64748b', padding: [0, 0, 0, 30] },
+        min: 0,
+        max: Math.ceil(maxCustomer * 1.2),
+        minInterval: 1,
+        axisLabel: { fontSize: 11, color: '#64748b' },
+        splitLine: { show: false },
+      },
+    ],
     series: [
       {
-        name: '收入',
+        name: '成交合同数',
         type: 'bar',
-        data: data.map(d => d.income[currency]),
-        itemStyle: { color: '#0d9488', borderRadius: [4, 4, 0, 0] },
-        barMaxWidth: 28,
+        yAxisIndex: 0,
+        data: contractData,
+        barMaxWidth: 18,
+        itemStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: '#2d5b8a' },
+              { offset: 1, color: '#5680b0' },
+            ],
+          },
+          borderRadius: [4, 4, 0, 0],
+        },
+        emphasis: {
+          itemStyle: { color: '#1e3f63' },
+        },
       },
       {
-        name: '支出',
-        type: 'bar',
-        data: data.map(d => d.expense[currency]),
-        itemStyle: { color: '#dc2626', borderRadius: [4, 4, 0, 0] },
-        barMaxWidth: 28,
-      },
-      {
-        name: '利润',
+        name: '成交客户数',
         type: 'line',
-        data: data.map(d => d.profit[currency]),
+        yAxisIndex: 1,
+        data: customerData,
         smooth: true,
-        lineStyle: { color: '#c9952b', width: 2 },
-        itemStyle: { color: '#c9952b' },
+        symbol: 'circle',
+        symbolSize: 7,
+        lineStyle: { color: '#c9952b', width: 2.5 },
+        itemStyle: { color: '#c9952b', borderColor: '#fff', borderWidth: 2 },
         areaStyle: {
           color: {
             type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(201,149,43,0.2)' },
-              { offset: 1, color: 'rgba(201,149,43,0.01)' },
+              { offset: 0, color: 'rgba(201,149,43,0.25)' },
+              { offset: 1, color: 'rgba(201,149,43,0.02)' },
             ],
           },
         },
+        z: 3,
       },
     ],
-  }
-}
-
-function businessTypeOption(data: FinancialOverviewType['business_type_distribution'], currency: Currency) {
-  const colors = ['#1e3a5f', '#c9952b', '#0d9488', '#94a3b8']
-  const sym = CURRENCY_LABEL[currency].symbol
-  // 过滤掉当前币种下利润为 0 的项，避免饼图出现 0 占比
-  const filtered = data.filter(d => (d.profit[currency] || 0) !== 0)
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (p: any) => `${p.name}<br/>合同数：${p.data.count}<br/>利润：${sym}${Number(p.value).toLocaleString('zh-CN', { minimumFractionDigits: 2 })}`,
-    },
-    legend: { orient: 'vertical', right: 10, top: 'center', textStyle: { fontSize: 12 } },
-    series: [{
-      type: 'pie',
-      radius: ['42%', '70%'],
-      center: ['40%', '50%'],
-      avoidLabelOverlap: true,
-      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-      label: { show: false },
-      emphasis: { label: { show: true, fontSize: 14, fontWeight: 'bold' } },
-      data: filtered.map((d, i) => ({
-        name: d.business_type,
-        value: d.profit[currency],
-        count: d.contract_count,
-        itemStyle: { color: colors[i % colors.length] },
-      })),
-    }],
   }
 }
 
@@ -354,33 +353,5 @@ function topCustomerOption(data: FinancialOverviewType['top_customers'], currenc
         barMaxWidth: 16,
       },
     ],
-  }
-}
-
-function contractStatusOption(data: FinancialOverviewType['contract_status']) {
-  const colorMap: Record<string, string> = {
-    '草稿': '#94a3b8',
-    '进行中': '#2563eb',
-    '已完成': '#0d9488',
-    '已取消': '#dc2626',
-  }
-  return {
-    tooltip: {
-      trigger: 'item',
-      formatter: (p: any) => `${p.name}：${p.value} 个`,
-    },
-    series: [{
-      type: 'pie',
-      radius: ['0%', '65%'],
-      center: ['50%', '55%'],
-      roseType: 'area',
-      itemStyle: { borderRadius: 6, borderColor: '#fff', borderWidth: 2 },
-      label: { formatter: '{b}\n{c}个', fontSize: 12 },
-      data: data.map(d => ({
-        name: d.status,
-        value: d.count,
-        itemStyle: { color: colorMap[d.status] || '#94a3b8' },
-      })),
-    }],
   }
 }

@@ -15,20 +15,10 @@ export interface KpiData {
   total_remaining: CurrencyAmount
 }
 
-export interface MonthlyItem {
-  month: string
-  income: CurrencyAmount
-  expense: CurrencyAmount
-  profit: CurrencyAmount
-}
-
-export interface BusinessTypeItem {
-  business_type: string
+export interface DailyTrendItem {
+  date: string             // YYYY-MM-DD
   contract_count: number
-  total_amount: CurrencyAmount
-  income: CurrencyAmount
-  expense: CurrencyAmount
-  profit: CurrencyAmount
+  customer_count: number
 }
 
 export interface TopCustomerItem {
@@ -40,17 +30,10 @@ export interface TopCustomerItem {
   profit: CurrencyAmount
 }
 
-export interface ContractStatusItem {
-  status: string
-  count: number
-}
-
 export interface FinancialOverview {
   kpi: KpiData
-  monthly_trend: MonthlyItem[]
-  business_type_distribution: BusinessTypeItem[]
+  daily_trend: DailyTrendItem[]
   top_customers: TopCustomerItem[]
-  contract_status: ContractStatusItem[]
 }
 
 export const statsApi = {

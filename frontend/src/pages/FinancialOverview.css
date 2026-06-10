@@ -165,15 +165,7 @@
 .fo-kpi-card--profit::before { background: var(--brand-gold); }
 .fo-kpi-card--remaining::before { background: #6366f1; }
 
-/* ── 图表行 ── */
-
-.fo-chart-row,
-.fo-bottom-row {
-  display: grid;
-  grid-template-columns: 1.6fr 1fr;
-  gap: 16px;
-  margin-bottom: 20px;
-}
+/* ── 图表卡片 ── */
 
 .fo-chart-card {
   background: var(--bg-surface);
@@ -181,6 +173,11 @@
   padding: 20px;
   border: 1px solid var(--border-light);
   box-shadow: var(--shadow-sm);
+  margin-bottom: 20px;
+}
+
+.fo-chart-card--full {
+  width: 100%;
 }
 
 .fo-chart-card__title {
@@ -190,6 +187,17 @@
   margin-bottom: 12px;
   padding-left: 10px;
   border-left: 3px solid var(--brand-gold);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fo-chart-card__subtitle {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--text-tertiary);
+  letter-spacing: 0.2px;
 }
 
 /* ── 响应式 ── */
@@ -203,11 +211,6 @@
 @media (max-width: 900px) {
   .fo-kpi-row {
     grid-template-columns: repeat(2, 1fr);
-  }
-
-  .fo-chart-row,
-  .fo-bottom-row {
-    grid-template-columns: 1fr;
   }
 }
 
