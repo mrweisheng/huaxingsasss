@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>小星助手 · 吉祥物三方向</title>
+<style>
+  :root {
+    --gold: #c9952b;
+    --gold-light: #e8b84b;
+    --gold-bright: #f5d573;
+    --gold-deep: #8c620e;
+    --steel: #2d5b8a;
+    --steel-deep: #1e3f63;
+    --ink: #0f1a2e;
+    --mint: #5eead4;
+    --paper: #f7f5f0;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: #fafbfc;
+    min-height: 100vh;
+    padding: 40px 24px;
+    color: var(--ink);
+  }
+  h1 { text-align: center; font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+  .sub { text-align: center; color: #64748b; font-size: 13px; margin-bottom: 48px; }
+  h2 { max-width: 1100px; margin: 0 auto 16px; font-size: 16px; color: var(--steel); padding-left: 8px; border-left: 3px solid var(--gold); }
+  .row {
+    max-width: 1100px;
+    margin: 0 auto 48px;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+  }
+  .card {
+    background: white;
+    border: 1px solid #e2e8f0;
+    border-radius: 14px;
+    padding: 24px 16px 16px;
+    text-align: center;
+  }
+  .card.dark {
+    background: var(--ink);
+    border-color: #1e293b;
+    color: white;
+  }
+  .card.dark p { color: #94a3b8; }
+  .card.paper { background: var(--paper); }
+  .stage {
+    height: 130px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  h3 { font-size: 12px; font-weight: 600; margin-top: 12px; color: #475569; }
+  .card.dark h3 { color: #cbd5e1; }
+  .card p { font-size: 11px; color: #94a3b8; margin-top: 3px; }
+
+  /* ════════════════════════════════════════════════════
+     ① 星宝宝 · 圆滚五角星 + 大眼脸
+     —— 整颗星就是它的身体，无外壳，最纯粹
+     ════════════════════════════════════════════════════ */
+  .starbaby {
+    width: 88px;
+    height: 88px;
+    position: relative;
+    animation: sb-float 3.4s ease-in-out infinite;
+  }
+  .starbaby__body {
+    width: 100%;
+    height: 100%;
+    filter: drop-shadow(0 4px 10px rgba(201, 149, 43, 0.45));
+    animation: sb-wiggle 4.5s ease-in-out infinite;
+    transform-origin: 50% 70%;
+  }
+  .starbaby__face {
+    position: absolute;
+    top: 38%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 50%;
+    height: 24%;
+    background: var(--ink);
+    border-radius: 50% / 60%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 16%;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+  }
+  .starbaby__eye {
+    width: 16%;
+    aspect-ratio: 1;
+    background: var(--mint);
+    border-radius: 50%;
+    box-shadow: 0 0 4px var(--mint);
+    position: relative;
+    animation: sb-blink 4.2s ease-in-out infinite;
+  }
+  .starbaby__eye::after {
+    content: '';
+    position: absolute;
+    top: 12%;
+    left: 18%;
+    width: 35%;
+    height: 35%;
+    background: white;
+    border-radius: 50%;
+  }
+  /* 腮红 */
+  .starbaby__cheek {
+    position: absolute;
+    top: 48%;
+    width: 8%;
+    aspect-ratio: 1;
+    background: radial-gradient(circle, #f87171 0%, transparent 70%);
+    opacity: 0.7;
+  }
+  .starbaby__cheek--l { left: 22%; }
+  .starbaby__cheek--r { right: 22%; }
+
+  @keyframes sb-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-4px); }
+  }
+  @keyframes sb-wiggle {
+    0%, 100% { transform: rotate(0deg); }
+    25%      { transform: rotate(-3deg); }
+    75%      { transform: rotate(3deg); }
+  }
+  @keyframes sb-blink {
+    0%, 88%, 100% { transform: scaleY(1); }
+    92%, 95%      { transform: scaleY(0.1); }
+  }
+
+  /* ════════════════════════════════════════════════════
+     ② 星顶头 · 圆头小生物，头顶顶着金星
+     —— 头是主体，星是冠/标志
+     ════════════════════════════════════════════════════ */
+  .startop {
+    width: 84px;
+    height: 96px;
+    position: relative;
+    animation: st-float 3.2s ease-in-out infinite;
+  }
+  /* 头身 */
+  .startop__head {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 72px;
+    height: 72px;
+    background: linear-gradient(135deg, var(--steel) 0%, var(--steel-deep) 100%);
+    border-radius: 42% 42% 48% 48%;
+    box-shadow:
+      inset 0 -4px 8px rgba(0,0,0,0.3),
+      inset 0 3px 6px rgba(255,255,255,0.15),
+      0 8px 18px rgba(45, 91, 138, 0.4);
+    animation: st-bob 4s ease-in-out infinite;
+    transform-origin: 50% 90%;
+  }
+  /* 脸屏 */
+  .startop__face {
+    position: absolute;
+    top: 32%;
+    left: 50%;
+    transform: translate(-50%, 0);
+    width: 70%;
+    height: 38%;
+    background: rgba(15, 26, 46, 0.85);
+    border-radius: 50% / 60%;
+    border: 1.5px solid rgba(94, 234, 212, 0.25);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18%;
+    box-shadow:
+      inset 0 0 8px rgba(94, 234, 212, 0.2),
+      0 0 10px rgba(94, 234, 212, 0.15);
+  }
+  .startop__eye {
+    width: 18%;
+    aspect-ratio: 1;
+    background: var(--mint);
+    border-radius: 50%;
+    box-shadow: 0 0 6px var(--mint);
+    animation: st-blink 4.5s ease-in-out infinite;
+    position: relative;
+  }
+  .startop__eye::after {
+    content: '';
+    position: absolute;
+    top: 12%;
+    left: 18%;
+    width: 32%;
+    height: 32%;
+    background: white;
+    border-radius: 50%;
+  }
+  /* 头顶金星 */
+  .startop__star {
+    position: absolute;
+    top: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 28px;
+    height: 28px;
+    color: var(--gold-bright);
+    filter: drop-shadow(0 2px 6px rgba(245, 213, 115, 0.7));
+    animation: st-starspin 4s ease-in-out infinite, st-starpulse 2s ease-in-out infinite;
+  }
+
+  @keyframes st-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-3px); }
+  }
+  @keyframes st-bob {
+    0%, 100% { transform: translateX(-50%) rotate(0deg); }
+    25%      { transform: translateX(-50%) rotate(-3deg); }
+    75%      { transform: translateX(-50%) rotate(3deg); }
+  }
+  @keyframes st-blink {
+    0%, 90%, 100% { transform: scaleY(1); }
+    93%, 96%      { transform: scaleY(0.1); }
+  }
+  @keyframes st-starspin {
+    0%, 100% { transform: translateX(-50%) rotate(0deg); }
+    50%      { transform: translateX(-50%) rotate(-15deg); }
+  }
+  @keyframes st-starpulse {
+    0%, 100% { filter: drop-shadow(0 2px 6px rgba(245, 213, 115, 0.7)); }
+    50%      { filter: drop-shadow(0 2px 12px rgba(245, 213, 115, 1)); }
+  }
+
+  /* ════════════════════════════════════════════════════
+     ③ 星精灵 · 水滴形 + 头顶星芒 + 拖尾
+     —— 流体感强，更现代/轻盈
+     ════════════════════════════════════════════════════ */
+  .spirit {
+    width: 78px;
+    height: 100px;
+    position: relative;
+    animation: sp-float 3.5s ease-in-out infinite;
+  }
+  /* 身体水滴形 */
+  .spirit__body {
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 72px;
+    height: 72px;
+    background:
+      radial-gradient(circle at 35% 35%, rgba(255,255,255,0.4) 0%, transparent 40%),
+      linear-gradient(135deg, var(--gold-bright) 0%, var(--gold) 50%, var(--gold-deep) 100%);
+    border-radius: 50% 50% 50% 50% / 56% 56% 44% 44%;
+    box-shadow:
+      0 8px 20px rgba(201, 149, 43, 0.45),
+      inset 0 -3px 6px rgba(0,0,0,0.2),
+      inset 0 3px 6px rgba(255,255,255,0.3);
+    animation: sp-wobble 3.6s ease-in-out infinite;
+    transform-origin: 50% 80%;
+  }
+  /* 脸（小） */
+  .spirit__face {
+    position: absolute;
+    top: 36%;
+    left: 50%;
+    transform: translate(-50%, 0);
+    width: 56%;
+    height: 26%;
+    background: var(--ink);
+    border-radius: 50% / 60%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 18%;
+    box-shadow: inset 0 1px 3px rgba(0,0,0,0.5);
+  }
+  .spirit__eye {
+    width: 22%;
+    aspect-ratio: 1;
+    background: var(--mint);
+    border-radius: 50%;
+    box-shadow: 0 0 5px var(--mint);
+    animation: sp-blink 4s ease-in-out infinite;
+    position: relative;
+  }
+  .spirit__eye::after {
+    content: '';
+    position: absolute;
+    top: 10%;
+    left: 18%;
+    width: 35%;
+    height: 35%;
+    background: white;
+    border-radius: 50%;
+  }
+  /* 头顶星芒（小型，发光） */
+  .spirit__sparkle {
+    position: absolute;
+    top: -6px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 20px;
+    height: 20px;
+    color: var(--gold-bright);
+    filter: drop-shadow(0 0 6px var(--gold-bright));
+    animation: sp-sparkle 1.6s ease-in-out infinite;
+  }
+  /* 下方拖尾（两条短弧） */
+  .spirit__tail {
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 12px;
+    pointer-events: none;
+  }
+  .spirit__tail::before,
+  .spirit__tail::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--gold-light);
+    box-shadow: 0 0 6px var(--gold-light);
+    opacity: 0.7;
+    animation: sp-tail 1.4s ease-in-out infinite;
+  }
+  .spirit__tail::before { left: 10px; animation-delay: 0s; }
+  .spirit__tail::after  { right: 10px; animation-delay: 0.7s; }
+
+  @keyframes sp-float {
+    0%, 100% { transform: translateY(0); }
+    50%      { transform: translateY(-5px); }
+  }
+  @keyframes sp-wobble {
+    0%, 100% { transform: translateX(-50%) scaleX(1) scaleY(1); }
+    50%      { transform: translateX(-50%) scaleX(1.03) scaleY(0.97); }
+  }
+  @keyframes sp-blink {
+    0%, 87%, 100% { transform: scaleY(1); }
+    91%, 95%      { transform: scaleY(0.1); }
+  }
+  @keyframes sp-sparkle {
+    0%, 100% { opacity: 0.7; transform: translateX(-50%) scale(1) rotate(0deg); }
+    50%      { opacity: 1;   transform: translateX(-50%) scale(1.25) rotate(45deg); }
+  }
+  @keyframes sp-tail {
+    0%, 100% { opacity: 0.3; transform: translateY(0) scale(0.8); }
+    50%      { opacity: 0.8; transform: translateY(-4px) scale(1.2); }
+  }
+
+  /* 尺寸调整器 */
+  .scale-down { transform: scale(0.55); transform-origin: center; margin: -20px 0; }
+  .scale-up { transform: scale(1.2); transform-origin: center; }
+</style>
+</head>
+<body>
+  <h1>小星助手 · 吉祥物三方向</h1>
+  <p class="sub">每个方向 4 种背景演示 · 真实尺寸 · 真实动画</p>
+
+  <!-- ① 星宝宝 -->
+  <h2>方向 ① 星宝宝 · 圆滚五角星本身就是它</h2>
+  <div class="row">
+    <div class="card">
+      <div class="stage">
+        <div class="starbaby">
+          <svg class="starbaby__body" viewBox="0 0 100 100">
+            <defs>
+              <linearGradient id="sb-grad" x1="0" y1="0" x2="1" y2="1">
+                <stop offset="0%" stop-color="#f5d573"/>
+                <stop offset="55%" stop-color="#c9952b"/>
+                <stop offset="100%" stop-color="#8c620e"/>
+              </linearGradient>
+            </defs>
+            <!-- 圆角五角星 -->
+            <path d="M50 8 C52 8 53 9 54 11 L60 28 L78 30 C80 30 82 31 82 34 C82 36 81 37 80 38 L67 51 L71 70 C71 72 70 74 68 74 C66 74 65 73 64 73 L50 64 L36 73 C35 73 34 74 32 74 C30 74 29 72 29 70 L33 51 L20 38 C19 37 18 36 18 34 C18 31 20 30 22 30 L40 28 L46 11 C47 9 48 8 50 8 Z"
+                  fill="url(#sb-grad)"
+                  stroke="#8c620e"
+                  stroke-width="1"
+                  stroke-linejoin="round"/>
+          </svg>
+          <div class="starbaby__face">
+            <div class="starbaby__eye"></div>
+            <div class="starbaby__eye"></div>
+          </div>
+          <div class="starbaby__cheek starbaby__cheek--l"></div>
+          <div class="starbaby__cheek starbaby__cheek--r"></div>
+        </div>
+      </div>
+      <h3>白底 · 88px</h3>
+      <p>欢迎页主用</p>
+    </div>
+
+    <div class="card paper">
+      <div class="stage">
+        <div class="starbaby">
+          <svg class="starbaby__body" viewBox="0 0 100 100">
+            <use href="#sb-grad-2"/>
+            <path d="M50 8 C52 8 53 9 54 11 L60 28 L78 30 C80 30 82 31 82 34 C82 36 81 37 80 38 L67 51 L71 70 C71 72 70 74 68 74 C66 74 65 73 64 73 L50 64 L36 73 C35 73 34 74 32 74 C30 74 29 72 29 70 L33 51 L20 38 C19 37 18 36 18 34 C18 31 20 30 22 30 L40 28 L46 11 C47 9 48 8 50 8 Z"
+                  fill="url(#sb-grad)" stroke="#8c620e" stroke-width="1" stroke-linejoin="round"/>
+          </svg>
+          <div class="starbaby__face">
+            <div class="starbaby__eye"></div>
+            <div class="starbaby__eye"></div>
+          </div>
+          <div class="starbaby__cheek starbaby__cheek--l"></div>
+          <div class="starbaby__cheek starbaby__cheek--r"></div>
+        </div>
+      </div>
+      <h3>米色底</h3>
+      <p>对比合同卡片</p>
+    </div>
+
+    <div class="card dark">
+      <div class="stage">
+        <div class="starbaby">
+          <svg class="starbaby__body" viewBox="0 0 100 100">
+            <path d="M50 8 C52 8 53 9 54 11 L60 28 L78 30 C80 30 82 31 82 34 C82 36 81 37 80 38 L67 51 L71 70 C71 72 70 74 68 74 C66 74 65 73 64 73 L50 64 L36 73 C35 73 34 74 32 74 C30 74 29 72 29 70 L33 51 L20 38 C19 37 18 36 18 34 C18 31 20 30 22 30 L40 28 L46 11 C47 9 48 8 50 8 Z"
+                  fill="url(#sb-grad)" stroke="#8c620e" stroke-width="1" stroke-linejoin="round"/>
+          </svg>
+          <div class="starbaby__face">
+            <div class="starbaby__eye"></div>
+            <div class="starbaby__eye"></div>
+          </div>
+          <div class="starbaby__cheek starbaby__cheek--l"></div>
+          <div class="starbaby__cheek starbaby__cheek--r"></div>
+        </div>
+      </div>
+      <h3>深底</h3>
+      <p>对比侧边栏</p>
+    </div>
+
+    <div class="card">
+      <div class="stage">
+        <div class="starbaby scale-down">
+          <svg class="starbaby__body" viewBox="0 0 100 100">
+            <path d="M50 8 C52 8 53 9 54 11 L60 28 L78 30 C80 30 82 31 82 34 C82 36 81 37 80 38 L67 51 L71 70 C71 72 70 74 68 74 C66 74 65 73 64 73 L50 64 L36 73 C35 73 34 74 32 74 C30 74 29 72 29 70 L33 51 L20 38 C19 37 18 36 18 34 C18 31 20 30 22 30 L40 28 L46 11 C47 9 48 8 50 8 Z"
+                  fill="url(#sb-grad)" stroke="#8c620e" stroke-width="1" stroke-linejoin="round"/>
+          </svg>
+          <div class="starbaby__face">
+            <div class="starbaby__eye"></div>
+            <div class="starbaby__eye"></div>
+          </div>
+        </div>
+      </div>
+      <h3>侧边栏 48px</h3>
+      <p>缩小后腮红已隐</p>
+    </div>
+  </div>
+
+  <!-- ② 星顶头 -->
+  <h2>方向 ② 星顶头 · 深蓝小机器人，头顶一颗金星（最贴合品牌色双主调）</h2>
+  <div class="row">
+    <div class="card">
+      <div class="stage">
+        <div class="startop">
+          <div class="startop__head">
+            <div class="startop__face">
+              <div class="startop__eye"></div>
+              <div class="startop__eye"></div>
+            </div>
+          </div>
+          <div class="startop__star">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.6 6.3L21 9l-5 4.6L17.3 21 12 17.6 6.7 21 8 13.6 3 9l6.4-.7z"/></svg>
+          </div>
+        </div>
+      </div>
+      <h3>白底</h3>
+      <p>钢蓝头 + 金星冠</p>
+    </div>
+
+    <div class="card paper">
+      <div class="stage">
+        <div class="startop">
+          <div class="startop__head">
+            <div class="startop__face">
+              <div class="startop__eye"></div>
+              <div class="startop__eye"></div>
+            </div>
+          </div>
+          <div class="startop__star">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.6 6.3L21 9l-5 4.6L17.3 21 12 17.6 6.7 21 8 13.6 3 9l6.4-.7z"/></svg>
+          </div>
+        </div>
+      </div>
+      <h3>米色底</h3>
+      <p>金星更跳</p>
+    </div>
+
+    <div class="card dark">
+      <div class="stage">
+        <div class="startop">
+          <div class="startop__head">
+            <div class="startop__face">
+              <div class="startop__eye"></div>
+              <div class="startop__eye"></div>
+            </div>
+          </div>
+          <div class="startop__star">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.6 6.3L21 9l-5 4.6L17.3 21 12 17.6 6.7 21 8 13.6 3 9l6.4-.7z"/></svg>
+          </div>
+        </div>
+      </div>
+      <h3>深底</h3>
+      <p>需调浅头身</p>
+    </div>
+
+    <div class="card">
+      <div class="stage">
+        <div class="startop scale-down">
+          <div class="startop__head">
+            <div class="startop__face">
+              <div class="startop__eye"></div>
+              <div class="startop__eye"></div>
+            </div>
+          </div>
+          <div class="startop__star">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.6 6.3L21 9l-5 4.6L17.3 21 12 17.6 6.7 21 8 13.6 3 9l6.4-.7z"/></svg>
+          </div>
+        </div>
+      </div>
+      <h3>侧边栏 48px</h3>
+      <p>金星依然可辨</p>
+    </div>
+  </div>
+
+  <!-- ③ 星精灵 -->
+  <h2>方向 ③ 星精灵 · 水滴形精灵 + 头顶星芒 + 飘尾（最灵动）</h2>
+  <div class="row">
+    <div class="card">
+      <div class="stage">
+        <div class="spirit">
+          <div class="spirit__body"></div>
+          <div class="spirit__face">
+            <div class="spirit__eye"></div>
+            <div class="spirit__eye"></div>
+          </div>
+          <div class="spirit__sparkle">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8 5.8 21.3l2.4-7.4L2 9.4h7.6z"/></svg>
+          </div>
+          <div class="spirit__tail"></div>
+        </div>
+      </div>
+      <h3>白底</h3>
+      <p>金身 + 飘尾</p>
+    </div>
+
+    <div class="card paper">
+      <div class="stage">
+        <div class="spirit">
+          <div class="spirit__body"></div>
+          <div class="spirit__face">
+            <div class="spirit__eye"></div>
+            <div class="spirit__eye"></div>
+          </div>
+          <div class="spirit__sparkle">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8 5.8 21.3l2.4-7.4L2 9.4h7.6z"/></svg>
+          </div>
+          <div class="spirit__tail"></div>
+        </div>
+      </div>
+      <h3>米色底</h3>
+      <p>更温润</p>
+    </div>
+
+    <div class="card dark">
+      <div class="stage">
+        <div class="spirit">
+          <div class="spirit__body"></div>
+          <div class="spirit__face">
+            <div class="spirit__eye"></div>
+            <div class="spirit__eye"></div>
+          </div>
+          <div class="spirit__sparkle">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8 5.8 21.3l2.4-7.4L2 9.4h7.6z"/></svg>
+          </div>
+          <div class="spirit__tail"></div>
+        </div>
+      </div>
+      <h3>深底</h3>
+      <p>金身光晕最强</p>
+    </div>
+
+    <div class="card">
+      <div class="stage">
+        <div class="spirit scale-down">
+          <div class="spirit__body"></div>
+          <div class="spirit__face">
+            <div class="spirit__eye"></div>
+            <div class="spirit__eye"></div>
+          </div>
+          <div class="spirit__sparkle">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2l2.4 7.4H22l-6.2 4.5 2.4 7.4L12 16.8 5.8 21.3l2.4-7.4L2 9.4h7.6z"/></svg>
+          </div>
+        </div>
+      </div>
+      <h3>侧边栏 48px</h3>
+      <p>缩小后去掉飘尾</p>
+    </div>
+  </div>
+
+  <div style="max-width:800px;margin:32px auto 0;padding:24px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;font-size:13px;line-height:1.8;color:#78350f;">
+    <b>三个方向对比：</b><br>
+    <b>① 星宝宝</b> — 最纯粹的"星" IP，圆滚滚的五角星就是它。腮红+大眼+摇晃，可爱亲切。<b>风险：</b>偏卡通，企业财务系统可能略软<br>
+    <b>② 星顶头</b> — 钢蓝头 + 金星冠，<b>同时用上了品牌的两个核心色</b>。深蓝是稳重的"系统色"，金星是"我是 AI 助手"。最贴合 CLAUDE.md 里的色彩定调<br>
+    <b>③ 星精灵</b> — 流体水滴 + 头顶星芒 + 飘尾。最现代/最有"魔法 AI"感，但对小尺寸不友好<br><br>
+    <b>挑哪个？</b>从企业场景 + 现有色彩体系看，我推荐 ②。但如果你更想要"萌"，①最直接。
+  </div>
+</body>
+</html>

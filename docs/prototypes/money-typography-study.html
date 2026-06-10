@@ -1,0 +1,1721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>金额排版 · 5 种现代方案对比</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600;700&family=Inter+Tight:wght@500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --brand-deep: #0f1a2e;
+    --brand-primary: #1e3a5f;
+    --brand-primary-light: #2d5080;
+    --brand-primary-lighter: #e8edf5;
+    --brand-gold: #c9952b;
+    --brand-gold-deep: #a87a18;
+    --brand-gold-light: #f5e6c8;
+    --brand-gold-bg: #fdf8ef;
+
+    --bg-page: #f5f6f8;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f8f9fc;
+    --bg-hover: #f1f3f7;
+
+    --border-light: #e2e5ea;
+    --border-default: #d0d4dd;
+
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #94a3b8;
+    --text-placeholder: #c0c5ce;
+
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+    --shadow-lg: 0 8px 30px rgba(15, 23, 42, 0.08);
+
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    --font-display: 'Noto Serif SC', serif;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-fraunces: 'Fraunces', 'Noto Serif SC', serif;
+    --font-instrument: 'Instrument Serif', 'Noto Serif SC', serif;
+    --font-plex-mono: 'IBM Plex Mono', monospace;
+    --font-inter: 'Inter Tight', sans-serif;
+    --font-dm-mono: 'DM Mono', monospace;
+
+    --biz-vehicle: #667eea;
+    --biz-vehicle-soft: rgba(102, 126, 234, 0.10);
+    --biz-cross: #0d9488;
+    --biz-cross-soft: rgba(13, 148, 136, 0.10);
+
+    --money-paid: var(--brand-gold);
+    --money-done: #0d9488;
+    --money-due: #dc6b3d;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-page);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(30, 58, 95, 0.035), transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(201, 149, 43, 0.04), transparent 45%);
+    min-height: 100vh;
+    padding: 36px 28px 80px;
+    color: var(--text-primary);
+  }
+
+  .header {
+    max-width: 1480px;
+    margin: 0 auto 28px;
+  }
+  .header .tag {
+    display: inline-block;
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-gold-deep);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .header h1 {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 1.5px;
+    margin-bottom: 12px;
+  }
+  .header .sub {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.75;
+    max-width: 880px;
+  }
+  .header .sub b { color: var(--brand-gold-deep); font-weight: 600; }
+
+  /* —— 诊断条 —— */
+  .diag {
+    max-width: 1480px;
+    margin: 0 auto 36px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 18px 24px;
+  }
+  .diag-title {
+    font-family: var(--font-plex-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+    font-weight: 600;
+  }
+  .diag-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 18px;
+  }
+  .diag-item {
+    border-left: 2px solid var(--brand-gold);
+    padding-left: 14px;
+  }
+  .diag-item .num {
+    font-family: var(--font-plex-mono);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 0.2px;
+    margin-bottom: 4px;
+  }
+  .diag-item .lbl {
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.5;
+  }
+
+  /* —— 区段标题 —— */
+  .section {
+    max-width: 1480px;
+    margin: 0 auto 56px;
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--border-default);
+  }
+  .section-head .badge {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--brand-primary);
+    padding: 4px 11px;
+    border-radius: 3px;
+    letter-spacing: 2px;
+  }
+  .section-head h2 {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 0.8px;
+  }
+  .section-head .ref {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+    letter-spacing: 0.3px;
+  }
+  .section-rationale {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin-bottom: 18px;
+    max-width: 880px;
+  }
+  .section-rationale b { color: var(--brand-deep); font-weight: 600; }
+  .section-rationale code {
+    font-family: var(--font-plex-mono);
+    font-size: 11.5px;
+    background: var(--bg-hover);
+    color: var(--brand-primary);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  @media (max-width: 1200px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ════════════════════════════════════════════════
+     共用：客户卡片外壳（与已实现一致）
+     ════════════════════════════════════════════════ */
+  .card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.25s ease;
+    cursor: pointer;
+  }
+  .card:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    border-color: rgba(30, 58, 95, 0.18);
+  }
+
+  .identity {
+    padding: 14px 18px 14px;
+    border-bottom: 1px solid var(--border-light);
+    background: linear-gradient(180deg, #fcfdfe 0%, #ffffff 100%);
+  }
+  .identity-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-light) 100%);
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(30, 58, 95, 0.18);
+    flex-shrink: 0;
+  }
+  .name {
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.3px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pill {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-primary);
+    background: var(--brand-primary-lighter);
+    padding: 3px 9px;
+    border-radius: 12px;
+    flex-shrink: 0;
+  }
+  .pill b { font-size: 12px; font-weight: 700; }
+
+  .id-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .id-meta svg {
+    width: 11px; height: 11px;
+    color: var(--text-tertiary);
+    vertical-align: -1px;
+    margin-right: 4px;
+  }
+  .id-meta .mono {
+    font-family: var(--font-plex-mono);
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+  }
+
+  .ct-list {
+    padding: 10px 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ct {
+    position: relative;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 12px 14px 12px 16px;
+    background: var(--bg-surface);
+  }
+  .ct::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px;
+    height: 100%;
+    background: var(--border-default);
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+  }
+  .ct.veh::before { background: var(--biz-vehicle); }
+  .ct.cross::before { background: var(--biz-cross); }
+
+  .ct-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+  .biz-mini {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .biz-mini svg { width: 11px; height: 11px; }
+  .biz-mini.veh { color: #5063c4; background: var(--biz-vehicle-soft); }
+  .biz-mini.cross { color: var(--biz-cross); background: var(--biz-cross-soft); }
+  .ct-meta {
+    margin-left: auto;
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    font-family: var(--font-plex-mono);
+    letter-spacing: 0.3px;
+  }
+
+  /* ════════════════════════════════════════════════
+     方案 1 · Stripe Dashboard 风
+     —— 货币符号小+上标，整数粗大，小数点+小数灰化
+     —— 关键：字号对比制造层级
+     ════════════════════════════════════════════════ */
+  .v1-body {
+    display: grid;
+    grid-template-columns: minmax(0, auto) 1fr;
+    gap: 14px;
+    align-items: center;
+  }
+  .v1-money {
+    border-right: 1px dashed var(--border-light);
+    padding-right: 14px;
+  }
+  .v1-label {
+    font-family: var(--font-plex-mono);
+    font-size: 9.5px;
+    color: var(--text-tertiary);
+    letter-spacing: 1.8px;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .v1-paid {
+    font-family: var(--font-inter);
+    font-weight: 700;
+    color: var(--brand-deep);
+    line-height: 1;
+    letter-spacing: -0.5px;
+    font-variant-numeric: tabular-nums lining-nums;
+    display: flex;
+    align-items: baseline;
+    gap: 1px;
+    white-space: nowrap;
+  }
+  .v1-paid .cur {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    margin-right: 3px;
+    transform: translateY(-7px);
+    letter-spacing: 0.2px;
+  }
+  .v1-paid .int {
+    font-size: 26px;
+    color: var(--brand-gold-deep);
+  }
+  .v1-paid.done .int { color: var(--money-done); }
+  .v1-paid .dec {
+    font-size: 14px;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    margin-left: 1px;
+  }
+  .v1-total {
+    font-family: var(--font-plex-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    margin-top: 6px;
+    letter-spacing: 0.2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .v1-total b {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .v1-info { min-width: 0; }
+  .v1-desc {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .v1-tags {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 7px;
+    flex-wrap: wrap;
+  }
+  .v1-tag {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .v1-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .v1-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--bg-hover);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .v1-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--money-paid) 0%, #e0b04e 100%);
+    border-radius: 2px;
+  }
+  .v1-bar-fill.done {
+    background: linear-gradient(90deg, var(--money-done) 0%, #14b8a6 100%);
+  }
+  .v1-pct {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-gold-deep);
+    font-variant-numeric: tabular-nums;
+  }
+  .v1-pct.done { color: var(--money-done); }
+  .v1-stage {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+  .v1-stage b { color: var(--brand-gold-deep); font-weight: 700; }
+
+  /* ════════════════════════════════════════════════
+     方案 2 · 收据/银行流水风（Receipt）
+     —— 等宽金额带底纹+下划虚线，左 LABEL 右 NUMBER 对齐
+     —— 关键：底座 + 节奏感
+     ════════════════════════════════════════════════ */
+  .v2-receipt {
+    background: linear-gradient(180deg, #fdf8ef 0%, #fdfaf3 100%);
+    border: 1px solid #f0e1c2;
+    border-radius: 6px;
+    padding: 10px 12px 11px;
+    position: relative;
+    overflow: hidden;
+  }
+  .v2-receipt::before {
+    content: '';
+    position: absolute;
+    top: 0; bottom: 0; left: 0;
+    width: 3px;
+    background: repeating-linear-gradient(
+      to bottom,
+      var(--brand-gold) 0 5px,
+      transparent 5px 9px
+    );
+  }
+  .v2-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .v2-row:last-child { margin-bottom: 0; }
+  .v2-row.divider {
+    border-top: 1px dashed #e0c889;
+    padding-top: 6px;
+    margin-top: 8px;
+  }
+  .v2-row-label {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--brand-gold-deep);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .v2-row-num {
+    font-family: var(--font-plex-mono);
+    font-variant-numeric: tabular-nums lining-nums;
+    color: var(--brand-deep);
+    font-weight: 700;
+    letter-spacing: 0.2px;
+  }
+  .v2-row-num.big {
+    font-size: 18px;
+    color: var(--brand-gold-deep);
+    line-height: 1;
+  }
+  .v2-row-num.big.done { color: var(--money-done); }
+  .v2-row-num .cur {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    margin-right: 2px;
+    letter-spacing: 0;
+  }
+  .v2-row-num.small {
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .v2-row-num.due {
+    font-size: 12px;
+    color: var(--money-due);
+  }
+
+  .v2-meta-line {
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-light);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .v2-desc {
+    font-size: 12.5px;
+    color: var(--text-primary);
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .v2-tag {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 1px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* ════════════════════════════════════════════════
+     方案 3 · 显示衬线（Display Serif）— 奢华财务
+     —— Fraunces 大数 + 货币符号特殊处理
+     —— 关键：通过字体差异制造视觉权威
+     ════════════════════════════════════════════════ */
+  .v3-body {
+    display: grid;
+    grid-template-columns: minmax(0, auto) 1fr;
+    gap: 16px;
+    align-items: center;
+  }
+  .v3-money {
+    border-right: 1px solid var(--border-light);
+    padding-right: 16px;
+    position: relative;
+  }
+  .v3-label {
+    font-family: var(--font-plex-mono);
+    font-size: 9.5px;
+    color: var(--text-tertiary);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .v3-paid {
+    font-family: var(--font-fraunces);
+    font-weight: 700;
+    color: var(--brand-deep);
+    line-height: 0.95;
+    letter-spacing: -1px;
+    display: flex;
+    align-items: baseline;
+    gap: 3px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums lining-nums;
+    font-feature-settings: 'ss01' on;
+  }
+  .v3-paid .cur {
+    font-family: var(--font-instrument);
+    font-style: italic;
+    font-size: 18px;
+    font-weight: 400;
+    color: var(--brand-gold);
+    letter-spacing: 0;
+    margin-right: 2px;
+    transform: translateY(-2px);
+  }
+  .v3-paid .int {
+    font-size: 30px;
+    color: var(--brand-gold-deep);
+  }
+  .v3-paid.done .int { color: var(--money-done); }
+  .v3-paid.done .cur { color: var(--money-done); }
+  .v3-paid .k {
+    font-family: var(--font-plex-mono);
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-tertiary);
+    margin-left: 4px;
+    letter-spacing: 0.5px;
+    text-transform: lowercase;
+  }
+  .v3-total {
+    font-family: var(--font-plex-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    margin-top: 7px;
+    letter-spacing: 0.3px;
+    font-variant-numeric: tabular-nums;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .v3-total .slash {
+    color: var(--text-placeholder);
+  }
+  .v3-total b {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  .v3-info { min-width: 0; }
+  .v3-desc {
+    font-family: var(--font-display);
+    font-size: 13.5px;
+    color: var(--text-primary);
+    font-weight: 600;
+    margin-bottom: 5px;
+    letter-spacing: 0.3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .v3-tags {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+  .v3-tag {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--brand-primary);
+    background: var(--brand-primary-lighter);
+    padding: 1px 7px;
+    border-radius: 3px;
+    font-weight: 500;
+  }
+  .v3-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .v3-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--bg-hover);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .v3-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--money-paid) 0%, #e0b04e 100%);
+    border-radius: 2px;
+  }
+  .v3-bar-fill.done {
+    background: linear-gradient(90deg, var(--money-done) 0%, #14b8a6 100%);
+  }
+  .v3-pct {
+    font-family: var(--font-fraunces);
+    font-size: 13px;
+    font-weight: 700;
+    color: var(--brand-gold-deep);
+    letter-spacing: -0.2px;
+    line-height: 1;
+    font-variant-numeric: tabular-nums;
+  }
+  .v3-pct.done { color: var(--money-done); }
+  .v3-stage {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+
+  /* ════════════════════════════════════════════════
+     方案 4 · 重型数字盒（Mercury / Ramp 风）
+     —— 整个数字+背景作为一块「资产砖」
+     —— 关键：把数字"装进"一个有色容器，重量来自背景
+     ════════════════════════════════════════════════ */
+  .v4-body {
+    display: grid;
+    grid-template-columns: minmax(0, auto) 1fr;
+    gap: 12px;
+    align-items: stretch;
+  }
+  .v4-money {
+    background: linear-gradient(180deg, var(--brand-deep) 0%, #1a2942 100%);
+    border-radius: 8px;
+    padding: 10px 14px 11px;
+    position: relative;
+    overflow: hidden;
+    min-width: 0;
+  }
+  .v4-money::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--brand-gold) 50%, transparent);
+  }
+  .v4-money.done {
+    background: linear-gradient(180deg, #0a3d3a 0%, #0d4f4a 100%);
+  }
+  .v4-money.done::before {
+    background: linear-gradient(90deg, transparent, var(--money-done) 50%, transparent);
+  }
+  .v4-label {
+    font-family: var(--font-plex-mono);
+    font-size: 9px;
+    color: rgba(255, 255, 255, 0.55);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    font-weight: 600;
+    margin-bottom: 5px;
+  }
+  .v4-paid {
+    font-family: var(--font-inter);
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.8px;
+    display: flex;
+    align-items: baseline;
+    gap: 1px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums lining-nums;
+    color: var(--brand-gold);
+  }
+  .v4-paid.done { color: #5eead4; }
+  .v4-paid .cur {
+    font-size: 11px;
+    font-weight: 600;
+    opacity: 0.7;
+    margin-right: 3px;
+    transform: translateY(-6px);
+  }
+  .v4-paid .int {
+    font-size: 22px;
+  }
+  .v4-total {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: rgba(255, 255, 255, 0.5);
+    margin-top: 6px;
+    letter-spacing: 0.2px;
+    font-variant-numeric: tabular-nums;
+  }
+  .v4-total b {
+    color: rgba(255, 255, 255, 0.85);
+    font-weight: 600;
+  }
+
+  .v4-info {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+  .v4-desc {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .v4-tags {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 7px;
+    flex-wrap: wrap;
+  }
+  .v4-tag {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .v4-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .v4-bar {
+    flex: 1;
+    height: 3px;
+    background: var(--bg-hover);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .v4-bar-fill {
+    height: 100%;
+    background: var(--brand-deep);
+    border-radius: 2px;
+  }
+  .v4-bar-fill.done {
+    background: var(--money-done);
+  }
+  .v4-pct {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    font-variant-numeric: tabular-nums;
+  }
+  .v4-pct.done { color: var(--money-done); }
+  .v4-stage {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+  }
+
+  /* ════════════════════════════════════════════════
+     方案 5 · 比例条 + 锚定数字（Wise / Linear 风）
+     —— 数字与进度合体：金额坐在彩色填充条上
+     —— 关键：把"金额"和"进度"做成同一个视觉对象
+     ════════════════════════════════════════════════ */
+  .v5-meter {
+    background: var(--bg-subtle);
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    padding: 11px 14px 13px;
+    position: relative;
+    overflow: hidden;
+  }
+  .v5-meter-top {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .v5-paid {
+    font-family: var(--font-inter);
+    font-weight: 700;
+    color: var(--brand-gold-deep);
+    line-height: 1;
+    letter-spacing: -0.5px;
+    display: flex;
+    align-items: baseline;
+    gap: 2px;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums lining-nums;
+  }
+  .v5-paid.done { color: var(--money-done); }
+  .v5-paid .cur {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    margin-right: 2px;
+  }
+  .v5-paid .int { font-size: 22px; }
+  .v5-slash {
+    font-family: var(--font-plex-mono);
+    font-size: 13px;
+    color: var(--text-placeholder);
+    font-weight: 500;
+    margin: 0 2px;
+  }
+  .v5-total {
+    font-family: var(--font-plex-mono);
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    font-variant-numeric: tabular-nums;
+  }
+  .v5-pct-inline {
+    margin-left: auto;
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--brand-gold-deep);
+    background: var(--brand-gold-bg);
+    padding: 2px 7px;
+    border-radius: 3px;
+    border: 1px solid var(--brand-gold-light);
+  }
+  .v5-pct-inline.done {
+    color: var(--money-done);
+    background: rgba(13, 148, 136, 0.08);
+    border-color: rgba(13, 148, 136, 0.25);
+  }
+
+  .v5-meter-bar {
+    height: 6px;
+    background: var(--bg-hover);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+    margin-bottom: 10px;
+  }
+  .v5-meter-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--brand-gold) 0%, #e0b04e 100%);
+    border-radius: 3px;
+    position: relative;
+  }
+  .v5-meter-fill.done {
+    background: linear-gradient(90deg, var(--money-done) 0%, #14b8a6 100%);
+  }
+  .v5-meter-fill::after {
+    content: '';
+    position: absolute;
+    right: -1px; top: -2px; bottom: -2px;
+    width: 2px;
+    background: var(--brand-gold-deep);
+    border-radius: 1px;
+    box-shadow: 0 0 0 2px var(--bg-surface);
+  }
+  .v5-meter-fill.done::after {
+    background: var(--money-done);
+  }
+
+  .v5-info {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .v5-desc {
+    font-size: 12.5px;
+    color: var(--text-primary);
+    font-weight: 500;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .v5-tag {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 1px 6px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .v5-stage {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    color: var(--text-tertiary);
+    white-space: nowrap;
+  }
+  .v5-stage b { color: var(--brand-gold-deep); font-weight: 700; }
+  .v5-stage.done b { color: var(--money-done); }
+
+  /* —— 当前实现（对照组）—— */
+  .v0-body {
+    display: grid;
+    grid-template-columns: minmax(0, auto) 1fr;
+    gap: 14px;
+    align-items: center;
+  }
+  .v0-money {
+    border-right: 1px dashed var(--border-light);
+    padding-right: 14px;
+  }
+  .v0-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: 4px;
+  }
+  .v0-paid {
+    font-family: var(--font-mono);
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--brand-gold);
+    line-height: 1;
+    letter-spacing: -0.3px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .v0-paid.done { color: var(--money-done); }
+  .v0-paid .cur {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.7;
+    margin-right: 1px;
+  }
+  .v0-total {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+  }
+  .v0-total b {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .v0-info { min-width: 0; }
+  .v0-desc {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 5px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .v0-tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 1px 7px;
+    border-radius: 3px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+  .v0-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 7px;
+  }
+  .v0-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--bg-hover);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .v0-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--money-paid) 0%, #e0b04e 100%);
+    border-radius: 2px;
+  }
+  .v0-pct {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--money-paid);
+  }
+  .v0-stage {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+  }
+  .v0-stage b { color: var(--money-paid); font-weight: 700; }
+
+  /* —— 总结 —— */
+  .summary {
+    max-width: 1480px;
+    margin: 0 auto;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 24px 28px;
+  }
+  .summary h3 {
+    font-family: var(--font-display);
+    font-size: 18px;
+    color: var(--brand-deep);
+    margin-bottom: 16px;
+    letter-spacing: 0.5px;
+  }
+  .summary table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .summary th {
+    text-align: left;
+    padding: 10px 14px;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    border-bottom: 2px solid var(--border-default);
+  }
+  .summary td {
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-secondary);
+    vertical-align: top;
+  }
+  .summary td:first-child {
+    font-family: var(--font-display);
+    color: var(--brand-deep);
+    font-weight: 600;
+    width: 130px;
+  }
+  .summary td b { color: var(--brand-deep); font-weight: 600; }
+  .summary .rec {
+    background: var(--brand-gold-bg);
+  }
+  .summary .rec td:first-child {
+    color: var(--brand-gold-deep);
+    position: relative;
+    padding-left: 22px;
+  }
+  .summary .rec td:first-child::before {
+    content: '★';
+    position: absolute;
+    left: 8px;
+    color: var(--brand-gold);
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="tag">PROTOTYPE · 金额数字视觉权重对比</span>
+  <h1>金额排版 · 5 种现代方案</h1>
+  <p class="sub">
+    现版 <code style="font-family:var(--font-plex-mono);background:var(--bg-hover);padding:2px 6px;border-radius:3px;font-size:11.5px;">HK$140,000</code> 飘的根因不是字号，而是
+    <b>缺少层级、缺少底座、单一字体单一字重</b>。本原型基于
+    <b>Stripe · Mercury · Ramp · Wise · 银行收据</b>等现代 UI 抽象出 5 类有效手法，
+    全部应用到<b>同一份合同</b>（胡少棟 · HK$140,000 / HK$250,000 · 56%）以便直接横评。
+  </p>
+</div>
+
+<div class="diag">
+  <div class="diag-title">为什么现在的数字"飘"</div>
+  <div class="diag-grid">
+    <div class="diag-item">
+      <div class="num">单字体单字重</div>
+      <div class="lbl">货币符号、整数、小数、单位全是 JetBrains Mono Bold，无对比</div>
+    </div>
+    <div class="diag-item">
+      <div class="num">缺少底座</div>
+      <div class="lbl">数字直接漂在白底卡片上，没有视觉锚点</div>
+    </div>
+    <div class="diag-item">
+      <div class="num">死亡字号区间</div>
+      <div class="lbl">20px 既不够小见精细，也不够大见冲击，最"温吞"的尺寸</div>
+    </div>
+    <div class="diag-item">
+      <div class="num">无节奏对比</div>
+      <div class="lbl">currency vs digits、integer vs decimal、当前 vs 总额 全平等</div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  对照组 · V0                     -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge" style="background: var(--text-tertiary);">V0</span>
+    <h2>当前实现（对照组）</h2>
+    <span class="ref">JetBrains Mono · 20px · 金色</span>
+  </div>
+  <div class="grid">
+    <div class="card">
+      <div class="identity">
+        <div class="identity-top">
+          <div class="avatar">胡</div>
+          <div class="name">胡少棟</div>
+          <div class="pill">📄 <b>2</b> 份</div>
+        </div>
+        <div class="id-meta"><span>📞 97857999</span><span class="mono">F420825(7)</span></div>
+      </div>
+      <div class="ct-list">
+        <div class="ct veh">
+          <div class="ct-head">
+            <span class="biz-mini veh">🚗 车辆业务</span>
+            <span class="ct-meta">05-22 · HT202606051422</span>
+          </div>
+          <div class="v0-body">
+            <div class="v0-money">
+              <div class="v0-label">已收</div>
+              <div class="v0-paid"><span class="cur">HK$</span>140,000</div>
+              <div class="v0-total">/ 总 <b>HK$250,000</b></div>
+            </div>
+            <div class="v0-info">
+              <div class="v0-desc">30系埃尔法 · GGH30-0016495</div>
+              <span class="v0-tag">置换抵扣</span><span class="v0-tag">港币</span>
+              <div class="v0-progress">
+                <div class="v0-bar"><div class="v0-bar-fill" style="width:56%"></div></div>
+                <span class="v0-pct">56%</span>
+                <span class="v0-stage">· <b>2</b>/3 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方案 1 · Stripe                 -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">V1</span>
+    <h2>Stripe Dashboard 风 · 字号阶梯</h2>
+    <span class="ref">Inter Tight · 货币上标 11px · 整数 26px · 小数 14px 灰</span>
+  </div>
+  <p class="section-rationale">
+    Stripe / Polar / Cal.com 都采用此手法：货币符号<b>上标缩小</b>、整数<b>放大加粗</b>、小数部分（哪怕是 .00）<b>灰化缩小</b>。
+    数字之间的<b>字号阶梯</b>本身就是层级。换 <code>Inter Tight</code>，因为它是为数字 UI 优化的几何无衬线，
+    20+px 区间的视觉密度优于 JetBrains Mono。整数颜色用 <code>--brand-gold-deep #a87a18</code> 比 <code>#c9952b</code> 在白底上更稳。
+  </p>
+  <div class="grid">
+    <div class="card">
+      <div class="identity">
+        <div class="identity-top">
+          <div class="avatar">胡</div>
+          <div class="name">胡少棟</div>
+          <div class="pill">📄 <b>2</b> 份</div>
+        </div>
+        <div class="id-meta"><span>📞 97857999</span><span class="mono">F420825(7)</span></div>
+      </div>
+      <div class="ct-list">
+        <!-- 合同 1：部分回款 -->
+        <div class="ct veh">
+          <div class="ct-head">
+            <span class="biz-mini veh">🚗 车辆业务</span>
+            <span class="ct-meta">05-22 · HT202606051422</span>
+          </div>
+          <div class="v1-body">
+            <div class="v1-money">
+              <div class="v1-label">已收</div>
+              <div class="v1-paid">
+                <span class="cur">HK$</span><span class="int">140,000</span><span class="dec">.00</span>
+              </div>
+              <div class="v1-total">/ 总 <b>HK$250,000.00</b></div>
+            </div>
+            <div class="v1-info">
+              <div class="v1-desc">30系埃尔法 · GGH30-0016495</div>
+              <div class="v1-tags">
+                <span class="v1-tag">置换抵扣</span><span class="v1-tag">港币</span>
+              </div>
+              <div class="v1-progress">
+                <div class="v1-bar"><div class="v1-bar-fill" style="width:56%"></div></div>
+                <span class="v1-pct">56%</span>
+                <span class="v1-stage">· <b>2</b>/3 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- 合同 2：全款 -->
+        <div class="ct cross">
+          <div class="ct-head">
+            <span class="biz-mini cross">🛂 两地牌过户</span>
+            <span class="ct-meta">05-28 · HT202606091607</span>
+          </div>
+          <div class="v1-body">
+            <div class="v1-money">
+              <div class="v1-label">已收</div>
+              <div class="v1-paid done">
+                <span class="cur">¥</span><span class="int">240,000</span><span class="dec">.00</span>
+              </div>
+              <div class="v1-total">/ 总 <b>¥240,000.00</b></div>
+            </div>
+            <div class="v1-info">
+              <div class="v1-desc">购买现牌 · 公司过户 + 换车</div>
+              <div class="v1-tags">
+                <span class="v1-tag">粤Z7N80港</span><span class="v1-tag">深圳湾</span>
+              </div>
+              <div class="v1-progress">
+                <div class="v1-bar"><div class="v1-bar-fill done" style="width:100%"></div></div>
+                <span class="v1-pct done">100%</span>
+                <span class="v1-stage">· <b>2</b>/2 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方案 2 · Receipt                -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">V2</span>
+    <h2>收据/银行流水风 · 底座 + 节奏</h2>
+    <span class="ref">金色羊皮纸底 · 虚线分隔 · 左 LABEL 右 NUMBER 对齐</span>
+  </div>
+  <p class="section-rationale">
+    给数字一个<b>"金融纸"底座</b>—— 这是银行回单、ATM 凭条、Square 收据用了半个世纪的视觉语言，传达"这是钱、这是凭证"。
+    手法：<code>fdf8ef</code> 米黄底 + 左侧虚线齿条 + 三行对齐（已收/总额/未收 / 业务摘要）。
+    优点：<b>底色本身就是视觉重量</b>，数字不必再"喊"。还能把已收/总额/未收三个数同框对比。
+  </p>
+  <div class="grid">
+    <div class="card">
+      <div class="identity">
+        <div class="identity-top">
+          <div class="avatar">胡</div>
+          <div class="name">胡少棟</div>
+          <div class="pill">📄 <b>2</b> 份</div>
+        </div>
+        <div class="id-meta"><span>📞 97857999</span><span class="mono">F420825(7)</span></div>
+      </div>
+      <div class="ct-list">
+        <div class="ct veh">
+          <div class="ct-head">
+            <span class="biz-mini veh">🚗 车辆业务</span>
+            <span class="ct-meta">05-22 · 2/3 期</span>
+          </div>
+          <div class="v2-receipt">
+            <div class="v2-row">
+              <span class="v2-row-label">已收</span>
+              <span class="v2-row-num big"><span class="cur">HK$</span>140,000</span>
+            </div>
+            <div class="v2-row">
+              <span class="v2-row-label">合同总额</span>
+              <span class="v2-row-num small"><span class="cur">HK$</span>250,000</span>
+            </div>
+            <div class="v2-row divider">
+              <span class="v2-row-label" style="color: var(--money-due);">未收</span>
+              <span class="v2-row-num due"><span class="cur">HK$</span>110,000</span>
+            </div>
+          </div>
+          <div class="v2-meta-line">
+            <span class="v2-desc">30系埃尔法 · GGH30-0016495</span>
+            <span class="v2-tag">56%</span>
+          </div>
+        </div>
+        <div class="ct cross">
+          <div class="ct-head">
+            <span class="biz-mini cross">🛂 两地牌过户</span>
+            <span class="ct-meta">05-28 · 2/2 期</span>
+          </div>
+          <div class="v2-receipt" style="background: linear-gradient(180deg, #ecfdf5 0%, #f0fdf9 100%); border-color: #b9e8d8;">
+            <div class="v2-row">
+              <span class="v2-row-label" style="color: var(--money-done);">已收</span>
+              <span class="v2-row-num big done"><span class="cur">¥</span>240,000</span>
+            </div>
+            <div class="v2-row">
+              <span class="v2-row-label" style="color: var(--money-done);">合同总额</span>
+              <span class="v2-row-num small" style="color: var(--money-done);"><span class="cur">¥</span>240,000</span>
+            </div>
+            <div class="v2-row divider" style="border-top-color: #a7e0c8;">
+              <span class="v2-row-label" style="color: var(--money-done);">✓ 全额结清</span>
+              <span class="v2-row-num small" style="color: var(--money-done);">100%</span>
+            </div>
+          </div>
+          <div class="v2-meta-line">
+            <span class="v2-desc">购买现牌 · 公司过户 + 换车</span>
+            <span class="v2-tag">粤Z7N80港</span><span class="v2-tag">深圳湾</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方案 3 · Display Serif          -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">V3</span>
+    <h2>显示衬线 · 编辑奢华风</h2>
+    <span class="ref">Fraunces 数字 30px · Instrument Serif 斜体货币 · 与品牌「华星」气质契合</span>
+  </div>
+  <p class="section-rationale">
+    Mercury 银行、Stripe Atlas、FT.com 财报页用的手法：<b>用显示级衬线字体处理数字</b>，重量来自字体本身的笔触粗细对比。
+    <code>Fraunces 30px Black</code> 整数 + <code>Instrument Serif Italic</code> 货币符号，
+    一个字体的语言里就有"这是值得郑重对待的钱"。
+    与项目已有的 <code>Noto Serif SC</code>（华星品牌字）气质同源，<b>不引入风格冲突</b>。
+  </p>
+  <div class="grid">
+    <div class="card">
+      <div class="identity">
+        <div class="identity-top">
+          <div class="avatar">胡</div>
+          <div class="name">胡少棟</div>
+          <div class="pill">📄 <b>2</b> 份</div>
+        </div>
+        <div class="id-meta"><span>📞 97857999</span><span class="mono">F420825(7)</span></div>
+      </div>
+      <div class="ct-list">
+        <div class="ct veh">
+          <div class="ct-head">
+            <span class="biz-mini veh">🚗 车辆业务</span>
+            <span class="ct-meta">05-22 · HT202606051422</span>
+          </div>
+          <div class="v3-body">
+            <div class="v3-money">
+              <div class="v3-label">已收</div>
+              <div class="v3-paid">
+                <span class="cur">HK$</span><span class="int">140,000</span>
+              </div>
+              <div class="v3-total">/ 总 <b>HK$250,000</b></div>
+            </div>
+            <div class="v3-info">
+              <div class="v3-desc">30系埃尔法 · GGH30-0016495</div>
+              <div class="v3-tags">
+                <span class="v3-tag">置换抵扣</span><span class="v3-tag">港币</span>
+              </div>
+              <div class="v3-progress">
+                <div class="v3-bar"><div class="v3-bar-fill" style="width:56%"></div></div>
+                <span class="v3-pct">56%</span>
+                <span class="v3-stage">2/3 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ct cross">
+          <div class="ct-head">
+            <span class="biz-mini cross">🛂 两地牌过户</span>
+            <span class="ct-meta">05-28 · HT202606091607</span>
+          </div>
+          <div class="v3-body">
+            <div class="v3-money">
+              <div class="v3-label">已收</div>
+              <div class="v3-paid done">
+                <span class="cur">¥</span><span class="int">240,000</span>
+              </div>
+              <div class="v3-total">/ 总 <b>¥240,000</b></div>
+            </div>
+            <div class="v3-info">
+              <div class="v3-desc">购买现牌 · 公司过户 + 换车</div>
+              <div class="v3-tags">
+                <span class="v3-tag">粤Z7N80港</span><span class="v3-tag">深圳湾</span>
+              </div>
+              <div class="v3-progress">
+                <div class="v3-bar"><div class="v3-bar-fill done" style="width:100%"></div></div>
+                <span class="v3-pct done">100%</span>
+                <span class="v3-stage">2/2 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方案 4 · 重型数字盒              -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">V4</span>
+    <h2>重型数字盒 · Mercury / Ramp 风</h2>
+    <span class="ref">深色金属底 · 金色数字 · 顶部金箔线 · 最强视觉冲击</span>
+  </div>
+  <p class="section-rationale">
+    Mercury Bank、Ramp、Brex 的核心账户余额都用<b>"装数字进暗色容器"</b>的手法：金额脱离白底，
+    坐在<code>#0f1a2e</code> 深蓝金属背景上，金色数字 + 顶部一道金箔细线（亮点高光）。
+    优点：<b>视觉权重是 5 个方案里最强的</b>，绝对不会"飘"。
+    代价：暗色块和卡片整体白调形成对比，<b>风格更"科技/金融"，少一些"中式典雅"</b>，与项目品牌色搭配良好但需评估接受度。
+  </p>
+  <div class="grid">
+    <div class="card">
+      <div class="identity">
+        <div class="identity-top">
+          <div class="avatar">胡</div>
+          <div class="name">胡少棟</div>
+          <div class="pill">📄 <b>2</b> 份</div>
+        </div>
+        <div class="id-meta"><span>📞 97857999</span><span class="mono">F420825(7)</span></div>
+      </div>
+      <div class="ct-list">
+        <div class="ct veh">
+          <div class="ct-head">
+            <span class="biz-mini veh">🚗 车辆业务</span>
+            <span class="ct-meta">05-22 · HT202606051422</span>
+          </div>
+          <div class="v4-body">
+            <div class="v4-money">
+              <div class="v4-label">已收</div>
+              <div class="v4-paid">
+                <span class="cur">HK$</span><span class="int">140,000</span>
+              </div>
+              <div class="v4-total">/ 总 <b>HK$250,000</b></div>
+            </div>
+            <div class="v4-info">
+              <div class="v4-desc">30系埃尔法 · GGH30-0016495</div>
+              <div class="v4-tags">
+                <span class="v4-tag">置换抵扣</span><span class="v4-tag">港币</span>
+              </div>
+              <div class="v4-progress">
+                <div class="v4-bar"><div class="v4-bar-fill" style="width:56%"></div></div>
+                <span class="v4-pct">56%</span>
+                <span class="v4-stage">· 2/3 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="ct cross">
+          <div class="ct-head">
+            <span class="biz-mini cross">🛂 两地牌过户</span>
+            <span class="ct-meta">05-28 · HT202606091607</span>
+          </div>
+          <div class="v4-body">
+            <div class="v4-money done">
+              <div class="v4-label">已收</div>
+              <div class="v4-paid done">
+                <span class="cur">¥</span><span class="int">240,000</span>
+              </div>
+              <div class="v4-total">/ 总 <b>¥240,000</b></div>
+            </div>
+            <div class="v4-info">
+              <div class="v4-desc">购买现牌 · 公司过户 + 换车</div>
+              <div class="v4-tags">
+                <span class="v4-tag">粤Z7N80港</span><span class="v4-tag">深圳湾</span>
+              </div>
+              <div class="v4-progress">
+                <div class="v4-bar"><div class="v4-bar-fill done" style="width:100%"></div></div>
+                <span class="v4-pct done">100%</span>
+                <span class="v4-stage">· 2/2 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方案 5 · 比例条 + 锚定数字       -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">V5</span>
+    <h2>比例条锚定 · Wise / Linear 风</h2>
+    <span class="ref">金额 + 进度同一个对象 · 分数式 已收/总额 · 进度条带末端高光锚点</span>
+  </div>
+  <p class="section-rationale">
+    Wise、Linear Insights、Notion 数据库进度条用的手法：<b>把"金额"和"进度"合并成单一视觉对象</b>，
+    数字直接坐在浅灰底框里，下方进度条带末端<b>高光锚点</b>（一个突出的小方块），
+    暗示"钱走到这里了"。<b>百分比做成 chip 徽章</b>放右上角，与金额数字形成"主指标 / 辅助指标"的明确层级。
+    最适合 <b>"已收/总额"是核心问题</b>的场景 —— 信息密度高但不喧宾夺主。
+  </p>
+  <div class="grid">
+    <div class="card">
+      <div class="identity">
+        <div class="identity-top">
+          <div class="avatar">胡</div>
+          <div class="name">胡少棟</div>
+          <div class="pill">📄 <b>2</b> 份</div>
+        </div>
+        <div class="id-meta"><span>📞 97857999</span><span class="mono">F420825(7)</span></div>
+      </div>
+      <div class="ct-list">
+        <div class="ct veh">
+          <div class="ct-head">
+            <span class="biz-mini veh">🚗 车辆业务</span>
+            <span class="ct-meta">05-22 · HT202606051422</span>
+          </div>
+          <div class="v5-meter">
+            <div class="v5-meter-top">
+              <div class="v5-paid"><span class="cur">HK$</span><span class="int">140,000</span></div>
+              <span class="v5-slash">/</span>
+              <span class="v5-total">250,000</span>
+              <span class="v5-pct-inline">56%</span>
+            </div>
+            <div class="v5-meter-bar">
+              <div class="v5-meter-fill" style="width:56%"></div>
+            </div>
+            <div class="v5-info">
+              <span class="v5-desc">30系埃尔法 · GGH30-0016495</span>
+              <span class="v5-tag">置换抵扣</span>
+              <span class="v5-stage">· <b>2</b>/3 期</span>
+            </div>
+          </div>
+        </div>
+        <div class="ct cross">
+          <div class="ct-head">
+            <span class="biz-mini cross">🛂 两地牌过户</span>
+            <span class="ct-meta">05-28 · HT202606091607</span>
+          </div>
+          <div class="v5-meter">
+            <div class="v5-meter-top">
+              <div class="v5-paid done"><span class="cur">¥</span><span class="int">240,000</span></div>
+              <span class="v5-slash">/</span>
+              <span class="v5-total">240,000</span>
+              <span class="v5-pct-inline done">100%</span>
+            </div>
+            <div class="v5-meter-bar">
+              <div class="v5-meter-fill done" style="width:100%"></div>
+            </div>
+            <div class="v5-info">
+              <span class="v5-desc">购买现牌 · 公司过户 + 换车</span>
+              <span class="v5-tag">粤Z7N80港</span>
+              <span class="v5-tag">深圳湾</span>
+              <span class="v5-stage done">· <b>2</b>/2 期</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方案对比与建议                  -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="summary">
+  <h3>方案横评 · 选型建议</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>方案</th>
+        <th>核心手法</th>
+        <th>视觉权重</th>
+        <th>信息密度</th>
+        <th>品牌契合</th>
+        <th>实现成本</th>
+        <th>适用判断</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>V0 现版</td>
+        <td>单字体单字重</td>
+        <td>★★</td>
+        <td>★★★</td>
+        <td>★★★</td>
+        <td>—</td>
+        <td>对照基线</td>
+      </tr>
+      <tr class="rec">
+        <td>V1 Stripe</td>
+        <td>字号阶梯 + Inter Tight</td>
+        <td>★★★★</td>
+        <td>★★★★</td>
+        <td>★★★★</td>
+        <td>低 · 仅 CSS</td>
+        <td><b>稳妥首选</b>。改动小、风险低、效果立竿见影，跨币种数字对齐最稳</td>
+      </tr>
+      <tr>
+        <td>V2 收据风</td>
+        <td>金色底座 + 三行对齐</td>
+        <td>★★★★★</td>
+        <td>★★★★★</td>
+        <td>★★★★★</td>
+        <td>中 · 重构金额区</td>
+        <td>金融感最强，能<b>同时展示已收/总额/未收</b>。卡片高度比 V1 高 12~16px</td>
+      </tr>
+      <tr>
+        <td>V3 衬线奢华</td>
+        <td>Fraunces + Instrument Serif</td>
+        <td>★★★★</td>
+        <td>★★★</td>
+        <td>★★★★★</td>
+        <td>低 · 加 2 个字体</td>
+        <td>气质独到，<b>与「华星」品牌名气质最契合</b>。需要接受"数字也用衬线"的设计取向</td>
+      </tr>
+      <tr>
+        <td>V4 重型数字盒</td>
+        <td>深色块 + 金色数字</td>
+        <td>★★★★★</td>
+        <td>★★★★</td>
+        <td>★★★</td>
+        <td>中 · 重构金额区</td>
+        <td>视觉最重，<b>科技金融感强</b>。但偏离"中式典雅"调性，慎用</td>
+      </tr>
+      <tr>
+        <td>V5 比例条锚定</td>
+        <td>金额+进度合体</td>
+        <td>★★★★</td>
+        <td>★★★★★</td>
+        <td>★★★★</td>
+        <td>中 · 重构金额区</td>
+        <td>信息组织最佳，<b>"已收/总额/进度/百分比"四合一</b>。比 V1 高约 6px</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div style="margin-top: 24px; padding: 16px 18px; background: var(--brand-gold-bg); border-left: 3px solid var(--brand-gold); border-radius: 0 6px 6px 0; font-size: 13px; line-height: 1.7;">
+    <b style="color: var(--brand-gold-deep); font-family: var(--font-display); letter-spacing: 0.5px;">我的推荐：</b><br>
+    <b>主选 V1 (Stripe 字号阶梯)</b> —— 改动量最小、视觉提升立竿见影、跨币种稳定。<br>
+    <b>升级版选 V5 (比例条锚定)</b> —— 如果你能接受合同卡片<b>每个稍高 6~8px</b>，V5 把金额、总额、进度、百分比融为一体，信息组织最高级。<br>
+    <b>追求品牌差异化选 V3 (Display Serif)</b> —— 想要做一个"看一眼就知道是华星家系统"的差异化设计，这个最独特。
+  </div>
+</div>
+
+</body>
+</html>

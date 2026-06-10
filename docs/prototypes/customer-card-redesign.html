@@ -1,0 +1,1323 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>客户卡片重构 · 方向对比</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* —— 与项目 index.css 完全对齐的 token —— */
+    --brand-deep: #0f1a2e;
+    --brand-primary: #1e3a5f;
+    --brand-primary-light: #2d5080;
+    --brand-primary-lighter: #e8edf5;
+    --brand-gold: #c9952b;
+    --brand-gold-light: #f5e6c8;
+    --brand-gold-bg: #fdf8ef;
+
+    --bg-page: #f5f6f8;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f8f9fc;
+    --bg-hover: #f1f3f7;
+
+    --border-light: #e2e5ea;
+    --border-default: #d0d4dd;
+
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #94a3b8;
+    --text-placeholder: #c0c5ce;
+
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+    --shadow-lg: 0 8px 30px rgba(15, 23, 42, 0.08);
+
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    --font-display: 'Noto Serif SC', serif;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+
+    /* —— 业务色 —— */
+    --biz-vehicle: #667eea;
+    --biz-vehicle-soft: rgba(102, 126, 234, 0.10);
+    --biz-cross: #0d9488;
+    --biz-cross-soft: rgba(13, 148, 136, 0.10);
+
+    /* —— 金额语义色（关键新增）—— */
+    --money-paid: #c9952b;        /* 已收 = 金色，落袋为安 */
+    --money-paid-bg: #fdf8ef;
+    --money-total: #1e3a5f;       /* 总额 = 深蓝权威 */
+    --money-due: #dc6b3d;         /* 未收 = 暖橙提示 */
+    --money-due-bg: #fdf2eb;
+    --money-done: #0d9488;        /* 全额回款 = teal */
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-page);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(30, 58, 95, 0.035), transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(201, 149, 43, 0.04), transparent 45%);
+    min-height: 100vh;
+    padding: 36px 28px 80px;
+    color: var(--text-primary);
+  }
+
+  /* ──── 页头 ──── */
+  .header {
+    max-width: 1480px;
+    margin: 0 auto 28px;
+  }
+  .header .tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-gold);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .header h1 {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 1.5px;
+    margin-bottom: 10px;
+  }
+  .header .sub {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.75;
+    max-width: 820px;
+  }
+  .header .sub b { color: var(--brand-gold); font-weight: 600; }
+
+  /* ──── 问题诊断 ──── */
+  .diag {
+    max-width: 1480px;
+    margin: 0 auto 44px;
+    background: #fff8f1;
+    border: 1px solid #f3d9b9;
+    border-left: 4px solid var(--money-due);
+    border-radius: var(--radius-md);
+    padding: 16px 22px;
+    display: flex;
+    gap: 28px;
+    flex-wrap: wrap;
+  }
+  .diag-item {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+  .diag-item .num {
+    font-family: var(--font-mono);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--money-due);
+  }
+  .diag-item .lbl {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+
+  /* ──── 方向标题 ──── */
+  .section {
+    max-width: 1480px;
+    margin: 0 auto 56px;
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--border-default);
+  }
+  .section-head .badge {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--bg-surface);
+    background: var(--brand-primary);
+    padding: 3px 10px;
+    border-radius: 3px;
+    letter-spacing: 1.5px;
+  }
+  .section-head h2 {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 0.8px;
+  }
+  .section-head .note {
+    font-size: 13px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  @media (max-width: 1200px) {
+    .grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  /* ════════════════════════════════════════════════
+     方向 A · 客户健康度优先
+     ════════════════════════════════════════════════ */
+  .card-a {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.25s ease;
+    display: flex;
+    flex-direction: column;
+    cursor: pointer;
+  }
+  .card-a:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    border-color: rgba(30, 58, 95, 0.18);
+  }
+
+  /* 身份条 */
+  .a-identity {
+    padding: 14px 18px 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border-bottom: 1px solid var(--border-light);
+    background: linear-gradient(180deg, #fcfdfe 0%, #ffffff 100%);
+  }
+  .a-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-light) 100%);
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(30, 58, 95, 0.18);
+    flex-shrink: 0;
+  }
+  .a-name {
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.3px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .a-pill {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-primary);
+    background: var(--brand-primary-lighter);
+    padding: 3px 9px;
+    border-radius: 12px;
+    flex-shrink: 0;
+  }
+  .a-pill b { font-size: 12px; font-weight: 700; }
+
+  .a-contact {
+    padding: 8px 18px 12px;
+    display: flex;
+    gap: 14px;
+    font-size: 12px;
+    color: var(--text-secondary);
+    border-bottom: 1px solid var(--border-light);
+  }
+  .a-contact svg {
+    width: 12px; height: 12px;
+    color: var(--text-tertiary);
+    vertical-align: -1px;
+    margin-right: 4px;
+  }
+  .a-contact .mono {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+  }
+
+  /* 客户健康度大数据条 */
+  .a-health {
+    padding: 14px 18px 14px;
+    background: linear-gradient(180deg, #fafbfd 0%, #ffffff 100%);
+    border-bottom: 1px solid var(--border-light);
+    position: relative;
+  }
+  .a-health::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 18px; right: 18px;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--brand-gold) 50%, transparent);
+    opacity: 0;
+  }
+  .a-health-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  .a-stat-label {
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    letter-spacing: 1.2px;
+    font-weight: 500;
+    margin-bottom: 3px;
+    text-transform: uppercase;
+  }
+  .a-stat-amount {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    line-height: 1.1;
+    letter-spacing: -0.3px;
+    font-variant-numeric: tabular-nums;
+  }
+  .a-stat-total .a-stat-amount {
+    font-size: 18px;
+    color: var(--money-total);
+  }
+  .a-stat-paid .a-stat-amount {
+    font-size: 19px;
+    color: var(--money-paid);
+  }
+  .a-stat-due .a-stat-amount {
+    font-size: 18px;
+    color: var(--money-due);
+  }
+  .a-stat-done .a-stat-amount { color: var(--money-done); }
+
+  .a-stat-cur {
+    font-size: 11px;
+    font-weight: 500;
+    opacity: 0.65;
+    margin-right: 1px;
+  }
+
+  .a-health-bar {
+    height: 5px;
+    background: var(--bg-hover);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+  }
+  .a-health-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--money-paid) 0%, #e0b04e 100%);
+    border-radius: 3px;
+    position: relative;
+  }
+  .a-health-bar-fill.done {
+    background: linear-gradient(90deg, var(--money-done) 0%, #14b8a6 100%);
+  }
+  .a-health-meta {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+  .a-health-meta .pct {
+    font-family: var(--font-mono);
+    font-weight: 600;
+    color: var(--money-paid);
+  }
+  .a-health-meta .pct.done { color: var(--money-done); }
+
+  /* 合同行（紧凑） */
+  .a-contracts { padding: 8px 8px 10px; }
+  .a-ct-row {
+    padding: 10px 12px 11px 14px;
+    border-left: 3px solid transparent;
+    border-radius: 0 6px 6px 0;
+    cursor: pointer;
+    transition: background 0.15s;
+  }
+  .a-ct-row:hover { background: var(--bg-subtle); }
+  .a-ct-row.veh { border-left-color: var(--biz-vehicle); }
+  .a-ct-row.cross { border-left-color: var(--biz-cross); }
+  .a-ct-row + .a-ct-row { margin-top: 4px; }
+
+  .a-ct-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 5px;
+  }
+  .a-ct-biz {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+    flex-shrink: 0;
+  }
+  .a-ct-biz svg { width: 11px; height: 11px; }
+  .a-ct-biz.veh { color: #5063c4; background: var(--biz-vehicle-soft); }
+  .a-ct-biz.cross { color: var(--biz-cross); background: var(--biz-cross-soft); }
+  .a-ct-tag {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 2px 6px;
+    border-radius: 3px;
+    flex-shrink: 0;
+  }
+  .a-ct-stage {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+    font-family: var(--font-mono);
+  }
+  .a-ct-stage b { color: var(--money-paid); font-weight: 700; }
+
+  .a-ct-desc {
+    font-size: 12.5px;
+    color: var(--text-secondary);
+    margin-bottom: 6px;
+    line-height: 1.4;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .a-ct-money {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .a-ct-paid {
+    font-size: 13.5px;
+    font-weight: 700;
+    color: var(--money-paid);
+  }
+  .a-ct-paid.done { color: var(--money-done); }
+  .a-ct-slash {
+    font-size: 11px;
+    color: var(--text-placeholder);
+  }
+  .a-ct-total {
+    font-size: 12px;
+    color: var(--text-tertiary);
+  }
+  .a-ct-pct {
+    margin-left: auto;
+    font-size: 10.5px;
+    font-weight: 600;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+  }
+  .a-ct-pct.done { color: var(--money-done); }
+
+  /* ════════════════════════════════════════════════
+     方向 B · 合同卡牌化
+     ════════════════════════════════════════════════ */
+  .card-b {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+    transition: all 0.25s ease;
+    cursor: pointer;
+  }
+  .card-b:hover {
+    transform: translateY(-3px);
+    box-shadow: var(--shadow-lg);
+    border-color: rgba(30, 58, 95, 0.18);
+  }
+
+  .b-identity {
+    padding: 14px 18px 14px;
+    border-bottom: 1px solid var(--border-light);
+    background: linear-gradient(180deg, #fcfdfe 0%, #ffffff 100%);
+  }
+  .b-id-top {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .b-avatar {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-light) 100%);
+    color: #fff;
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(30, 58, 95, 0.18);
+    flex-shrink: 0;
+  }
+  .b-name {
+    font-family: var(--font-display);
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--text-primary);
+    letter-spacing: 0.3px;
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .b-pill {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-primary);
+    background: var(--brand-primary-lighter);
+    padding: 3px 9px;
+    border-radius: 12px;
+    flex-shrink: 0;
+  }
+  .b-pill b { font-size: 12px; font-weight: 700; }
+
+  .b-id-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 14px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .b-id-meta svg {
+    width: 11px; height: 11px;
+    color: var(--text-tertiary);
+    vertical-align: -1px;
+    margin-right: 4px;
+  }
+  .b-id-meta .mono {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+  }
+
+  /* 合同卡片 */
+  .b-contracts {
+    padding: 10px 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .b-ct {
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 12px 14px 12px;
+    cursor: pointer;
+    transition: all 0.18s ease;
+    position: relative;
+    background: var(--bg-surface);
+  }
+  .b-ct::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 3px;
+    height: 100%;
+    background: var(--border-default);
+    border-radius: var(--radius-md) 0 0 var(--radius-md);
+  }
+  .b-ct.veh::before { background: var(--biz-vehicle); }
+  .b-ct.cross::before { background: var(--biz-cross); }
+  .b-ct:hover {
+    background: var(--bg-subtle);
+    border-color: var(--border-default);
+  }
+
+  .b-ct-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+  .b-ct-biz {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .b-ct-biz svg { width: 11px; height: 11px; }
+  .b-ct-biz.veh { color: #5063c4; background: var(--biz-vehicle-soft); }
+  .b-ct-biz.cross { color: var(--biz-cross); background: var(--biz-cross-soft); }
+  .b-ct-meta {
+    margin-left: auto;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    font-family: var(--font-mono);
+    letter-spacing: 0.3px;
+  }
+
+  /* 主体：金额（左）+ 信息（右） */
+  .b-ct-body {
+    display: grid;
+    grid-template-columns: minmax(0, auto) 1fr;
+    gap: 14px;
+    align-items: center;
+  }
+  .b-money-block {
+    border-right: 1px dashed var(--border-light);
+    padding-right: 14px;
+  }
+  .b-money-paid {
+    font-family: var(--font-mono);
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--money-paid);
+    line-height: 1;
+    letter-spacing: -0.3px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .b-money-paid.done { color: var(--money-done); }
+  .b-money-paid .cur {
+    font-size: 12px;
+    font-weight: 600;
+    opacity: 0.7;
+    margin-right: 1px;
+  }
+  .b-money-total {
+    font-family: var(--font-mono);
+    font-size: 11.5px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .b-money-total b {
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+  .b-money-label {
+    font-size: 10px;
+    color: var(--text-tertiary);
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    font-weight: 500;
+  }
+
+  .b-info-block {
+    min-width: 0;
+  }
+  .b-info-desc {
+    font-size: 13px;
+    color: var(--text-primary);
+    font-weight: 500;
+    margin-bottom: 5px;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .b-info-tag {
+    display: inline-block;
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 2px 7px;
+    border-radius: 3px;
+    margin-right: 4px;
+    margin-bottom: 4px;
+  }
+  .b-info-progress {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 7px;
+  }
+  .b-info-bar {
+    flex: 1;
+    height: 4px;
+    background: var(--bg-hover);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .b-info-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--money-paid) 0%, #e0b04e 100%);
+    border-radius: 2px;
+  }
+  .b-info-bar-fill.done {
+    background: linear-gradient(90deg, var(--money-done) 0%, #14b8a6 100%);
+  }
+  .b-info-pct {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--money-paid);
+    min-width: 32px;
+    text-align: right;
+  }
+  .b-info-pct.done { color: var(--money-done); }
+  .b-info-stage {
+    font-family: var(--font-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+  }
+  .b-info-stage b { color: var(--money-paid); font-weight: 700; }
+
+  /* ──── 共用：图例/说明 ──── */
+  .legend {
+    max-width: 1480px;
+    margin: 16px auto 0;
+    padding: 14px 22px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    display: flex;
+    flex-wrap: wrap;
+    gap: 24px;
+    font-size: 12.5px;
+    color: var(--text-secondary);
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .legend-swatch {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+  }
+  .legend code {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    background: var(--bg-hover);
+    padding: 1px 6px;
+    border-radius: 3px;
+    margin-left: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="tag">PROTOTYPE · 客户卡片重构 v2</span>
+  <h1>客户卡片 · 两个方向</h1>
+  <p class="sub">
+    现有卡片定高 360px，常见 1~2 个合同时<b>空白率 ≥ 50%</b>，且合同信息只展示「业务类型 + 总金额 + 进度%」，
+    <b>已收/未收/业务摘要/车牌/分期</b>等关键字段全部缺失。本原型基于 <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-hover);padding:2px 6px;border-radius:3px">contracts</code> /
+    <code style="font-family:var(--font-mono);font-size:11px;background:var(--bg-hover);padding:2px 6px;border-radius:3px">customers</code> 真实字段重构，金额数字用<b>金色系</b>主调突出。
+  </p>
+</div>
+
+<div class="diag">
+  <div class="diag-item"><span class="num">≥50%</span><span class="lbl">现版卡片合同区空白率</span></div>
+  <div class="diag-item"><span class="num">3</span><span class="lbl">未展示的关键字段（已收/未收/业务摘要）</span></div>
+  <div class="diag-item"><span class="num">1</span><span class="lbl">金额相关色彩（仅纯黑）</span></div>
+  <div class="diag-item"><span class="num">0</span><span class="lbl">客户聚合视图（仅按合同份数计）</span></div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                   方向 A                         -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">A</span>
+    <h2>客户健康度优先</h2>
+    <span class="note">卡顶突出客户级 总额 / 已收 / 未收 三段大数 · 合同行收紧</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- 卡片 A1: 胡少棟（2 份合同，部分回款）-->
+    <div class="card-a">
+      <div class="a-identity">
+        <div class="a-avatar">胡</div>
+        <div class="a-name">胡少棟</div>
+        <div class="a-pill">📄 <b>2</b> 份</div>
+      </div>
+      <div class="a-contact">
+        <span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.84.32 1.66.6 2.45a2 2 0 0 1-.45 2.11L8 9.55a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.79.28 1.61.48 2.45.6A2 2 0 0 1 22 16.92z"/></svg>
+          97857999
+        </span>
+        <span class="mono">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="12" r="2.5"/><line x1="14" y1="10" x2="19" y2="10"/><line x1="14" y1="14" x2="17" y2="14"/></svg>
+          F420825(7)
+        </span>
+      </div>
+
+      <div class="a-health">
+        <div class="a-health-grid">
+          <div class="a-stat-total">
+            <div class="a-stat-label">合同总额</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>457,560</div>
+          </div>
+          <div class="a-stat-paid">
+            <div class="a-stat-label">已收 · 折 CNY</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>93,560</div>
+          </div>
+          <div class="a-stat-due">
+            <div class="a-stat-label">未收</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>364,000</div>
+          </div>
+        </div>
+        <div class="a-health-bar">
+          <div class="a-health-bar-fill" style="width: 20.4%;"></div>
+        </div>
+        <div class="a-health-meta">
+          <span>整体回款进度</span>
+          <span class="pct">20.4% · 3 / 5 期已确认</span>
+        </div>
+      </div>
+
+      <div class="a-contracts">
+        <div class="a-ct-row veh">
+          <div class="a-ct-head">
+            <span class="a-ct-biz veh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+              车辆业务
+            </span>
+            <span class="a-ct-tag">05-22 签约</span>
+            <span class="a-ct-stage"><b>2</b> / 3 期</span>
+          </div>
+          <div class="a-ct-desc">30系埃尔法 · GGH30-0016495 · 港币 25 万</div>
+          <div class="a-ct-money">
+            <span class="a-ct-paid">HK$140,000</span>
+            <span class="a-ct-slash">/</span>
+            <span class="a-ct-total">HK$250,000</span>
+            <span class="a-ct-pct">56%</span>
+          </div>
+        </div>
+        <div class="a-ct-row cross">
+          <div class="a-ct-head">
+            <span class="a-ct-biz cross">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+              两地牌过户
+            </span>
+            <span class="a-ct-tag">粤Z7N80港 · 深圳湾</span>
+            <span class="a-ct-stage"><b>1</b> / 2 期</span>
+          </div>
+          <div class="a-ct-desc">购买现牌 · 公司过户 + 换车服务</div>
+          <div class="a-ct-money">
+            <span class="a-ct-paid">¥50,000</span>
+            <span class="a-ct-slash">/</span>
+            <span class="a-ct-total">¥240,000</span>
+            <span class="a-ct-pct">21%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 卡片 A2: 王振为（1 份合同，未回款）-->
+    <div class="card-a">
+      <div class="a-identity">
+        <div class="a-avatar">王</div>
+        <div class="a-name">王振为</div>
+        <div class="a-pill">📄 <b>1</b> 份</div>
+      </div>
+      <div class="a-contact">
+        <span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.84.32 1.66.6 2.45a2 2 0 0 1-.45 2.11L8 9.55a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.79.28 1.61.48 2.45.6A2 2 0 0 1 22 16.92z"/></svg>
+          63553668
+        </span>
+        <span class="mono">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="12" r="2.5"/><line x1="14" y1="10" x2="19" y2="10"/><line x1="14" y1="14" x2="17" y2="14"/></svg>
+          M311831(8)
+        </span>
+      </div>
+
+      <div class="a-health">
+        <div class="a-health-grid">
+          <div class="a-stat-total">
+            <div class="a-stat-label">合同总额</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>121,245</div>
+          </div>
+          <div class="a-stat-paid">
+            <div class="a-stat-label">已收 · 折 CNY</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>121,245</div>
+          </div>
+          <div class="a-stat-due">
+            <div class="a-stat-label">未收</div>
+            <div class="a-stat-amount" style="color: var(--text-placeholder);"><span class="a-stat-cur">¥</span>0</div>
+          </div>
+        </div>
+        <div class="a-health-bar">
+          <div class="a-health-bar-fill done" style="width: 100%;"></div>
+        </div>
+        <div class="a-health-meta">
+          <span>整体回款进度</span>
+          <span class="pct done">✓ 全额回款 · 2 / 2 期</span>
+        </div>
+      </div>
+
+      <div class="a-contracts">
+        <div class="a-ct-row veh">
+          <div class="a-ct-head">
+            <span class="a-ct-biz veh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+              车辆业务
+            </span>
+            <span class="a-ct-tag">05-22 签约</span>
+            <span class="a-ct-stage"><b>2</b> / 2 期</span>
+          </div>
+          <div class="a-ct-desc">置换抵扣 · 第二期款项已到</div>
+          <div class="a-ct-money">
+            <span class="a-ct-paid done">HK$140,000</span>
+            <span class="a-ct-slash">/</span>
+            <span class="a-ct-total">HK$140,000</span>
+            <span class="a-ct-pct done">100%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 卡片 A3: 张伟明（3 份合同，演示密度上限）-->
+    <div class="card-a">
+      <div class="a-identity">
+        <div class="a-avatar">张</div>
+        <div class="a-name">张伟明（深圳源记物流）</div>
+        <div class="a-pill">📄 <b>3</b> 份</div>
+      </div>
+      <div class="a-contact">
+        <span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.84.32 1.66.6 2.45a2 2 0 0 1-.45 2.11L8 9.55a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.79.28 1.61.48 2.45.6A2 2 0 0 1 22 16.92z"/></svg>
+          13800138000
+        </span>
+      </div>
+
+      <div class="a-health">
+        <div class="a-health-grid">
+          <div class="a-stat-total">
+            <div class="a-stat-label">合同总额</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>892,000</div>
+          </div>
+          <div class="a-stat-paid">
+            <div class="a-stat-label">已收 · 折 CNY</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>620,000</div>
+          </div>
+          <div class="a-stat-due">
+            <div class="a-stat-label">未收</div>
+            <div class="a-stat-amount"><span class="a-stat-cur">¥</span>272,000</div>
+          </div>
+        </div>
+        <div class="a-health-bar">
+          <div class="a-health-bar-fill" style="width: 69.5%;"></div>
+        </div>
+        <div class="a-health-meta">
+          <span>整体回款进度</span>
+          <span class="pct">69.5% · 5 / 7 期已确认</span>
+        </div>
+      </div>
+
+      <div class="a-contracts">
+        <div class="a-ct-row veh">
+          <div class="a-ct-head">
+            <span class="a-ct-biz veh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+              车辆业务
+            </span>
+            <span class="a-ct-tag">04-12 签约</span>
+            <span class="a-ct-stage"><b>3</b> / 3 期</span>
+          </div>
+          <div class="a-ct-desc">奔驰GLC 260 · 2025款豪华</div>
+          <div class="a-ct-money">
+            <span class="a-ct-paid done">¥420,000</span>
+            <span class="a-ct-slash">/</span>
+            <span class="a-ct-total">¥420,000</span>
+            <span class="a-ct-pct done">100%</span>
+          </div>
+        </div>
+        <div class="a-ct-row cross">
+          <div class="a-ct-head">
+            <span class="a-ct-biz cross">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+              两地牌过户
+            </span>
+            <span class="a-ct-tag">粤Z3K12港 · 文锦渡</span>
+            <span class="a-ct-stage"><b>1</b> / 2 期</span>
+          </div>
+          <div class="a-ct-desc">公司过户 + 牌照换挂</div>
+          <div class="a-ct-money">
+            <span class="a-ct-paid">¥200,000</span>
+            <span class="a-ct-slash">/</span>
+            <span class="a-ct-total">¥352,000</span>
+            <span class="a-ct-pct">57%</span>
+          </div>
+        </div>
+        <div class="a-ct-row cross">
+          <div class="a-ct-head">
+            <span class="a-ct-biz cross">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+              两地牌过户
+            </span>
+            <span class="a-ct-tag">粤Z9L88港 · 港珠澳</span>
+            <span class="a-ct-stage"><b>1</b> / 2 期</span>
+          </div>
+          <div class="a-ct-desc">换牌服务 · 加急办理</div>
+          <div class="a-ct-money">
+            <span class="a-ct-paid">¥0</span>
+            <span class="a-ct-slash">/</span>
+            <span class="a-ct-total">¥120,000</span>
+            <span class="a-ct-pct">0%</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><span class="legend-swatch" style="background: var(--money-total);"></span>合同总额 <code>--money-total</code></div>
+    <div class="legend-item"><span class="legend-swatch" style="background: var(--money-paid);"></span>已收金额 <code>--money-paid</code></div>
+    <div class="legend-item"><span class="legend-swatch" style="background: var(--money-due);"></span>未收金额 <code>--money-due</code></div>
+    <div class="legend-item"><span class="legend-swatch" style="background: var(--money-done);"></span>全额回款 <code>--money-done</code></div>
+    <div class="legend-item" style="margin-left:auto;color:var(--text-tertiary);">字段来源：<code>contracts.paid_amount</code> · <code>paid_amount_in_cny</code> · <code>business_description</code> · <code>signed_date</code> · <code>paid_count</code> · <code>contract_data.vehicle_info</code></div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                   方向 B                         -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">B</span>
+    <h2>合同卡牌化</h2>
+    <span class="note">不加客户汇总条 · 每份合同自成独立卡牌（左大数 + 右信息） · 已收金额 21px 金色重笔</span>
+  </div>
+
+  <div class="grid">
+
+    <!-- 卡片 B1: 胡少棟 -->
+    <div class="card-b">
+      <div class="b-identity">
+        <div class="b-id-top">
+          <div class="b-avatar">胡</div>
+          <div class="b-name">胡少棟</div>
+          <div class="b-pill">📄 <b>2</b> 份</div>
+        </div>
+        <div class="b-id-meta">
+          <span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.84.32 1.66.6 2.45a2 2 0 0 1-.45 2.11L8 9.55a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.79.28 1.61.48 2.45.6A2 2 0 0 1 22 16.92z"/></svg>
+            97857999
+          </span>
+          <span class="mono">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="12" r="2.5"/></svg>
+            F420825(7)
+          </span>
+        </div>
+      </div>
+
+      <div class="b-contracts">
+        <div class="b-ct veh">
+          <div class="b-ct-head">
+            <span class="b-ct-biz veh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+              车辆业务
+            </span>
+            <span class="b-ct-meta">05-22 · HT202606051422</span>
+          </div>
+          <div class="b-ct-body">
+            <div class="b-money-block">
+              <div class="b-money-label">已收</div>
+              <div class="b-money-paid"><span class="cur">HK$</span>140,000</div>
+              <div class="b-money-total">/ 总 <b>HK$250,000</b></div>
+            </div>
+            <div class="b-info-block">
+              <div class="b-info-desc">30系埃尔法 · GGH30-0016495</div>
+              <span class="b-info-tag">置换抵扣</span>
+              <span class="b-info-tag">港币</span>
+              <div class="b-info-progress">
+                <div class="b-info-bar"><div class="b-info-bar-fill" style="width: 56%;"></div></div>
+                <span class="b-info-pct">56%</span>
+                <span class="b-info-stage">· <b>2</b>/3 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="b-ct cross">
+          <div class="b-ct-head">
+            <span class="b-ct-biz cross">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+              两地牌过户
+            </span>
+            <span class="b-ct-meta">05-28 · HT202606091607</span>
+          </div>
+          <div class="b-ct-body">
+            <div class="b-money-block">
+              <div class="b-money-label">已收</div>
+              <div class="b-money-paid"><span class="cur">¥</span>50,000</div>
+              <div class="b-money-total">/ 总 <b>¥240,000</b></div>
+            </div>
+            <div class="b-info-block">
+              <div class="b-info-desc">购买现牌 · 公司过户 + 换车</div>
+              <span class="b-info-tag">粤Z7N80港</span>
+              <span class="b-info-tag">深圳湾</span>
+              <div class="b-info-progress">
+                <div class="b-info-bar"><div class="b-info-bar-fill" style="width: 21%;"></div></div>
+                <span class="b-info-pct">21%</span>
+                <span class="b-info-stage">· <b>1</b>/2 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 卡片 B2: 王振为 -->
+    <div class="card-b">
+      <div class="b-identity">
+        <div class="b-id-top">
+          <div class="b-avatar">王</div>
+          <div class="b-name">王振为</div>
+          <div class="b-pill">📄 <b>1</b> 份</div>
+        </div>
+        <div class="b-id-meta">
+          <span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.84.32 1.66.6 2.45a2 2 0 0 1-.45 2.11L8 9.55a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.79.28 1.61.48 2.45.6A2 2 0 0 1 22 16.92z"/></svg>
+            63553668
+          </span>
+          <span class="mono">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><circle cx="9" cy="12" r="2.5"/></svg>
+            M311831(8)
+          </span>
+        </div>
+      </div>
+
+      <div class="b-contracts">
+        <div class="b-ct veh">
+          <div class="b-ct-head">
+            <span class="b-ct-biz veh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+              车辆业务
+            </span>
+            <span class="b-ct-meta">05-22 · HT202606091419</span>
+          </div>
+          <div class="b-ct-body">
+            <div class="b-money-block">
+              <div class="b-money-label">已收</div>
+              <div class="b-money-paid done"><span class="cur">HK$</span>140,000</div>
+              <div class="b-money-total">/ 总 <b>HK$140,000</b></div>
+            </div>
+            <div class="b-info-block">
+              <div class="b-info-desc">置换抵扣 · 全款已结</div>
+              <span class="b-info-tag">车辆置换</span>
+              <span class="b-info-tag">港币</span>
+              <div class="b-info-progress">
+                <div class="b-info-bar"><div class="b-info-bar-fill done" style="width: 100%;"></div></div>
+                <span class="b-info-pct done">100%</span>
+                <span class="b-info-stage">· <b>2</b>/2 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 卡片 B3: 张伟明（3 合同） -->
+    <div class="card-b">
+      <div class="b-identity">
+        <div class="b-id-top">
+          <div class="b-avatar">张</div>
+          <div class="b-name">张伟明（深圳源记物流）</div>
+          <div class="b-pill">📄 <b>3</b> 份</div>
+        </div>
+        <div class="b-id-meta">
+          <span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72c.12.84.32 1.66.6 2.45a2 2 0 0 1-.45 2.11L8 9.55a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45c.79.28 1.61.48 2.45.6A2 2 0 0 1 22 16.92z"/></svg>
+            13800138000
+          </span>
+        </div>
+      </div>
+
+      <div class="b-contracts">
+        <div class="b-ct veh">
+          <div class="b-ct-head">
+            <span class="b-ct-biz veh">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+              车辆业务
+            </span>
+            <span class="b-ct-meta">04-12 · HT202604121008</span>
+          </div>
+          <div class="b-ct-body">
+            <div class="b-money-block">
+              <div class="b-money-label">已收</div>
+              <div class="b-money-paid done"><span class="cur">¥</span>420,000</div>
+              <div class="b-money-total">/ 总 <b>¥420,000</b></div>
+            </div>
+            <div class="b-info-block">
+              <div class="b-info-desc">奔驰GLC 260 · 2025款豪华</div>
+              <span class="b-info-tag">现车交付</span>
+              <div class="b-info-progress">
+                <div class="b-info-bar"><div class="b-info-bar-fill done" style="width: 100%;"></div></div>
+                <span class="b-info-pct done">100%</span>
+                <span class="b-info-stage">· <b>3</b>/3 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="b-ct cross">
+          <div class="b-ct-head">
+            <span class="b-ct-biz cross">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+              两地牌过户
+            </span>
+            <span class="b-ct-meta">05-03 · HT202605030915</span>
+          </div>
+          <div class="b-ct-body">
+            <div class="b-money-block">
+              <div class="b-money-label">已收</div>
+              <div class="b-money-paid"><span class="cur">¥</span>200,000</div>
+              <div class="b-money-total">/ 总 <b>¥352,000</b></div>
+            </div>
+            <div class="b-info-block">
+              <div class="b-info-desc">公司过户 + 牌照换挂</div>
+              <span class="b-info-tag">粤Z3K12港</span>
+              <span class="b-info-tag">文锦渡</span>
+              <div class="b-info-progress">
+                <div class="b-info-bar"><div class="b-info-bar-fill" style="width: 57%;"></div></div>
+                <span class="b-info-pct">57%</span>
+                <span class="b-info-stage">· <b>1</b>/2 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="b-ct cross">
+          <div class="b-ct-head">
+            <span class="b-ct-biz cross">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+              两地牌过户
+            </span>
+            <span class="b-ct-meta">05-19 · HT202605191420</span>
+          </div>
+          <div class="b-ct-body">
+            <div class="b-money-block">
+              <div class="b-money-label">已收</div>
+              <div class="b-money-paid" style="color: var(--text-placeholder);"><span class="cur">¥</span>0</div>
+              <div class="b-money-total">/ 总 <b>¥120,000</b></div>
+            </div>
+            <div class="b-info-block">
+              <div class="b-info-desc">换牌服务 · 加急办理</div>
+              <span class="b-info-tag">粤Z9L88港</span>
+              <span class="b-info-tag">港珠澳</span>
+              <div class="b-info-progress">
+                <div class="b-info-bar"><div class="b-info-bar-fill" style="width: 0%;"></div></div>
+                <span class="b-info-pct" style="color: var(--text-placeholder);">0%</span>
+                <span class="b-info-stage">· <b>0</b>/2 期</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="legend">
+    <div class="legend-item" style="color: var(--text-secondary);"><b>方向 B 取舍：</b>去掉客户级汇总条 · 每个合同独立成卡 · 主语「已收金额」用最大字号金色突出 · 业务摘要、车牌、口岸全部上卡面</div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方向对比小结                    -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge" style="background: var(--brand-gold); color: var(--brand-deep);">!</span>
+    <h2>两个方向核心差异</h2>
+  </div>
+
+  <div style="background: var(--bg-surface); border: 1px solid var(--border-light); border-radius: var(--radius-md); padding: 20px 24px;">
+    <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+      <thead>
+        <tr style="border-bottom: 2px solid var(--border-default);">
+          <th style="text-align: left; padding: 10px 14px; color: var(--text-tertiary); font-weight: 600; font-size: 11px; letter-spacing: 1px; text-transform: uppercase;">对比维度</th>
+          <th style="text-align: left; padding: 10px 14px; color: var(--brand-primary); font-family: var(--font-display); font-size: 14px;">方向 A · 客户健康度优先</th>
+          <th style="text-align: left; padding: 10px 14px; color: var(--brand-primary); font-family: var(--font-display); font-size: 14px;">方向 B · 合同卡牌化</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">视觉焦点</td>
+          <td style="padding: 12px 14px;">卡顶 <b style="color:var(--money-paid);font-family:var(--font-mono);">¥93,560</b> 客户级"已收"大数</td>
+          <td style="padding: 12px 14px;">每合同卡左侧 <b style="color:var(--money-paid);font-family:var(--font-mono);">HK$140,000</b> 大数</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">回答的问题</td>
+          <td style="padding: 12px 14px;">"<b>这个客户值多少钱、还欠多少</b>"</td>
+          <td style="padding: 12px 14px;">"<b>这份合同收了多少</b>"</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">单合同信息密度</td>
+          <td style="padding: 12px 14px;">中（业务+签约日+期数+业务摘要+金额）</td>
+          <td style="padding: 12px 14px;">高（额外突出 已收/总额、车牌/口岸 tag）</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">1 合同时高度</td>
+          <td style="padding: 12px 14px;">≈ 280px（健康条占主导）</td>
+          <td style="padding: 12px 14px;">≈ 220px（最紧凑）</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">2 合同时高度</td>
+          <td style="padding: 12px 14px;">≈ 360px（保持现版）</td>
+          <td style="padding: 12px 14px;">≈ 330px</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">3 合同时高度</td>
+          <td style="padding: 12px 14px;">≈ 440px（合同区滚动）</td>
+          <td style="padding: 12px 14px;">≈ 440px（不滚动，全部展开）</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">多币种处理</td>
+          <td style="padding: 12px 14px;">客户级统一折 CNY 汇总 + 合同行原币</td>
+          <td style="padding: 12px 14px;">每合同各显原币（无汇总）</td>
+        </tr>
+        <tr style="border-bottom: 1px solid var(--border-light);">
+          <td style="padding: 12px 14px; color: var(--text-secondary);">适合场景</td>
+          <td style="padding: 12px 14px;">销售/老板视角，<b>看人优先</b></td>
+          <td style="padding: 12px 14px;">财务视角，<b>看单优先</b></td>
+        </tr>
+        <tr>
+          <td style="padding: 12px 14px; color: var(--text-secondary);">新增字段</td>
+          <td style="padding: 12px 14px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary);">paid_amount_in_cny · paid_count · business_description · signed_date · vehicle_info.plate_number · port</td>
+          <td style="padding: 12px 14px; font-family: var(--font-mono); font-size: 11.5px; color: var(--text-secondary);">同左 · 额外把车牌/口岸以 tag 形式拆出</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+</body>
+</html>

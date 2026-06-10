@@ -20,7 +20,6 @@ import {
   FileWordOutlined,
   FileExcelOutlined,
   FileTextOutlined,
-  StarFilled,
   DollarOutlined,
   BarChartOutlined,
   FileSearchOutlined,
@@ -28,6 +27,7 @@ import {
   CreditCardOutlined,
   PlusOutlined,
 } from '@ant-design/icons'
+import StarLogoWelcome from '@/components/StarLogoWelcome'
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage } from '@/types/agent'
 import { MarkdownRenderer, ToolCallBlock, WittyLoadingText } from '@/components/AgentChatShared'
@@ -440,22 +440,22 @@ const WelcomeContent = memo(function WelcomeContent({
   onStop: () => void
   pendingFiles: File[]
   onRemoveFile: (i: number) => void
-  selectedTool: string | null
-  setSelectedTool: (v: string | null) => void
+  selectedTool: 'contract_entry' | 'receipt_income' | 'receipt_expense' | null
+  setSelectedTool: (v: 'contract_entry' | 'receipt_income' | 'receipt_expense' | null) => void
 }) {
   return (
     <div className="chat-grid-bg" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', height: '100%', padding: '24px' }}>
       <div className="welcome-stagger" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%', maxWidth: 760 }}>
+        {/* 小星助手主 logo — Welcome 专享版（动效版） */}
         <div
           className="star-logo-halo"
           style={{
-            width: 60, height: 60, borderRadius: 18,
-            background: 'linear-gradient(135deg, var(--brand-gold) 0%, #e8b84b 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            width: 180, height: 180,
             marginBottom: 14,
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
           }}
         >
-          <StarFilled style={{ fontSize: 28, color: '#0f1a2e' }} />
+          <StarLogoWelcome size={180} />
         </div>
         <Text style={{ fontSize: 26, fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'var(--font-display)', marginBottom: 4, letterSpacing: 0.3 }}>
           你好，我是小星

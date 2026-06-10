@@ -12,10 +12,11 @@ import AgentChat from './pages/AgentChat'
 import UserList from './pages/UserList'
 import { useAuthStore } from './store/useAuthStore'
 
+// 登录后默认进入小星助手（核心 AI 入口）
 const ROLE_DEFAULT_PATH: Record<string, string> = {
-  admin: '/customers',
-  income: '/customers',
-  expense: '/payments',
+  admin: '/agent',
+  income: '/agent',
+  expense: '/agent',
 }
 
 function App() {

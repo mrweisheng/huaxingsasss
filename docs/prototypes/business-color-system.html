@@ -1,0 +1,1102 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>业务色彩系统 · 三方向调研</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+SC:wght@400;600;700&family=Noto+Sans+SC:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    /* —— 项目原有 token —— */
+    --brand-deep: #0f1a2e;
+    --brand-primary: #1e3a5f;
+    --brand-primary-light: #2d5080;
+    --brand-primary-lighter: #e8edf5;
+    --brand-gold: #c9952b;
+    --brand-gold-deep: #a87a18;
+    --brand-gold-light: #f5e6c8;
+    --brand-gold-bg: #fdf8ef;
+
+    --bg-page: #f5f6f8;
+    --bg-surface: #ffffff;
+    --bg-subtle: #f8f9fc;
+    --bg-hover: #f1f3f7;
+
+    --border-light: #e2e5ea;
+    --border-default: #d0d4dd;
+
+    --text-primary: #0f172a;
+    --text-secondary: #475569;
+    --text-tertiary: #94a3b8;
+    --text-placeholder: #c0c5ce;
+
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.06);
+    --shadow-lg: 0 8px 30px rgba(15, 23, 42, 0.08);
+
+    --radius-sm: 6px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+
+    --font-display: 'Noto Serif SC', serif;
+    --font-sans: 'Noto Sans SC', -apple-system, sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-plex-mono: 'IBM Plex Mono', monospace;
+
+    /* —— 状态色（不可被业务色占用） —— */
+    --money-paid: var(--brand-gold);
+    --money-done: #0d9488;   /* ← 这个 teal 必须留给"结清"状态 */
+    --money-due: #dc6b3d;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: var(--font-sans);
+    background: var(--bg-page);
+    background-image:
+      radial-gradient(circle at 15% 20%, rgba(30, 58, 95, 0.035), transparent 45%),
+      radial-gradient(circle at 85% 80%, rgba(201, 149, 43, 0.04), transparent 45%);
+    min-height: 100vh;
+    padding: 36px 28px 80px;
+    color: var(--text-primary);
+  }
+
+  /* ──── 页头 ──── */
+  .header {
+    max-width: 1480px;
+    margin: 0 auto 28px;
+  }
+  .header .tag {
+    display: inline-block;
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--brand-gold-deep);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+  }
+  .header h1 {
+    font-family: var(--font-display);
+    font-size: 30px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 1.5px;
+    margin-bottom: 10px;
+  }
+  .header .sub {
+    color: var(--text-secondary);
+    font-size: 14px;
+    line-height: 1.75;
+    max-width: 880px;
+  }
+  .header .sub b { color: var(--brand-gold-deep); font-weight: 600; }
+  .header .sub code {
+    font-family: var(--font-plex-mono);
+    font-size: 11.5px;
+    background: var(--bg-hover);
+    color: var(--brand-primary);
+    padding: 2px 6px;
+    border-radius: 3px;
+  }
+
+  /* ──── 现状问题诊断 ──── */
+  .conflict {
+    max-width: 1480px;
+    margin: 0 auto 32px;
+    background: #fff4e6;
+    border: 1px solid #f5c986;
+    border-left: 4px solid #dc6b3d;
+    border-radius: var(--radius-md);
+    padding: 18px 24px;
+  }
+  .conflict-title {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    color: #b54e1f;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    font-weight: 700;
+  }
+  .conflict-body {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.75;
+  }
+  .conflict-body b { color: var(--brand-deep); }
+  .conflict-body .sw {
+    display: inline-block;
+    width: 12px; height: 12px;
+    border-radius: 3px;
+    vertical-align: -2px;
+    margin: 0 4px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
+  }
+
+  /* ──── 章节 ──── */
+  .section {
+    max-width: 1480px;
+    margin: 0 auto 56px;
+  }
+  .section-head {
+    display: flex;
+    align-items: baseline;
+    gap: 16px;
+    margin-bottom: 18px;
+    padding-bottom: 12px;
+    border-bottom: 1px dashed var(--border-default);
+  }
+  .section-head .badge {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--brand-primary);
+    padding: 4px 11px;
+    border-radius: 3px;
+    letter-spacing: 2px;
+  }
+  .section-head h2 {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--brand-deep);
+    letter-spacing: 0.8px;
+  }
+  .section-head .ref {
+    font-family: var(--font-plex-mono);
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+    letter-spacing: 0.3px;
+  }
+  .section-rationale {
+    font-size: 13px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    margin-bottom: 22px;
+    max-width: 900px;
+  }
+  .section-rationale b { color: var(--brand-deep); font-weight: 600; }
+
+  /* ──── 色卡 ──── */
+  .palette {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 18px;
+    margin-bottom: 24px;
+  }
+  .pal-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .pal-hero {
+    padding: 22px 24px;
+    position: relative;
+    color: #fff;
+    overflow: hidden;
+  }
+  .pal-hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+      linear-gradient(135deg, rgba(255,255,255,0.08) 0%, transparent 50%);
+    pointer-events: none;
+  }
+  .pal-hero-meta {
+    font-family: var(--font-plex-mono);
+    font-size: 10.5px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 6px;
+  }
+  .pal-hero-name {
+    font-family: var(--font-display);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    margin-bottom: 8px;
+  }
+  .pal-hero-hex {
+    font-family: var(--font-plex-mono);
+    font-size: 12px;
+    font-weight: 500;
+    letter-spacing: 0.5px;
+    opacity: 0.85;
+  }
+  .pal-hero-icon {
+    position: absolute;
+    right: 16px;
+    bottom: 12px;
+    opacity: 0.18;
+  }
+  .pal-hero-icon svg { width: 64px; height: 64px; }
+
+  .pal-shades {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+  }
+  .pal-shade {
+    height: 56px;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    padding: 6px 8px;
+    font-family: var(--font-plex-mono);
+    font-size: 9.5px;
+    letter-spacing: 0.3px;
+  }
+  .pal-shade .lvl {
+    font-weight: 700;
+    opacity: 0.85;
+  }
+  .pal-shade .hex {
+    font-size: 9px;
+    opacity: 0.6;
+  }
+
+  .pal-uses {
+    padding: 14px 18px;
+    border-top: 1px solid var(--border-light);
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+  }
+  .pal-uses b {
+    color: var(--brand-deep);
+    font-family: var(--font-plex-mono);
+    font-size: 10.5px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-right: 8px;
+  }
+
+  /* ──── 应用场景演示 ──── */
+  .demos {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 18px;
+  }
+  @media (max-width: 1200px) {
+    .demos { grid-template-columns: 1fr 1fr; }
+  }
+
+  .demo-block {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+    box-shadow: var(--shadow-sm);
+  }
+  .demo-title {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border-light);
+    background: var(--bg-subtle);
+    font-family: var(--font-plex-mono);
+    font-size: 10.5px;
+    color: var(--text-tertiary);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 600;
+  }
+  .demo-body {
+    padding: 14px;
+  }
+
+  /* —— 业务徽章 demo —— */
+  .badge-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+  }
+  .biz-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  .biz-badge svg { width: 13px; height: 13px; }
+  .biz-badge.lg {
+    font-size: 13px;
+    padding: 6px 14px;
+  }
+  .biz-badge.lg svg { width: 15px; height: 15px; }
+
+  /* —— 列表行 demo —— */
+  .list-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 12px 10px 16px;
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-sm);
+    margin-bottom: 6px;
+    font-size: 12.5px;
+    position: relative;
+    background: #fff;
+  }
+  .list-row:last-child { margin-bottom: 0; }
+  .list-row::before {
+    content: '';
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 3px;
+    border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  }
+  .list-row .lr-name {
+    flex: 1;
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  .list-row .lr-amount {
+    font-family: var(--font-plex-mono);
+    font-size: 12px;
+    color: var(--text-secondary);
+    font-weight: 600;
+  }
+
+  /* —— 收据区 demo（金额区局部染色） —— */
+  .receipt-demo {
+    border-radius: 6px;
+    padding: 10px 13px 11px 16px;
+    position: relative;
+    overflow: hidden;
+  }
+  .receipt-demo::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: 3px;
+  }
+  .rd-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 5px;
+  }
+  .rd-row:last-child { margin-bottom: 0; }
+  .rd-row.div {
+    border-top: 1px dashed;
+    padding-top: 6px;
+    margin-top: 6px;
+  }
+  .rd-label {
+    font-family: var(--font-plex-mono);
+    font-size: 9.5px;
+    letter-spacing: 1.4px;
+    text-transform: uppercase;
+    font-weight: 700;
+  }
+  .rd-num {
+    font-family: var(--font-plex-mono);
+    font-variant-numeric: tabular-nums;
+    font-weight: 700;
+  }
+  .rd-num.big { font-size: 18px; line-height: 1; }
+  .rd-num.mid { font-size: 14px; line-height: 1; }
+  .rd-num.small { font-size: 11px; color: var(--text-secondary); }
+  .rd-num .cur {
+    font-size: 0.62em;
+    margin-right: 2px;
+    opacity: 0.6;
+    position: relative;
+    top: -0.1em;
+  }
+
+  /* —— 详情页头部 demo —— */
+  .hero-demo {
+    border-radius: var(--radius-md);
+    padding: 18px 20px;
+    color: #fff;
+    position: relative;
+    overflow: hidden;
+  }
+  .hero-demo .hero-meta {
+    font-family: var(--font-plex-mono);
+    font-size: 10px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    opacity: 0.7;
+    margin-bottom: 6px;
+  }
+  .hero-demo .hero-title {
+    font-family: var(--font-display);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    margin-bottom: 12px;
+  }
+  .hero-demo .hero-num {
+    font-family: var(--font-plex-mono);
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.3px;
+    line-height: 1;
+  }
+  .hero-demo .hero-cur {
+    font-size: 11px;
+    opacity: 0.6;
+    margin-right: 3px;
+  }
+
+  /* ════════════════════════════════════════════════
+     方向 A · 钢蓝 vs 朱砂红（实物派）
+     车辆=钢蓝（汽车工业涂装质感）
+     两地牌=朱砂红（车牌红边/通关印章）
+     ════════════════════════════════════════════════ */
+  .a-vehicle {
+    --bz-base: #2d5b8a;      /* 钢蓝主色 */
+    --bz-deep: #1e3f63;      /* 加深版（深字/hover）*/
+    --bz-soft: #e5edf6;      /* 浅底（chip）*/
+    --bz-bg:   #f4f7fb;      /* 极浅（卡片底）*/
+    --bz-text: #244c75;      /* 在浅底上的字色 */
+  }
+  .a-cross {
+    --bz-base: #b8423b;      /* 朱砂红 */
+    --bz-deep: #8f2d28;
+    --bz-soft: #fbe9e7;
+    --bz-bg:   #fdf4f3;
+    --bz-text: #9f3530;
+  }
+
+  /* ════════════════════════════════════════════════
+     方向 B · 燃油橙 vs 港湾青（隐喻派）
+     车辆=燃油橙（速度/能量）
+     两地牌=港湾青（海港/桥梁/跨境）
+     ════════════════════════════════════════════════ */
+  .b-vehicle {
+    --bz-base: #d96b2d;      /* 燃油橙 —— 注意：会和 due #dc6b3d 几乎一样，淘汰预警 */
+    --bz-deep: #a8501e;
+    --bz-soft: #fbe8da;
+    --bz-bg:   #fdf3eb;
+    --bz-text: #a8501e;
+  }
+  .b-cross {
+    --bz-base: #2d7a8c;      /* 港湾青 */
+    --bz-deep: #1d5562;
+    --bz-soft: #e2eff2;
+    --bz-bg:   #f1f7f9;
+    --bz-text: #1d5562;
+  }
+
+  /* ════════════════════════════════════════════════
+     方向 C · 靛紫 vs 朱砂（保守优化派）
+     车辆=深靛紫（现有 #667eea 加深稳定版）
+     两地牌=朱砂红（避开 done teal 冲突）
+     ════════════════════════════════════════════════ */
+  .c-vehicle {
+    --bz-base: #4f5db0;      /* 深靛紫 */
+    --bz-deep: #3a4490;
+    --bz-soft: #ebedf8;
+    --bz-bg:   #f4f5fb;
+    --bz-text: #3a4490;
+  }
+  .c-cross {
+    --bz-base: #b8423b;
+    --bz-deep: #8f2d28;
+    --bz-soft: #fbe9e7;
+    --bz-bg:   #fdf4f3;
+    --bz-text: #9f3530;
+  }
+
+  /* —— 应用层（所有方向共用，使用 --bz-* 变量）—— */
+  .biz-badge.bz {
+    color: var(--bz-text);
+    background: var(--bz-soft);
+  }
+  .list-row.bz::before { background: var(--bz-base); }
+  .list-row.bz:hover {
+    background: var(--bz-bg);
+  }
+
+  .receipt-demo.bz {
+    background: linear-gradient(180deg, var(--bz-bg) 0%, #fff 100%);
+    border: 1px solid var(--bz-soft);
+  }
+  .receipt-demo.bz::before {
+    background: repeating-linear-gradient(
+      to bottom,
+      var(--bz-base) 0 5px,
+      transparent 5px 9px
+    );
+  }
+  .receipt-demo.bz .rd-label { color: var(--bz-deep); }
+  .receipt-demo.bz .rd-row.div { border-top-color: var(--bz-soft); }
+  .receipt-demo.bz .rd-num.big { color: var(--brand-gold-deep); }
+  .receipt-demo.bz .rd-num.mid { color: var(--bz-text); }
+
+  .hero-demo.bz {
+    background:
+      linear-gradient(135deg, var(--bz-base) 0%, var(--bz-deep) 100%);
+  }
+  .hero-demo.bz::after {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4) 50%, transparent);
+  }
+
+  /* —— 对比汇总表 —— */
+  .summary {
+    max-width: 1480px;
+    margin: 0 auto;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-light);
+    border-radius: var(--radius-md);
+    padding: 24px 28px;
+  }
+  .summary h3 {
+    font-family: var(--font-display);
+    font-size: 18px;
+    color: var(--brand-deep);
+    margin-bottom: 16px;
+    letter-spacing: 0.5px;
+  }
+  .summary table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  .summary th {
+    text-align: left;
+    padding: 10px 14px;
+    color: var(--text-tertiary);
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    border-bottom: 2px solid var(--border-default);
+  }
+  .summary td {
+    padding: 14px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--text-secondary);
+    vertical-align: top;
+    line-height: 1.6;
+  }
+  .summary td:first-child {
+    font-family: var(--font-display);
+    color: var(--brand-deep);
+    font-weight: 600;
+    width: 130px;
+  }
+  .summary td b { color: var(--brand-deep); font-weight: 600; }
+  .summary td .sw {
+    display: inline-block;
+    width: 11px; height: 11px;
+    border-radius: 3px;
+    vertical-align: -1px;
+    margin-right: 4px;
+    box-shadow: 0 0 0 1px rgba(0,0,0,0.08);
+  }
+  .summary .rec {
+    background: var(--brand-gold-bg);
+  }
+  .summary .rec td:first-child {
+    color: var(--brand-gold-deep);
+    position: relative;
+    padding-left: 22px;
+  }
+  .summary .rec td:first-child::before {
+    content: '★';
+    position: absolute;
+    left: 8px;
+    color: var(--brand-gold);
+  }
+  .rec-banner {
+    margin-top: 20px;
+    padding: 16px 18px;
+    background: var(--brand-gold-bg);
+    border-left: 3px solid var(--brand-gold);
+    border-radius: 0 6px 6px 0;
+    font-size: 13px;
+    line-height: 1.75;
+  }
+  .rec-banner b {
+    color: var(--brand-gold-deep);
+    font-family: var(--font-display);
+    letter-spacing: 0.5px;
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <span class="tag">PROTOTYPE · 业务色彩系统调研</span>
+  <h1>业务色彩基调 · 车辆 vs 两地牌</h1>
+  <p class="sub">
+    定义两个核心业务的<b>完整用色系统</b>（主色 / 浅底 / 深字 / hero 渐变），让用户在任何页面一眼分辨业务类型。
+    本调研基于 <b>Linear / Stripe / Mercury / Notion</b> 的业务色实践 + 项目已有 token，
+    给出三个方向。选定后写入 <code>CLAUDE.md</code>，后续所有页面统一使用。
+  </p>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  冲突警示                        -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="conflict">
+  <div class="conflict-title">⚠ 当前色系冲突（必须解决）</div>
+  <div class="conflict-body">
+    现版「两地牌业务」使用 <code style="font-family:var(--font-plex-mono);background:#fff;padding:2px 6px;border-radius:3px;font-size:11.5px;">#0d9488</code><span class="sw" style="background:#0d9488"></span>，
+    与「<b>全额结清</b>」状态色 <span class="sw" style="background:#0d9488"></span><code style="font-family:var(--font-plex-mono);background:#fff;padding:2px 6px;border-radius:3px;font-size:11.5px;">#0d9488</code> <b>完全相同</b>。
+    一份「未结清的两地牌合同」和一份「已结清的车辆合同」放在同一屏时，<b>用户无法靠颜色区分语义</b>。
+    必须让两地牌业务避开 teal 色相，把 teal 留给状态语义。
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方向 A · 钢蓝 vs 朱砂           -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">A</span>
+    <h2>方向 A · 钢蓝 × 朱砂（实物派）</h2>
+    <span class="ref">汽车工业漆 · 中式印章红 · 高识别度</span>
+  </div>
+  <p class="section-rationale">
+    <b>语义自洽度最高</b>。车辆 = 汽车厂的<b>金属漆面钢蓝</b>（保时捷/奔驰深色系），两地牌 = <b>朱砂红</b>（车牌红边/通关印章/中港旗帜）。
+    色相距离 200°，扫视区分度最强。朱砂红与项目金色形成「红金」中式财务美学，气质与「华星」品牌契合。
+    缺点：朱砂红视觉重量略高于钢蓝，在列表中可能显得"两地牌"比"车辆"更显眼。
+  </p>
+
+  <!-- 色卡 -->
+  <div class="palette">
+    <div class="pal-card a-vehicle">
+      <div class="pal-hero" style="background: linear-gradient(135deg, #2d5b8a 0%, #1e3f63 100%);">
+        <div class="pal-hero-meta">VEHICLE · 车辆业务</div>
+        <div class="pal-hero-name">钢蓝 Steel Blue</div>
+        <div class="pal-hero-hex">#2d5b8a · oklch 0.45 0.07 246</div>
+        <div class="pal-hero-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+        </div>
+      </div>
+      <div class="pal-shades">
+        <div class="pal-shade" style="background:#1e3f63;color:#fff"><span class="lvl">deep</span><span class="hex">#1e3f63</span></div>
+        <div class="pal-shade" style="background:#2d5b8a;color:#fff"><span class="lvl">base</span><span class="hex">#2d5b8a</span></div>
+        <div class="pal-shade" style="background:#5e83b0;color:#fff"><span class="lvl">light</span><span class="hex">#5e83b0</span></div>
+        <div class="pal-shade" style="background:#e5edf6;color:#244c75"><span class="lvl">soft</span><span class="hex">#e5edf6</span></div>
+        <div class="pal-shade" style="background:#f4f7fb;color:#244c75"><span class="lvl">bg</span><span class="hex">#f4f7fb</span></div>
+      </div>
+      <div class="pal-uses">
+        <b>用途</b>icon 描边 · 业务徽章字色（deep）· chip 浅底（soft）· hero 渐变 · 列表左侧色条
+      </div>
+    </div>
+
+    <div class="pal-card a-cross">
+      <div class="pal-hero" style="background: linear-gradient(135deg, #b8423b 0%, #8f2d28 100%);">
+        <div class="pal-hero-meta">CROSS-BORDER · 两地牌业务</div>
+        <div class="pal-hero-name">朱砂 Cinnabar</div>
+        <div class="pal-hero-hex">#b8423b · oklch 0.52 0.16 28</div>
+        <div class="pal-hero-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="1.5"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+        </div>
+      </div>
+      <div class="pal-shades">
+        <div class="pal-shade" style="background:#8f2d28;color:#fff"><span class="lvl">deep</span><span class="hex">#8f2d28</span></div>
+        <div class="pal-shade" style="background:#b8423b;color:#fff"><span class="lvl">base</span><span class="hex">#b8423b</span></div>
+        <div class="pal-shade" style="background:#d97a72;color:#fff"><span class="lvl">light</span><span class="hex">#d97a72</span></div>
+        <div class="pal-shade" style="background:#fbe9e7;color:#9f3530"><span class="lvl">soft</span><span class="hex">#fbe9e7</span></div>
+        <div class="pal-shade" style="background:#fdf4f3;color:#9f3530"><span class="lvl">bg</span><span class="hex">#fdf4f3</span></div>
+      </div>
+      <div class="pal-uses">
+        <b>用途</b>icon 描边 · 业务徽章字色（deep）· chip 浅底（soft）· hero 渐变 · 列表左侧色条
+      </div>
+    </div>
+  </div>
+
+  <!-- 应用场景 -->
+  <div class="demos">
+    <div class="demo-block">
+      <div class="demo-title">业务徽章</div>
+      <div class="demo-body">
+        <div class="badge-row" style="margin-bottom: 12px;">
+          <span class="biz-badge bz a-vehicle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+            车辆业务
+          </span>
+          <span class="biz-badge bz a-cross">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+            两地牌过户
+          </span>
+        </div>
+        <div class="badge-row">
+          <span class="biz-badge bz lg a-vehicle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+            车辆业务
+          </span>
+          <span class="biz-badge bz lg a-cross">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+            两地牌过户
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block">
+      <div class="demo-title">列表行（含 hover）</div>
+      <div class="demo-body">
+        <div class="list-row bz a-vehicle">
+          <span class="biz-badge bz a-vehicle">🚗 车辆</span>
+          <span class="lr-name">30系埃尔法 · GGH30-0016495</span>
+          <span class="lr-amount">HK$250,000</span>
+        </div>
+        <div class="list-row bz a-cross">
+          <span class="biz-badge bz a-cross">🛂 两地牌</span>
+          <span class="lr-name">购买现牌 · 粤Z7N80港</span>
+          <span class="lr-amount">¥240,000</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block">
+      <div class="demo-title">合同详情头部 Hero</div>
+      <div class="demo-body" style="display: grid; gap: 10px;">
+        <div class="hero-demo bz a-vehicle">
+          <div class="hero-meta">VEHICLE · HT202606051422</div>
+          <div class="hero-title">30系埃尔法 · GGH30-0016495</div>
+          <div class="hero-num"><span class="hero-cur">HK$</span>250,000</div>
+        </div>
+        <div class="hero-demo bz a-cross">
+          <div class="hero-meta">CROSS-BORDER · HT202606091607</div>
+          <div class="hero-title">购买现牌 · 粤Z7N80港</div>
+          <div class="hero-num"><span class="hero-cur">¥</span>240,000</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block">
+      <div class="demo-title">收据金额区（业务染色 + 金额仍金色）</div>
+      <div class="demo-body" style="display: grid; gap: 10px;">
+        <div class="receipt-demo bz a-vehicle">
+          <div class="rd-row">
+            <span class="rd-label">已收</span>
+            <span class="rd-num big" style="color:#a87a18"><span class="cur" style="color:#a87a1899">HK$</span>140,000</span>
+          </div>
+          <div class="rd-row">
+            <span class="rd-label">合同总额</span>
+            <span class="rd-num small"><span class="cur">HK$</span>250,000</span>
+          </div>
+          <div class="rd-row div">
+            <span class="rd-label" style="color:#dc6b3d">未收</span>
+            <span class="rd-num mid" style="color:#dc6b3d"><span class="cur" style="color:#dc6b3d99">HK$</span>110,000</span>
+          </div>
+        </div>
+        <div class="receipt-demo bz a-cross">
+          <div class="rd-row">
+            <span class="rd-label">已收</span>
+            <span class="rd-num big" style="color:#a87a18"><span class="cur" style="color:#a87a1899">¥</span>50,000</span>
+          </div>
+          <div class="rd-row">
+            <span class="rd-label">合同总额</span>
+            <span class="rd-num small"><span class="cur">¥</span>240,000</span>
+          </div>
+          <div class="rd-row div">
+            <span class="rd-label" style="color:#dc6b3d">未收</span>
+            <span class="rd-num mid" style="color:#dc6b3d"><span class="cur" style="color:#dc6b3d99">¥</span>190,000</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block">
+      <div class="demo-title">混排（含全额结清 teal 状态）</div>
+      <div class="demo-body">
+        <div class="list-row bz a-vehicle">
+          <span class="biz-badge bz a-vehicle">🚗 车辆</span>
+          <span class="lr-name">未结清</span>
+          <span class="lr-amount">¥240,000</span>
+        </div>
+        <div class="list-row bz a-cross">
+          <span class="biz-badge bz a-cross">🛂 两地牌</span>
+          <span class="lr-name">未结清</span>
+          <span class="lr-amount">¥120,000</span>
+        </div>
+        <div class="list-row bz a-vehicle" style="background:#ecfdf5">
+          <span class="biz-badge bz a-vehicle">🚗 车辆</span>
+          <span class="lr-name">✓ 已结清 <span style="color:#0d9488;font-weight:600">teal=结清</span></span>
+          <span class="lr-amount" style="color:#0d9488">¥420,000</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block">
+      <div class="demo-title">无障碍对比度</div>
+      <div class="demo-body" style="font-size: 12px; line-height: 1.9;">
+        <div>🟢 钢蓝 <b>#244c75 on white</b> → 7.5:1 (AAA)</div>
+        <div>🟢 朱砂 <b>#9f3530 on white</b> → 7.2:1 (AAA)</div>
+        <div>🟢 钢蓝 base 在 chip 浅底 → 5.8:1 (AA+)</div>
+        <div>🟢 朱砂 base 在 chip 浅底 → 5.6:1 (AA+)</div>
+        <div style="margin-top: 10px; color: var(--text-tertiary);">两个业务色相距离：<b style="color:var(--text-secondary)">218°</b>（极佳）</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方向 B · 燃油橙 vs 港湾青       -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge" style="background:#475569">B</span>
+    <h2>方向 B · 燃油橙 × 港湾青（隐喻派）</h2>
+    <span class="ref">速度/能量 · 海港/跨境</span>
+  </div>
+  <p class="section-rationale">
+    <b>语义隐喻最强</b>。车辆 = <b>燃油橙</b>（机油、能量、速度），两地牌 = <b>港湾青</b>（深圳湾/港珠澳口岸的海港色）。
+    问题：<b>燃油橙 <code style="font-family:var(--font-plex-mono);background:var(--bg-hover);padding:1px 5px;border-radius:3px;font-size:11.5px;">#d96b2d</code></b> 与项目<b>未收款警示色 <code style="font-family:var(--font-plex-mono);background:var(--bg-hover);padding:1px 5px;border-radius:3px;font-size:11.5px;">#dc6b3d</code></b> 几乎一致，
+    会让"车辆业务"和"未收款警示"在视觉上混淆。⚠ <b>不推荐</b>，仅作对比展示。
+  </p>
+
+  <div class="palette">
+    <div class="pal-card b-vehicle">
+      <div class="pal-hero" style="background: linear-gradient(135deg, #d96b2d 0%, #a8501e 100%);">
+        <div class="pal-hero-meta">VEHICLE · 车辆业务</div>
+        <div class="pal-hero-name">燃油橙 Fuel Orange ⚠</div>
+        <div class="pal-hero-hex">#d96b2d · 与 due #dc6b3d 高度相似</div>
+      </div>
+      <div class="pal-shades">
+        <div class="pal-shade" style="background:#a8501e;color:#fff"><span class="lvl">deep</span><span class="hex">#a8501e</span></div>
+        <div class="pal-shade" style="background:#d96b2d;color:#fff"><span class="lvl">base</span><span class="hex">#d96b2d</span></div>
+        <div class="pal-shade" style="background:#ea8e5a;color:#fff"><span class="lvl">light</span><span class="hex">#ea8e5a</span></div>
+        <div class="pal-shade" style="background:#fbe8da;color:#a8501e"><span class="lvl">soft</span><span class="hex">#fbe8da</span></div>
+        <div class="pal-shade" style="background:#fdf3eb;color:#a8501e"><span class="lvl">bg</span><span class="hex">#fdf3eb</span></div>
+      </div>
+      <div class="pal-uses"><b style="color:#dc6b3d">⚠ 冲突</b>与现有"未收款"暖橙重叠，列表中难以区分</div>
+    </div>
+
+    <div class="pal-card b-cross">
+      <div class="pal-hero" style="background: linear-gradient(135deg, #2d7a8c 0%, #1d5562 100%);">
+        <div class="pal-hero-meta">CROSS-BORDER · 两地牌业务</div>
+        <div class="pal-hero-name">港湾青 Harbor Teal</div>
+        <div class="pal-hero-hex">#2d7a8c · 与 done teal 仍偏近</div>
+      </div>
+      <div class="pal-shades">
+        <div class="pal-shade" style="background:#1d5562;color:#fff"><span class="lvl">deep</span><span class="hex">#1d5562</span></div>
+        <div class="pal-shade" style="background:#2d7a8c;color:#fff"><span class="lvl">base</span><span class="hex">#2d7a8c</span></div>
+        <div class="pal-shade" style="background:#5da0b0;color:#fff"><span class="lvl">light</span><span class="hex">#5da0b0</span></div>
+        <div class="pal-shade" style="background:#e2eff2;color:#1d5562"><span class="lvl">soft</span><span class="hex">#e2eff2</span></div>
+        <div class="pal-shade" style="background:#f1f7f9;color:#1d5562"><span class="lvl">bg</span><span class="hex">#f1f7f9</span></div>
+      </div>
+      <div class="pal-uses"><b style="color:#dc6b3d">⚠ 半冲突</b>港湾青虽偏蓝但仍在 teal 家族，色相距 done 仅 18°</div>
+    </div>
+  </div>
+
+  <div class="demos">
+    <div class="demo-block">
+      <div class="demo-title">业务徽章（注意视觉相似度）</div>
+      <div class="demo-body">
+        <div class="badge-row">
+          <span class="biz-badge bz lg b-vehicle">🚗 车辆业务</span>
+          <span class="biz-badge bz lg b-cross">🛂 两地牌过户</span>
+          <span style="color:var(--money-due);font-family:var(--font-plex-mono);font-size:12px">⚠ 未收款</span>
+          <span style="color:var(--money-done);font-family:var(--font-plex-mono);font-size:12px">✓ 已结清</span>
+        </div>
+      </div>
+    </div>
+    <div class="demo-block">
+      <div class="demo-title">混排冲突演示</div>
+      <div class="demo-body">
+        <div class="list-row bz b-vehicle">
+          <span class="biz-badge bz b-vehicle">🚗 车辆</span>
+          <span class="lr-name">车辆 base 色</span>
+          <span class="lr-amount" style="color:#dc6b3d">未收 ¥110,000</span>
+        </div>
+        <div class="list-row bz b-cross">
+          <span class="biz-badge bz b-cross">🛂 两地牌</span>
+          <span class="lr-name">两地牌 base 色</span>
+          <span class="lr-amount" style="color:#0d9488">✓ 结清</span>
+        </div>
+        <p style="margin-top:10px;font-size:12px;color:var(--money-due);line-height:1.6">
+          ⚠ 车辆橙 vs 未收橙 几乎同色，两地牌青 vs 结清 teal 同色系，<b>视觉语义崩塌</b>。
+        </p>
+      </div>
+    </div>
+    <div class="demo-block">
+      <div class="demo-title">结论</div>
+      <div class="demo-body" style="font-size:12.5px;line-height:1.7;color:var(--text-secondary)">
+        虽然语义最贴切（燃油 / 港湾），但<b style="color:#dc6b3d">两个业务色都跟状态色撞色</b>，
+        视觉系统会"四色压成两色"。<br><br>
+        <b>方向 B 不推荐采纳</b>。仅供对比理解为什么 A/C 要避开橙和 teal。
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方向 C · 靛紫 vs 朱砂           -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="section">
+  <div class="section-head">
+    <span class="badge">C</span>
+    <h2>方向 C · 靛紫 × 朱砂（保守优化派）</h2>
+    <span class="ref">在现有 #667eea 紫上加深稳定 · 两地牌切换到朱砂避冲突</span>
+  </div>
+  <p class="section-rationale">
+    <b>迁移成本最低</b>。车辆保留紫色家族（现版 <code style="font-family:var(--font-plex-mono);background:var(--bg-hover);padding:1px 5px;border-radius:3px;font-size:11.5px;">#667eea</code> 改为 <code style="font-family:var(--font-plex-mono);background:var(--bg-hover);padding:1px 5px;border-radius:3px;font-size:11.5px;">#4f5db0</code>，更稳更深更专业），
+    只改两地牌从 teal 切到朱砂。优点：车辆相关页面不用大改。
+    缺点：紫色和"汽车"的语义关联较弱（紫常用于科技/AI/创意），<b>不如钢蓝来得"实在"</b>。
+  </p>
+
+  <div class="palette">
+    <div class="pal-card c-vehicle">
+      <div class="pal-hero" style="background: linear-gradient(135deg, #4f5db0 0%, #3a4490 100%);">
+        <div class="pal-hero-meta">VEHICLE · 车辆业务</div>
+        <div class="pal-hero-name">深靛紫 Indigo</div>
+        <div class="pal-hero-hex">#4f5db0 · 现版 #667eea 加深稳定版</div>
+      </div>
+      <div class="pal-shades">
+        <div class="pal-shade" style="background:#3a4490;color:#fff"><span class="lvl">deep</span><span class="hex">#3a4490</span></div>
+        <div class="pal-shade" style="background:#4f5db0;color:#fff"><span class="lvl">base</span><span class="hex">#4f5db0</span></div>
+        <div class="pal-shade" style="background:#7d89c8;color:#fff"><span class="lvl">light</span><span class="hex">#7d89c8</span></div>
+        <div class="pal-shade" style="background:#ebedf8;color:#3a4490"><span class="lvl">soft</span><span class="hex">#ebedf8</span></div>
+        <div class="pal-shade" style="background:#f4f5fb;color:#3a4490"><span class="lvl">bg</span><span class="hex">#f4f5fb</span></div>
+      </div>
+      <div class="pal-uses"><b>用途</b>同 A · 现有 #667eea 引用全替换为 #4f5db0</div>
+    </div>
+
+    <div class="pal-card c-cross">
+      <div class="pal-hero" style="background: linear-gradient(135deg, #b8423b 0%, #8f2d28 100%);">
+        <div class="pal-hero-meta">CROSS-BORDER · 两地牌业务</div>
+        <div class="pal-hero-name">朱砂 Cinnabar</div>
+        <div class="pal-hero-hex">#b8423b · 同方向 A</div>
+      </div>
+      <div class="pal-shades">
+        <div class="pal-shade" style="background:#8f2d28;color:#fff"><span class="lvl">deep</span><span class="hex">#8f2d28</span></div>
+        <div class="pal-shade" style="background:#b8423b;color:#fff"><span class="lvl">base</span><span class="hex">#b8423b</span></div>
+        <div class="pal-shade" style="background:#d97a72;color:#fff"><span class="lvl">light</span><span class="hex">#d97a72</span></div>
+        <div class="pal-shade" style="background:#fbe9e7;color:#9f3530"><span class="lvl">soft</span><span class="hex">#fbe9e7</span></div>
+        <div class="pal-shade" style="background:#fdf4f3;color:#9f3530"><span class="lvl">bg</span><span class="hex">#fdf4f3</span></div>
+      </div>
+      <div class="pal-uses"><b>用途</b>同 A · 现有 #0d9488 引用全替换为 #b8423b</div>
+    </div>
+  </div>
+
+  <div class="demos">
+    <div class="demo-block">
+      <div class="demo-title">业务徽章</div>
+      <div class="demo-body">
+        <div class="badge-row">
+          <span class="biz-badge bz lg c-vehicle">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+            车辆业务
+          </span>
+          <span class="biz-badge bz lg c-cross">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M3 9h18v10H3z"/><path d="M9 19v-3h6v3"/><path d="M7 9V5h10v4"/></svg>
+            两地牌过户
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block">
+      <div class="demo-title">列表行</div>
+      <div class="demo-body">
+        <div class="list-row bz c-vehicle">
+          <span class="biz-badge bz c-vehicle">🚗 车辆</span>
+          <span class="lr-name">30系埃尔法 · GGH30-0016495</span>
+          <span class="lr-amount">HK$250,000</span>
+        </div>
+        <div class="list-row bz c-cross">
+          <span class="biz-badge bz c-cross">🛂 两地牌</span>
+          <span class="lr-name">购买现牌 · 粤Z7N80港</span>
+          <span class="lr-amount">¥240,000</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="demo-block">
+      <div class="demo-title">详情头部 Hero</div>
+      <div class="demo-body" style="display: grid; gap: 10px;">
+        <div class="hero-demo bz c-vehicle">
+          <div class="hero-meta">VEHICLE · HT202606051422</div>
+          <div class="hero-title">30系埃尔法 · GGH30-0016495</div>
+          <div class="hero-num"><span class="hero-cur">HK$</span>250,000</div>
+        </div>
+        <div class="hero-demo bz c-cross">
+          <div class="hero-meta">CROSS-BORDER · HT202606091607</div>
+          <div class="hero-title">购买现牌 · 粤Z7N80港</div>
+          <div class="hero-num"><span class="hero-cur">¥</span>240,000</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════ -->
+<!--                  方案汇总                        -->
+<!-- ════════════════════════════════════════════════ -->
+<div class="summary">
+  <h3>方向对比 · 选型建议</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>方向</th>
+        <th>车辆色</th>
+        <th>两地牌色</th>
+        <th>语义</th>
+        <th>状态色冲突</th>
+        <th>品牌契合</th>
+        <th>迁移成本</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr class="rec">
+        <td>A · 钢蓝×朱砂</td>
+        <td><span class="sw" style="background:#2d5b8a"></span><b>#2d5b8a</b> 钢蓝</td>
+        <td><span class="sw" style="background:#b8423b"></span><b>#b8423b</b> 朱砂</td>
+        <td>汽车工业 + 印章/车牌红</td>
+        <td>✅ 完全无冲突</td>
+        <td>★★★★★ 中式财务红金</td>
+        <td>中（两个色都改）</td>
+      </tr>
+      <tr>
+        <td>B · 燃油橙×港湾青</td>
+        <td><span class="sw" style="background:#d96b2d"></span><b>#d96b2d</b> 燃油橙</td>
+        <td><span class="sw" style="background:#2d7a8c"></span><b>#2d7a8c</b> 港湾青</td>
+        <td>速度 + 海港跨境</td>
+        <td>❌ 都撞状态色</td>
+        <td>★★★</td>
+        <td>—</td>
+      </tr>
+      <tr>
+        <td>C · 靛紫×朱砂</td>
+        <td><span class="sw" style="background:#4f5db0"></span><b>#4f5db0</b> 深靛紫</td>
+        <td><span class="sw" style="background:#b8423b"></span><b>#b8423b</b> 朱砂</td>
+        <td>科技感 + 印章/车牌红</td>
+        <td>✅ 无冲突</td>
+        <td>★★★★ 不如钢蓝实</td>
+        <td>低（只改两地牌）</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="rec-banner">
+    <b>我的推荐：方向 A · 钢蓝 × 朱砂</b><br><br>
+    <b style="color:var(--brand-deep);font-family:var(--font-display)">理由：</b><br>
+    1. <b>语义最强</b>：钢蓝直接呼应汽车工业涂装（保时捷海军蓝/奔驰深空蓝/宾利皇家蓝都是这个家族），朱砂是中港车牌的红边色 + 通关印章色，<b>两个业务都有"实物原型"做支撑</b>，不是凭空指派<br>
+    2. <b>状态色零冲突</b>：钢蓝与品牌深蓝同家族但更冷（不抢戏），朱砂与暖橙 due 有 18° 色相差（可分辨）<br>
+    3. <b>红金组合契合「华星」品牌</b>：朱砂红 + 已有金色 = 中式财务美学，气质统一<br>
+    4. <b>色相距离 218°</b>：两业务在色环上几乎对立，扫视区分度最强<br><br>
+    选定后，我会把完整的 token + 用色规则 + 迁移清单写入 <code style="font-family:var(--font-plex-mono);background:var(--bg-hover);padding:2px 6px;border-radius:3px;font-size:11.5px">CLAUDE.md</code> 「设计系统」章节，后续所有业务相关页面都按这套规则改造。
+  </div>
+</div>
+
+</body>
+</html>

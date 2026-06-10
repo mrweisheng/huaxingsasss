@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<title>合同卡背景染色 · 四档对比</title>
+<style>
+  :root {
+    --biz-vehicle: #2d5b8a;
+    --biz-vehicle-deep: #1e3f63;
+    --biz-vehicle-soft: #e5edf6;
+    --biz-vehicle-bg: #f4f7fb;
+    --biz-cross: #b8423b;
+    --biz-cross-deep: #8f2d28;
+    --biz-cross-soft: #fbe9e7;
+    --biz-cross-bg: #fdf4f3;
+    --gold: #c9952b;
+    --gold-deep: #a87a18;
+    --orange: #dc6b3d;
+    --ink: #0f1a2e;
+    --text-secondary: #475569;
+    --text-tertiary: #94a3b8;
+    --border-light: #e2e5ea;
+    --bg-page: #f5f6f8;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    background: var(--bg-page);
+    padding: 32px 24px;
+    color: var(--ink);
+  }
+  h1 { text-align: center; font-size: 22px; margin-bottom: 6px; }
+  .sub { text-align: center; color: var(--text-tertiary); margin-bottom: 24px; font-size: 13px; }
+  .section { max-width: 1280px; margin: 0 auto 48px; }
+  .section-title {
+    font-size: 14px;
+    font-weight: 600;
+    margin-bottom: 12px;
+    padding: 8px 12px;
+    background: white;
+    border-left: 4px solid var(--gold);
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .section-title .verdict {
+    font-size: 11px;
+    font-weight: 500;
+    padding: 3px 10px;
+    border-radius: 12px;
+  }
+  .verdict.good { background: #dcfce7; color: #166534; }
+  .verdict.ok { background: #fef3c7; color: #92400e; }
+  .verdict.bad { background: #fee2e2; color: #991b1b; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .card {
+    border: 1px solid var(--border-light);
+    border-radius: 12px;
+    overflow: hidden;
+    position: relative;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.04);
+  }
+  .card-bar {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    width: 4px;
+  }
+  .vehicle .card-bar { background: var(--biz-vehicle); }
+  .cross .card-bar { background: var(--biz-cross); }
+
+  .card-top {
+    padding: 12px 14px 0 18px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+  }
+  .badge {
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-weight: 600;
+  }
+  .vehicle .badge { color: var(--biz-vehicle-deep); background: var(--biz-vehicle-soft); }
+  .cross   .badge { color: var(--biz-cross-deep);   background: var(--biz-cross-soft); }
+  .status {
+    margin-left: auto;
+    font-size: 10px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: #e6f7ff;
+    color: #1890ff;
+  }
+  .name {
+    padding: 8px 14px 4px 18px;
+    font-size: 15px;
+    font-weight: 700;
+    color: #1e3a5f;
+  }
+  .meta {
+    padding: 0 14px 6px 18px;
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+  .hero {
+    margin: 8px 12px 8px;
+    padding: 10px 14px;
+    border: 1px solid var(--border-light);
+    border-radius: 8px;
+    background: #fff;
+  }
+  .hero-label { font-size: 10px; color: var(--text-tertiary); letter-spacing: 0.5px; }
+  .hero-value { font-size: 22px; font-weight: 800; font-family: monospace; color: var(--ink); margin-top: 2px; }
+  .split {
+    display: flex;
+    padding: 8px 14px 0;
+    gap: 16px;
+    font-family: monospace;
+  }
+  .split > div { flex: 1; }
+  .split .lbl { font-size: 10px; color: var(--text-tertiary); }
+  .split .val.paid { color: var(--gold-deep); font-weight: 700; font-size: 15px; }
+  .split .val.unpaid { color: var(--orange); font-weight: 700; font-size: 15px; }
+  .actions {
+    display: flex;
+    gap: 6px;
+    padding: 10px 12px 12px;
+  }
+  .qa {
+    flex: 1;
+    text-align: center;
+    padding: 6px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .qa.income {
+    color: var(--gold-deep);
+    background: rgba(201,149,43,0.08);
+    border: 1px solid rgba(201,149,43,0.22);
+  }
+  .qa.expense {
+    color: var(--orange);
+    background: rgba(220,107,61,0.08);
+    border: 1px solid rgba(220,107,61,0.22);
+  }
+
+  /* ════════════════════════════════════════════════════════
+     四档背景染色方案
+     ════════════════════════════════════════════════════════ */
+
+  /* A: 当前方案 —— 卡身纯白，只有 hero 染业务色 */
+  .lvl-A .card { background: #ffffff; }
+  .lvl-A .vehicle .hero { background: linear-gradient(135deg, var(--biz-vehicle-bg) 0%, #fff 100%); border-color: #d6e2ee; }
+  .lvl-A .cross   .hero { background: linear-gradient(135deg, var(--biz-cross-bg)   0%, #fff 100%); border-color: #f3d4d1; }
+
+  /* B: 极淡 whisper —— 卡身 3-4% 业务色 + hero 加深一档保持层级 */
+  .lvl-B .vehicle { background: #fbfcfd; }  /* 比白稍冷一点 */
+  .lvl-B .cross   { background: #fdfafa; }  /* 比白稍暖一点 */
+  .lvl-B .vehicle .hero { background: var(--biz-vehicle-bg); border-color: #d6e2ee; }
+  .lvl-B .cross   .hero { background: var(--biz-cross-bg);   border-color: #f3d4d1; }
+
+  /* C: 轻染 —— 卡身用 biz-bg（与原 hero 同色），hero 用 soft 加深 */
+  .lvl-C .vehicle { background: var(--biz-vehicle-bg); }
+  .lvl-C .cross   { background: var(--biz-cross-bg); }
+  .lvl-C .vehicle .hero { background: #ffffff; border-color: #d6e2ee; }
+  .lvl-C .cross   .hero { background: #ffffff; border-color: #f3d4d1; }
+
+  /* D: 顶部色块 —— 不染卡身，顶部 32px 满色条作为「身份带」 */
+  .lvl-D .card { background: #fff; padding-top: 26px; }
+  .lvl-D .card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 26px;
+    z-index: 0;
+  }
+  .lvl-D .vehicle::before { background: linear-gradient(135deg, var(--biz-vehicle-soft) 0%, var(--biz-vehicle-bg) 100%); }
+  .lvl-D .cross::before   { background: linear-gradient(135deg, var(--biz-cross-soft) 0%, var(--biz-cross-bg) 100%); }
+  .lvl-D .card-top { position: relative; z-index: 1; padding-top: 6px; }
+
+</style>
+</head>
+<body>
+  <h1>合同卡片 · 背景染色四档对比</h1>
+  <p class="sub">重点看：① 单卡是否好看 ② 同色卡片排成一片是否压抑</p>
+
+  <!-- A 现状 -->
+  <div class="section lvl-A">
+    <div class="section-title">
+      <span>A · 现状（卡身纯白，仅金额 hero 染色）</span>
+      <span class="verdict good">基准</span>
+    </div>
+    <div class="grid">
+      <div class="card vehicle">
+        <div class="card-bar"></div>
+        <div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div>
+        <div class="name">陈大文</div>
+        <div class="meta">HX-2026-001 · 收车款 + 翻新</div>
+        <div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥280,000</div></div>
+        <div class="split"><div><div class="lbl">已付</div><div class="val paid">¥180,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div>
+        <div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div>
+      </div>
+      <div class="card vehicle">
+        <div class="card-bar"></div>
+        <div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div>
+        <div class="name">李志强</div>
+        <div class="meta">HX-2026-002 · 二手车寄售</div>
+        <div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥150,000</div></div>
+        <div class="split"><div><div class="lbl">已付</div><div class="val paid">¥50,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div>
+        <div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div>
+      </div>
+      <div class="card cross">
+        <div class="card-bar"></div>
+        <div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div>
+        <div class="name">胡少棟</div>
+        <div class="meta">HX-2026-003 · 文锦渡口岸</div>
+        <div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$80,000</div></div>
+        <div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$80,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$0</div></div></div>
+        <div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div>
+      </div>
+      <div class="card cross">
+        <div class="card-bar"></div>
+        <div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div>
+        <div class="name">张敏华</div>
+        <div class="meta">HX-2026-004 · 皇岗口岸</div>
+        <div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$120,000</div></div>
+        <div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$40,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$80,000</div></div></div>
+        <div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B whisper -->
+  <div class="section lvl-B">
+    <div class="section-title">
+      <span>B · whisper（卡身 3-4% 极淡染色，hero 保持原 biz-bg）</span>
+      <span class="verdict good">推荐</span>
+    </div>
+    <div class="grid">
+      <div class="card vehicle"><div class="card-bar"></div><div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div><div class="name">陈大文</div><div class="meta">HX-2026-001 · 收车款 + 翻新</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥280,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">¥180,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card vehicle"><div class="card-bar"></div><div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div><div class="name">李志强</div><div class="meta">HX-2026-002 · 二手车寄售</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥150,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">¥50,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">胡少棟</div><div class="meta">HX-2026-003 · 文锦渡口岸</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$80,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$80,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$0</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">张敏华</div><div class="meta">HX-2026-004 · 皇岗口岸</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$120,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$40,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$80,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+    </div>
+  </div>
+
+  <!-- C 轻染 -->
+  <div class="section lvl-C">
+    <div class="section-title">
+      <span>C · 轻染（卡身用 biz-bg，hero 反白突出）</span>
+      <span class="verdict ok">较强但有风险</span>
+    </div>
+    <div class="grid">
+      <div class="card vehicle"><div class="card-bar"></div><div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div><div class="name">陈大文</div><div class="meta">HX-2026-001 · 收车款 + 翻新</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥280,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">¥180,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card vehicle"><div class="card-bar"></div><div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div><div class="name">李志强</div><div class="meta">HX-2026-002 · 二手车寄售</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥150,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">¥50,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">胡少棟</div><div class="meta">HX-2026-003 · 文锦渡口岸</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$80,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$80,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$0</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">张敏华</div><div class="meta">HX-2026-004 · 皇岗口岸</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$120,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$40,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$80,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+    </div>
+  </div>
+
+  <!-- D 顶部色带 -->
+  <div class="section lvl-D">
+    <div class="section-title">
+      <span>D · 顶部色带（不染卡身，顶部 26px 业务色块充当「身份带」）</span>
+      <span class="verdict ok">另一思路</span>
+    </div>
+    <div class="grid">
+      <div class="card vehicle"><div class="card-bar"></div><div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div><div class="name">陈大文</div><div class="meta">HX-2026-001 · 收车款 + 翻新</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥280,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">¥180,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card vehicle"><div class="card-bar"></div><div class="card-top"><span class="badge">车辆买卖</span><span class="status">执行中</span></div><div class="name">李志强</div><div class="meta">HX-2026-002 · 二手车寄售</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">¥150,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">¥50,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">¥100,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">胡少棟</div><div class="meta">HX-2026-003 · 文锦渡口岸</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$80,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$80,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$0</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">张敏华</div><div class="meta">HX-2026-004 · 皇岗口岸</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$120,000</div></div><div class="split"><div><div class="lbl">已付</div><div class="val paid">HK$40,000</div></div><div><div class="lbl">未付</div><div class="val unpaid">HK$80,000</div></div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+    </div>
+  </div>
+
+  <!-- 同色满屏压力测试 -->
+  <div class="section lvl-B">
+    <div class="section-title">
+      <span>压力测试 · B 方案 8 张全朱砂（筛选「两地牌过户」时的真实场景）</span>
+      <span class="verdict ok">看是否会感觉"沉闷/不舒服"</span>
+    </div>
+    <div class="grid">
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">胡少棟</div><div class="meta">HX-2026-003</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$80,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">张敏华</div><div class="meta">HX-2026-004</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$120,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">王晓琳</div><div class="meta">HX-2026-005</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$95,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">林志诚</div><div class="meta">HX-2026-006</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$60,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">周文豪</div><div class="meta">HX-2026-007</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$135,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">黄子轩</div><div class="meta">HX-2026-008</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$72,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">梁智宏</div><div class="meta">HX-2026-009</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$108,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">郭明俊</div><div class="meta">HX-2026-010</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$92,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+    </div>
+  </div>
+
+  <div class="section lvl-C">
+    <div class="section-title">
+      <span>压力测试 · C 方案 8 张全朱砂（同上）</span>
+      <span class="verdict bad">很可能感觉"红得发闷"</span>
+    </div>
+    <div class="grid">
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">胡少棟</div><div class="meta">HX-2026-003</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$80,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">张敏华</div><div class="meta">HX-2026-004</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$120,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">王晓琳</div><div class="meta">HX-2026-005</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$95,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">林志诚</div><div class="meta">HX-2026-006</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$60,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">周文豪</div><div class="meta">HX-2026-007</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$135,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">黄子轩</div><div class="meta">HX-2026-008</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$72,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">梁智宏</div><div class="meta">HX-2026-009</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$108,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+      <div class="card cross"><div class="card-bar"></div><div class="card-top"><span class="badge">两地牌过户</span><span class="status">执行中</span></div><div class="name">郭明俊</div><div class="meta">HX-2026-010</div><div class="hero"><div class="hero-label">合同总额</div><div class="hero-value">HK$92,000</div></div><div class="actions"><div class="qa income">录入收入</div><div class="qa expense">录入支出</div></div></div>
+    </div>
+  </div>
+
+  <div style="max-width:900px;margin:40px auto 0;padding:24px;background:#fffbeb;border:1px solid #fde68a;border-radius:12px;font-size:13px;line-height:1.8;color:#78350f;">
+    <b>我的看法：</b><br>
+    · <b>A 现状</b>：白卡 + hero 染色 = 业务身份够，呼吸感最好<br>
+    · <b>B whisper</b>：卡身只染 3-4%（钢蓝 <code>#fbfcfd</code> / 朱砂 <code>#fdfafa</code>），<b>单看几乎察觉不到，但和 A 并排能看出冷暖倾向</b>。即使 8 张同色排开也不闷。最稳的折中。<br>
+    · <b>C 轻染</b>：卡身直接用 <code>biz-bg</code> 染满，单卡好看，<b>但 8 张全朱砂时会变成"红墙"</b>，财务系统这种语境读起来不舒服<br>
+    · <b>D 顶部色带</b>：另一种思路 —— 卡身不动，顶部留 26px 满色块当「业务身份带」，比 B 更显眼，比 C 不沉闷<br><br>
+    <b>建议：</b>选 B 或 D。<b>不建议 C</b>，朱砂太重。
+  </div>
+</body>
+</html>
