@@ -181,12 +181,12 @@ export default function FinancialOverview() {
 /* ── ECharts 配置工厂 ── */
 
 /**
- * 月度业务趋势：柱状图（合同数）+ 平滑曲线（客户数）+ 双 Y 轴
+ * 月度业务趋势：双柱并列（合同数 + 客户数）
  *
  * 颜色：
- *   - 合同数柱子：钢蓝 #2d5b8a（系统色家族，非业务色，避免和"车辆"业务色混淆——
- *     此处仅为图形配色，无业务语义）
- *   - 客户数曲线：华星金 #c9952b（品牌强调色）
+ *   - 合同数柱子：钢蓝 #2d5b8a 渐变（系统色家族，非业务色）
+ *   - 客户数柱子：华星金 #c9952b 渐变（品牌强调色）
+ * 共用单一 Y 轴：两者同量纲（计数），同轴对比能直接呈现"一客户多单"的密度。
  */
 function dailyBusinessTrendOption(data: FinancialOverviewType['daily_trend']) {
   // X 轴日期标签：MM-DD，节省宽度
@@ -195,8 +195,7 @@ function dailyBusinessTrendOption(data: FinancialOverviewType['daily_trend']) {
   const contractData = data.map(d => d.contract_count)
   const customerData = data.map(d => d.customer_count)
 
-  const maxContract = Math.max(...contractData, 1)
-  const maxCustomer = Math.max(...customerData, 1)
+  const maxValue = Math.max(...contractData, ...customerData, 1)
 
   return {
     tooltip: {
@@ -221,7 +220,7 @@ function dailyBusinessTrendOption(data: FinancialOverviewType['daily_trend']) {
       itemHeight: 10,
       textStyle: { fontSize: 12 },
     },
-    grid: { top: 50, bottom: 50, left: 50, right: 50 },
+    grid: { top: 50, bottom: 50, left: 50, right: 30 },
     xAxis: {
       type: 'category',
       data: dates,
@@ -233,37 +232,23 @@ function dailyBusinessTrendOption(data: FinancialOverviewType['daily_trend']) {
       axisLine: { lineStyle: { color: '#e2e8f0' } },
       axisTick: { show: false },
     },
-    yAxis: [
-      {
-        type: 'value',
-        name: '合同数(单)',
-        position: 'left',
-        nameTextStyle: { fontSize: 11, color: '#64748b', padding: [0, 30, 0, 0] },
-        min: 0,
-        max: Math.ceil(maxContract * 1.2),
-        minInterval: 1,
-        axisLabel: { fontSize: 11, color: '#64748b' },
-        splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } },
-      },
-      {
-        type: 'value',
-        name: '客户数(人)',
-        position: 'right',
-        nameTextStyle: { fontSize: 11, color: '#64748b', padding: [0, 0, 0, 30] },
-        min: 0,
-        max: Math.ceil(maxCustomer * 1.2),
-        minInterval: 1,
-        axisLabel: { fontSize: 11, color: '#64748b' },
-        splitLine: { show: false },
-      },
-    ],
+    yAxis: {
+      type: 'value',
+      name: '数量',
+      nameTextStyle: { fontSize: 11, color: '#64748b', padding: [0, 30, 0, 0] },
+      min: 0,
+      max: Math.ceil(maxValue * 1.2),
+      minInterval: 1,
+      axisLabel: { fontSize: 11, color: '#64748b' },
+      splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } },
+    },
     series: [
       {
         name: '成交合同数',
         type: 'bar',
-        yAxisIndex: 0,
         data: contractData,
-        barMaxWidth: 18,
+        barMaxWidth: 14,
+        barGap: '20%',          // 同日两根柱子之间的间隙
         itemStyle: {
           color: {
             type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
@@ -272,32 +257,26 @@ function dailyBusinessTrendOption(data: FinancialOverviewType['daily_trend']) {
               { offset: 1, color: '#5680b0' },
             ],
           },
-          borderRadius: [4, 4, 0, 0],
+          borderRadius: [3, 3, 0, 0],
         },
-        emphasis: {
-          itemStyle: { color: '#1e3f63' },
-        },
+        emphasis: { itemStyle: { color: '#1e3f63' } },
       },
       {
         name: '成交客户数',
-        type: 'line',
-        yAxisIndex: 1,
+        type: 'bar',
         data: customerData,
-        smooth: true,
-        symbol: 'circle',
-        symbolSize: 7,
-        lineStyle: { color: '#c9952b', width: 2.5 },
-        itemStyle: { color: '#c9952b', borderColor: '#fff', borderWidth: 2 },
-        areaStyle: {
+        barMaxWidth: 14,
+        itemStyle: {
           color: {
             type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [
-              { offset: 0, color: 'rgba(201,149,43,0.25)' },
-              { offset: 1, color: 'rgba(201,149,43,0.02)' },
+              { offset: 0, color: '#c9952b' },
+              { offset: 1, color: '#dbb466' },
             ],
           },
+          borderRadius: [3, 3, 0, 0],
         },
-        z: 3,
+        emphasis: { itemStyle: { color: '#a87a18' } },
       },
     ],
   }
