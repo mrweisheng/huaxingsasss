@@ -512,7 +512,7 @@ class FileAnalyzer:
                     db=db,
                     contract_id=contract.id,
                     installment_number=installment_number,
-                    currency=contract.currency,
+                    currency=term.get("currency") or contract.currency,
                     amount=Decimal(str(term_amount)),
                     paid_date=contract.signed_date or date.today(),
                     payment_method="unknown",
@@ -527,7 +527,7 @@ class FileAnalyzer:
                     "installment_number": idx,
                     "installment_name": term.get("name"),
                     "amount": term_amount,
-                    "currency": contract.currency,
+                    "currency": term.get("currency") or contract.currency,
                     "status": payment.status,
                 })
             except Exception as e:

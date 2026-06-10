@@ -842,7 +842,7 @@ class ToolExecutor:
                     db=self.db,
                     contract_id=contract.id,
                     installment_number=installment_number,
-                    currency=contract.currency,
+                    currency=term.get("currency") or contract.currency,
                     amount=Decimal(str(term_amount)),
                     paid_date=payment_date,
                     payment_method="unknown",
@@ -859,7 +859,7 @@ class ToolExecutor:
                     "installment_number": idx,
                     "installment_name": term.get("name"),
                     "amount": term_amount,
-                    "currency": contract.currency,
+                    "currency": term.get("currency") or contract.currency,
                     "status": payment.status,
                 })
                 logger.info(
