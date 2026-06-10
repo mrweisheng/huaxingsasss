@@ -162,10 +162,6 @@ class PaymentService:
 
         contract.remaining_amount = contract.total_amount - contract.paid_amount
 
-        # 统一用原币判断合同完成状态（paid_amount 始终为合同货币）
-        if contract.paid_amount >= contract.total_amount:
-            contract.status = 'completed'
-
     @staticmethod
     def _add_to_contract_expense(
         db: Session, contract: Contract, amount: Decimal,
@@ -343,8 +339,6 @@ class PaymentService:
                 contract.paid_amount_in_cny = max(contract.paid_amount_in_cny or 0, Decimal('0'))
                 contract.remaining_amount = (contract.total_amount or 0) - (contract.paid_amount or 0)
                 contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
-                if contract.status == 'completed' and contract.total_amount_in_cny is not None and contract.paid_amount_in_cny < contract.total_amount_in_cny:
-                    contract.status = 'active'
 
         db.delete(payment)
         db.commit()
