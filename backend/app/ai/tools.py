@@ -779,8 +779,6 @@ class ToolExecutor:
             logger.info("自动付款创建跳过: 无payment_terms")
             return []
 
-        paid_keywords = ["已付", "已缴纳", "付清", "已到账", "已收", "已支付"]
-
         receipt_amount = None
         if receipt_data and isinstance(receipt_data, dict):
             try:
@@ -791,16 +789,12 @@ class ToolExecutor:
         receipt_matched = False
         auto_payments = []
         for idx, term in enumerate(payment_terms, 1):
-            # 优先使用结构化 is_paid 字段，回退到关键词匹配（兼容旧数据）
-            is_paid_field = term.get("is_paid")
-            condition = (term.get("condition") or "").lower()
-            is_paid_by_keywords = any(kw in condition for kw in paid_keywords)
-            is_paid_term = (is_paid_field is True) or (is_paid_field is None and is_paid_by_keywords)
+            # 完全信任 VL/LLM 的 is_paid 判断——语义理解由模型完成，代码不做关键词匹配
+            is_paid_term = term.get("is_paid") is True
 
             logger.info(
-                "条款[%d]: name=%s, amount=%s, is_paid字段=%s, condition=%s, 关键词匹配=%s → is_paid=%s",
-                idx, term.get("name"), term.get("amount"), is_paid_field,
-                condition[:50], is_paid_by_keywords, is_paid_term,
+                "条款[%d]: name=%s, amount=%s, is_paid=%s",
+                idx, term.get("name"), term.get("amount"), is_paid_term,
             )
 
             if not is_paid_term:

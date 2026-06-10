@@ -216,7 +216,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `update_customer` | 写入 | - | 更新客户信息 |
 | `search_contracts` | 查询 | - | 搜索合同 |
 | `get_contract_detail` | 查询 | - | 合同详情 + 付款记录 |
-| `create_contract` | 写入 | ✅ | 创建合同（自动关联文件分析结果，付款计划每期独立币种） |
+| `create_contract` | 写入 | ✅ | 创建合同（自动关联文件分析结果，付款计划每期独立币种）。`is_paid` 由 VL 模型语义判断，代码不做关键词匹配；仅 `is_paid=true` 的条款才自动创建付款记录 |
 | `update_contract` | 写入 | - | 更新合同元信息（微信群/备注） |
 | `query_payments` | 查询 | - | 付款记录查询（支持 group_by=contract） |
 | `create_payment_record` | 写入 | ✅ | 统一收入/支出创建（type 字段区分） |

@@ -487,14 +487,11 @@ class FileAnalyzer:
         if not payment_terms:
             return []
 
-        paid_keywords = ["已付", "已缴纳", "付清", "已到账", "已收", "已支付"]
         auto_payments = []
 
         for idx, term in enumerate(payment_terms, 1):
-            is_paid_field = term.get("is_paid")
-            condition = (term.get("condition") or "").lower()
-            is_paid_by_keywords = any(kw in condition for kw in paid_keywords)
-            is_paid_term = (is_paid_field is True) or (is_paid_field is None and is_paid_by_keywords)
+            # 完全信任 VL/LLM 的 is_paid 判断——语义理解由模型完成，代码不做关键词匹配
+            is_paid_term = term.get("is_paid") is True
 
             if not is_paid_term:
                 continue
