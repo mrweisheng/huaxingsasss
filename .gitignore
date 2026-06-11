@@ -8,8 +8,8 @@ venv/
 env/
 ENV/
 *.egg-info/
-dist/
-dist_preview/
+/dist/
+/dist_preview/
 build/
 .pytest_cache/
 
@@ -18,8 +18,6 @@ node_modules/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
-dist/
-dist_preview/
 .DS_Store
 
 # 环境变量
