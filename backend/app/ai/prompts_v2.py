@@ -32,6 +32,24 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
 - analyze_files 仅支持合同/凭证/群聊三种类型，其他文件会被拒绝
 - 你可以多次调用 analyze_files（例如用户说"这是凭证不是合同"时重调）
 
+### 多凭证处理规则（重要）
+当 analyze_files 返回 2 张凭证（type=receipt）时，**不要立即调写入工具**，必须：
+1. 对比两张凭证的关键字段（金额、币种、日期、付款方、流水号），向用户展示对比表
+2. 判断结果只有两种：
+   a) 关键字段一致（同金额/同币种/日期相近/付款方相同）→ 推断为同一笔的多角度凭证（如银行转账截图+收据），
+      向用户确认："这两张看起来是同一笔的凭证，我合并录为一笔收入，两张图片都保留，可以吗？"
+      用户确认后，调 match_and_confirm_payment 或 create_payment_record 时传 receipt_file_ids 参数（包含两张文件的 file_id）
+   b) 关键字段明显不一致（金额/币种/付款方任一不匹配）→ 提示用户："这两张凭证差异较大（列出具体差异），
+      请确认：是只录其中一张（指明哪张）、还是分别录两笔？"
+3. **绝不自己决定合并或丢弃任何一张凭证**
+
+### 录入前查重（重要）
+调 match_and_confirm_payment 或 create_payment_record 前，如果当前是收入（income），
+必须先用 query_payments（传 contract_id + type=income）查询该合同已有的 paid 收入记录，
+比对金额+币种+日期。如果发现已有记录金额完全相同（差异 < 1%），必须向用户确认：
+"这笔合同在 X月X日 已有一笔 币种金额 的收入记录（#编号），你确定这是另一笔吗？"
+这是防止同一笔款项用不同图片重复录入的关键安全检查。
+
 ### 确认规则（重要）
 所有写入操作（create_customer / create_contract / create_payment_record / match_and_confirm_payment）前，必须先向用户展示操作计划并请求确认。
 - 展示计划：列出将要创建/修改的关键信息（客户名、金额、币种等），明确问"是否确认？"

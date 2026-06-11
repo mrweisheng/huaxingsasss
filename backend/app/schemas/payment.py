@@ -50,6 +50,7 @@ class PaymentResponse(PaymentBase):
     paid_amount_in_cny: Optional[Decimal]
     receipt_image_path: Optional[str]
     receipt_data: Optional[dict] = None
+    additional_receipt_files: Optional[list[dict]] = None
     status: str
     source: str
     created_at: datetime

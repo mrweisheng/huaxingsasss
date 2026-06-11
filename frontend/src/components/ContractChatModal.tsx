@@ -444,7 +444,19 @@ export default function ContractChatModal({
         )}
         <div className="contract-chat-input-row">
           <Upload
-            beforeUpload={(file: File) => { setPendingFiles(prev => [...prev, file]); return false }}
+            beforeUpload={(file: File) => {
+              const isImage = file.type.startsWith('image/')
+              if (!isImage) {
+                setPendingFiles(prev => {
+                  const nonImageCount = prev.filter(f => !f.type.startsWith('image/')).length
+                  if (nonImageCount >= 1) { message.warning('合同/文档类一次只能携带一份'); return prev }
+                  return [...prev, file]
+                })
+              } else {
+                setPendingFiles(prev => [...prev, file])
+              }
+              return false
+            }}
             showUploadList={false}
             accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
           >

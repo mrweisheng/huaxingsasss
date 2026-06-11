@@ -447,7 +447,20 @@ export default function ReceiptChatModal({
           )}
           <div className="receipt-chat-input-row">
             <Upload
-              beforeUpload={(file: File) => { setPendingFiles(prev => [...prev, file]); return false }}
+              beforeUpload={(file: File) => {
+                const isImage = file.type.startsWith('image/')
+                setPendingFiles(prev => {
+                  const imageCount = prev.filter(f => f.type.startsWith('image/')).length
+                  const nonImageCount = prev.length - imageCount
+                  if (isImage) {
+                    if (imageCount >= 2) { message.warning('图片最多携带 2 张'); return prev }
+                  } else {
+                    if (nonImageCount >= 1) { message.warning('文档类一次只能携带一份'); return prev }
+                  }
+                  return [...prev, file]
+                })
+                return false
+              }}
               showUploadList={false}
               accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
             >

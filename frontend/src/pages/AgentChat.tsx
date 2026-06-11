@@ -619,7 +619,16 @@ export default function AgentChat() {
         if (item.type.startsWith('image/')) {
           e.preventDefault()
           const file = item.getAsFile()
-          if (file) setPendingFiles((prev) => [...prev, file])
+          if (file) {
+            setPendingFiles((prev) => {
+              const imageCount = prev.filter(f => f.type.startsWith('image/')).length
+              if (imageCount >= 2) {
+                message.warning('图片最多携带 2 张')
+                return prev
+              }
+              return [...prev, file]
+            })
+          }
           return
         }
       }
@@ -665,9 +674,30 @@ export default function AgentChat() {
   )
 
   const handleFileSelect = useCallback((file: File) => {
-    // 先同步阻止 antd Upload 自动上传，再异步压缩后加入待发列表
-    compressImage(file).then((compressed) => {
-      setPendingFiles((prev) => [...prev, compressed])
+    const isImage = file.type.startsWith('image/')
+
+    // 文件数量约束：图片最多 2 张，非图片（合同/文档）最多 1 份
+    setPendingFiles((prev) => {
+      const imageCount = prev.filter(f => f.type.startsWith('image/')).length
+      const nonImageCount = prev.length - imageCount
+
+      if (isImage) {
+        if (imageCount >= 2) {
+          message.warning('图片最多携带 2 张')
+          return prev // 不添加
+        }
+      } else {
+        if (nonImageCount >= 1) {
+          message.warning('合同/文档类一次只能携带一份')
+          return prev // 不添加
+        }
+      }
+
+      // 通过约束，异步压缩后加入待发列表
+      compressImage(file).then((compressed) => {
+        setPendingFiles((p) => [...p, compressed])
+      })
+      return prev // 本次渲染不变，compressImage 回调里再加
     })
     return false
   }, [])

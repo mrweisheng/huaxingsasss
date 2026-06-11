@@ -62,25 +62,77 @@ class ToolExecutorV2(ToolExecutor):
     # 辅助方法
     # ═══════════════════════════════════════════════════════════
 
-    def _resolve_receipt_path(self, receipt_data: dict, explicit_path: str = None) -> Optional[str]:
-        """从 receipt_data 中解析凭证文件路径。
+    def _resolve_receipt_paths(
+        self, receipt_data: dict, explicit_path: str = None, receipt_file_ids: list[str] = None,
+    ) -> tuple[Optional[str], str, list[dict]]:
+        """解析凭证文件路径，支持多张凭证合并录入。
 
-        优先级：explicit_path > receipt_data._source_file_id > receipt_data.file_id
-                  > _pending_receipt_file_ids 队列（analyze_files 时自动追踪）
+        Args:
+            receipt_data: analyze_files 返回的凭证分析结果（主凭证）
+            explicit_path: 显式指定的文件路径
+            receipt_file_ids: LLM 传入的凭证文件 ID 列表（合并录入多张时使用）
+
+        Returns:
+            (主凭证路径, 主凭证文件哈希, [补充凭证列表])
+            补充凭证每项: {file_path, file_hash}
         """
-        if explicit_path:
-            return self._ensure_file_in_receipt_dir(explicit_path)
+        # 1. 收集所有需要解析的 file_id
+        all_file_ids = list(receipt_file_ids) if receipt_file_ids else []
+
+        # 2. 从 receipt_data 提取主凭证 file_id（不与 receipt_file_ids 重复）
+        primary_from_data = None
         if isinstance(receipt_data, dict):
-            src_id = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
-            if src_id:
-                return self._ensure_file_in_receipt_dir(f"agent_upload/{src_id}")
-        # Fallback: 从 analyze_files 追踪的凭证文件队列中取（不依赖 LLM 传递 file_id）
-        if self._pending_receipt_file_ids:
-            fid = self._pending_receipt_file_ids.pop(0)
+            primary_from_data = receipt_data.get("_source_file_id") or receipt_data.get("file_id")
+
+        # 3. 构建 file_id 队列：主凭证优先，其余追加（去重）
+        file_id_queue = []
+        seen = set()
+        if primary_from_data:
+            file_id_queue.append(primary_from_data)
+            seen.add(primary_from_data)
+        for fid in all_file_ids:
+            if fid not in seen:
+                file_id_queue.append(fid)
+                seen.add(fid)
+
+        # 4. 补充 _pending_receipt_file_ids 中未消费的（兜底）
+        for fid in self._pending_receipt_file_ids:
+            if fid not in seen:
+                file_id_queue.append(fid)
+                seen.add(fid)
+        # 清空队列（全部消费）
+        self._pending_receipt_file_ids.clear()
+
+        # 5. 逐个解析
+        primary_path = None
+        primary_hash = ""
+        additional: list[dict] = []
+
+        # 如果有显式路径，直接作为主凭证
+        if explicit_path:
+            primary_path = self._ensure_file_in_receipt_dir(explicit_path)
+            primary_hash = self._last_receipt_file_hash or ""
+
+        for fid in file_id_queue:
             path = self._ensure_file_in_receipt_dir(f"agent_upload/{fid}")
-            if path:
-                return path
-        return None
+            if not path:
+                continue
+            fhash = self._last_receipt_file_hash or ""
+            if primary_path is None:
+                primary_path = path
+                primary_hash = fhash
+            else:
+                additional.append({"file_path": path, "file_hash": fhash})
+
+        return primary_path, primary_hash, additional
+
+    def _resolve_receipt_path(self, receipt_data: dict, explicit_path: str = None) -> Optional[str]:
+        """向后兼容的单文件解析。内部调 _resolve_receipt_paths 取主凭证。
+        调用后 self._last_receipt_file_hash 为空字符串（主凭证哈希通过 _resolve_receipt_paths 返回值获取）。
+        """
+        path, fhash, _ = self._resolve_receipt_paths(receipt_data, explicit_path)
+        self._last_receipt_file_hash = fhash or None
+        return path
 
     def _build_payment_description(
         self, amount: float, currency: str, installment_name: str = "",
@@ -312,6 +364,7 @@ class ToolExecutorV2(ToolExecutor):
         contract_id: int,
         receipt_data: dict,
         payment_type: str = "income",
+        receipt_file_ids: list[str] = None,
     ) -> str:
         """根据凭证分析结果，自动匹配合同中待确认(pending)的付款记录。
 
@@ -322,6 +375,7 @@ class ToolExecutorV2(ToolExecutor):
             contract_id: 关联合同ID
             receipt_data: analyze_files 返回的凭证分析结果
             payment_type: income（收入）或 expense（支出）
+            receipt_file_ids: 要关联的凭证文件ID列表（多张凭证合并录入时传入）
 
         Returns:
             JSON: {"success": True, "matched": bool, "payment": {...}}
@@ -401,11 +455,12 @@ class ToolExecutorV2(ToolExecutor):
                 # 匹配成功 → 更新为 paid
                 payment = best_match
                 try:
-                    # 凭证路径解析由 _resolve_receipt_path 统一处理
-                    receipt_path = self._resolve_receipt_path(receipt_data, None)
+                    # 凭证路径解析：支持多张凭证合并录入
+                    receipt_path, file_hash, additional_receipts = self._resolve_receipt_paths(
+                        receipt_data, None, receipt_file_ids,
+                    )
 
                     # 凭证去重：同合同下相同文件哈希不允许重复（排除自身）
-                    file_hash = self._last_receipt_file_hash
                     if receipt_path and file_hash:
                         dup = self.db.query(Payment).filter(
                             Payment.contract_id == contract_id,
@@ -439,6 +494,8 @@ class ToolExecutorV2(ToolExecutor):
                         payment.receipt_image_path = receipt_path
                     if file_hash:
                         payment.receipt_file_hash = file_hash
+                    if additional_receipts:
+                        payment.additional_receipt_files = additional_receipts
 
                     # 计算汇率
                     if currency and currency != "CNY":
@@ -498,11 +555,12 @@ class ToolExecutorV2(ToolExecutor):
                     self.db, contract_id, payment_type
                 )
 
-                # 修复（P2-8）：凭证路径解析由 _resolve_receipt_path 统一处理
-                receipt_path = self._resolve_receipt_path(receipt_data, None)
+                # 凭证路径解析：支持多张凭证合并录入
+                receipt_path, file_hash, additional_receipts = self._resolve_receipt_paths(
+                    receipt_data, None, receipt_file_ids,
+                )
 
                 # 凭证去重：同合同下相同文件哈希不允许重复录入
-                file_hash = self._last_receipt_file_hash
                 if receipt_path and file_hash:
                     dup = self.db.query(Payment).filter(
                         Payment.contract_id == contract_id,
@@ -540,14 +598,16 @@ class ToolExecutorV2(ToolExecutor):
                     receipt_file_hash=file_hash,
                 )
 
-                # 补充 receipt_data
+                # 补充 receipt_data + additional_receipt_files
                 if receipt_data:
                     payment.receipt_data = receipt_data
                     payment.description = description[:100] if description else None
                     if payee_name and payment_type == "expense":
                         payment.payee_name = payee_name
-                    self.db.commit()
-                    self.db.refresh(payment)
+                if additional_receipts:
+                    payment.additional_receipt_files = additional_receipts
+                self.db.commit()
+                self.db.refresh(payment)
 
                 matched = {
                     "id": payment.id,
@@ -591,6 +651,7 @@ class ToolExecutorV2(ToolExecutor):
         notes: Optional[str] = None,
         description: Optional[str] = None,
         receipt_data: Optional[dict] = None,
+        receipt_file_ids: list[str] = None,
     ) -> str:
         """统一的付款记录创建（收入/支出）。
 
@@ -608,6 +669,7 @@ class ToolExecutorV2(ToolExecutor):
             notes: 备注
             description: 简短业务说明（不超过30字）
             receipt_data: 凭证分析结构化数据
+            receipt_file_ids: 要关联的凭证文件ID列表（多张凭证合并录入时传入）
         """
         # 合同校验
         contract = self.db.query(Contract).filter(
@@ -620,13 +682,14 @@ class ToolExecutorV2(ToolExecutor):
         if type == "expense" and not payee_name:
             return json.dumps({"error": "创建支出记录必须指定收款方名称"}, ensure_ascii=False)
 
-        # 凭证路径处理（优先 explicit path，其次 receipt_data._source_file_id）
-        resolved_path = self._resolve_receipt_path(receipt_data or {}, receipt_image_path)
+        # 凭证路径处理：支持多张凭证合并录入
+        resolved_path, file_hash, additional_receipts = self._resolve_receipt_paths(
+            receipt_data or {}, receipt_image_path, receipt_file_ids,
+        )
         if resolved_path:
             receipt_image_path = resolved_path
 
         # 凭证去重：同合同下相同文件哈希的凭证不允许重复录入
-        file_hash = self._last_receipt_file_hash
         if resolved_path and file_hash:
             existing = self.db.query(Payment).filter(
                 Payment.contract_id == contract_id,
@@ -695,6 +758,8 @@ class ToolExecutorV2(ToolExecutor):
             has_receipt = bool(receipt_data or receipt_image_path)
             if has_receipt:
                 payment.receipt_data = receipt_data
+                if additional_receipts:
+                    payment.additional_receipt_files = additional_receipts
                 # 如果 service 层因无 receipt_image_path 创建了 pending 记录，
                 # 需要手动更新合同金额（有 receipt_image_path 时 service 已处理）
                 needs_contract_update = payment.status == "pending"
@@ -1074,6 +1139,11 @@ TOOL_DEFINITIONS = [
                     "notes": {"type": "string", "description": "备注"},
                     "description": {"type": "string", "description": "简短业务说明（不超过30字）"},
                     "receipt_data": {"type": "object", "description": "凭证分析数据"},
+                    "receipt_file_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要关联的凭证文件ID列表（从 analyze_files 结果获取）。传多个时表示多张凭证合并录入同一笔付款。不传时按系统追踪自动分配。",
+                    },
                 },
             },
         },
@@ -1090,6 +1160,11 @@ TOOL_DEFINITIONS = [
                     "contract_id": {"type": "integer", "description": "关联合同ID"},
                     "receipt_data": {"type": "object", "description": "analyze_files 返回的凭证分析结果（JSON对象）"},
                     "payment_type": {"type": "string", "enum": ["income", "expense"], "description": "收入或支出，默认 income"},
+                    "receipt_file_ids": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "要关联的凭证文件ID列表（从 analyze_files 结果获取）。传多个时表示多张凭证合并录入同一笔付款（如转账截图+收据）。不传时按系统追踪自动分配。",
+                    },
                 },
             },
         },

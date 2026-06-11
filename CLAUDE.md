@@ -158,6 +158,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 
 ## 技术锚点
 
+- **Git 远程仓库**：远程名是 `github`（不是 `origin`）。拉取/推送用 `git fetch github` / `git push github`，不要用 `origin`
 - **工具链**：uv（Python 包管理）· npm（前端）。后端 `cd backend && uv run ...`，前端 `cd frontend && npm run ...`
 - 后端：FastAPI · SQLAlchemy 2.x · Pydantic v2 · pydantic_settings
 - 前端：Vite · React · TypeScript · Zustand

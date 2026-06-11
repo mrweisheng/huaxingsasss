@@ -40,6 +40,7 @@ class Payment(BaseModel):
     receipt_file_hash = Column(String(64), comment="凭证文件哈希")
     receipt_ocr_text = Column(Text, comment="OCR识别的文本内容")
     receipt_data = Column(JSON, comment="凭证分析结构化数据（银行转账/微信/支付宝/收据等）")
+    additional_receipt_files = Column(JSON, comment="补充凭证文件列表 [{file_path, file_hash, receipt_data}]")
 
     # 付款方式
     payment_method = Column(String(20), comment="付款方式: bank_transfer/wechat/alipay/cash/check")
