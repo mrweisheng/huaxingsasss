@@ -3,15 +3,15 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>合同台账 — 原型预览 v2</title>
+<title>合同管理 · 原型预览 v3</title>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&family=Noto+Serif+SC:wght@600;700&display=swap" rel="stylesheet">
-<style>
-/* ═══════════════════════════════════════════════════════
+<style>/* ============================================================
    设计系统 Token（与 index.css 同源）
-   ═══════════════════════════════════════════════════════ */
+   ============================================================ */
 :root {
   --brand-primary: #1e3a5f;
   --brand-gold: #c9952b;
+  --brand-deep: #0f1a2e;
   --biz-vehicle: #2d5b8a;
   --biz-vehicle-deep: #1e3f63;
   --biz-vehicle-soft: #e5edf6;
@@ -23,32 +23,42 @@
   --money-paid: #c9952b;
   --money-paid-deep: #a87a18;
   --money-due: #dc6b3d;
+  --money-due-deep: #b8521f;
   --money-done: #0d9488;
   --action-income: #5b8c63;
   --action-income-deep: #3d6644;
   --text-primary: #0f172a;
   --text-secondary: #475569;
   --text-tertiary: #94a3b8;
+  --bg-page: #f1f5f9;
   --bg-surface: #ffffff;
   --bg-subtle: #f8fafc;
   --bg-hover: #f1f5f9;
   --border-light: #e2e8f0;
   --border-default: #cbd5e1;
+  --shadow-sm: 0 1px 2px rgba(15,23,42,0.04);
+  --shadow-md: 0 4px 12px rgba(15,23,42,0.06);
+  --shadow-lg: 0 8px 24px rgba(15,23,42,0.08);
   --font-sans: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, sans-serif;
   --font-mono: 'JetBrains Mono', 'Menlo', monospace;
   --font-display: 'Noto Serif SC', serif;
+  --radius-sm: 6px;
   --radius-md: 8px;
   --radius-lg: 12px;
+  --radius-xl: 16px;
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body {
   font-family: var(--font-sans);
-  background: #f1f5f9;
+  background: var(--bg-page);
   color: var(--text-primary);
   line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* ══════════ 模拟侧边栏 ══════════ */
+/* ============================================================
+   模拟侧边栏
+   ============================================================ */
 .mock-sidebar {
   position: fixed; left: 0; top: 0; bottom: 0;
   width: 240px; z-index: 10;
@@ -70,7 +80,7 @@ body {
   letter-spacing: 1.5px;
 }
 .sidebar-section-label {
-  padding: 12px 16px 4px;
+  padding: 16px 16px 6px;
   font-size: 10px; font-weight: 600;
   color: rgba(255,255,255,0.35);
   letter-spacing: 1px; text-transform: uppercase;
@@ -87,168 +97,379 @@ body {
   background: linear-gradient(90deg, rgba(30,58,95,0.6) 0%, rgba(30,58,95,0.2) 100%);
   color: #f8fafc; font-weight: 600;
 }
-/* 删除线 = 原「合同管理」被合并 */
-.sidebar-item.merged {
-  text-decoration: line-through;
-  opacity: 0.35;
-  cursor: not-allowed;
-  font-size: 11px;
+.sidebar-badge {
+  margin-left: auto;
+  font-size: 10px; font-weight: 600; font-family: var(--font-mono);
+  padding: 1px 6px; border-radius: 8px;
+  background: rgba(201,149,43,0.15);
+  color: var(--brand-gold);
 }
-.sidebar-item.merged::after {
-  content: '已合并';
-  font-size: 9px;
-  background: rgba(255,255,255,0.15);
-  padding: 1px 5px;
-  border-radius: 3px;
-  margin-left: 6px;
-  text-decoration: none;
-}
-
-/* ══════════ 主内容区 ══════════ */
+/* ============================================================
+   主内容区
+   ============================================================ */
 .main-content { margin-left: 240px; min-height: 100vh; }
 
 /* 顶栏 */
-.top-bar {
+.topbar {
   display: flex; justify-content: space-between; align-items: center;
   padding: 0 24px; height: 56px;
   background: rgba(255,255,255,0.85); backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border-light);
   position: sticky; top: 0; z-index: 9;
 }
-.top-bar-left { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-tertiary); }
-.top-bar-left strong { font-size: 14px; color: var(--text-primary); font-weight: 600; }
+.crumbs { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text-tertiary); }
+.crumbs strong { font-size: 13px; color: var(--text-primary); font-weight: 600; }
+.crumbs .sep { color: var(--border-default); }
+.user-pill {
+  display: flex; align-items: center; gap: 8px;
+  padding: 4px 10px 4px 4px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 999px;
+  font-size: 12px; color: var(--text-secondary);
+}
+.user-pill .avatar {
+  width: 22px; height: 22px; border-radius: 50%;
+  background: linear-gradient(135deg, var(--brand-primary), #2a5082);
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 600;
+}
 
-/* 页面标题区 */
+/* 页面头：标题 + 视图切换 + 上传 */
 .page-header {
-  padding: 20px 24px 0;
-  display: flex; justify-content: space-between; align-items: flex-end;
+  padding: 22px 24px 0;
+  display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; flex-wrap: wrap;
 }
 .page-header h2 {
   font-size: 20px; font-weight: 700; color: var(--text-primary);
-  display: flex; align-items: center; gap: 10px;
+  display: flex; align-items: center; gap: 10px; line-height: 1.2;
 }
 .page-header h2 .icon {
   width: 32px; height: 32px; border-radius: 8px;
   background: linear-gradient(135deg, var(--brand-primary), #2a5082);
   color: #fff; display: flex; align-items: center; justify-content: center; font-size: 16px;
 }
-.page-header .count { font-size: 13px; color: var(--text-tertiary); font-weight: 400; font-family: var(--font-mono); }
+.page-header h2 .count {
+  font-size: 13px; color: var(--text-tertiary);
+  font-weight: 500; font-family: var(--font-mono);
+  padding-left: 2px;
+}
+.page-header-right { display: flex; align-items: center; gap: 10px; }
+
+/* 视图切换 segmented control */
+.view-toggle {
+  display: inline-flex;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 3px;
+  box-shadow: var(--shadow-sm);
+}
+.view-toggle button {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 5px 12px;
+  border: none; background: none; cursor: pointer;
+  font-size: 12.5px; font-weight: 600; font-family: var(--font-sans);
+  color: var(--text-secondary);
+  border-radius: 5px;
+  transition: all 0.18s;
+}
+.view-toggle button:hover { color: var(--text-primary); }
+.view-toggle button.active {
+  background: var(--brand-primary);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(30,58,95,0.2);
+}
+.view-toggle button .kbd {
+  font-family: var(--font-mono); font-size: 10px;
+  padding: 1px 4px; border-radius: 3px;
+  background: rgba(0,0,0,0.06);
+  color: inherit; opacity: 0.6;
+  margin-left: 2px;
+}
+.view-toggle button.active .kbd { background: rgba(255,255,255,0.18); opacity: 0.85; }
 
 /* 上传按钮 */
 .upload-btn {
-  padding: 8px 18px; border-radius: 8px; border: none; cursor: pointer;
+  padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer;
   font-size: 13px; font-weight: 600; font-family: var(--font-sans);
   background: var(--brand-primary); color: #fff;
   display: flex; align-items: center; gap: 6px;
   transition: all 0.2s; box-shadow: 0 2px 8px rgba(30,58,95,0.2);
 }
 .upload-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(30,58,95,0.3); }
-
-/* 筛选栏 */
+/* ============================================================
+   筛选条
+   ============================================================ */
 .filter-bar {
-  padding: 16px 24px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 16px 24px;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
 }
-.filter-bar input, .filter-bar select {
-  padding: 7px 12px; border: 1px solid var(--border-light);
-  border-radius: 6px; font-size: 13px; font-family: var(--font-sans);
-  background: #fff; color: var(--text-primary); outline: none; transition: border-color 0.2s;
+.search-wrap {
+  position: relative;
 }
-.filter-bar input:focus, .filter-bar select:focus { border-color: var(--brand-primary); box-shadow: 0 0 0 2px rgba(30,58,95,0.08); }
-.filter-bar input { width: 220px; }
-.filter-bar select { width: 120px; }
-.biz-filter-btn {
-  padding: 7px 14px; border-radius: 6px; cursor: pointer;
-  font-size: 12px; font-weight: 600; border: 1px solid transparent;
-  transition: all 0.2s; display: flex; align-items: center; gap: 5px;
-  background: none;
+.search-wrap input {
+  width: 240px; padding: 7px 12px 7px 32px;
+  border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+  font-size: 13px; font-family: var(--font-sans);
+  background: #fff; color: var(--text-primary); outline: none;
+  transition: all 0.18s;
 }
-.biz-filter-btn.vehicle { color: var(--biz-vehicle-deep); background: var(--biz-vehicle-soft); }
-.biz-filter-btn.vehicle:hover { background: #d6e2ee; }
-.biz-filter-btn.vehicle.active { background: var(--biz-vehicle); color: #fff; box-shadow: 0 2px 8px rgba(45,91,138,0.3); }
-.biz-filter-btn.cross { color: var(--biz-cross-deep); background: var(--biz-cross-soft); }
-.biz-filter-btn.cross:hover { background: #f3d4d1; }
-.biz-filter-btn.cross.active { background: var(--biz-cross); color: #fff; box-shadow: 0 2px 8px rgba(184,66,59,0.3); }
+.search-wrap input:focus {
+  border-color: var(--brand-primary);
+  box-shadow: 0 0 0 3px rgba(30,58,95,0.08);
+}
+.search-wrap .si {
+  position: absolute; left: 10px; top: 50%; transform: translateY(-50%);
+  color: var(--text-tertiary); font-size: 14px; pointer-events: none;
+}
+.filter-bar select {
+  padding: 7px 10px; border: 1px solid var(--border-light); border-radius: var(--radius-sm);
+  font-size: 13px; font-family: var(--font-sans);
+  background: #fff; color: var(--text-primary); outline: none;
+  transition: border-color 0.18s; cursor: pointer;
+}
+.filter-bar select:focus { border-color: var(--brand-primary); }
 
-/* ═══════ 汇总条 — CNY / HKD 平等并列，不合并 ═══════ */
+.biz-chips { display: inline-flex; gap: 4px; }
+.biz-chip-btn {
+  padding: 5px 11px; border-radius: 999px; cursor: pointer;
+  font-size: 12px; font-weight: 600;
+  border: 1px solid transparent;
+  transition: all 0.18s; display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bg-surface); color: var(--text-secondary);
+  font-family: var(--font-sans);
+}
+.biz-chip-btn.vehicle { color: var(--biz-vehicle-deep); background: var(--biz-vehicle-soft); }
+.biz-chip-btn.vehicle:hover { background: #d6e2ee; }
+.biz-chip-btn.vehicle.active { background: var(--biz-vehicle); color: #fff; border-color: var(--biz-vehicle); }
+.biz-chip-btn.cross { color: var(--biz-cross-deep); background: var(--biz-cross-soft); }
+.biz-chip-btn.cross:hover { background: #f3d4d1; }
+.biz-chip-btn.cross.active { background: var(--biz-cross); color: #fff; border-color: var(--biz-cross); }
+.biz-chip-btn .badge {
+  font-family: var(--font-mono); font-size: 10px;
+  background: rgba(0,0,0,0.08); padding: 0 4px; border-radius: 6px;
+}
+.biz-chip-btn.active .badge { background: rgba(255,255,255,0.25); }
+
+.filter-divider { width: 1px; height: 20px; background: var(--border-light); margin: 0 4px; }
+
+/* ============================================================
+   汇总条（仅台账模式显示）
+   ============================================================ */
 .summary-strip {
-  margin: 0 24px 16px; padding: 14px 20px;
-  background: var(--bg-surface); border: 1px solid var(--border-light);
+  margin: 4px 24px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
-  display: flex; align-items: stretch; gap: 0;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04); overflow: hidden;
+  box-shadow: var(--shadow-sm);
+  display: flex; align-items: stretch; overflow: hidden;
 }
 .summary-block {
-  flex: 1; display: flex; flex-direction: column; gap: 6px;
-  padding: 4px 20px;
+  flex: 1; padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 4px;
+  position: relative;
 }
-.summary-block + .summary-block {
-  border-left: 1px solid var(--border-light);
-}
+.summary-block + .summary-block { border-left: 1px solid var(--border-light); }
 .summary-block-title {
   font-size: 11px; font-weight: 600; color: var(--text-tertiary);
-  letter-spacing: 0.5px;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 5px;
 }
-.summary-currency-rows {
-  display: flex; flex-direction: column; gap: 2px;
-}
-.summary-currency-row {
-  display: flex; align-items: baseline; gap: 6px;
-}
+.summary-block-title .dot { width: 5px; height: 5px; border-radius: 50%; }
+.summary-block-title .dot.primary { background: var(--brand-primary); }
+.summary-block-title .dot.gold { background: var(--money-paid); }
+.summary-block-title .dot.orange { background: var(--money-due); }
+.summary-block-title .dot.teal { background: var(--money-done); }
+
+.summary-currency-rows { display: flex; flex-direction: column; gap: 1px; }
+.summary-currency-row { display: flex; align-items: baseline; gap: 6px; }
 .summary-sym {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600;
   color: var(--text-tertiary); min-width: 28px;
 }
 .summary-val {
   font-family: var(--font-mono); font-size: 18px; font-weight: 800;
   font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
+  color: var(--text-primary);
 }
 .summary-val.gold { color: var(--money-paid-deep); }
 .summary-val.teal { color: var(--money-done); }
 .summary-val.orange { color: var(--money-due); }
 .summary-val.primary { color: var(--brand-primary); }
+/* ============================================================
+   视图切换：body 类控制显隐
+   ============================================================ */
+.view-ledger, .view-card, .summary-strip { display: none; }
+body.view-mode-card .view-card { display: grid; }
+body.view-mode-card .summary-strip { display: none; }
+body.view-mode-ledger .view-ledger { display: flex; }
+body.view-mode-ledger .summary-strip { display: flex; }
+body.view-mode-card .view-card { display: grid; }
+body.view-mode-ledger .view-ledger { display: flex; }
 
-/* ═══════ 台账主体 ═══════ */
-.ledger-list {
-  padding: 0 24px 24px; display: flex; flex-direction: column; gap: 10px;
+/* ============================================================
+   卡片视图（与现有 ContractList.tsx 同构）
+   ============================================================ */
+.view-card {
+  padding: 0 24px 24px;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 14px;
 }
-
-/* 每个合同 = 一个横幅行 */
+.contract-card {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition: all 0.2s;
+  box-shadow: var(--shadow-sm);
+  overflow: hidden;
+}
+.contract-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-default);
+}
+.card-accent-bar {
+  position: absolute; left: 0; top: 0; bottom: 0;
+  width: 4px; z-index: 2;
+}
+.contract-card.biz-vehicle .card-accent-bar { background: var(--biz-vehicle); }
+.contract-card.biz-cross .card-accent-bar { background: var(--biz-cross); }
+.card-top-row {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 14px 0 16px;
+}
+.biz-badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  font-size: 11px; font-weight: 600;
+  padding: 3px 8px; border-radius: var(--radius-sm);
+}
+.biz-badge--vehicle { color: var(--biz-vehicle-deep); background: var(--biz-vehicle-soft); }
+.biz-badge--cross { color: var(--biz-cross-deep); background: var(--biz-cross-soft); }
+.biz-badge--default { color: var(--text-secondary); background: var(--bg-hover); }
+.status-badge {
+  font-size: 10.5px; font-weight: 600;
+  padding: 2px 8px; border-radius: 10px;
+}
+.status-badge.active { color: #1890ff; background: #e6f7ff; }
+.status-badge.completed { color: var(--money-done); background: #edfaf8; }
+.customer-name-hero {
+  padding: 8px 16px 0;
+  display: flex; justify-content: space-between; align-items: baseline;
+}
+.customer-name-text {
+  font-family: var(--font-display);
+  font-size: 17px; font-weight: 700;
+  color: var(--brand-primary); letter-spacing: 0.5px;
+}
+.customer-date-text {
+  font-family: var(--font-mono);
+  font-size: 11px; color: var(--text-tertiary); font-weight: 500;
+}
+.contract-meta-row {
+  padding: 4px 16px 0;
+  font-size: 12px; color: var(--text-tertiary);
+  display: flex; align-items: center; gap: 6px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.contract-meta-number { font-family: var(--font-mono); color: var(--text-secondary); font-weight: 500; }
+.contract-meta-sep { color: var(--border-default); }
+.contract-meta-title { color: var(--text-secondary); flex: 1; overflow: hidden; text-overflow: ellipsis; }
+.business-desc {
+  padding: 6px 16px 0;
+  font-size: 12px; color: var(--text-secondary); line-height: 1.5;
+  display: -webkit-box; -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical; overflow: hidden;
+  min-height: 36px;
+}
+.divider-gold {
+  margin: 10px 16px 8px;
+  height: 1px;
+  background: linear-gradient(90deg, var(--brand-gold) 0%, transparent 100%);
+  opacity: 0.4;
+}
+.amount-section {
+  padding: 0 16px 10px;
+  display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px;
+}
+.amount-item { display: flex; flex-direction: column; gap: 1px; }
+.amount-label { font-size: 10px; color: var(--text-tertiary); font-weight: 500; }
+.amount-value {
+  font-family: var(--font-mono); font-size: 14px; font-weight: 700;
+  color: var(--text-primary); font-variant-numeric: tabular-nums;
+  letter-spacing: -0.3px;
+}
+.amount-value .sym { font-size: 10px; opacity: 0.6; margin-right: 1px; }
+.amount-value.gold { color: var(--money-paid-deep); }
+.amount-value.orange { color: var(--money-due); }
+.card-progress { padding: 0 16px 12px; }
+.card-progress-bar {
+  height: 4px; background: var(--bg-hover); border-radius: 2px; overflow: hidden;
+}
+.card-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--money-paid), #e0b04e);
+  border-radius: 2px; transition: width 0.4s;
+}
+.card-progress-fill.done { background: linear-gradient(90deg, var(--money-done), #14b8a6); }
+.card-progress-fill.over { background: linear-gradient(90deg, var(--action-income), #6fa878); }
+.card-progress-meta {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 5px;
+  font-size: 10.5px; color: var(--text-tertiary); font-family: var(--font-mono);
+}
+.card-progress-meta .pct { font-weight: 600; }
+.card-progress-meta .pct.done { color: var(--money-done); }
+.card-progress-meta .pct.over { color: var(--action-income); }
+/* ============================================================
+   台账视图：横向行
+   ============================================================ */
+.view-ledger {
+  padding: 0 24px 24px;
+  flex-direction: column; gap: 10px;
+}
 .ledger-row {
-  position: relative; background: var(--bg-surface);
+  position: relative;
+  background: var(--bg-surface);
   border: 1px solid var(--border-light); border-radius: var(--radius-lg);
-  overflow: hidden; transition: all 0.25s;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  overflow: hidden; transition: all 0.2s;
+  box-shadow: var(--shadow-sm);
 }
 .ledger-row:hover {
-  box-shadow: 0 4px 16px rgba(0,0,0,0.08); border-color: var(--border-default);
+  box-shadow: var(--shadow-md);
+  border-color: var(--border-default);
 }
-
-/* 左侧业务色条 */
 .ledger-row .accent-bar {
   position: absolute; left: 0; top: 0; bottom: 0;
   width: 4px; z-index: 2;
 }
 .ledger-row.biz-vehicle .accent-bar { background: var(--biz-vehicle); }
 .ledger-row.biz-cross   .accent-bar { background: var(--biz-cross); }
-.ledger-row.biz-vehicle { background: #fbfcfd; }
-.ledger-row.biz-cross   { background: #fdfafa; }
-.ledger-row.biz-vehicle:hover { border-color: rgba(45,91,138,0.25); }
-.ledger-row.biz-cross:hover   { border-color: rgba(184,66,59,0.25); }
+.ledger-row.biz-vehicle { background: linear-gradient(to right, var(--biz-vehicle-bg) 0%, #ffffff 35%); }
+.ledger-row.biz-cross   { background: linear-gradient(to right, var(--biz-cross-bg)   0%, #ffffff 35%); }
 
-/* 内部网格 — 五栏：信息 | 收入 | 支出 | 利润 | 操作 */
+/* 5 列布局：客户信息 | 收入 | 支出 | 净利润 | 操作 */
 .ledger-row-inner {
   display: grid;
-  grid-template-columns: 210px 1fr 1fr 120px 44px;
-  gap: 0;
+  grid-template-columns: 220px 1fr 1fr 130px 48px;
+  min-height: 100px;
+}
+@media (max-width: 1400px) {
+  .ledger-row-inner { grid-template-columns: 200px 1fr 1fr 120px 44px; }
+}
+@media (max-width: 1200px) {
+  .ledger-row-inner { grid-template-columns: 180px 1fr 1fr 110px 40px; }
 }
 
-/* ── 客户信息 ── */
+/* 客户信息列 */
 .ledger-cell-info {
   padding: 12px 14px 12px 18px;
   display: flex; flex-direction: column; gap: 3px;
   border-right: 1px solid var(--border-light);
 }
-.info-customer { display: flex; align-items: center; gap: 8px; }
+.info-customer { display: flex; align-items: center; gap: 6px; }
 .info-customer .name {
   font-family: var(--font-display); font-size: 15px; font-weight: 700;
   color: var(--brand-primary); letter-spacing: 0.3px;
@@ -270,15 +491,15 @@ body {
 .biz-chip.cross   { color: var(--biz-cross-deep); background: var(--biz-cross-soft); }
 .status-chip { font-size: 10px; font-weight: 600; padding: 2px 7px; border-radius: 10px; }
 .status-chip.active { color: #1890ff; background: #e6f7ff; }
-.status-chip.completed { color: var(--money-done); background: #f0fdfa; }
+.status-chip.completed { color: var(--money-done); background: #edfaf8; }
 .info-amount-line { display: flex; align-items: baseline; gap: 4px; margin-top: 3px; }
 .info-amount-label { font-size: 10px; color: var(--text-tertiary); font-weight: 500; }
 .info-amount-value {
-  font-family: var(--font-mono); font-size: 17px; font-weight: 800;
+  font-family: var(--font-mono); font-size: 16px; font-weight: 800;
   color: var(--text-primary); font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
 }
-.info-amount-value .sym { font-size: 12px; font-weight: 600; opacity: 0.55; }
-.info-amount-value .unit { font-family: var(--font-sans); font-size: 13px; font-weight: 700; opacity: 0.7; }
+.info-amount-value .sym { font-size: 11px; font-weight: 600; opacity: 0.55; }
+.info-amount-value .unit { font-family: var(--font-sans); font-size: 12px; font-weight: 700; opacity: 0.7; }
 
 /* 进度条 */
 .mini-progress { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
@@ -287,16 +508,16 @@ body {
 .mini-progress-fill.done { background: linear-gradient(90deg, var(--money-done), #14b8a6); }
 .mini-progress-fill.over { background: linear-gradient(90deg, var(--action-income), #6fa878); }
 .mini-progress-text { font-family: var(--font-mono); font-size: 10px; font-weight: 600; color: var(--text-tertiary); min-width: 28px; text-align: right; }
-
-/* ── 收入 / 支出 ── */
+/* 收入 / 支出 列 */
 .ledger-cell-flow {
-  padding: 8px 12px 8px; display: flex; flex-direction: column; gap: 1px;
+  padding: 8px 12px;
+  display: flex; flex-direction: column; gap: 2px;
   position: relative;
 }
 .ledger-cell-flow + .ledger-cell-flow { border-left: 1px solid var(--border-light); }
 .flow-header {
   display: flex; align-items: center; gap: 5px;
-  padding-bottom: 5px; border-bottom: 1px dashed var(--border-light); margin-bottom: 3px;
+  padding-bottom: 5px; border-bottom: 1px dashed var(--border-light); margin-bottom: 4px;
 }
 .flow-header .dot { width: 5px; height: 5px; border-radius: 50%; flex-shrink: 0; }
 .flow-header .dot.income { background: var(--money-paid); box-shadow: 0 0 0 2px rgba(201,149,43,0.18); }
@@ -311,39 +532,45 @@ body {
   font-variant-numeric: tabular-nums;
 }
 .flow-header .total.income { color: var(--money-paid-deep); }
-.flow-header .total.expense { color: var(--money-due); }
+.flow-header .total.expense { color: var(--money-due-deep); }
 
 /* 每笔流水 */
 .flow-item {
-  display: grid; grid-template-columns: 18px 1fr 72px 22px;
-  align-items: center; gap: 4px; padding: 3px 4px; border-radius: 4px; transition: background 0.15s;
+  display: grid; grid-template-columns: 16px 1fr 76px 22px;
+  align-items: center; gap: 4px; padding: 3px 4px; border-radius: 4px;
+  transition: background 0.15s;
 }
 .flow-item:hover { background: var(--bg-hover); }
-.flow-item .si { display: flex; align-items: center; justify-content: center; font-size: 10px; }
+.flow-item .si { display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 700; }
 .flow-item .si.paid { color: var(--money-done); }
-.flow-item .si.pending { color: #94a3b8; }
+.flow-item .si.pending { color: var(--text-tertiary); }
 .flow-item .desc { font-size: 11px; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .flow-item .amount {
-  font-family: var(--font-mono); font-size: 12px; font-weight: 600; text-align: right;
+  font-family: var(--font-mono); font-size: 11.5px; font-weight: 600; text-align: right;
   font-variant-numeric: tabular-nums; letter-spacing: -0.3px;
 }
 .flow-item .receipt-btn {
   display: flex; align-items: center; justify-content: center;
-  width: 20px; height: 20px; border-radius: 4px; cursor: pointer;
-  font-size: 10px; color: var(--text-tertiary); transition: all 0.15s;
-  border: none; background: none;
+  width: 22px; height: 22px; border-radius: 4px; cursor: pointer;
+  font-size: 11px; color: var(--text-tertiary);
+  transition: all 0.15s; border: none; background: none;
+  font-family: var(--font-sans);
 }
 .flow-item .receipt-btn:hover { color: var(--brand-primary); background: var(--biz-vehicle-soft); }
-.flow-empty { font-size: 11px; color: var(--text-tertiary); padding: 6px 0; text-align: center; font-style: italic; }
+.flow-empty {
+  font-size: 11px; color: var(--text-tertiary);
+  padding: 12px 0 6px; text-align: center; font-style: italic;
+}
 
-/* 列底部「录入」按钮 */
+/* 列底部"录入"按钮 */
 .flow-add-btn {
   display: flex; align-items: center; justify-content: center; gap: 4px;
-  margin-top: 4px; padding: 4px 0;
+  margin-top: 5px; padding: 5px 0;
   border-radius: 5px; cursor: pointer;
-  font-size: 10px; font-weight: 600; border: 1px dashed transparent;
-  transition: all 0.15s; background: none; font-family: var(--font-sans);
-  width: 100%;
+  font-size: 10.5px; font-weight: 600;
+  border: 1px dashed transparent;
+  transition: all 0.15s; background: none;
+  font-family: var(--font-sans); width: 100%;
 }
 .flow-add-btn.income-add {
   color: var(--action-income-deep);
@@ -364,25 +591,33 @@ body {
   border-color: var(--money-due); border-style: solid;
 }
 
-/* ── 利润 ── */
+/* 净利润列 */
 .ledger-cell-profit {
-  padding: 12px 12px; display: flex; flex-direction: column;
+  padding: 8px 10px;
+  display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 3px;
   border-left: 1px solid var(--border-light);
+  background: rgba(13,148,136,0.02);
 }
-.profit-label { font-size: 9px; font-weight: 500; color: var(--text-tertiary); letter-spacing: 0.5px; }
+.profit-label {
+  font-size: 9px; font-weight: 600; color: var(--text-tertiary);
+  letter-spacing: 0.5px; text-transform: uppercase;
+}
 .profit-value {
-  font-family: var(--font-mono); font-size: 16px; font-weight: 800;
+  font-family: var(--font-mono); font-size: 15px; font-weight: 800;
   font-variant-numeric: tabular-nums; letter-spacing: -0.3px;
 }
 .profit-value.positive { color: var(--money-done); }
 .profit-value.negative { color: #ef4444; }
 .profit-value.zero { color: var(--text-tertiary); }
-.profit-divider { width: 32px; height: 2px; border-radius: 1px; margin: 2px 0; }
-.profit-divider.positive { background: var(--money-done); opacity: 0.3; }
-.profit-cny { font-family: var(--font-mono); font-size: 10px; color: var(--text-tertiary); font-weight: 500; }
+.profit-divider { width: 28px; height: 2px; border-radius: 1px; margin: 1px 0; }
+.profit-divider.positive { background: var(--money-done); opacity: 0.4; }
+.profit-cny {
+  font-family: var(--font-mono); font-size: 9.5px;
+  color: var(--text-tertiary); font-weight: 500;
+}
 
-/* ── 操作列 ── */
+/* 操作列 */
 .ledger-cell-actions {
   border-left: 1px solid var(--border-light);
   display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
@@ -393,12 +628,14 @@ body {
   border: none; transition: all 0.15s; background: none;
   display: flex; align-items: center; justify-content: center;
   font-size: 14px; color: var(--text-tertiary);
+  font-family: var(--font-sans);
 }
 .action-btn:hover { background: var(--bg-hover); }
 .action-btn.detail:hover { color: var(--brand-primary); background: rgba(30,58,95,0.08); }
-.action-btn.del-btn:hover { color: #ef4444; background: #fff1f0; }
-
-/* ═══════ 凭证 Lightbox ═══════ */
+.action-btn.del-btn:hover { color: #ef4444; background: #fef2f2; }
+/* ============================================================
+   收据 Lightbox
+   ============================================================ */
 .receipt-lightbox {
   display: none; position: fixed; inset: 0; z-index: 1000;
   background: rgba(15,23,42,0.7); backdrop-filter: blur(4px);
@@ -408,7 +645,8 @@ body {
 .receipt-lightbox.open { display: flex; }
 @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 .lightbox-card {
-  background: #fff; border-radius: 12px; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  background: #fff; border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
   max-width: 520px; width: 90%; max-height: 85vh; overflow: hidden;
   animation: slideUp 0.25s;
 }
@@ -417,61 +655,122 @@ body {
   padding: 14px 18px; border-bottom: 1px solid var(--border-light);
   display: flex; align-items: center; justify-content: space-between;
 }
-.lightbox-header h4 { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.lightbox-header h4 { font-size: 14px; font-weight: 600; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+.lightbox-header h4 .biz-pill {
+  font-size: 10px; padding: 2px 7px; border-radius: 10px;
+  font-weight: 600;
+}
+.lightbox-header h4 .biz-pill.vehicle { color: var(--biz-vehicle-deep); background: var(--biz-vehicle-soft); }
+.lightbox-header h4 .biz-pill.cross { color: var(--biz-cross-deep); background: var(--biz-cross-soft); }
 .lightbox-close {
   width: 28px; height: 28px; border-radius: 6px; border: none; background: var(--bg-hover);
-  cursor: pointer; font-size: 16px; color: var(--text-secondary); display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s;
+  cursor: pointer; font-size: 16px; color: var(--text-secondary);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; font-family: var(--font-sans);
 }
 .lightbox-close:hover { background: #fee2e2; color: #ef4444; }
 .lightbox-body { padding: 18px; }
 .lightbox-receipt-img {
-  width: 100%; border-radius: 8px; border: 1px solid var(--border-light);
-  background: #f8fafc; min-height: 200px; display: flex; align-items: center; justify-content: center;
-  color: var(--text-tertiary); font-size: 13px;
+  width: 100%; aspect-ratio: 4/3;
+  border-radius: 8px; border: 1px solid var(--border-light);
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+  display: flex; align-items: center; justify-content: center; flex-direction: column;
+  color: var(--text-tertiary); font-size: 13px; gap: 6px;
 }
+.lightbox-receipt-img .receipt-emoji { font-size: 48px; opacity: 0.5; }
+.lightbox-receipt-img small { font-size: 11px; }
 .lightbox-meta {
-  margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px;
+  margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 10px;
 }
-.lightbox-meta-item { display: flex; flex-direction: column; gap: 2px; }
+.lightbox-meta-item {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-subtle);
+  border-radius: 6px;
+}
 .lightbox-meta-item .k { font-size: 10px; color: var(--text-tertiary); font-weight: 500; }
-.lightbox-meta-item .v { font-size: 13px; color: var(--text-primary); font-weight: 600; font-family: var(--font-mono); }
+.lightbox-meta-item .v {
+  font-size: 13px; color: var(--text-primary); font-weight: 600;
+  font-family: var(--font-mono);
+}
+.lightbox-footer {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border-light);
+  display: flex; gap: 8px; justify-content: flex-end;
+}
+.lightbox-footer button {
+  padding: 6px 14px; border-radius: 6px; cursor: pointer;
+  font-size: 12.5px; font-weight: 600;
+  border: 1px solid var(--border-light); background: #fff;
+  color: var(--text-secondary); font-family: var(--font-sans);
+  transition: all 0.15s;
+}
+.lightbox-footer button:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.lightbox-footer button.primary {
+  background: var(--brand-primary); color: #fff; border-color: var(--brand-primary);
+}
+.lightbox-footer button.primary:hover { background: #1e4470; }
 
-/* ═══════ 分页 ═══════ */
+/* ============================================================
+   分页
+   ============================================================ */
 .pagination {
   margin: 0 24px 24px; padding: 12px 20px;
   background: var(--bg-surface); border: 1px solid var(--border-light);
-  border-radius: var(--radius-md); box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  border-radius: var(--radius-md); box-shadow: var(--shadow-sm);
   display: flex; justify-content: space-between; align-items: center;
 }
-.pagination-info { font-size: 13px; color: var(--text-secondary); }
+.pagination-info { font-size: 13px; color: var(--text-secondary); font-family: var(--font-mono); }
 .pagination-btns { display: flex; gap: 6px; }
 .pagination-btns button {
   padding: 6px 14px; border: 1px solid var(--border-light); border-radius: 6px;
   background: #fff; cursor: pointer; font-size: 12px; font-family: var(--font-sans);
+  color: var(--text-secondary);
   transition: all 0.15s;
 }
-.pagination-btns button:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+.pagination-btns button:hover:not(:disabled) { border-color: var(--brand-primary); color: var(--brand-primary); }
 .pagination-btns button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* ═══════ 设计说明 ═══════ */
+/* ============================================================
+   设计说明
+   ============================================================ */
 .annotation {
-  margin: 0 24px 20px; padding: 16px 20px;
-  background: #fffbeb; border: 1px solid #fde68a; border-radius: var(--radius-md);
+  margin: 0 24px 32px; padding: 16px 20px;
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border: 1px solid #fde68a; border-radius: var(--radius-md);
   font-size: 13px; color: #92400e; line-height: 1.8;
 }
-.annotation h3 { font-size: 14px; margin-bottom: 8px; color: #78350f; }
-.annotation ul { padding-left: 20px; }
-.annotation li { margin-bottom: 4px; }
-.annotation .hl { background: #fef3c7; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
+.annotation h3 {
+  font-size: 14px; margin-bottom: 10px; color: #78350f;
+  display: flex; align-items: center; gap: 8px;
+}
+.annotation h3 .version-pill {
+  font-family: var(--font-mono); font-size: 10px;
+  background: #78350f; color: #fef3c7;
+  padding: 2px 7px; border-radius: 10px; font-weight: 600;
+}
+.annotation .row { display: flex; gap: 24px; flex-wrap: wrap; margin-top: 8px; }
+.annotation .col { flex: 1; min-width: 280px; }
+.annotation .col-title {
+  font-size: 11px; font-weight: 700; color: #78350f;
+  letter-spacing: 0.5px; text-transform: uppercase;
+  margin-bottom: 6px; padding-bottom: 4px; border-bottom: 1px solid rgba(120,53,15,0.15);
+}
+.annotation ul { padding-left: 18px; }
+.annotation li { margin-bottom: 3px; }
+.annotation .hl { background: #fde68a; padding: 1px 4px; border-radius: 3px; font-weight: 600; }
 .annotation .cv { color: var(--biz-vehicle); font-weight: 700; }
 .annotation .cc { color: var(--biz-cross); font-weight: 700; }
-.annotation .strike { text-decoration: line-through; opacity: 0.5; }
-</style>
-</head>
-<body>
+.annotation kbd {
+  font-family: var(--font-mono); font-size: 10px;
+  background: rgba(120,53,15,0.12); color: #78350f;
+  padding: 1px 5px; border-radius: 3px;
+  border: 1px solid rgba(120,53,15,0.2);
+}
+</style></head>
+<body class="view-mode-ledger">
 
-<!-- ══════════ 侧边栏 ══════════ -->
+<!-- 模拟侧边栏 -->
 <div class="mock-sidebar">
   <div class="sidebar-logo">
     <h1>华星资源</h1>
@@ -481,53 +780,90 @@ body {
   <div class="sidebar-item">
     <span>👥</span> 客户管理
   </div>
-  <div class="sidebar-item merged">
-    <span>📄</span> 合同管理
-  </div>
   <div class="sidebar-item active">
-    <span>📊</span> 合同台账
+    <span>📄</span> 合同管理
+    <span class="sidebar-badge">6</span>
   </div>
   <div class="sidebar-item">
     <span>💰</span> 收付管理
   </div>
+  <div class="sidebar-section-label">财务</div>
   <div class="sidebar-item">
-    <span>📈</span> 财务总览
+    <span>📊</span> 财务总览
   </div>
   <div class="sidebar-item">
     <span>👤</span> 用户管理
   </div>
 </div>
 
-<!-- ══════════ 主内容 ══════════ -->
+<!-- 主内容区 -->
 <div class="main-content">
-  <div class="top-bar">
-    <div class="top-bar-left"><strong>合同台账</strong></div>
-    <div style="font-size:13px; color:var(--text-tertiary);">管理员 · 华星资源</div>
+
+  <!-- 顶栏 -->
+  <div class="topbar">
+    <div class="crumbs">
+      <strong>合同管理</strong>
+      <span class="sep">/</span>
+      <span>全部合同</span>
+    </div>
+    <div class="user-pill">
+      <span class="avatar">管</span>
+      <span>管理员 · 华星资源</span>
+    </div>
   </div>
 
-  <!-- 页面标题 + 上传按钮 -->
+  <!-- 页面头：标题 + 视图切换 + 上传 -->
   <div class="page-header">
     <h2>
-      <span class="icon">📊</span>
-      合同台账
+      <span class="icon">📄</span>
+      合同管理
       <span class="count">共 6 个合同</span>
     </h2>
-    <button class="upload-btn">📤 上传合同</button>
+    <div class="page-header-right">
+      <!-- 视图切换 -->
+      <div class="view-toggle" role="tablist">
+        <button data-view="card" role="tab">
+          <span>▦</span> 卡片 <span class="kbd">1</span>
+        </button>
+        <button data-view="ledger" role="tab" class="active">
+          <span>☰</span> 台账 <span class="kbd">2</span>
+        </button>
+      </div>
+      <button class="upload-btn">＋ 上传合同</button>
+    </div>
   </div>
-
-  <!-- 筛选栏 -->
+  <!-- 筛选条 -->
   <div class="filter-bar">
-    <input type="text" placeholder="搜索客户名称 / 合同编号..." />
-    <select><option>全部状态</option><option>执行中</option><option>已完成</option></select>
-    <button class="biz-filter-btn vehicle active">🚗 车辆买卖</button>
-    <button class="biz-filter-btn cross active">🚘 两地牌过户</button>
-    <select><option>全部币种</option><option>¥ 人民币</option><option>HK$ 港币</option></select>
+    <div class="search-wrap">
+      <span class="si">🔍</span>
+      <input type="text" placeholder="搜索客户名称 / 合同编号..." />
+    </div>
+    <select>
+      <option>全部状态</option>
+      <option>执行中</option>
+      <option>已完成</option>
+    </select>
+    <div class="filter-divider"></div>
+    <div class="biz-chips">
+      <button class="biz-chip-btn vehicle active" data-biz="vehicle">
+        🚗 车辆买卖 <span class="badge">3</span>
+      </button>
+      <button class="biz-chip-btn cross active" data-biz="cross">
+        🛂 两地牌过户 <span class="badge">3</span>
+      </button>
+    </div>
+    <div class="filter-divider"></div>
+    <select>
+      <option>全部币种</option>
+      <option>¥ 人民币</option>
+      <option>HK$ 港币</option>
+    </select>
   </div>
 
-  <!-- ═══════ 汇总条 — CNY / HKD 平等并列 ═══════ -->
+  <!-- 汇总条（仅台账模式显示） -->
   <div class="summary-strip">
     <div class="summary-block">
-      <div class="summary-block-title">合同总额</div>
+      <div class="summary-block-title"><span class="dot primary"></span>合同总额</div>
       <div class="summary-currency-rows">
         <div class="summary-currency-row">
           <span class="summary-sym">¥</span>
@@ -540,7 +876,7 @@ body {
       </div>
     </div>
     <div class="summary-block">
-      <div class="summary-block-title">已收总额</div>
+      <div class="summary-block-title"><span class="dot gold"></span>已收总额</div>
       <div class="summary-currency-rows">
         <div class="summary-currency-row">
           <span class="summary-sym">¥</span>
@@ -553,7 +889,7 @@ body {
       </div>
     </div>
     <div class="summary-block">
-      <div class="summary-block-title">总支出</div>
+      <div class="summary-block-title"><span class="dot orange"></span>总支出</div>
       <div class="summary-currency-rows">
         <div class="summary-currency-row">
           <span class="summary-sym">¥</span>
@@ -566,7 +902,7 @@ body {
       </div>
     </div>
     <div class="summary-block">
-      <div class="summary-block-title">净利润</div>
+      <div class="summary-block-title"><span class="dot teal"></span>净利润</div>
       <div class="summary-currency-rows">
         <div class="summary-currency-row">
           <span class="summary-sym">¥</span>
@@ -579,441 +915,11 @@ body {
       </div>
     </div>
   </div>
+  <!-- 卡片视图容器 -->
+  <div class="view-card" id="viewCard"></div>
 
-  <!-- ═══════ 台账列表 ═══════ -->
-  <div class="ledger-list">
-
-    <!-- ━━━━ 合同 1：车辆买卖 · 钢蓝 ━━━━ -->
-    <div class="ledger-row biz-vehicle">
-      <div class="accent-bar"></div>
-      <div class="ledger-row-inner">
-        <div class="ledger-cell-info">
-          <div class="info-customer"><span class="name">王燕宾</span></div>
-          <div class="info-phone">📞 138****1234</div>
-          <div class="info-desc">购买港车 底盘号GGH30-0016495</div>
-          <div class="info-meta">
-            <span class="biz-chip vehicle">🚗 车辆买卖</span>
-            <span class="status-chip completed">✓ 已完成</span>
-          </div>
-          <div class="info-amount-line">
-            <span class="info-amount-label">合同</span>
-            <span class="info-amount-value"><span class="sym">¥</span>25<span class="unit">万</span></span>
-          </div>
-          <div class="mini-progress">
-            <div class="mini-progress-track"><div class="mini-progress-fill done" style="width:100%"></div></div>
-            <span class="mini-progress-text" style="color:var(--money-done)">100%</span>
-          </div>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot income"></span><span class="title">收入</span>
-            <span class="badge">3笔</span>
-            <span class="total income">¥258,200</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span>
-            <span class="desc">定金</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥50,000</span>
-            <button class="receipt-btn" onclick="openLightbox('定金 · 王燕宾','¥50,000','2025-12-15','银行转账')">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span>
-            <span class="desc">购车尾款</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥200,000</span>
-            <button class="receipt-btn" onclick="openLightbox('购车尾款 · 王燕宾','¥200,000','2026-01-10','银行转账')">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span>
-            <span class="desc">代购车辆保险</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥8,200</span>
-            <button class="receipt-btn" onclick="openLightbox('代购车辆保险','¥8,200','2026-02-01','微信')">📎</button>
-          </div>
-          <button class="flow-add-btn income-add">+ 录入收入</button>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot expense"></span><span class="title">支出</span>
-            <span class="badge">2笔</span>
-            <span class="total expense">¥11,700</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span>
-            <span class="desc">→ 车管所 · 过户费</span>
-            <span class="amount" style="color:var(--money-due)">¥3,500</span>
-            <button class="receipt-btn" onclick="openLightbox('过户费 → 车管所','¥3,500','2026-01-12','银行转账')">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span>
-            <span class="desc">→ 中国平安 · 交强险+商业险</span>
-            <span class="amount" style="color:var(--money-due)">¥8,200</span>
-            <button class="receipt-btn" onclick="openLightbox('保险 → 中国平安','¥8,200','2026-02-01','银行转账')">📎</button>
-          </div>
-          <button class="flow-add-btn expense-add">+ 录入支出</button>
-        </div>
-        <div class="ledger-cell-profit">
-          <span class="profit-label">净利润</span>
-          <span class="profit-value positive">¥246,500</span>
-          <div class="profit-divider positive"></div>
-        </div>
-        <div class="ledger-cell-actions">
-          <button class="action-btn detail" title="查看合同详情">📋</button>
-          <button class="action-btn del-btn" title="删除合同">🗑</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ━━━━ 合同 2：两地牌 · 朱砂 · HKD ━━━━ -->
-    <div class="ledger-row biz-cross">
-      <div class="accent-bar"></div>
-      <div class="ledger-row-inner">
-        <div class="ledger-cell-info">
-          <div class="info-customer"><span class="name">胡少棟</span></div>
-          <div class="info-phone">📞 +852-9876****</div>
-          <div class="info-desc">购买现牌 粤Z·AB123港 深圳湾口岸</div>
-          <div class="info-meta">
-            <span class="biz-chip cross">🚘 两地牌过户</span>
-            <span class="status-chip active">执行中</span>
-          </div>
-          <div class="info-amount-line">
-            <span class="info-amount-label">合同</span>
-            <span class="info-amount-value"><span class="sym">HK$</span>226,673</span>
-          </div>
-          <div class="mini-progress">
-            <div class="mini-progress-track"><div class="mini-progress-fill" style="width:22%"></div></div>
-            <span class="mini-progress-text">22%</span>
-          </div>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot income"></span><span class="title">收入</span>
-            <span class="badge">2笔</span>
-            <span class="total income">HK$50,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span>
-            <span class="desc">定金</span>
-            <span class="amount" style="color:var(--money-paid-deep)">HK$30,000</span>
-            <button class="receipt-btn" onclick="openLightbox('定金 · 胡少棟','HK$30,000','2026-03-05','银行转账')">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si pending">⏳</span>
-            <span class="desc">第二期 · 批文费</span>
-            <span class="amount" style="color:var(--text-tertiary)">HK$20,000</span>
-            <button class="receipt-btn" style="visibility:hidden">📎</button>
-          </div>
-          <button class="flow-add-btn income-add">+ 录入收入</button>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot expense"></span><span class="title">支出</span>
-            <span class="badge">1笔</span>
-            <span class="total expense">HK$15,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span>
-            <span class="desc">→ 交通运输局 · 批文申请</span>
-            <span class="amount" style="color:var(--money-due)">HK$15,000</span>
-            <button class="receipt-btn" onclick="openLightbox('批文费 → 交通运输局','HK$15,000','2026-03-08','银行转账')">📎</button>
-          </div>
-          <button class="flow-add-btn expense-add">+ 录入支出</button>
-        </div>
-        <div class="ledger-cell-profit">
-          <span class="profit-label">净利润</span>
-          <span class="profit-value positive">HK$35,000</span>
-          <div class="profit-divider positive"></div>
-          <span class="profit-cny">≈ ¥32,200</span>
-        </div>
-        <div class="ledger-cell-actions">
-          <button class="action-btn detail" title="查看合同详情">📋</button>
-          <button class="action-btn del-btn" title="删除合同">🗑</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ━━━━ 合同 3：两地牌 · 多笔收支 ━━━━ -->
-    <div class="ledger-row biz-cross">
-      <div class="accent-bar"></div>
-      <div class="ledger-row-inner">
-        <div class="ledger-cell-info">
-          <div class="info-customer"><span class="name">陳偉明</span></div>
-          <div class="info-phone">📞 +852-6655****</div>
-          <div class="info-desc">新申请深圳湾口岸中港车牌</div>
-          <div class="info-meta">
-            <span class="biz-chip cross">🚘 两地牌过户</span>
-            <span class="status-chip active">执行中</span>
-          </div>
-          <div class="info-amount-line">
-            <span class="info-amount-label">合同</span>
-            <span class="info-amount-value"><span class="sym">¥</span>19.5<span class="unit">万</span></span>
-          </div>
-          <div class="mini-progress">
-            <div class="mini-progress-track"><div class="mini-progress-fill" style="width:74%"></div></div>
-            <span class="mini-progress-text">74%</span>
-          </div>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot income"></span><span class="title">收入</span>
-            <span class="badge">4笔</span>
-            <span class="total income">¥144,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">定金</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥50,000</span>
-            <button class="receipt-btn" onclick="openLightbox('定金','¥50,000','2026-01-20','银行转账')">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">中期款 · 批文下来</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥45,000</span>
-            <button class="receipt-btn" onclick="openLightbox('中期款','¥45,000','2026-03-15','银行转账')">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">验车费</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥49,000</span>
-            <button class="receipt-btn" onclick="openLightbox('验车费','¥49,000','2026-04-10','微信')">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si pending">⏳</span><span class="desc">尾款 · 牌照发出后</span>
-            <span class="amount" style="color:var(--text-tertiary)">¥51,000</span>
-            <button class="receipt-btn" style="visibility:hidden">📎</button>
-          </div>
-          <button class="flow-add-btn income-add">+ 录入收入</button>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot expense"></span><span class="title">支出</span>
-            <span class="badge">3笔</span>
-            <span class="total expense">¥65,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">→ 交通运输局 · 批文费</span>
-            <span class="amount" style="color:var(--money-due)">¥25,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">→ 验车行 · 代验车费</span>
-            <span class="amount" style="color:var(--money-due)">¥20,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">→ 中介 · 代办服务费</span>
-            <span class="amount" style="color:var(--money-due)">¥20,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <button class="flow-add-btn expense-add">+ 录入支出</button>
-        </div>
-        <div class="ledger-cell-profit">
-          <span class="profit-label">净利润</span>
-          <span class="profit-value positive">¥79,000</span>
-          <div class="profit-divider positive"></div>
-        </div>
-        <div class="ledger-cell-actions">
-          <button class="action-btn detail">📋</button>
-          <button class="action-btn del-btn">🗑</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ━━━━ 合同 4：车辆 · 收入超合同额 105% ━━━━ -->
-    <div class="ledger-row biz-vehicle">
-      <div class="accent-bar"></div>
-      <div class="ledger-row-inner">
-        <div class="ledger-cell-info">
-          <div class="info-customer"><span class="name">張麗華</span></div>
-          <div class="info-phone">📞 136****7890</div>
-          <div class="info-desc">购买港车 BMW X5 底盘号KP56-0021</div>
-          <div class="info-meta">
-            <span class="biz-chip vehicle">🚗 车辆买卖</span>
-            <span class="status-chip active">执行中</span>
-          </div>
-          <div class="info-amount-line">
-            <span class="info-amount-label">合同</span>
-            <span class="info-amount-value"><span class="sym">¥</span>68<span class="unit">万</span></span>
-          </div>
-          <div class="mini-progress">
-            <div class="mini-progress-track"><div class="mini-progress-fill over" style="width:100%"></div></div>
-            <span class="mini-progress-text" style="color:var(--action-income)">105%</span>
-          </div>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot income"></span><span class="title">收入</span>
-            <span class="badge">4笔</span>
-            <span class="total income">¥715,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">定金</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥200,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">购车尾款</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥480,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">代购车辆保险</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥18,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">年检代办费</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥17,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <button class="flow-add-btn income-add">+ 录入收入</button>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot expense"></span><span class="title">支出</span>
-            <span class="badge">2笔</span>
-            <span class="total expense">¥223,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">→ 车行 · 代购车款</span>
-            <span class="amount" style="color:var(--money-due)">¥205,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">→ 中国平安 · 交强险+商业险</span>
-            <span class="amount" style="color:var(--money-due)">¥18,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <button class="flow-add-btn expense-add">+ 录入支出</button>
-        </div>
-        <div class="ledger-cell-profit">
-          <span class="profit-label">净利润</span>
-          <span class="profit-value positive">¥492,000</span>
-          <div class="profit-divider positive"></div>
-        </div>
-        <div class="ledger-cell-actions">
-          <button class="action-btn detail">📋</button>
-          <button class="action-btn del-btn">🗑</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ━━━━ 合同 5：两地牌 · 无支出 ━━━━ -->
-    <div class="ledger-row biz-cross">
-      <div class="accent-bar"></div>
-      <div class="ledger-row-inner">
-        <div class="ledger-cell-info">
-          <div class="info-customer"><span class="name">李建國</span></div>
-          <div class="info-phone">📞 159****4567</div>
-          <div class="info-desc">购买现牌 粤Z·CD789港 皇岗口岸</div>
-          <div class="info-meta">
-            <span class="biz-chip cross">🚘 两地牌过户</span>
-            <span class="status-chip active">执行中</span>
-          </div>
-          <div class="info-amount-line">
-            <span class="info-amount-label">合同</span>
-            <span class="info-amount-value"><span class="sym">¥</span>18<span class="unit">万</span></span>
-          </div>
-          <div class="mini-progress">
-            <div class="mini-progress-track"><div class="mini-progress-fill" style="width:28%"></div></div>
-            <span class="mini-progress-text">28%</span>
-          </div>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot income"></span><span class="title">收入</span>
-            <span class="badge">1笔</span>
-            <span class="total income">¥50,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">定金</span>
-            <span class="amount" style="color:var(--money-paid-deep)">¥50,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <button class="flow-add-btn income-add">+ 录入收入</button>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot expense"></span><span class="title">支出</span>
-            <span class="badge">0笔</span>
-            <span class="total expense" style="color:var(--text-tertiary)">¥0</span>
-          </div>
-          <div class="flow-empty">暂无支出记录</div>
-          <button class="flow-add-btn expense-add">+ 录入支出</button>
-        </div>
-        <div class="ledger-cell-profit">
-          <span class="profit-label">净利润</span>
-          <span class="profit-value positive">¥50,000</span>
-          <div class="profit-divider positive"></div>
-        </div>
-        <div class="ledger-cell-actions">
-          <button class="action-btn detail">📋</button>
-          <button class="action-btn del-btn">🗑</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ━━━━ 合同 6：车辆 · HKD 已完成 ━━━━ -->
-    <div class="ledger-row biz-vehicle">
-      <div class="accent-bar"></div>
-      <div class="ledger-row-inner">
-        <div class="ledger-cell-info">
-          <div class="info-customer"><span class="name">趙志強</span></div>
-          <div class="info-phone">📞 186****3210</div>
-          <div class="info-desc">购买港车 Benz GLC300</div>
-          <div class="info-meta">
-            <span class="biz-chip vehicle">🚗 车辆买卖</span>
-            <span class="status-chip completed">✓ 已完成</span>
-          </div>
-          <div class="info-amount-line">
-            <span class="info-amount-label">合同</span>
-            <span class="info-amount-value"><span class="sym">HK$</span>35<span class="unit">万</span></span>
-          </div>
-          <div class="mini-progress">
-            <div class="mini-progress-track"><div class="mini-progress-fill done" style="width:100%"></div></div>
-            <span class="mini-progress-text" style="color:var(--money-done)">100%</span>
-          </div>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot income"></span><span class="title">收入</span>
-            <span class="badge">2笔</span>
-            <span class="total income">HK$350,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">定金</span>
-            <span class="amount" style="color:var(--money-paid-deep)">HK$100,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">购车尾款</span>
-            <span class="amount" style="color:var(--money-paid-deep)">HK$250,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <button class="flow-add-btn income-add">+ 录入收入</button>
-        </div>
-        <div class="ledger-cell-flow">
-          <div class="flow-header">
-            <span class="dot expense"></span><span class="title">支出</span>
-            <span class="badge">1笔</span>
-            <span class="total expense">HK$80,000</span>
-          </div>
-          <div class="flow-item">
-            <span class="si paid">✓</span><span class="desc">→ 车行 · 代购车款</span>
-            <span class="amount" style="color:var(--money-due)">HK$80,000</span>
-            <button class="receipt-btn">📎</button>
-          </div>
-          <button class="flow-add-btn expense-add">+ 录入支出</button>
-        </div>
-        <div class="ledger-cell-profit">
-          <span class="profit-label">净利润</span>
-          <span class="profit-value positive">HK$270,000</span>
-          <div class="profit-divider positive"></div>
-          <span class="profit-cny">≈ ¥248,400</span>
-        </div>
-        <div class="ledger-cell-actions">
-          <button class="action-btn detail">📋</button>
-          <button class="action-btn del-btn">🗑</button>
-        </div>
-      </div>
-    </div>
-
-  </div><!-- /ledger-list -->
+  <!-- 台账视图容器 -->
+  <div class="view-ledger" id="viewLedger"></div>
 
   <!-- 分页 -->
   <div class="pagination">
@@ -1028,33 +934,54 @@ body {
 
   <!-- 设计说明 -->
   <div class="annotation">
-    <h3>📐 v2 原型说明 — 合同台账替代合同管理</h3>
-    <ul>
-      <li><span class="strike">合同管理（卡片网格）</span> → <span class="hl">合同台账（横幅行）</span>：功能完全合并，侧边栏只保留「合同台账」一个入口</li>
-      <li><strong>五栏布局</strong>：客户信息 | 收入明细 | 支出明细 | 净利润 | 操作按钮</li>
-      <li><strong>操作列</strong>（最右窄列）：📋查看详情（跳 ContractDetail）| 🗑删除</li>
-      <li><strong>列内录入</strong>：收入列底部「+ 录入收入」、支出列底部「+ 录入支出」— 就近操作，语义清晰</li>
-      <li><strong>汇总条</strong>：¥ 和 HK$ <span class="hl">平等并列</span>，不强制折算合并，字号相同</li>
-      <li><strong>凭证预览</strong>：点击 📎 弹出 Lightbox，<span class="hl">不跳转新页面</span>。点击试试看 ↑</li>
-      <li><strong>业务色</strong>：<span class="cv">钢蓝色条</span>=车辆买卖 | <span class="cc">朱砂色条</span>=两地牌过户 — 与现有设计系统一致</li>
-      <li><strong>ContractDetail 页保留</strong>：行内 📋 按钮跳转，查看合同原件、AI 解析数据、完整付款时间线</li>
-      <li><strong>录入收入/支出</strong>：各列底部「+ 录入收入」/「+ 录入支出」按钮 → 弹出 ReceiptChatModal（与原 ContractList 逻辑一致）</li>
-      <li><strong>上传合同</strong>：右上角「上传合同」按钮 → 弹出 ContractChatModal（原入口保留）</li>
-    </ul>
+    <h3>
+      <span class="version-pill">v3</span>
+      原型说明 · 合同管理统一页（卡片 ⇄ 台账 视图切换）
+    </h3>
+    <div class="row">
+      <div class="col">
+        <div class="col-title">▎核心理念</div>
+        <ul>
+          <li>侧边栏只保留 <span class="hl">合同管理</span> 一个入口，不做并列页面</li>
+          <li>右上角 <span class="hl">Segmented 切换</span>在卡片和台账之间无缝切换</li>
+          <li>同一个筛选条件、同一个数据源、同一个 URL，深链可分享</li>
+          <li>键盘快捷键 <kbd>1</kbd> 卡片 / <kbd>2</kbd> 台账 / <kbd>Esc</kbd> 关闭弹窗</li>
+        </ul>
+      </div>
+      <div class="col">
+        <div class="col-title">▎两种视图的适用场景</div>
+        <ul>
+          <li><strong>卡片视图</strong>：合同池浏览，找特定合同，状态巡检</li>
+          <li><strong>台账视图</strong>：资金复盘，看每笔流水、对账、净利润</li>
+          <li><strong>汇总条</strong>：仅台账模式显示，反映当前筛选结果</li>
+          <li><strong>录入按钮</strong>：两种视图都有，逻辑一致</li>
+        </ul>
+      </div>
+      <div class="col">
+        <div class="col-title">▎技术实现要点</div>
+        <ul>
+          <li>前端：<span class="hl">ContractList.tsx</span> 内置 view 状态，渲染不同容器</li>
+          <li>URL：<span class="hl">?view=card | ledger</span> 写入 history，深链可用</li>
+          <li>后端：<span class="hl">GET /api/contracts?view=ledger&include=payments</span>，连表查付款</li>
+          <li>移动端：宽度 < 1200px 自动强制卡片视图，规避 5 列网格挤压</li>
+          <li>业务色保持一致：<span class="cv">钢蓝</span>=车辆买卖 | <span class="cc">赭红</span>=两地牌过户</li>
+        </ul>
+      </div>
+    </div>
   </div>
 </div>
-
-<!-- ═══════ 凭证 Lightbox ═══════ -->
+<!-- 收据 Lightbox -->
 <div class="receipt-lightbox" id="receiptLightbox" onclick="closeLightbox(event)">
   <div class="lightbox-card" onclick="event.stopPropagation()">
     <div class="lightbox-header">
-      <h4 id="lbTitle">凭证详情</h4>
+      <h4 id="lbTitle">收据详情</h4>
       <button class="lightbox-close" onclick="closeLightbox()">✕</button>
     </div>
     <div class="lightbox-body">
       <div class="lightbox-receipt-img">
-        📄 凭证图片预览区域<br>
-        <span style="font-size:11px;color:var(--text-tertiary)">（实际为后端返回的凭证图片）</span>
+        <span class="receipt-emoji">🧾</span>
+        <span>收据图片预览区域</span>
+        <small>实际渲染后端返回的凭证图片</small>
       </div>
       <div class="lightbox-meta">
         <div class="lightbox-meta-item">
@@ -1066,23 +993,333 @@ body {
           <span class="v" id="lbDate">--</span>
         </div>
         <div class="lightbox-meta-item">
+          <span class="k">收/付款方</span>
+          <span class="v" id="lbCounterparty">--</span>
+        </div>
+        <div class="lightbox-meta-item">
           <span class="k">付款方式</span>
           <span class="v" id="lbMethod">--</span>
         </div>
-        <div class="lightbox-meta-item">
-          <span class="k">状态</span>
-          <span class="v" style="color:var(--money-done)">已确认 ✓</span>
-        </div>
       </div>
+    </div>
+    <div class="lightbox-footer">
+      <button onclick="closeLightbox()">关闭</button>
+      <button class="primary" onclick="alert('（原型）查看完整付款记录 → 跳到 ContractDetail')">查看合同</button>
     </div>
   </div>
 </div>
 
 <script>
+/* ============================================================
+   合同数据（6 条样例）
+   ============================================================ */
+const contracts = [
+  {
+    id: 1, biz: 'vehicle',
+    name: '王雪梅', phone: '138****1234',
+    desc: '购买港车 底盘号 GH30-0016495',
+    bizLabel: '车辆买卖',
+    status: 'completed', statusText: '已完成',
+    contractNumber: 'HT-2025-12-001',
+    contractTitle: '保时捷 Cayenne 2024款',
+    currency: 'CNY', symbol: '¥',
+    total: 250000, paid: 258200, expense: 11700,
+    progress: 100, progressClass: 'done',
+    signedDate: '2025-12-15',
+    incomes: [
+      { desc: '定金', amount: 50000, paid: true,  method: '银行转账', date: '2025-12-15', counterparty: '王雪梅' },
+      { desc: '尾款', amount: 200000, paid: true,  method: '银行转账', date: '2026-01-10', counterparty: '王雪梅' },
+      { desc: '代办保险', amount: 8200, paid: true, method: '微信',     date: '2026-02-01', counterparty: '王雪梅' },
+    ],
+    expenses: [
+      { desc: '车管所 · 过户费', amount: 3500, paid: true, method: '银行转账', date: '2026-01-12', counterparty: '车管所' },
+      { desc: '中国平安 · 交强+商业', amount: 8200, paid: true, method: '银行转账', date: '2026-02-01', counterparty: '中国平安' },
+    ],
+  },
+  {
+    id: 2, biz: 'cross',
+    name: '钱小姐', phone: '+852-9876****',
+    desc: '购买两地牌 粤Z·港AB123挂 深圳湾口岸',
+    bizLabel: '两地牌过户',
+    status: 'active', statusText: '执行中',
+    contractNumber: 'HT-2026-01-002',
+    contractTitle: '丰田 Alphard 港牌两地车',
+    currency: 'HKD', symbol: 'HK$',
+    total: 226673, paid: 50000, expense: 15000,
+    progress: 22,
+    signedDate: '2026-01-20',
+    incomes: [
+      { desc: '定金', amount: 30000, paid: true,  method: '银行转账', date: '2026-03-05', counterparty: '钱小姐' },
+      { desc: '第二期 · 港牌费', amount: 20000, paid: false, method: '银行转账', date: '2026-04-15', counterparty: '钱小姐' },
+    ],
+    expenses: [
+      { desc: '香港运输局 · 港牌申请', amount: 15000, paid: true, method: '银行转账', date: '2026-03-08', counterparty: '香港运输局' },
+    ],
+  },
+  {
+    id: 3, biz: 'cross',
+    name: '周惠仪', phone: '+852-6655****',
+    desc: '新申请深圳湾口岸中港车牌',
+    bizLabel: '两地牌过户',
+    status: 'active', statusText: '执行中',
+    contractNumber: 'HT-2026-01-003',
+    contractTitle: '奔驰 V260L 中港两地牌',
+    currency: 'CNY', symbol: '¥',
+    total: 195000, paid: 144000, expense: 65000,
+    progress: 74,
+    signedDate: '2026-01-15',
+    incomes: [
+      { desc: '定金', amount: 50000, paid: true,  method: '银行转账', date: '2026-01-20', counterparty: '周惠仪' },
+      { desc: '中期款 · 牌照下来', amount: 45000, paid: true,  method: '银行转账', date: '2026-03-15', counterparty: '周惠仪' },
+      { desc: '验车费', amount: 49000, paid: true,  method: '微信',     date: '2026-04-10', counterparty: '周惠仪' },
+      { desc: '尾款 · 车牌发出后', amount: 51000, paid: false, method: '银行转账', date: '2026-05-20', counterparty: '周惠仪' },
+    ],
+    expenses: [
+      { desc: '香港运输局 · 港牌费', amount: 25000, paid: true, method: '银行转账', date: '2026-02-10', counterparty: '香港运输局' },
+      { desc: '验车场 · 验车费', amount: 20000, paid: true, method: '银行转账', date: '2026-03-20', counterparty: '验车场' },
+      { desc: '中介 · 代办服务费', amount: 20000, paid: true, method: '银行转账', date: '2026-04-05', counterparty: '中介' },
+    ],
+  },
+  {
+    id: 4, biz: 'vehicle',
+    name: '廖店强', phone: '136****7890',
+    desc: '购买港车 BMW X5 底盘号 WP56-0021',
+    bizLabel: '车辆买卖',
+    status: 'active', statusText: '执行中',
+    contractNumber: 'HT-2026-02-004',
+    contractTitle: 'BMW X5 xDrive40i 港版',
+    currency: 'CNY', symbol: '¥',
+    total: 680000, paid: 715000, expense: 223000,
+    progress: 105, progressClass: 'over',
+    signedDate: '2026-02-08',
+    incomes: [
+      { desc: '定金', amount: 200000, paid: true, method: '银行转账', date: '2026-02-10', counterparty: '廖店强' },
+      { desc: '尾款', amount: 480000, paid: true, method: '银行转账', date: '2026-03-20', counterparty: '廖店强' },
+      { desc: '代办车辆保险', amount: 18000, paid: true, method: '银行转账', date: '2026-04-01', counterparty: '廖店强' },
+      { desc: '年检代办费', amount: 17000, paid: true, method: '银行转账', date: '2026-04-15', counterparty: '廖店强' },
+    ],
+    expenses: [
+      { desc: '车行 · 代购车款', amount: 205000, paid: true, method: '银行转账', date: '2026-03-25', counterparty: '车行' },
+      { desc: '中国平安 · 交强+商业', amount: 18000, paid: true, method: '银行转账', date: '2026-04-02', counterparty: '中国平安' },
+    ],
+  },
+  {
+    id: 5, biz: 'cross',
+    name: '李建强', phone: '159****4567',
+    desc: '购买两地牌 粤Z·港CD789挂 皇岗口岸',
+    bizLabel: '两地牌过户',
+    status: 'active', statusText: '执行中',
+    contractNumber: 'HT-2026-03-005',
+    contractTitle: '雷克萨斯 LM350h 两地牌',
+    currency: 'CNY', symbol: '¥',
+    total: 180000, paid: 50000, expense: 0,
+    progress: 28,
+    signedDate: '2026-03-10',
+    incomes: [
+      { desc: '定金', amount: 50000, paid: true, method: '银行转账', date: '2026-03-12', counterparty: '李建强' },
+    ],
+    expenses: [],
+  },
+  {
+    id: 6, biz: 'vehicle',
+    name: '陈伟明', phone: '186****3210',
+    desc: '购买港车 奔驰 GLC300',
+    bizLabel: '车辆买卖',
+    status: 'completed', statusText: '已完成',
+    contractNumber: 'HT-2026-01-006',
+    contractTitle: '奔驰 GLC300 4MATIC 港版',
+    currency: 'HKD', symbol: 'HK$',
+    total: 350000, paid: 350000, expense: 80000,
+    progress: 100, progressClass: 'done',
+    signedDate: '2026-01-08',
+    incomes: [
+      { desc: '定金', amount: 100000, paid: true, method: '银行转账', date: '2026-01-10', counterparty: '陈伟明' },
+      { desc: '尾款', amount: 250000, paid: true, method: '银行转账', date: '2026-02-15', counterparty: '陈伟明' },
+    ],
+    expenses: [
+      { desc: '车行 · 代购车款', amount: 80000, paid: true, method: '银行转账', date: '2026-02-18', counterparty: '车行' },
+    ],
+  },
+];
+/* ============================================================
+   格式化工具
+   ============================================================ */
+function fmtMoney(n) { return n.toLocaleString('zh-CN'); }
+function fmtShort(n) {
+  if (n >= 10000) return (n / 10000).toFixed(1) + '万';
+  return n.toLocaleString('zh-CN');
+}
+function escapeHtml(s) {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+function profitInCny(contract) {
+  if (contract.currency !== 'HKD') return null;
+  const rate = 0.92; // 模拟汇率
+  return Math.round(contract.paid * rate); // 简化：净利润折算
+}
+
+/* ============================================================
+   渲染：卡片视图
+   ============================================================ */
+function renderCardView() {
+  const el = document.getElementById('viewCard');
+  el.innerHTML = contracts.map(c => {
+    const profit = c.paid - c.expense;
+    const profitClass = profit > 0 ? 'gold' : profit < 0 ? 'orange' : '';
+    const remaining = c.total - c.paid;
+    return `
+    <div class="contract-card biz-${c.biz}" data-id="${c.id}">
+      <div class="card-accent-bar"></div>
+      <div class="card-top-row">
+        <span class="biz-badge biz-badge--${c.biz}">
+          ${c.biz === 'vehicle' ? '🚗' : '🛂'} ${escapeHtml(c.bizLabel)}
+        </span>
+        <span class="status-badge ${c.status}">${c.status === 'completed' ? '✓' : '●'} ${c.statusText}</span>
+      </div>
+      <div class="customer-name-hero">
+        <span class="customer-name-text">${escapeHtml(c.name)}</span>
+        <span class="customer-date-text">${c.signedDate}</span>
+      </div>
+      <div class="contract-meta-row">
+        <span class="contract-meta-number">${c.contractNumber}</span>
+        <span class="contract-meta-sep">·</span>
+        <span class="contract-meta-title">${escapeHtml(c.contractTitle)}</span>
+      </div>
+      <div class="business-desc">${escapeHtml(c.desc)}</div>
+      <div class="divider-gold"></div>
+      <div class="amount-section">
+        <div class="amount-item">
+          <span class="amount-label">合同</span>
+          <span class="amount-value"><span class="sym">${c.symbol}</span>${fmtShort(c.total)}</span>
+        </div>
+        <div class="amount-item">
+          <span class="amount-label">已收</span>
+          <span class="amount-value gold"><span class="sym">${c.symbol}</span>${fmtShort(c.paid)}</span>
+        </div>
+        <div class="amount-item">
+          <span class="amount-label">支出</span>
+          <span class="amount-value orange"><span class="sym">${c.symbol}</span>${fmtShort(c.expense)}</span>
+        </div>
+      </div>
+      <div class="card-progress">
+        <div class="card-progress-bar">
+          <div class="card-progress-fill ${c.progressClass || ''}" style="width: ${Math.min(c.progress, 100)}%"></div>
+        </div>
+        <div class="card-progress-meta">
+          <span>${c.incomes.length} 笔收 · ${c.expenses.length} 笔支</span>
+          <span class="pct ${c.progressClass || ''}">${c.progress}%</span>
+        </div>
+      </div>
+    </div>
+    `;
+  }).join('');
+}
+
+/* ============================================================
+   渲染：台账视图
+   ============================================================ */
+function renderLedgerView() {
+  const el = document.getElementById('viewLedger');
+  el.innerHTML = contracts.map(c => {
+    const profit = c.paid - c.expense;
+    const profitClass = profit > 0 ? 'positive' : profit < 0 ? 'negative' : 'zero';
+    const profitSign = profit < 0 ? '-' : '';
+    const cnyProfit = profitInCny(c);
+    const remaining = c.total - c.paid;
+
+    return `
+    <div class="ledger-row biz-${c.biz}">
+      <div class="accent-bar"></div>
+      <div class="ledger-row-inner">
+        <div class="ledger-cell-info">
+          <div class="info-customer"><span class="name">${escapeHtml(c.name)}</span></div>
+          <div class="info-phone">📱 ${c.phone}</div>
+          <div class="info-desc">${escapeHtml(c.desc)}</div>
+          <div class="info-meta">
+            <span class="biz-chip ${c.biz}">${c.biz === 'vehicle' ? '🚗' : '🛂'} ${escapeHtml(c.bizLabel)}</span>
+            <span class="status-chip ${c.status}">${c.status === 'completed' ? '✓' : '●'} ${c.statusText}</span>
+          </div>
+          <div class="info-amount-line">
+            <span class="info-amount-label">合同</span>
+            <span class="info-amount-value"><span class="sym">${c.symbol}</span>${c.total >= 10000 ? (c.total/10000).toFixed(1) : c.total.toLocaleString()}${c.total >= 10000 ? '<span class="unit">万</span>' : ''}</span>
+          </div>
+          <div class="mini-progress">
+            <div class="mini-progress-track"><div class="mini-progress-fill ${c.progressClass || ''}" style="width: ${Math.min(c.progress, 100)}%"></div></div>
+            <span class="mini-progress-text" style="color: ${c.progressClass === 'done' ? 'var(--money-done)' : c.progressClass === 'over' ? 'var(--action-income)' : ''}">${c.progress}%</span>
+          </div>
+        </div>
+        <div class="ledger-cell-flow">
+          <div class="flow-header">
+            <span class="dot income"></span><span class="title">收入</span>
+            <span class="badge">${c.incomes.length}笔</span>
+            <span class="total income">${c.symbol}${fmtMoney(c.paid)}</span>
+          </div>
+          ${c.incomes.map(i => `
+          <div class="flow-item">
+            <span class="si ${i.paid ? 'paid' : 'pending'}">${i.paid ? '✓' : '◌'}</span>
+            <span class="desc" title="${escapeHtml(i.desc)} · ${escapeHtml(i.counterparty)}">${escapeHtml(i.desc)}</span>
+            <span class="amount" style="color: ${i.paid ? 'var(--money-paid-deep)' : 'var(--text-tertiary)'}">${c.symbol}${fmtMoney(i.amount)}</span>
+            <button class="receipt-btn" ${i.paid ? `onclick="openLightbox('${escapeHtml(i.desc)} · ${escapeHtml(i.counterparty)}', '${c.symbol}${fmtMoney(i.amount)}', '${i.date}', '${escapeHtml(i.method)}')"` : 'style="visibility:hidden"'} title="${i.paid ? '查看收据' : '未到账'}">🧾</button>
+          </div>
+          `).join('')}
+          <button class="flow-add-btn income-add">＋ 录入收入</button>
+        </div>
+        <div class="ledger-cell-flow">
+          <div class="flow-header">
+            <span class="dot expense"></span><span class="title">支出</span>
+            <span class="badge">${c.expenses.length}笔</span>
+            <span class="total expense" style="color: ${c.expenses.length === 0 ? 'var(--text-tertiary)' : 'var(--money-due-deep)'}">${c.symbol}${fmtMoney(c.expense)}</span>
+          </div>
+          ${c.expenses.length === 0
+            ? '<div class="flow-empty">暂无支出记录</div>'
+            : c.expenses.map(e => `
+          <div class="flow-item">
+            <span class="si paid">✓</span>
+            <span class="desc" title="${escapeHtml(e.desc)} · ${escapeHtml(e.counterparty)}">${escapeHtml(e.desc)}</span>
+            <span class="amount" style="color: var(--money-due-deep)">${c.symbol}${fmtMoney(e.amount)}</span>
+            <button class="receipt-btn" onclick="openLightbox('${escapeHtml(e.desc)} → ${escapeHtml(e.counterparty)}', '${c.symbol}${fmtMoney(e.amount)}', '${e.date}', '${escapeHtml(e.method)}')" title="查看收据">🧾</button>
+          </div>
+          `).join('')}
+          <button class="flow-add-btn expense-add">＋ 录入支出</button>
+        </div>
+        <div class="ledger-cell-profit">
+          <span class="profit-label">净利润</span>
+          <span class="profit-value ${profitClass}">${profitSign}${c.symbol}${fmtMoney(Math.abs(profit))}</span>
+          <div class="profit-divider ${profitClass}"></div>
+          ${cnyProfit !== null ? `<span class="profit-cny">≈ ¥${fmtMoney(cnyProfit)}</span>` : ''}
+        </div>
+        <div class="ledger-cell-actions">
+          <button class="action-btn detail" title="查看合同详情" onclick="alert('（原型）跳到 ContractDetail 页面 → ' + ${c.id})">👁</button>
+          <button class="action-btn del-btn" title="删除合同" onclick="if(confirm('确认删除合同 ${escapeHtml(c.contractNumber)}？')) alert('（原型）已删除')">🗑</button>
+        </div>
+      </div>
+    </div>
+    `;
+  }).join('');
+}
+/* ============================================================
+   视图切换 / Lightbox / 交互
+   ============================================================ */
+function setView(mode) {
+  document.body.classList.remove('view-mode-card', 'view-mode-ledger');
+  document.body.classList.add('view-mode-' + mode);
+  document.querySelectorAll('.view-toggle button').forEach(b => {
+    b.classList.toggle('active', b.dataset.view === mode);
+  });
+  // 同步 URL（深链）
+  const url = new URL(window.location.href);
+  url.searchParams.set('view', mode);
+  window.history.replaceState({}, '', url);
+}
+
 function openLightbox(title, amount, date, method) {
   document.getElementById('lbTitle').textContent = title;
   document.getElementById('lbAmount').textContent = amount;
   document.getElementById('lbDate').textContent = date;
+  document.getElementById('lbCounterparty').textContent = title.includes('→')
+    ? title.split('→').pop().trim()
+    : title.split('·').pop().trim();
   document.getElementById('lbMethod').textContent = method;
   document.getElementById('receiptLightbox').classList.add('open');
 }
@@ -1090,7 +1327,44 @@ function closeLightbox(e) {
   if (e && e.target !== e.currentTarget) return;
   document.getElementById('receiptLightbox').classList.remove('open');
 }
-document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLightbox(); });
+
+function toggleBizChip(btn) {
+  btn.classList.toggle('active');
+}
+
+/* 初始化 */
+document.addEventListener('DOMContentLoaded', () => {
+  renderCardView();
+  renderLedgerView();
+
+  // 视图切换按钮
+  document.querySelectorAll('.view-toggle button').forEach(b => {
+    b.addEventListener('click', () => setView(b.dataset.view));
+  });
+
+  // 业务筛选 chip
+  document.querySelectorAll('.biz-chip-btn').forEach(b => {
+    b.addEventListener('click', () => toggleBizChip(b));
+  });
+
+  // URL 同步初始视图
+  const urlMode = new URLSearchParams(window.location.search).get('view');
+  if (urlMode === 'card' || urlMode === 'ledger') {
+    setView(urlMode);
+  }
+
+  // 键盘快捷键
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') {
+      closeLightbox();
+      return;
+    }
+    // 输入框聚焦时不触发
+    if (document.activeElement && (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'SELECT' || document.activeElement.tagName === 'TEXTAREA')) return;
+    if (e.key === '1') setView('card');
+    if (e.key === '2') setView('ledger');
+  });
+});
 </script>
 
 </body>

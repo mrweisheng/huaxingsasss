@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy import or_, func, String
-from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy.orm import Session, contains_eager, selectinload
 
 from app.config import settings
 from app.core.chinese import search_variants
@@ -46,6 +46,8 @@ class ContractService:
         contract_number: Optional[str] = None,
         business_type: Optional[str] = None,
         customer_ids: Optional[List[int]] = None,
+        include_payments: bool = False,
+        payment_type_filter: Optional[str] = None,
     ) -> tuple[List[Contract], int]:
         """
         获取合同列表
@@ -56,6 +58,12 @@ class ContractService:
                 - None/空 → 不过滤
             customer_ids: 批量客户ID列表。
                 - 传入非空列表 → WHERE customer_id IN (...)
+            include_payments: 是否一并 eager load 付款明细。
+                - True → selectinload(Contract.payments)，供台账视图一次拿全
+                - False（默认） → 不加载，向后兼容现有调用方
+            payment_type_filter: 仅 include_payments=True 时生效；
+                'income' / 'expense' → 在 selectinload 时即按类型过滤，避免把另一类 IO 拉到内存。
+                None → 不按类型过滤（admin 视角，两类都要看）。
 
         Returns:
             (合同列表, 总数)
@@ -66,6 +74,17 @@ class ContractService:
             .options(contains_eager(Contract.customer))
             .filter(Contract.is_deleted == False)
         )
+
+        if include_payments:
+            # loader criterion：把软删过滤 + 角色类型过滤直接下推到 DB
+            #   - 避免拉 expense 流水给 income 用户（数据暴露面 + IO 双省）
+            #   - 避免软删数据走网络再被 Python 端裁掉
+            payment_criteria = [Payment.is_deleted == False]
+            if payment_type_filter in ("income", "expense"):
+                payment_criteria.append(Payment.type == payment_type_filter)
+            query = query.options(
+                selectinload(Contract.payments.and_(*payment_criteria))
+            )
 
         # 合同编号精确匹配
         if contract_number:
@@ -155,6 +174,12 @@ class ContractService:
             item.paid_count = stats.paid_count if stats else 0
             item.expense_count = stats.expense_count if stats else 0
             item.payment_total_count = stats.total_count if stats else 0
+            # include_payments：DB 层已过滤软删/类型，这里只按 (期数, id) 排序保证前端展示稳定
+            if include_payments:
+                item.payments = sorted(
+                    list(item.payments),
+                    key=lambda p: (p.installment_number or 0, p.id),
+                )
 
         return items, total
     

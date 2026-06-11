@@ -1,12 +1,13 @@
 """
 合同相关Pydantic模型
 """
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field
 from datetime import date, datetime
 from decimal import Decimal
 
 from app.core.business_types import BusinessType, LEGACY_VALUES
+from app.schemas.payment import PaymentResponse
 
 
 class ContractBase(BaseModel):
@@ -83,5 +84,20 @@ class ContractResponse(ContractBase):
 
     class Config:
         from_attributes = True
+
+
+class ContractWithPaymentsResponse(ContractResponse):
+    """合同响应（含付款明细）。
+
+    仅在 GET /contracts?include=payments 场景下使用。
+    单独建子类是为了避免在 ContractResponse 上声明 payments 字段——
+    那样 pydantic from_attributes 会在所有列表查询时 getattr(contract, "payments")
+    触发 SQLAlchemy lazy load，反而把不需要明细的调用方拖入 N+1。
+    """
+
+    payments: List[PaymentResponse] = Field(
+        default_factory=list,
+        description="付款流水明细（已按未删除过滤）",
+    )
 
 

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 from app.db.session import get_db
 from app.models.contract import Contract
 from app.schemas.contract import (
-    ContractCreate, ContractUpdate, ContractResponse,
+    ContractCreate, ContractUpdate, ContractResponse, ContractWithPaymentsResponse,
 )
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
@@ -26,7 +26,7 @@ from app.config import settings
 router = APIRouter()
 
 
-@router.get("", response_model=PaginatedResponse[ContractResponse])
+@router.get("", response_model=PaginatedResponse)
 def list_contracts(
     page: int = Query(1, ge=1, description="页码"),
     per_page: int = Query(20, ge=1, le=500, description="每页数量"),
@@ -37,6 +37,10 @@ def list_contracts(
     keyword: Optional[str] = Query(None, description="搜索关键词"),
     date_from: Optional[date] = Query(None, description="签订日期起始"),
     date_to: Optional[date] = Query(None, description="签订日期结束"),
+    include: Optional[str] = Query(
+        None,
+        description='附加返回内容；目前仅支持 "payments"——开启后每个合同返回 payments 流水明细，供台账视图使用。',
+    ),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
@@ -52,6 +56,19 @@ def list_contracts(
     if customer_ids:
         parsed_customer_ids = [int(cid.strip()) for cid in customer_ids.split(",") if cid.strip()]
 
+    # 解析 include 标志（逗号分隔，目前只识别 payments）
+    include_set = {x.strip() for x in (include or "").split(",") if x.strip()}
+    include_payments = "payments" in include_set
+
+    # 角色 → payment 类型过滤（DB 层下推；与 GET /payments/contract/{id} 一致）
+    #   income → 只看 income 流水；expense → 只看 expense 流水；admin → 都看
+    if include_payments and current_user.role == Role.INCOME:
+        payment_type_filter = "income"
+    elif include_payments and current_user.role == Role.EXPENSE:
+        payment_type_filter = "expense"
+    else:
+        payment_type_filter = None
+
     items, total = ContractService.get_contracts(
         db=db,
         page=page,
@@ -63,11 +80,14 @@ def list_contracts(
         keyword=keyword,
         date_from=date_from,
         date_to=date_to,
-        sales_person_id=sales_person_id
+        sales_person_id=sales_person_id,
+        include_payments=include_payments,
+        payment_type_filter=payment_type_filter,
     )
-    
+
+    response_schema = ContractWithPaymentsResponse if include_payments else ContractResponse
     return PaginatedResponse(
-        items=[ContractResponse.model_validate(item) for item in items],
+        items=[response_schema.model_validate(item) for item in items],
         pagination=PaginationModel(
             page=page,
             per_page=per_page,

@@ -1,15 +1,17 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Input, Select, DatePicker, Button, Popconfirm, message, Empty, Tooltip } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractChatModal from '@/components/ContractChatModal'
 import ReceiptChatModal from '@/components/ReceiptChatModal'
-import type { Contract } from '@/types'
+import ContractLedger from './ContractLedger'
+import type { Contract, ContractWithPayments } from '@/types'
 import dayjs from 'dayjs'
 import { formatMoney } from '@/utils/money'
 import './ContractList.css'
+import './ContractLedger.css'
 
 const { RangePicker } = DatePicker
 
@@ -99,7 +101,10 @@ export default function ContractList() {
   const navigate = useNavigate()
   const user = useAuthStore(s => s.user)
   const role = user?.role || ''
-  const [contracts, setContracts] = useState<Contract[]>([])
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialView = searchParams.get('view') === 'ledger' ? 'ledger' : 'card'
+  const [view, setView] = useState<'card' | 'ledger'>(initialView)
+  const [contracts, setContracts] = useState<Contract[] | ContractWithPayments[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
@@ -116,6 +121,16 @@ export default function ContractList() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // 视图切换：写入 URL 深链；并把分页重置回第 1 页，避免切到不存在的页码导致空白
+  const changeView = useCallback((mode: 'card' | 'ledger') => {
+    setView(mode)
+    setPage(1)
+    const next = new URLSearchParams(searchParams)
+    if (mode === 'ledger') next.set('view', 'ledger')
+    else next.delete('view')
+    setSearchParams(next, { replace: true })
+  }, [searchParams, setSearchParams])
+
   const loadContracts = useCallback(async () => {
     abortControllerRef.current?.abort()
     const controller = new AbortController()
@@ -129,7 +144,10 @@ export default function ContractList() {
         params.date_from = dateRange[0].format('YYYY-MM-DD')
         params.date_to = dateRange[1].format('YYYY-MM-DD')
       }
-      const response = await contractApi.getList(params, controller.signal)
+      // 台账视图带 include=payments；卡片视图走原接口，性能不变
+      const response = view === 'ledger'
+        ? await contractApi.getListWithPayments(params, controller.signal)
+        : await contractApi.getList(params, controller.signal)
       setContracts(response.items)
       setTotal(response.pagination.total)
     } catch (error: any) {
@@ -140,7 +158,7 @@ export default function ContractList() {
         setLoading(false)
       }
     }
-  }, [page, keyword, statusFilter, dateRange])
+  }, [page, keyword, statusFilter, dateRange, view])
 
   useEffect(() => {
     loadContracts()
@@ -149,6 +167,19 @@ export default function ContractList() {
       if (searchTimerRef.current) clearTimeout(searchTimerRef.current)
     }
   }, [loadContracts])
+
+  // 键盘快捷键：1 卡片 / 2 台账（输入框聚焦时不触发；IME 合成态期间也不触发，避免中文输入选词误触）
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.isComposing) return
+      const tag = (document.activeElement as HTMLElement | null)?.tagName
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return
+      if (e.key === '1') changeView('card')
+      else if (e.key === '2') changeView('ledger')
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [changeView])
 
   const handleSearch = (e: React.ChangeEvent<HTMLInputElement> | undefined) => {
     const value = e?.target?.value ?? ''
@@ -180,6 +211,26 @@ export default function ContractList() {
   }
 
   const totalPages = Math.ceil(total / 20)
+
+  // 汇总条：按当前页累加，按币种分组（仅台账模式显示）
+  // 注意：这是"本页汇总"而非"全量筛选汇总"——后者需要单独的 /summary 接口
+  const summary = (() => {
+    const agg: Record<string, { total: number; paid: number; expense: number }> = {}
+    for (const c of contracts) {
+      const cur = c.currency || 'CNY'
+      if (!agg[cur]) agg[cur] = { total: 0, paid: 0, expense: 0 }
+      agg[cur].total += Number(c.total_amount || 0)
+      agg[cur].paid += Number(c.paid_amount || 0)
+      agg[cur].expense += Number(c.total_expense || 0)
+    }
+    return agg
+  })()
+  const summaryCurrencies = Object.keys(summary)
+  const formatSumVal = (n: number) => {
+    const m = formatMoney(n)
+    return m.unit ? `${m.display}${m.unit}` : m.display
+  }
+  const currencySymbol2: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
   return (
     <div className="contract-list-container">
@@ -225,13 +276,99 @@ export default function ContractList() {
               上传
             </Button>
           )}
+          <div className="view-toggle" role="tablist" aria-label="视图切换">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'card'}
+              className={view === 'card' ? 'active' : ''}
+              onClick={() => changeView('card')}
+              title="卡片视图 (按 1)"
+            >
+              <AppstoreOutlined /> 卡片
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={view === 'ledger'}
+              className={view === 'ledger' ? 'active' : ''}
+              onClick={() => changeView('ledger')}
+              title="台账视图 (按 2)"
+            >
+              <UnorderedListOutlined /> 台账
+            </button>
+          </div>
         </div>
       </div>
+
+      {/* 汇总条：仅台账模式 + 有数据 */}
+      {view === 'ledger' && contracts.length > 0 && (
+        <div className="ledger-summary-strip">
+          <div className="summary-block">
+            <div className="summary-block-title"><span className="dot primary" />合同总额</div>
+            <div className="summary-currency-rows">
+              {summaryCurrencies.map(cur => (
+                <div key={cur} className="summary-currency-row">
+                  <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
+                  <span className="summary-val primary">{formatSumVal(summary[cur].total)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="summary-block">
+            <div className="summary-block-title"><span className="dot gold" />已收</div>
+            <div className="summary-currency-rows">
+              {summaryCurrencies.map(cur => (
+                <div key={cur} className="summary-currency-row">
+                  <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
+                  <span className="summary-val gold">{formatSumVal(summary[cur].paid)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="summary-block">
+            <div className="summary-block-title"><span className="dot orange" />支出</div>
+            <div className="summary-currency-rows">
+              {summaryCurrencies.map(cur => (
+                <div key={cur} className="summary-currency-row">
+                  <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
+                  <span className="summary-val orange">{formatSumVal(summary[cur].expense)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          <div className="summary-block">
+            <div className="summary-block-title"><span className="dot teal" />净利润<span style={{ marginLeft: 6, fontSize: 9, opacity: 0.6 }}>本页</span></div>
+            <div className="summary-currency-rows">
+              {summaryCurrencies.map(cur => {
+                const p = summary[cur].paid - summary[cur].expense
+                return (
+                  <div key={cur} className="summary-currency-row">
+                    <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
+                    <span className={`summary-val ${p >= 0 ? 'teal' : 'orange'}`}>
+                      {p < 0 ? '-' : ''}{formatSumVal(Math.abs(p))}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
 
       {contracts.length === 0 && !loading ? (
         <Empty description="暂无合同数据" className="empty-state" />
       ) : (
         <>
+          {view === 'ledger' ? (
+            <ContractLedger
+              contracts={contracts as ContractWithPayments[]}
+              role={role}
+              onDelete={handleDelete}
+              onAddIncome={(c) => setReceiptModal({ open: true, contract: c, type: 'income' })}
+              onAddExpense={(c) => setReceiptModal({ open: true, contract: c, type: 'expense' })}
+            />
+          ) : (
           <div className="contract-grid">
             {contracts.map((contract, index) => {
               const status = statusConfig[contract.status] || statusConfig.active
@@ -400,6 +537,7 @@ export default function ContractList() {
               )
             })}
           </div>
+          )}
 
           {totalPages > 1 && (
             <div className="pagination">

@@ -60,6 +60,15 @@ export interface Contract {
   updated_at: string
 }
 
+/**
+ * 合同 + 付款明细（台账视图专用）
+ * 由 GET /contracts?include=payments 返回。卡片视图不应使用此类型，
+ * 以免误传 include 把卡片接口也带成 N+1。
+ */
+export interface ContractWithPayments extends Contract {
+  payments: Payment[]
+}
+
 export interface Payment {
   id: number
   contract_id: number
