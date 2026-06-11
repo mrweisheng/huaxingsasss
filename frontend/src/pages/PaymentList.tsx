@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type Key } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Button, Select, Input, DatePicker, Empty, Popconfirm, message, Image, Tabs, Tooltip } from 'antd'
+import { Table, Button, Select, Input, DatePicker, Empty, message, Image, Tabs, Tooltip } from 'antd'
 import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
 import { formatMoney } from '@/utils/money'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { Payment } from '@/types'
 import './PaymentList.css'
 
@@ -120,6 +121,9 @@ export default function PaymentList() {
   const user = useAuthStore((s) => s.user)
   const role = user?.role || ''
   const navigate = useNavigate()
+  // 删除二次确认弹窗状态
+  const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const defaultTab = role === 'expense' ? 'expense' : role === 'income' ? 'income' : 'all'
   const [activeTab, setActiveTab] = useState(defaultTab)
@@ -185,12 +189,16 @@ export default function PaymentList() {
   }
 
   const handleDelete = async (id: number) => {
+    setDeleting(true)
     try {
       await paymentApi.delete(id)
       message.success('删除成功')
+      setDeleteTarget(null)
       loadPayments()
     } catch (error: any) {
       message.error(error.response?.data?.detail || '删除失败')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -380,18 +388,15 @@ export default function PaymentList() {
             <span style={{ color: '#ccc', fontSize: 11 }}>-</span>
           )}
           {role === 'admin' && (
-            <Popconfirm
-              title="确定删除此付款记录？"
-              description="删除后将无法恢复，合同金额将同步扣减"
-              onConfirm={() => handleDelete(record.id)}
-              okText="删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-            >
-              <Tooltip title="删除">
-                <Button type="text" danger size="small" icon={<DeleteOutlined />} />
-              </Tooltip>
-            </Popconfirm>
+            <Tooltip title="删除">
+              <Button
+                type="text"
+                danger
+                size="small"
+                icon={<DeleteOutlined />}
+                onClick={() => setDeleteTarget(record)}
+              />
+            </Tooltip>
           )}
         </div>
       ),
@@ -679,6 +684,23 @@ export default function PaymentList() {
             }
           },
         }}
+      />
+
+      {/* 删除付款记录二次确认（5 秒读秒） */}
+      <DangerConfirmModal
+        open={!!deleteTarget}
+        title={deleteTarget?.type === 'expense' ? '确认删除支出记录' : '确认删除收款记录'}
+        description={deleteTarget && (
+          <>
+            即将删除一笔 <strong>{fmt(deleteTarget.paid_amount, deleteTarget.currency)}</strong> 的
+            {deleteTarget.type === 'expense' ? '支出' : '收款'}记录
+            {deleteTarget.contract_number ? <>（合同 <strong>{deleteTarget.contract_number}</strong>）</> : null}。
+          </>
+        )}
+        warning="删除后将无法恢复，对应合同的已收/已付金额会同步扣减。"
+        onConfirm={() => { if (deleteTarget) handleDelete(deleteTarget.id) }}
+        onCancel={() => { if (!deleting) setDeleteTarget(null) }}
+        confirming={deleting}
       />
     </div>
   )

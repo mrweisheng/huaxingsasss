@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, message, Spin, Empty, Popconfirm, Tooltip } from 'antd'
+import { Button, message, Spin, Empty, Tooltip } from 'antd'
 import {
   ArrowLeftOutlined,
   PhoneOutlined,
@@ -16,6 +16,7 @@ import {
 } from '@ant-design/icons'
 import { customerApi } from '@/services/customer'
 import { contractApi } from '@/services/contract'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { Customer, Contract } from '@/types'
 import dayjs from 'dayjs'
 import { formatMoney } from '@/utils/money'
@@ -108,6 +109,8 @@ export default function CustomerDetail() {
   const [editing, setEditing] = useState(false)
   const [editForm, setEditForm] = useState<Partial<Customer>>({})
   const [saving, setSaving] = useState(false)
+  const [deleteOpen, setDeleteOpen] = useState(false)
+  const [deleting, setDeleting] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const loadData = useCallback(async () => {
@@ -146,12 +149,16 @@ export default function CustomerDetail() {
 
   const handleDelete = async () => {
     if (!customer) return
+    setDeleting(true)
     try {
       await customerApi.delete(customer.id)
       message.success(`已删除「${customer.name}」`)
+      setDeleteOpen(false)
       navigate('/customers')
     } catch (error: any) {
       message.error(error?.response?.data?.detail || '删除失败')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -264,16 +271,9 @@ export default function CustomerDetail() {
             ) : (
               <>
                 <Button icon={<EditOutlined />} onClick={() => setEditing(true)}>编辑</Button>
-                <Popconfirm
-                  title="确认删除"
-                  description={`确定要删除客户「${customer.name}」吗？关联合同不会被删除。`}
-                  onConfirm={handleDelete}
-                  okText="删除"
-                  cancelText="取消"
-                  okButtonProps={{ danger: true }}
-                >
-                  <Button danger icon={<DeleteOutlined />}>删除</Button>
-                </Popconfirm>
+                <Button danger icon={<DeleteOutlined />} onClick={() => setDeleteOpen(true)}>
+                  删除
+                </Button>
               </>
             )}
           </div>
@@ -511,6 +511,24 @@ export default function CustomerDetail() {
           </div>
         )}
       </div>
+
+      {/* 删除客户二次确认（5 秒读秒） */}
+      <DangerConfirmModal
+        open={deleteOpen}
+        title="确认删除客户"
+        description={
+          <>
+            即将删除客户 <strong>「{customer.name}」</strong>。
+            {contracts.length > 0 && (
+              <> 该客户名下有 <strong>{contracts.length}</strong> 份合同，<u>合同记录不会被一并删除</u>，仅断开客户关联。</>
+            )}
+          </>
+        }
+        warning="删除后客户档案将无法恢复，请确认无误。"
+        onConfirm={handleDelete}
+        onCancel={() => { if (!deleting) setDeleteOpen(false) }}
+        confirming={deleting}
+      />
     </div>
   )
 }

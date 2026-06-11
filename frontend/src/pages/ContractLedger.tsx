@@ -12,7 +12,7 @@
  */
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Popconfirm, Tooltip, Empty } from 'antd'
+import { Tooltip, Empty } from 'antd'
 import { DeleteOutlined, EyeOutlined, FileImageOutlined } from '@ant-design/icons'
 import type { ContractWithPayments, Payment } from '@/types'
 import { paymentApi } from '@/services/payment'
@@ -280,18 +280,15 @@ export default function ContractLedger({ contracts, role, onDelete, onAddIncome,
                   <EyeOutlined />
                 </button>
                 {role === 'admin' && (
-                  <Popconfirm
-                    title="确认删除"
-                    description={`确定要删除合同 ${c.contract_number} 吗？`}
-                    onConfirm={() => onDelete(c.id)}
-                    okText="删除"
-                    cancelText="取消"
-                    okButtonProps={{ danger: true }}
-                  >
-                    <button className="action-btn del-btn" title="删除合同">
+                  <Tooltip title="删除合同">
+                    <button
+                      className="action-btn del-btn"
+                      title="删除合同"
+                      onClick={() => onDelete(c.id)}
+                    >
                       <DeleteOutlined />
                     </button>
-                  </Popconfirm>
+                  </Tooltip>
                 )}
               </div>
             </div>

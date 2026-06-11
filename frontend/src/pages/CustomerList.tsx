@@ -8,10 +8,13 @@ import {
   IdcardOutlined,
   FileTextOutlined,
   TeamOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import { useDebounce } from '@/hooks/useDebounce'
 import { customerApi } from '@/services/customer'
 import { contractApi } from '@/services/contract'
+import { useAuthStore } from '@/store/useAuthStore'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { Customer, Contract } from '@/types'
 import './CustomerList.css'
 
@@ -112,6 +115,8 @@ function formatSignedDate(date?: string): string {
 
 export default function CustomerList() {
   const navigate = useNavigate()
+  const role = useAuthStore(s => s.user?.role || '')
+  const isAdmin = role === 'admin'
   const [items, setItems] = useState<CustomerWithContracts[]>([])
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
@@ -122,6 +127,9 @@ export default function CustomerList() {
   const [submitting, setSubmitting] = useState(false)
   const [form] = Form.useForm()
   const abortControllerRef = useRef<AbortController | null>(null)
+  // 删除二次确认弹窗状态
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; contractCount: number } | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const loadData = useCallback(async () => {
     abortControllerRef.current?.abort()
@@ -203,6 +211,21 @@ export default function CustomerList() {
     }
   }
 
+  const handleDeleteConfirmed = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await customerApi.delete(deleteTarget.id)
+      message.success(`已删除「${deleteTarget.name}」`)
+      setDeleteTarget(null)
+      loadData()
+    } catch (err: any) {
+      message.error(err?.response?.data?.detail || '删除失败')
+    } finally {
+      setDeleting(false)
+    }
+  }
+
   return (
     <div className="cl-wrap">
       {/* 顶栏 */}
@@ -244,6 +267,19 @@ export default function CustomerList() {
                 onClick={() => navigate(`/customers/${c.id}`)}
                 style={{ animationDelay: `${index * 50}ms` }}
               >
+                {/* 右上角删除按钮（仅管理员；hover 时显形） */}
+                {isAdmin && (
+                  <button
+                    className="cl-card-del"
+                    title="删除客户"
+                    onClick={e => {
+                      e.stopPropagation()
+                      setDeleteTarget({ id: c.id, name: c.name, contractCount: contracts.length })
+                    }}
+                  >
+                    <DeleteOutlined />
+                  </button>
+                )}
                 {/* ── 身份区 ── */}
                 <div className="cl-identity">
                   <div className="cl-identity-top">
@@ -462,6 +498,24 @@ export default function CustomerList() {
           </Form.Item>
         </Form>
       </Modal>
+
+      {/* 删除客户二次确认（5 秒读秒） */}
+      <DangerConfirmModal
+        open={!!deleteTarget}
+        title="确认删除客户"
+        description={deleteTarget && (
+          <>
+            即将删除客户 <strong>「{deleteTarget.name}」</strong>。
+            {deleteTarget.contractCount > 0 && (
+              <> 该客户名下有 <strong>{deleteTarget.contractCount}</strong> 份合同，<u>合同记录不会被一并删除</u>，仅断开客户关联。</>
+            )}
+          </>
+        )}
+        warning="删除后客户档案将无法恢复，请确认无误。"
+        onConfirm={handleDeleteConfirmed}
+        onCancel={() => { if (!deleting) setDeleteTarget(null) }}
+        confirming={deleting}
+      />
     </div>
   )
 }

@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Input, Select, DatePicker, Button, Popconfirm, message, Empty, Tooltip } from 'antd'
+import { Input, Select, DatePicker, Button, message, Empty, Tooltip } from 'antd'
 import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractChatModal from '@/components/ContractChatModal'
 import ReceiptChatModal from '@/components/ReceiptChatModal'
 import ContractLedger from './ContractLedger'
+import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { Contract, ContractWithPayments } from '@/types'
 import dayjs from 'dayjs'
 import { formatMoney } from '@/utils/money'
@@ -120,6 +121,9 @@ export default function ContractList() {
   }>({ open: false, contract: null, type: 'income' })
   const abortControllerRef = useRef<AbortController | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // 删除二次确认弹窗状态
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; number: string; title: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   // 视图切换：写入 URL 深链；并把分页重置回第 1 页，避免切到不存在的页码导致空白
   const changeView = useCallback((mode: 'card' | 'ledger') => {
@@ -200,13 +204,27 @@ export default function ContractList() {
     setPage(1)
   }
 
-  const handleDelete = async (id: number) => {
+  const handleDelete = (id: number) => {
+    const ct = contracts.find(c => c.id === id)
+    setDeleteTarget({
+      id,
+      number: ct?.contract_number || String(id),
+      title: ct?.title || ct?.business_description || '',
+    })
+  }
+
+  const handleDeleteConfirmed = async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
     try {
-      await contractApi.delete(id)
+      await contractApi.delete(deleteTarget.id)
       message.success('删除成功')
+      setDeleteTarget(null)
       loadContracts()
     } catch (error: any) {
       message.error(error.response?.data?.detail || '删除失败')
+    } finally {
+      setDeleting(false)
     }
   }
 
@@ -519,16 +537,12 @@ export default function ContractList() {
 
                   <div className="card-footer">
                     <div className="footer-actions" onClick={(e) => e.stopPropagation()}>
-                      <Popconfirm
-                        title="确认删除"
-                        description={`确定要删除合同 ${contract.contract_number} 吗？`}
-                        onConfirm={() => handleDelete(contract.id)}
-                        okText="删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                      >
-                        <DeleteOutlined className="action-icon delete" />
-                      </Popconfirm>
+                      <Tooltip title="删除合同">
+                        <DeleteOutlined
+                          className="action-icon delete"
+                          onClick={() => handleDelete(contract.id)}
+                        />
+                      </Tooltip>
                     </div>
                   </div>
 
@@ -577,6 +591,23 @@ export default function ContractList() {
           paymentType={receiptModal.type}
         />
       )}
+
+      {/* 删除合同二次确认（5 秒读秒） */}
+      <DangerConfirmModal
+        open={!!deleteTarget}
+        title="确认删除合同"
+        description={deleteTarget && (
+          <>
+            即将删除合同 <strong>{deleteTarget.number}</strong>
+            {deleteTarget.title ? <>（{deleteTarget.title}）</> : null}。
+            该合同名下的<strong>付款计划与收付款记录将一并删除</strong>。
+          </>
+        )}
+        warning="此操作不可撤销，金额统计、客户回款状态都会受影响。"
+        onConfirm={handleDeleteConfirmed}
+        onCancel={() => { if (!deleting) setDeleteTarget(null) }}
+        confirming={deleting}
+      />
     </div>
   )
 }

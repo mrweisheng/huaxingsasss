@@ -67,6 +67,37 @@
   border-color: rgba(30, 58, 95, 0.18);
 }
 
+/* ── 右上角浮动删除按钮（仅 admin 渲染；hover 显形） ── */
+.cl-card-del {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 3;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: rgba(255, 255, 255, 0.85);
+  color: var(--text-tertiary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.18s ease, color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+}
+.cl-card:hover .cl-card-del {
+  opacity: 1;
+}
+.cl-card-del:hover {
+  color: #b8423b;
+  background: #fdf4f3;
+  border-color: #f5c7c2;
+}
+.cl-card-del .anticon {
+  font-size: 14px;
+}
+
 /* ══════════════════════════════════════════════
    身份区
    ══════════════════════════════════════════════ */
