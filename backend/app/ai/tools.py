@@ -754,124 +754,6 @@ class ToolExecutor:
             logger.exception("凭证文件复制失败 file_path=%s", file_path)
             return None
 
-    def _auto_create_payments_from_terms(
-        self,
-        contract: Contract,
-        contract_data_raw: dict,
-        receipt_data: dict = None,
-        receipt_file_path: str = None,
-    ) -> list:
-        logger.info(
-            "自动付款创建开始: contract_id=%d, contract_data类型=%s",
-            contract.id, type(contract_data_raw).__name__,
-        )
-        if not isinstance(contract_data_raw, dict):
-            logger.warning("自动付款创建跳过: contract_data不是dict（%s）", type(contract_data_raw).__name__)
-            return []
-
-        payment_terms = contract_data_raw.get("payment_terms", [])
-        logger.info(
-            "payment_terms数量=%d, 内容=%s",
-            len(payment_terms),
-            json.dumps(payment_terms, ensure_ascii=False)[:500],
-        )
-        if not payment_terms:
-            logger.info("自动付款创建跳过: 无payment_terms")
-            return []
-
-        receipt_amount = None
-        if receipt_data and isinstance(receipt_data, dict):
-            try:
-                receipt_amount = float(receipt_data.get("amount", 0))
-            except (TypeError, ValueError):
-                pass
-
-        receipt_matched = False
-        auto_payments = []
-        for idx, term in enumerate(payment_terms, 1):
-            # 完全信任 VL/LLM 的 is_paid 判断——语义理解由模型完成，代码不做关键词匹配
-            is_paid_term = term.get("is_paid") is True
-
-            logger.info(
-                "条款[%d]: name=%s, amount=%s, is_paid=%s",
-                idx, term.get("name"), term.get("amount"), is_paid_term,
-            )
-
-            if not is_paid_term:
-                continue
-
-            try:
-                term_amount = float(term.get("amount", 0))
-            except (TypeError, ValueError):
-                continue
-
-            if term_amount <= 0:
-                continue
-
-            matched_receipt = None
-            if (
-                not receipt_matched
-                and receipt_file_path
-                and receipt_amount
-                and abs(term_amount - receipt_amount) < 1
-            ):
-                matched_receipt = receipt_file_path
-                receipt_matched = True
-
-            try:
-                installment_number = PaymentService.get_next_installment_number(
-                    self.db, contract.id, "income"
-                )
-                # 使用条款中的付款日期，回退到合同签订日
-                payment_date = contract.signed_date or date.today()
-                term_due_date = term.get("due_date")
-                if term_due_date and isinstance(term_due_date, str):
-                    try:
-                        parsed = date.fromisoformat(term_due_date.strip())
-                        payment_date = parsed
-                    except (ValueError, TypeError):
-                        pass  # 解析失败，保持 signed_date
-
-                payment = PaymentService.create_payment_with_exchange_rate(
-                    db=self.db,
-                    contract_id=contract.id,
-                    installment_number=installment_number,
-                    currency=term.get("currency") or contract.currency,
-                    amount=Decimal(str(term_amount)),
-                    paid_date=payment_date,
-                    payment_method="unknown",
-                    receipt_image_path=matched_receipt,
-                    notes="合同标注已付，待补充凭证" if not matched_receipt else "合同标注已付，已关联凭证",
-                    created_by=self.user.id,
-                    type="income",
-                    installment_name=term.get("name"),
-                    receipt_data=(receipt_data if matched_receipt else None),
-                )
-
-                auto_payments.append({
-                    "payment_id": payment.id,
-                    "installment_number": idx,
-                    "installment_name": term.get("name"),
-                    "amount": term_amount,
-                    "currency": term.get("currency") or contract.currency,
-                    "status": payment.status,
-                })
-                logger.info(
-                    "自动创建付款: contract_id=%d, term=%s, amount=%s, paid_date=%s, receipt=%s → status=%s",
-                    contract.id, term.get("name"), term_amount, payment_date,
-                    "有" if matched_receipt else "无",
-                    payment.status,
-                )
-            except Exception as e:
-                logger.warning("自动创建付款失败: term=%s, error=%s", term, e)
-                auto_payments.append({
-                    "error": str(e),
-                    "installment_name": term.get("name"),
-                    "amount": term.get("amount"),
-                })
-
-        return auto_payments
-
     def create_contract(self, **kwargs) -> str:
         """为客户创建合同记录。合同编号自动生成。"""
         if not self._can_create_contract():
@@ -1083,14 +965,10 @@ class ToolExecutor:
             self.db.commit()
             self.db.refresh(contract)
 
-            receipt_file_path = self._ensure_file_in_receipt_dir(kwargs.get("receipt_file_path"))
-            auto_payments = self._auto_create_payments_from_terms(
-                contract, merged, kwargs.get("receipt_data"), receipt_file_path
-            )
-            logger.info(
-                "create_contract完成: contract_id=%d, auto_payments=%s",
-                contract.id, json.dumps(auto_payments, ensure_ascii=False)[:500],
-            )
+            # 合同录入只生成付款计划（payment_terms），不再自动创建任何 payment 记录。
+            # 付款记录的唯一来源是凭证（match_and_confirm_payment）或手动录入（create_payment_record）。
+            # auto_payments 字段保留为空数组，仅为兼容已上线响应格式。
+            logger.info("create_contract完成: contract_id=%d", contract.id)
 
             return json.dumps({
                 "success": True,
@@ -1108,7 +986,7 @@ class ToolExecutor:
                     "wechat_group": contract.wechat_group,
                     "signed_date": str(contract.signed_date) if contract.signed_date else None,
                 },
-                "auto_payments": auto_payments,
+                "auto_payments": [],
                 **({"zero_amount": True} if contract.total_amount == 0 else {}),
             }, ensure_ascii=False)
         except Exception as e:
@@ -2257,8 +2135,6 @@ TOOL_DEFINITIONS = [
                     "business_type": {"type": "string", "enum": ["车辆买卖", "两地牌过户", "年检保险", "其他"], "description": "业务大类：车辆买卖（买车卖车）、两地牌过户（办理中港车牌过户）、年检保险、其他"},
                     "business_description": {"type": "string", "description": "极简业务描述，只说做了什么业务（买什么车/办什么牌/哪个口岸），不要包含金额和付款条件。如：购买现牌 粤Z7N80港（深圳湾口岸）"},
                     "wechat_group": {"type": "string", "description": "业务微信群名称（如有）"},
-                    "receipt_data": {"type": "object", "description": "如果同时上传了付款凭证，传入凭证分析结果（JSON对象）。系统会自动匹配合同中已付款项"},
-                    "receipt_file_path": {"type": "string", "description": "如果同时上传了付款凭证图片，传入 文件预分析 返回的 file_path。系统会自动保存到凭证目录。"},
                 },
             },
         },

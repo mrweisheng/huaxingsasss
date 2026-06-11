@@ -106,6 +106,58 @@ class ToolExecutorV2(ToolExecutor):
             parts.append(ctx[:20])
         return " ".join(parts)[:100]
 
+    def _match_payment_term_label(
+        self, contract: Contract, amount: float, currency: str, payment_type: str = "income",
+    ) -> str:
+        """从合同付款计划中找出最匹配的一期，返回其名字（如"定金"/"尾款"）作为描述参考。
+
+        匹配规则（仅用于丰富 description，不写入 installment_number 等结构化字段）：
+          1. 币种相同
+          2. 金额差异 < 1% 或 < 100
+          3. 该期未被同合同已有 payment 命中过（按 installment_name 去重）
+          4. 多期同金额时按 payment_terms 数组顺序取第一个未命中的
+
+        匹配不上返回空字符串——description 退化为"金额 + 业务"，不会出错。
+        仅 income 类型走该逻辑；expense 通常无对应付款计划。
+        """
+        if payment_type != "income" or not contract:
+            return ""
+        contract_data = getattr(contract, "contract_data", None) or {}
+        if not isinstance(contract_data, dict):
+            return ""
+        terms = contract_data.get("payment_terms") or []
+        if not terms or not amount or amount <= 0:
+            return ""
+
+        # 已用过的 installment_name（同合同所有 income payment）
+        used_names = {
+            row[0] for row in self.db.query(Payment.installment_name)
+            .filter(
+                Payment.contract_id == contract.id,
+                Payment.type == "income",
+                Payment.is_deleted == False,
+                Payment.installment_name.isnot(None),
+            ).all()
+        }
+
+        for term in terms:
+            term_name = (term.get("name") or "").strip()
+            if not term_name or term_name in used_names:
+                continue
+            term_currency = (term.get("currency") or contract.currency or "CNY").upper()
+            if term_currency != (currency or "").upper():
+                continue
+            try:
+                term_amount = float(term.get("amount", 0))
+            except (TypeError, ValueError):
+                continue
+            if term_amount <= 0:
+                continue
+            diff = abs(term_amount - amount)
+            if diff < 100 or diff / term_amount < 0.01:
+                return term_name
+        return ""
+
     # ═══════════════════════════════════════════════════════════
     # 统一执行入口（简化版，无 mode guard / document guard）
     # ═══════════════════════════════════════════════════════════
@@ -297,11 +349,19 @@ class ToolExecutorV2(ToolExecutor):
         business_hint = receipt_data.get("business_hint", "")
         description = receipt_data.get("description", "") or business_hint or ""
         # 自动生成更可读的描述
+        # 凭证本身的 OCR 结果几乎不会带"定金/尾款"这类标签，但合同 payment_terms 里有——
+        # 用金额+币种从付款计划里反查最匹配的一期，把名字带进 description。
+        # 仅用于描述参考，不写入 installment_number 等结构化字段。
+        term_label_hint = (
+            receipt_data.get("installment_name")
+            or self._match_payment_term_label(contract, amount or 0, currency, payment_type)
+        )
         auto_desc = self._build_payment_description(
             amount=amount, currency=currency,
-            installment_name=receipt_data.get("installment_name", ""),
+            installment_name=term_label_hint or "",
             business_hint=business_hint,
             payee_name=payee_name if payment_type == "expense" else None,
+            contract=contract,
         )
         description = description or auto_desc
         document_type = receipt_data.get("document_type", "")
@@ -582,13 +642,17 @@ class ToolExecutorV2(ToolExecutor):
                 }, ensure_ascii=False)
 
         # 自动生成 description（如果 Agent 未提供）
+        # 同 match_and_confirm_payment：未指定 installment_name 时从付款计划反查标签丰富描述。
         if not description:
             hint = ""
             if isinstance(receipt_data, dict):
                 hint = receipt_data.get("business_hint", "")
+            term_label_hint = installment_name or self._match_payment_term_label(
+                contract, amount or 0, currency, type,
+            )
             description = self._build_payment_description(
                 amount=amount, currency=currency,
-                installment_name=installment_name or "",
+                installment_name=term_label_hint or "",
                 business_hint=hint,
                 payee_name=payee_name if type == "expense" else None,
                 contract=contract,
@@ -710,39 +774,12 @@ class ToolExecutorV2(ToolExecutor):
         return json.dumps(result, ensure_ascii=False, default=str)
 
     # ═══════════════════════════════════════════════════════════
-    # 🔄 create_contract — 增强：自动生成的付款记录补齐 description
+    # create_contract — v2 不再增强：合同录入不创建 payment，无需补 description
+    # （基类已只生成付款计划，auto_payments 永远为 []）
     # ═══════════════════════════════════════════════════════════
 
-    def create_contract(self, **kwargs) -> str:
-        """创建合同。增强：自动为系统生成的付款记录补齐 description。"""
-        result_str = super().create_contract(**kwargs)
-        try:
-            result = json.loads(result_str)
-        except json.JSONDecodeError:
-            return result_str
-
-        if not result.get("success"):
-            return result_str
-
-        # 为新生成的 auto_payments 补齐 description
-        auto_payments = result.get("auto_payments", [])
-        contract_data = result.get("contract", {})
-        if auto_payments and contract_data:
-            for ap in auto_payments:
-                pid = ap.get("payment_id")
-                if pid:
-                    payment = self.db.query(Payment).filter(Payment.id == pid).first()
-                    if payment and not payment.description:
-                        desc = self._build_payment_description(
-                            amount=float(payment.amount) if payment.amount else 0,
-                            currency=payment.currency or "CNY",
-                            installment_name=payment.installment_name or "",
-                            business_hint=contract_data.get("business_description", "") or "",
-                        )
-                        payment.description = desc
-            self.db.commit()
-
-        return result_str
+    # 注：曾经在此为基类返回的 auto_payments 批量补齐 description 字段。
+    # 改造后合同录入零 payment 写入，子类不再需要覆写该方法。
 
     # ═══════════════════════════════════════════════════════════
     # 🔄 query_payments — 增强：支持分组聚合（替代 get_payment_summary / get_expense_summary）
@@ -960,7 +997,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_contract",
-            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。系统会自动根据付款条款创建对应的 pending 付款记录。",
+            "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。**只生成合同与付款计划（payment_terms），不创建任何 payment 记录**——付款记录的唯一来源是凭证录入（match_and_confirm_payment）或手动录入（create_payment_record）。",
             "parameters": {
                 "type": "object",
                 "required": ["customer_id", "file_id"],

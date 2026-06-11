@@ -216,11 +216,11 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `update_customer` | 写入 | - | 更新客户信息 |
 | `search_contracts` | 查询 | - | 搜索合同 |
 | `get_contract_detail` | 查询 | - | 合同详情 + 付款记录 |
-| `create_contract` | 写入 | ✅ | 创建合同（自动关联文件分析结果，付款计划每期独立币种）。`is_paid` 由 VL 模型语义判断，代码不做关键词匹配；仅 `is_paid=true` 的条款才自动创建付款记录 |
+| `create_contract` | 写入 | ✅ | 创建合同（自动关联文件分析结果，付款计划每期独立币种）。**只生成合同与付款计划，不创建任何 payment 记录**——付款记录的唯一来源是凭证录入（`match_and_confirm_payment`）或手动录入（`create_payment_record`） |
 | `update_contract` | 写入 | - | 更新合同元信息（微信群/备注） |
 | `query_payments` | 查询 | - | 付款记录查询（支持 group_by=contract） |
 | `create_payment_record` | 写入 | ✅ | 统一收入/支出创建（type 字段区分） |
-| `match_and_confirm_payment` | 写入 | ✅ | 凭证自动匹配 pending 付款并确认 |
+| `match_and_confirm_payment` | 写入 | ✅ | 凭证录入收款记录。无匹配 pending → 创建新 paid 记录（主路径，合同录入不再产生 pending）；有匹配 pending（历史数据）→ 转 paid。description 自动从付款计划反查"定金/尾款"标签丰富 |
 | `update_payment` | 写入 | ✅ | 更新付款记录（补充凭证等） |
 | `search_contract_text` | 查询 | - | 合同全文搜索 |
 
