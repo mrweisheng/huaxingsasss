@@ -4,7 +4,7 @@ import {
 } from 'antd'
 import {
   SendOutlined, RobotOutlined, UserOutlined, PaperClipOutlined,
-  StopOutlined, InboxOutlined,
+  StopOutlined, InboxOutlined, PlusOutlined,
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
@@ -443,6 +443,50 @@ export default function ReceiptChatModal({
                   </Tag>
                 )
               })}
+              {/* 图片未满 2 张时显示「+」按钮，点击再选一张 */}
+              {(() => {
+                const imageCount = pendingFiles.filter(f => f.type.startsWith('image/')).length
+                const hasNonImage = pendingFiles.some(f => !f.type.startsWith('image/'))
+                if (imageCount > 0 && imageCount < 2 && !hasNonImage) {
+                  return (
+                    <Upload
+                      beforeUpload={(file: File) => {
+                        setPendingFiles(prev => {
+                          if (prev.filter(f => f.type.startsWith('image/')).length >= 2) {
+                            message.warning('图片最多携带 2 张')
+                            return prev
+                          }
+                          return [...prev, file]
+                        })
+                        return false
+                      }}
+                      showUploadList={false}
+                      accept="image/*"
+                    >
+                      <span style={{
+                        height: 40, width: 40, borderRadius: 8,
+                        border: '1.5px dashed var(--border-default)',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                        cursor: 'pointer', color: 'var(--text-tertiary)',
+                        transition: 'border-color 0.2s, color 0.2s',
+                        flexShrink: 0,
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--brand-primary)'
+                        e.currentTarget.style.color = 'var(--brand-primary)'
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.borderColor = 'var(--border-default)'
+                        e.currentTarget.style.color = 'var(--text-tertiary)'
+                      }}
+                      >
+                        <PlusOutlined style={{ fontSize: 16 }} />
+                      </span>
+                    </Upload>
+                  )
+                }
+                return null
+              })()}
             </div>
           )}
           <div className="receipt-chat-input-row">

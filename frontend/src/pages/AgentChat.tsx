@@ -910,6 +910,41 @@ export default function AgentChat() {
                     </Tag>
                   )
                 })}
+                {/* 图片未满 2 张时显示「+」按钮，点击再选一张 */}
+                {(() => {
+                  const imageCount = pendingFiles.filter(f => f.type.startsWith('image/')).length
+                  const hasNonImage = pendingFiles.some(f => !f.type.startsWith('image/'))
+                  if (imageCount > 0 && imageCount < 2 && !hasNonImage) {
+                    return (
+                      <Upload
+                        beforeUpload={handleFileSelect}
+                        showUploadList={false}
+                        accept="image/*"
+                      >
+                        <span style={{
+                          height: 40, width: 40, borderRadius: 8,
+                          border: '1.5px dashed var(--border-default)',
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          cursor: 'pointer', color: 'var(--text-tertiary)',
+                          transition: 'border-color 0.2s, color 0.2s',
+                          flexShrink: 0,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.borderColor = 'var(--brand-primary)'
+                          e.currentTarget.style.color = 'var(--brand-primary)'
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.borderColor = 'var(--border-default)'
+                          e.currentTarget.style.color = 'var(--text-tertiary)'
+                        }}
+                        >
+                          <PlusOutlined style={{ fontSize: 16 }} />
+                        </span>
+                      </Upload>
+                    )
+                  }
+                  return null
+                })()}
               </div>
             )}
 
