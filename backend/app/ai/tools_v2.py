@@ -380,6 +380,12 @@ class ToolExecutorV2(ToolExecutor):
         Returns:
             JSON: {"success": True, "matched": bool, "payment": {...}}
         """
+        # 角色权限校验：income 只能录入收入，expense 只能录入支出
+        if payment_type == "income" and not self._can_view_income():
+            return json.dumps({"error": "当前角色无权录入收入记录"}, ensure_ascii=False)
+        if payment_type == "expense" and not self._can_view_expense():
+            return json.dumps({"error": "当前角色无权录入支出记录"}, ensure_ascii=False)
+
         # 验证合同
         contract = self.db.query(Contract).filter(
             Contract.id == contract_id, Contract.is_deleted == False
@@ -671,6 +677,12 @@ class ToolExecutorV2(ToolExecutor):
             receipt_data: 凭证分析结构化数据
             receipt_file_ids: 要关联的凭证文件ID列表（多张凭证合并录入时传入）
         """
+        # 角色权限校验：income 只能创建收入，expense 只能创建支出
+        if type == "income" and not self._can_view_income():
+            return json.dumps({"error": "当前角色无权创建收入记录"}, ensure_ascii=False)
+        if type == "expense" and not self._can_view_expense():
+            return json.dumps({"error": "当前角色无权创建支出记录"}, ensure_ascii=False)
+
         # 合同校验
         contract = self.db.query(Contract).filter(
             Contract.id == contract_id, Contract.is_deleted == False

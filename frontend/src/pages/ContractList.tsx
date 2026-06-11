@@ -535,6 +535,7 @@ export default function ContractList() {
                     )}
                   </div>
 
+                  {role === 'admin' && (
                   <div className="card-footer">
                     <div className="footer-actions" onClick={(e) => e.stopPropagation()}>
                       <Tooltip title="删除合同">
@@ -545,6 +546,7 @@ export default function ContractList() {
                       </Tooltip>
                     </div>
                   </div>
+                  )}
 
                   <div className="card-decoration" />
                 </div>
