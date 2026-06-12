@@ -229,7 +229,7 @@ class ContractAgent:
                 ChatHistory.session_id == session_id,
                 ChatHistory.user_id == self.user.id,
             )
-            .order_by(ChatHistory.created_at.asc())
+            .order_by(ChatHistory.created_at.asc(), ChatHistory.id.asc())
             .all()
         )
 
