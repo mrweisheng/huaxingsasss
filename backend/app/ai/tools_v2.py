@@ -605,11 +605,33 @@ class ToolExecutorV2(ToolExecutor):
                 )
 
                 # 补充 receipt_data + additional_receipt_files
+                # 防御：即使 receipt_image_path 解析失败（file_id 丢失等），
+                # 只要有 receipt_data（说明 analyze_files 确实分析过凭证），
+                # 就应视为有效凭证，强制 paid + 补结算合同金额。
                 if receipt_data:
                     payment.receipt_data = receipt_data
                     payment.description = description[:100] if description else None
                     if payee_name and payment_type == "expense":
                         payment.payee_name = payee_name
+                    if payment.status == "pending":
+                        logger.info(
+                            "match_and_confirm: receipt_image_path 为空但有 receipt_data，"
+                            "强制 paid + 补结算合同金额: payment_id=%s, contract_id=%s",
+                            payment.id, contract_id,
+                        )
+                        payment.status = "paid"
+                        payment.notes = (payment.notes or "") + "（附凭证分析数据）"
+                        amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                        if payment_type == "expense":
+                            PaymentService._add_to_contract_expense(
+                                self.db, contract, payment.paid_amount, payment.currency,
+                                amt_cny, payment.paid_date,
+                            )
+                        else:
+                            PaymentService._add_to_contract_paid(
+                                self.db, contract, payment.paid_amount, payment.currency,
+                                amt_cny, payment.paid_date,
+                            )
                 if additional_receipts:
                     payment.additional_receipt_files = additional_receipts
                 self.db.commit()
