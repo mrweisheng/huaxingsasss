@@ -394,7 +394,7 @@ const CenterInputBox = memo(function CenterInputBox({
         placeholder={pendingFiles.length > 0 ? '上传文件后可直接发送，也可补充说明...' : '问点什么？试试："查询最近付款" 或上传一份合同…'}
         autoSize={{ minRows: 2, maxRows: 6 }}
         disabled={isStreaming}
-        bordered={false}
+        variant="borderless"
         style={{ fontSize: 16, lineHeight: '26px', padding: '4px 0', resize: 'none', color: 'var(--text-primary)' }}
       />
 
@@ -987,7 +987,7 @@ export default function AgentChat() {
                 placeholder={pendingFiles.length > 0 ? '上传文件后可直接发送，也可补充说明...' : '输入你的问题...'}
                 autoSize={{ minRows: 1, maxRows: 5 }}
                 disabled={isStreaming}
-                bordered={false}
+                variant="borderless"
                 style={{ flex: 1, fontSize: 15, lineHeight: '24px', padding: '6px 0', resize: 'none', color: 'var(--text-primary)' }}
               />
               {isStreaming ? (
