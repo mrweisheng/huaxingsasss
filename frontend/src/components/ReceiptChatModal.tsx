@@ -464,7 +464,7 @@ export default function ReceiptChatModal({
                         return false
                       }}
                       showUploadList={false}
-                      accept="image/*"
+                      accept="image/*,.heic,.heif"
                     >
                       <span style={{
                         height: 40, width: 40, borderRadius: 8,
@@ -514,7 +514,7 @@ export default function ReceiptChatModal({
                 return false
               }}
               showUploadList={false}
-              accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+              accept="image/*,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx"
             >
               <Button
                 type="text"

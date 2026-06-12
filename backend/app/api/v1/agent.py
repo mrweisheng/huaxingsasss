@@ -258,6 +258,49 @@ async def upload_file(
     with open(file_path, "wb") as f:
         f.write(content)
 
+    original_name = file.filename
+
+    # HEIC/HEIF 入站立即转码为 JPEG：浏览器（Windows Chrome）不能可靠解码 HEIC，
+    # 下游 VL/压缩管线统一吃 JPEG/PNG。转码后覆盖原文件，简化生命周期与历史回看。
+    if original_ext in (".heic", ".heif"):
+        try:
+            from PIL import Image
+            import io as _io
+            with Image.open(_io.BytesIO(content)) as img:
+                rgb = img.convert("RGB")
+                buf = _io.BytesIO()
+                rgb.save(buf, format="JPEG", quality=85)
+                jpeg_bytes = buf.getvalue()
+        except Exception as exc:
+            # 解码失败：删除已落盘的脏文件，告诉用户重传
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+            logger.warning("HEIC 解码失败: %s, file=%s", exc, file.filename)
+            raise HTTPException(
+                status_code=400,
+                detail="HEIC 文件解码失败，请重新拍摄或转为 JPG 后再上传",
+            )
+
+        # 用 JPEG 覆盖
+        original_ext = ".jpg"
+        fname_on_disk = file_id + original_ext
+        new_file_path = os.path.join(user_dir, fname_on_disk)
+        with open(new_file_path, "wb") as f:
+            f.write(jpeg_bytes)
+        if new_file_path != file_path:
+            try:
+                os.remove(file_path)
+            except OSError:
+                pass
+        file_path = new_file_path
+        content = jpeg_bytes
+        # 文件名也同步改后缀，避免历史回看下载到无法预览的 .heic
+        if original_name:
+            base = original_name.rsplit(".", 1)[0]
+            original_name = f"{base}.jpg"
+
     # 推断 file_type 分类（与前端 FileType 对齐）
     ext = original_ext.lstrip(".")
     if ext in ("jpg", "jpeg", "png", "gif", "webp", "bmp"):
@@ -274,6 +317,9 @@ async def upload_file(
         file_type = "text"
 
     mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+    # HEIC 已转 JPEG，mime 同步覆盖（前端 content_type 可能仍是 image/heic）
+    if ext in ("jpg", "jpeg"):
+        mime_type = "image/jpeg"
 
     # 落表（相对路径只存 user_id/filename，避免绝对路径硬编码）
     relative_path = f"{current_user.id}/{fname_on_disk}"
@@ -281,7 +327,7 @@ async def upload_file(
         file_id=file_id,
         user_id=current_user.id,
         session_id=None,  # finalize_node 回填
-        original_name=file.filename,
+        original_name=original_name,
         mime_type=mime_type,
         file_size=len(content),
         storage_path=relative_path,

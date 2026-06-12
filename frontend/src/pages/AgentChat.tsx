@@ -455,7 +455,7 @@ const CenterInputBox = memo(function CenterInputBox({
       />
 
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 8 }}>
-        <Upload beforeUpload={onFileSelect} showUploadList={false} accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv">
+        <Upload beforeUpload={onFileSelect} showUploadList={false} accept="image/*,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv">
           <Button
             type="text"
             icon={<PaperClipOutlined style={{ fontSize: 17 }} />}
@@ -975,7 +975,7 @@ export default function AgentChat() {
                       <Upload
                         beforeUpload={handleFileSelect}
                         showUploadList={false}
-                        accept="image/*"
+                        accept="image/*,.heic,.heif"
                       >
                         <span style={{
                           height: 40, width: 40, borderRadius: 8,
@@ -1023,7 +1023,7 @@ export default function AgentChat() {
               <Upload
                 beforeUpload={handleFileSelect}
                 showUploadList={false}
-                accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
+                accept="image/*,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv"
               >
                 <Button
                   type="text"

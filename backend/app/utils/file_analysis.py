@@ -12,6 +12,15 @@ import httpx
 
 from app.config import settings
 
+# 注册 HEIF/HEIC 解码器到 Pillow，让 Image.open() 直接识别 .heic/.heif
+# 副作用安全：register 多次等价于 register 一次
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    # 缺依赖时降级：HEIC 上传会在 upload 端点转码阶段抛 400，下游不受影响
+    pass
+
 logger = logging.getLogger(__name__)
 
 # 图片压缩参数
@@ -58,6 +67,11 @@ def detect_image_mime(header: bytes) -> str:
         return "image/webp"
     if header[:2] == b"BM":
         return "image/bmp"
+    # HEIC/HEIF（ISOBMFF "ftyp" box + brand 子类型，iPhone 默认拍照格式）
+    if len(header) >= 12 and header[4:8] == b"ftyp" and header[8:12] in (
+        b"heic", b"heix", b"hevc", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1"
+    ):
+        return "image/heic"
     return ""
 
 
@@ -73,6 +87,11 @@ def guess_extension(content: bytes) -> str:
         return ".gif"
     if content[:4] == b"RIFF" and len(content) > 11 and content[8:12] == b"WEBP":
         return ".webp"
+    # HEIC/HEIF（iPhone 默认拍照格式）
+    if len(content) >= 12 and content[4:8] == b"ftyp" and content[8:12] in (
+        b"heic", b"heix", b"hevc", b"heim", b"heis", b"hevm", b"hevs", b"mif1", b"msf1"
+    ):
+        return ".heic"
     # Office Open XML (ZIP-based): .docx / .xlsx / .pptx 都以 PK 开头
     if content[:4] == b"PK\x03\x04":
         # 进一步区分 Word / Excel

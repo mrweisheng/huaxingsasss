@@ -461,7 +461,7 @@ export default function ContractChatModal({
               return false
             }}
             showUploadList={false}
-            accept="image/*,.pdf,.doc,.docx,.xls,.xlsx"
+            accept="image/*,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx"
           >
             <Button
               type="text"
