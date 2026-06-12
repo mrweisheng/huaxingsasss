@@ -451,6 +451,12 @@
   font-weight: 700;
 }
 
+/* 加项收入：实付超出合同总额（装饰费/过户费/议价加价），用品牌金色与「已收」同色家族表示这是额外收款 */
+.split-value.overpaid {
+  color: var(--money-paid-deep, #a87a18);
+  font-weight: 700;
+}
+
 /* ── 竖分隔线 ── */
 .amount-split-vert {
   width: 1px;

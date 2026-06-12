@@ -200,13 +200,20 @@ export default function ContractDetail() {
   if (!contract) return <Alert type="warning" message="合同不存在" showIcon />
 
   const cur = contract.currency
-  const progress = calcProgress(contract.paid_amount, contract.total_amount)
+  const progressRaw = calcProgress(contract.paid_amount, contract.total_amount)
+  const progress = Math.min(progressRaw, 100)  // 视觉进度条 cap 在 100%
   const authToken = localStorage.getItem('access_token')
   const contractFileUrl = contract.original_file_path
     ? `${API_BASE_URL}/contracts/${contract.id}/file?token=${authToken}`
     : null
   const statusInfo = statusMap[contract.status] || { text: contract.status, cls: '' }
-  const isRemaining = contract.remaining_amount > 0
+  // 收款三态：未付 / 已结清 / 加项收入（实付 > 合同价，业务上常见的装饰费/过户费/议价加价）
+  const paid = Number(contract.paid_amount || 0)
+  const total = Number(contract.total_amount || 0)
+  const overpaid = Math.max(0, paid - total)
+  const unpaid = Math.max(0, total - paid)
+  const paymentState: 'pending' | 'cleared' | 'overpaid' =
+    overpaid > 0 ? 'overpaid' : unpaid > 0 ? 'pending' : 'cleared'
 
   // 利润计算 — 以合同主要币种为基准
   const profitMain = (contract.paid_amount || 0) - (contract.total_expense || 0)
@@ -444,20 +451,34 @@ export default function ContractDetail() {
           {/* 剩余尾款 */}
           <div className="cd-fn-metric">
             <div className="cd-fn-metric-header">
-              <span className={`cd-fn-metric-dot ${isRemaining ? 'remaining' : 'cleared'}`} />
+              <span className={`cd-fn-metric-dot ${paymentState === 'pending' ? 'remaining' : 'cleared'}`} />
               <span className="cd-fn-metric-label">剩余尾款</span>
             </div>
             <div className="cd-fn-metric-row">
-              <Tooltip title={`${fmtFull(contract.remaining_amount, cur)}\n${amountToChinese(contract.remaining_amount, cur)}`}>
-                <span className={`cd-fn-metric-value ${isRemaining ? 'remaining' : 'cleared'}`}>
-                  {fmt(contract.remaining_amount, cur)}
-                </span>
-              </Tooltip>
-              <span className={`cd-fn-metric-status ${isRemaining ? 'remaining' : 'cleared'}`}>
-                {isRemaining ? '待收中' : '已结清 ✓'}
-              </span>
-              {showCnyHint && (
-                <span className="cd-fn-metric-cny">{fmtCny(contract.remaining_amount_in_cny)}</span>
+              {paymentState === 'pending' ? (
+                <>
+                  <Tooltip title={`${fmtFull(contract.remaining_amount, cur)}\n${amountToChinese(contract.remaining_amount, cur)}`}>
+                    <span className="cd-fn-metric-value remaining">
+                      {fmt(contract.remaining_amount, cur)}
+                    </span>
+                  </Tooltip>
+                  <span className="cd-fn-metric-status remaining">待收中</span>
+                  {showCnyHint && (
+                    <span className="cd-fn-metric-cny">{fmtCny(contract.remaining_amount_in_cny)}</span>
+                  )}
+                </>
+              ) : (
+                <>
+                  <span className="cd-fn-metric-value cleared">{fmt(0, cur)}</span>
+                  <span className="cd-fn-metric-status cleared">已结清 ✓</span>
+                  {paymentState === 'overpaid' && (
+                    <Tooltip title={`实付超出合同总额 ${fmtFull(overpaid, cur)}\n常见原因：装饰费、过户费、议价加价等`}>
+                      <span className="cd-fn-metric-extra">
+                        加项收入 +{fmt(overpaid, cur)}
+                      </span>
+                    </Tooltip>
+                  )}
+                </>
               )}
             </div>
           </div>

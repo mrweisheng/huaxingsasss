@@ -303,7 +303,8 @@ export default function CustomerList() {
                       const biz = ct.business_type ? bizVisual[ct.business_type] : null
                       const bizClass = biz?.className || 'biz-other'
                       const bizMiniSuffix = bizClass.replace('biz-', '')
-                      const pct = calcProgress(ct.paid_amount, ct.total_amount)
+                      const pctRaw = calcProgress(ct.paid_amount, ct.total_amount)
+                      const pct = Math.min(pctRaw, 100)  // cap 视觉百分比，超收场景用 dueNum/overpaid 表达
                       const progressState =
                         pct >= 100 ? 'full' : pct > 0 ? 'partial' : 'empty'
                       const isDone = pct >= 100

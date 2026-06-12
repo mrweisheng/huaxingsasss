@@ -320,6 +320,19 @@
 .cd-fn-metric-status.remaining { background: rgba(217, 119, 6, 0.08); color: #d97706; }
 .cd-fn-metric-status.cleared   { background: rgba(82, 196, 26, 0.08);  color: #52c41a; }
 
+/* 加项收入：实付 > 合同总额时的额外收款 chip。用品牌金色（财务/价值色），与 teal 已结清色区分 */
+.cd-fn-metric-extra {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(201, 149, 43, 0.1);
+  color: var(--money-paid-deep, #a87a18);
+  font-family: var(--font-mono);
+  letter-spacing: -0.2px;
+  cursor: help;
+}
+
 .cd-fn-metric-cny {
   font-size: 10px;
   color: var(--text-tertiary);
