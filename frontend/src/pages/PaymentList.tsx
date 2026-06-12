@@ -211,7 +211,9 @@ export default function PaymentList() {
     if (!acc[key]) {
       acc[key] = { total: 0, count: 0, currency: p.currency, type: p.type }
     }
-    acc[key].total += p.paid_amount || 0
+    // paid_amount 后端是 Decimal，序列化后为字符串；不显式 Number() 会触发字符串拼接，
+    // 导致 group.total 变成 "01000.00500.00" 之类的脏字符串，下游 formatMoney/amountToChinese 全崩。
+    acc[key].total += Number(p.paid_amount) || 0
     acc[key].count += 1
     return acc
   }, {} as Record<string, { total: number; count: number; currency: string; type: string }>), [payments, role])
