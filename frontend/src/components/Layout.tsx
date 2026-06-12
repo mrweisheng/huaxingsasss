@@ -535,24 +535,38 @@ export default function Layout() {
                               {title}
                             </Text>
                           </div>
-                          <DeleteOutlined
+                          <span
+                            role="button"
+                            aria-label="删除会话"
+                            title="删除会话"
                             onClick={(e) => handleDeleteSession(session.sessionId, e)}
                             style={{
-                              fontSize: 11,
-                              color: isHovered ? 'rgba(255,255,255,0.5)' : 'transparent',
-                              padding: 3, flexShrink: 0,
-                              cursor: 'pointer', transition: 'color 0.15s',
-                              borderRadius: 3,
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              width: 22, height: 22,
+                              fontSize: 12,
+                              flexShrink: 0,
+                              cursor: 'pointer',
+                              borderRadius: 4,
+                              transition: 'all 0.15s',
+                              color: '#dc6b3d',
+                              background: 'rgba(220, 107, 61, 0.14)',
+                              border: '1px solid rgba(220, 107, 61, 0.35)',
                             }}
                             onMouseEnter={(ev) => {
-                              ev.currentTarget.style.color = '#ef4444'
-                              ev.currentTarget.style.background = 'rgba(239, 68, 68, 0.12)'
+                              ev.currentTarget.style.color = '#b85823'
+                              ev.currentTarget.style.background = 'rgba(220, 107, 61, 0.28)'
+                              ev.currentTarget.style.borderColor = 'rgba(220, 107, 61, 0.6)'
                             }}
                             onMouseLeave={(ev) => {
-                              ev.currentTarget.style.color = isHovered ? 'rgba(255,255,255,0.5)' : 'transparent'
-                              ev.currentTarget.style.background = 'transparent'
+                              ev.currentTarget.style.color = '#dc6b3d'
+                              ev.currentTarget.style.background = 'rgba(220, 107, 61, 0.14)'
+                              ev.currentTarget.style.borderColor = 'rgba(220, 107, 61, 0.35)'
                             }}
-                          />
+                          >
+                            <DeleteOutlined />
+                          </span>
                         </div>
                         <div style={{
                           display: 'flex', alignItems: 'center', gap: 6, marginTop: 4,
