@@ -755,21 +755,28 @@ class ToolExecutorV2(ToolExecutor):
                 }, ensure_ascii=False)
 
         # 自动生成 description（如果 Agent 未提供）
-        # 同 match_and_confirm_payment：未指定 installment_name 时从付款计划反查标签丰富描述。
+        # 与 match_and_confirm_payment 对齐：
+        #   1. 优先用 receipt_data.business_hint 原文（VL 已抽取的简短业务说明，最干净）
+        #   2. 否则回退 _build_payment_description 拼接（金额+期数+收款方+合同业务）
+        # 不能直接走 _build 拼接，否则 description 会变成
+        # "HK$4,330 →MINKFAIR... 购买港车 底盘号..." 这种堆字段串。
         if not description:
             hint = ""
             if isinstance(receipt_data, dict):
-                hint = receipt_data.get("business_hint", "")
-            term_label_hint = installment_name or self._match_payment_term_label(
-                contract, amount or 0, currency, type,
-            )
-            description = self._build_payment_description(
-                amount=amount, currency=currency,
-                installment_name=term_label_hint or "",
-                business_hint=hint,
-                payee_name=payee_name if type == "expense" else None,
-                contract=contract,
-            )
+                hint = receipt_data.get("business_hint", "") or ""
+            if hint:
+                description = hint
+            else:
+                term_label_hint = installment_name or self._match_payment_term_label(
+                    contract, amount or 0, currency, type,
+                )
+                description = self._build_payment_description(
+                    amount=amount, currency=currency,
+                    installment_name=term_label_hint or "",
+                    business_hint="",
+                    payee_name=payee_name if type == "expense" else None,
+                    contract=contract,
+                )
 
         # 期数
         if not installment_number:
