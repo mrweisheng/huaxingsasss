@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Input, Select, DatePicker, Button, message, Empty, Tooltip } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined, AppstoreOutlined, UnorderedListOutlined } from '@ant-design/icons'
+import { Input, Select, DatePicker, Button, message, Empty, Tooltip, Popover } from 'antd'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined, AppstoreOutlined, UnorderedListOutlined, DownloadOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractChatModal from '@/components/ContractChatModal'
@@ -11,6 +11,7 @@ import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { Contract, ContractWithPayments } from '@/types'
 import dayjs from 'dayjs'
 import { formatMoney } from '@/utils/money'
+import { exportLedger } from '@/utils/exportLedger'
 import './ContractList.css'
 import './ContractLedger.css'
 
@@ -124,6 +125,12 @@ export default function ContractList() {
   // 删除二次确认弹窗状态
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; number: string; title: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // 导出台账
+  const [exportDateRange, setExportDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([
+    dayjs().subtract(30, 'day'),
+    dayjs(),
+  ])
+  const [exporting, setExporting] = useState(false)
 
   // 视图切换：写入 URL 深链；并把分页重置回第 1 页，避免切到不存在的页码导致空白
   const changeView = useCallback((mode: 'card' | 'ledger') => {
@@ -228,6 +235,25 @@ export default function ContractList() {
     }
   }
 
+  const handleExport = async () => {
+    if (!exportDateRange || !exportDateRange[0] || !exportDateRange[1]) {
+      message.warning('请选择导出日期范围')
+      return
+    }
+    setExporting(true)
+    try {
+      await exportLedger({
+        dateFrom: exportDateRange[0].format('YYYY-MM-DD'),
+        dateTo: exportDateRange[1].format('YYYY-MM-DD'),
+      })
+      message.success('导出成功')
+    } catch (e: any) {
+      message.error(e.message || '导出失败')
+    } finally {
+      setExporting(false)
+    }
+  }
+
   const totalPages = Math.ceil(total / 20)
 
   // 汇总条：按当前页累加，按币种分组（仅台账模式显示）
@@ -293,6 +319,34 @@ export default function ContractList() {
             <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
               上传
             </Button>
+          )}
+          {view === 'ledger' && (
+            <Popover
+              content={
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <RangePicker
+                    value={exportDateRange}
+                    onChange={(dates) => setExportDateRange(dates as any)}
+                    size="small"
+                    style={{ width: 240 }}
+                    placeholder={['开始日期', '结束日期']}
+                  />
+                  <Button
+                    size="small"
+                    type="primary"
+                    loading={exporting}
+                    onClick={handleExport}
+                  >
+                    确认导出
+                  </Button>
+                </div>
+              }
+              title="导出台账"
+              trigger="click"
+              placement="bottomRight"
+            >
+              <Button icon={<DownloadOutlined />}>导出台账</Button>
+            </Popover>
           )}
           <div className="view-toggle" role="tablist" aria-label="视图切换">
             <button
