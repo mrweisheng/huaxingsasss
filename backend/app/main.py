@@ -80,6 +80,16 @@ async def on_startup():
     from app.ai.orchestrator.checkpointer import init_checkpointer
     await init_checkpointer()
 
+    # 进程级注册 HEIF/HEIC 解码器：让 PIL.Image.open() 在任何路径下都能识别
+    # iPhone 默认拍照格式。注册是幂等的；任何异常都不应阻断应用启动，
+    # 注册失败时上传端点会自动落到 400 友好提示。
+    try:
+        from pillow_heif import register_heif_opener
+        register_heif_opener()
+        logger.info("pillow_heif_registered")
+    except Exception as exc:
+        logger.warning("pillow_heif_register_failed: %s", exc)
+
     # LangSmith 可观测性（Phase 2.7）：将 pydantic settings 同步到 os.environ，
     # langsmith SDK 从环境变量读取追踪配置，设置后 LangGraph 节点自动埋点
     import os

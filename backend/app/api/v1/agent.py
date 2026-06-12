@@ -266,6 +266,14 @@ async def upload_file(
         try:
             from PIL import Image
             import io as _io
+            # 端点级兜底注册：即使 startup 钩子未跑或被绕过，也保证 PIL 能识别 HEIC。
+            # register_heif_opener 是幂等操作，重复调用安全；缺包/缺底层 libheif 时
+            # 走 except 链路给前端 400 友好提示。
+            try:
+                from pillow_heif import register_heif_opener
+                register_heif_opener()
+            except Exception as reg_exc:
+                logger.warning("pillow_heif 注册失败: %s", reg_exc)
             with Image.open(_io.BytesIO(content)) as img:
                 rgb = img.convert("RGB")
                 buf = _io.BytesIO()
