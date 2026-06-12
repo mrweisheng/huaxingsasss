@@ -338,6 +338,8 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
         tool_messages.append(ToolMessage(
             content=result,
             tool_call_id=tc["id"],
+            name=tool_name,
+            additional_kwargs={"summary": summary} if summary else {},
         ))
 
     return {"messages": tool_messages}
@@ -365,13 +367,14 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
 
     for msg in new_msgs:
         msg_type = getattr(msg, "type", None)
-        auto_filled = bool(getattr(msg, "additional_kwargs", {}).get("auto_filled", False))
+        addl = getattr(msg, "additional_kwargs", {}) or {}
+        auto_filled = bool(addl.get("auto_filled", False))
         user_metadata = {"auto_filled": True} if auto_filled else None
         try:
             if msg_type == "ai":
                 content = (getattr(msg, "content", "") or "").strip()
                 tool_calls = getattr(msg, "tool_calls", None)
-                # 跳过纯 tool_call 中间态：无文本只是工具调用，前端没什么可展示
+                # 跳过纯 tool_call 中间态:无文本只是工具调用,前端没什么可展示
                 if not content and tool_calls:
                     continue
                 record = ChatHistory(
@@ -383,21 +386,28 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
                 )
                 db.add(record)
             elif msg_type == "human":
+                attachments = addl.get("attachments") or None
                 record = ChatHistory(
                     user_id=user.id, session_id=session_id,
                     question=getattr(msg, "content", "") or "", answer=None,
                     role="user",
+                    attachments=attachments,
                     extra_metadata=user_metadata or {},
                     llm_model=settings.DEEPSEEK_AGENT_MODEL,
                 )
                 db.add(record)
             elif msg_type == "tool":
+                # summary 挂在 additional_kwargs,序列化到 metadata 供 get_history 回读
+                tool_meta = {"tool_call_id": getattr(msg, "tool_call_id", "")}
+                summary = addl.get("summary")
+                if summary:
+                    tool_meta["summary"] = summary
                 record = ChatHistory(
                     user_id=user.id, session_id=session_id,
                     question="", answer=getattr(msg, "content", "") or "",
                     role="tool",
                     intent_type=getattr(msg, "name", ""),
-                    extra_metadata={"tool_call_id": getattr(msg, "tool_call_id", "")},
+                    extra_metadata=tool_meta,
                     llm_model=settings.DEEPSEEK_AGENT_MODEL,
                 )
                 db.add(record)

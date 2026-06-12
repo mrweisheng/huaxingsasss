@@ -172,10 +172,16 @@ async def chat(
 
             # 构造 initial_state
             from langchain_core.messages import HumanMessage
+            human_kwargs = {}
+            if auto_filled:
+                human_kwargs["auto_filled"] = True
+            if request.attachments:
+                # 把附件元信息直接挂到 HumanMessage，方便 finalize_node 落库
+                human_kwargs["attachments"] = [a.model_dump() for a in request.attachments]
             initial_state = {
                 "messages": [HumanMessage(
                     content=question,
-                    additional_kwargs={"auto_filled": True} if auto_filled else {},
+                    additional_kwargs=human_kwargs,
                 )],
                 "user_id": current_user.id,
                 "user_role": current_user.role,

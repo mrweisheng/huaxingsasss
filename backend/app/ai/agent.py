@@ -7,6 +7,7 @@ ReAct 循环已移除（PR-R-3 之后由 LangGraph root graph 接手），当下
   - mode / session_context 加载（api/v1/agent.py 用于 root graph 的 executor_mode 注入）
 """
 import logging
+import json
 from typing import List, Optional
 
 from sqlalchemy.orm import Session
@@ -232,12 +233,18 @@ class ContractAgent:
             .all()
         )
 
+        # 收集 tool 行的 result 和 summary，按 tool_call_id 索引
         tool_results = {}
+        tool_summaries = {}
         for r in records:
             if r.role == "tool" and r.extra_metadata:
-                tool_call_id = r.extra_metadata.get("tool_call_id", "")
-                if tool_call_id and r.answer:
-                    tool_results[tool_call_id] = r.answer
+                meta = r.extra_metadata
+                tool_call_id = meta.get("tool_call_id", "")
+                if tool_call_id:
+                    if r.answer:
+                        tool_results[tool_call_id] = r.answer
+                    if meta.get("summary"):
+                        tool_summaries[tool_call_id] = meta["summary"]
 
         result = []
         for r in records:
@@ -252,13 +259,22 @@ class ContractAgent:
                 "created_at": r.created_at.isoformat() if r.created_at else None,
             }
 
+            # 用户消息透传 attachments
+            if r.role == "user" and r.attachments:
+                msg["attachments"] = r.attachments
+
             if r.role == "assistant" and r.tool_calls:
                 merged_tool_calls = []
                 for tc in r.tool_calls:
                     tc_copy = dict(tc) if tc else {}
+                    # LangChain 格式 args → 前端期望的 arguments 字符串
+                    if "args" in tc_copy and "arguments" not in tc_copy:
+                        tc_copy["arguments"] = json.dumps(tc_copy.pop("args"), ensure_ascii=False)
                     tc_id = tc_copy.get("id", "")
-                    if tc_id and tc_id in tool_results:
+                    if tc_id in tool_results:
                         tc_copy["result"] = tool_results[tc_id]
+                    if tc_id in tool_summaries:
+                        tc_copy["summary"] = tool_summaries[tc_id]
                     merged_tool_calls.append(tc_copy)
                 msg["tool_calls"] = merged_tool_calls
             else:

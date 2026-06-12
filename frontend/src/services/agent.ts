@@ -25,6 +25,13 @@ function mapMessage(raw: any): ChatMessage {
     role: raw.role,
     content: raw.content ?? '',
     toolCalls: raw.tool_calls ?? undefined,
+    attachments: raw.attachments
+      ? raw.attachments.map((a: any) => ({
+          fileId: a.file_id,
+          fileType: a.file_type,
+          fileName: a.file_name,
+        }))
+      : undefined,
     intentType: raw.intent_type ?? undefined,
     createdAt: raw.created_at ?? '',
   }
