@@ -148,12 +148,18 @@ def _get_deps(config: RunnableConfig) -> dict:
 # LangChain → OpenAI 消息格式转换
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-def _convert_messages(messages: list, user, attachments: list = None) -> list:
+def _convert_messages(
+    messages: list, user, attachments: list = None,
+    session_context: Optional[dict] = None,
+    contract_info: Optional[dict] = None,
+) -> list:
     """将 LangChain BaseMessage 列表转为 OpenAI 格式消息列表。"""
     system_content = build_system_prompt(
         user_name=user.full_name or user.username,
         user_role=user.role,
         current_date=date.today().isoformat(),
+        session_context=session_context,
+        contract_info=contract_info,
     )
     result = [{"role": "system", "content": system_content}]
 
@@ -237,7 +243,42 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
                 )
                 break
 
-    openai_messages = _convert_messages(msgs, user, attachments)
+    # ── 合同上下文注入：从 session_context 查合同详情，注入系统提示词 ──
+    session_context = state.get("session_context")
+    contract_info: Optional[dict] = None
+    if session_context and session_context.get("contract_id"):
+        db = deps["db"]
+        try:
+            from app.models.contract import Contract
+            from app.models.customer import Customer
+            contract = (
+                db.query(Contract)
+                .filter(Contract.id == session_context["contract_id"])
+                .first()
+            )
+            if contract:
+                contract_info = {
+                    "contract_id": contract.id,
+                    "contract_number": contract.contract_number,
+                    "business_description": contract.business_description,
+                    "total_amount": float(contract.total_amount) if contract.total_amount else None,
+                    "currency": contract.currency,
+                    "payment_type": session_context.get("payment_type"),
+                    "customer_name": "",
+                }
+                # 查客户名
+                if contract.customer_id:
+                    customer = db.query(Customer).filter(Customer.id == contract.customer_id).first()
+                    if customer:
+                        contract_info["customer_name"] = customer.name
+        except Exception:
+            logger.warning("合同上下文查找失败: contract_id=%s", session_context.get("contract_id"), exc_info=True)
+
+    openai_messages = _convert_messages(
+        msgs, user, attachments,
+        session_context=session_context,
+        contract_info=contract_info,
+    )
 
     full_text = ""
     tool_calls = []

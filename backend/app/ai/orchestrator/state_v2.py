@@ -19,6 +19,8 @@ class AgentState(TypedDict, total=False):
     user_id: int
     user_role: str          # admin / income / expense
     session_id: str
+    session_context: Optional[dict]   # 从 chat_sessions.context 加载 {contract_id, payment_type}
+    session_mode: str                 # 会话模式: chat | receipt_income | receipt_expense
 
     # ── 附件（当前轮） ──
     attachments: list[dict]  # [{file_id, file_type, file_name}, ...]

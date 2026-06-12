@@ -157,6 +157,23 @@ async def chat(
 
             session_id = request.session_id or str(uuid.uuid4())
 
+            # ━━━ 加载 session 上下文（mode + context），注入 initial_state 供 LLM 感知 ━━━
+            session_context = None
+            session_mode = "chat"
+            if request.session_id:
+                session_record = (
+                    db.query(ChatSession)
+                    .filter(ChatSession.session_id == request.session_id)
+                    .first()
+                )
+                if session_record:
+                    session_mode = session_record.mode or "chat"
+                    session_context = session_record.context or None
+                    logger.info(
+                        "[AGENT CHAT] 加载 session 上下文: mode=%s context=%s",
+                        session_mode, session_context,
+                    )
+
             # 请求级依赖注入（db/user/executor/llm_client 不参与 checkpoint）
             deps = {
                 "db": db,
@@ -190,6 +207,8 @@ async def chat(
                 "user_id": current_user.id,
                 "user_role": current_user.role,
                 "session_id": session_id,
+                "session_context": session_context,
+                "session_mode": session_mode,
                 "_finalized": False,
                 "should_end": False,
                 "iteration_count": 0,

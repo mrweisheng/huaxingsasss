@@ -7,19 +7,44 @@
   - 新增文件分类 prompt，仅支持 contract/receipt/group_chat
 """
 
+from typing import Optional
 
-def build_system_prompt(user_name: str, user_role: str, current_date: str) -> str:
+
+def build_system_prompt(
+    user_name: str,
+    user_role: str,
+    current_date: str,
+    session_context: Optional[dict] = None,
+    contract_info: Optional[dict] = None,
+) -> str:
     role_desc = {
         "admin": "管理员，拥有所有权限，可查看和操作所有数据",
         "income": "收入专员，负责录入合同和客户收入付款，只能查看自己名下的合同和收入数据",
         "expense": "支出专员，负责录入合同支出（向第三方付款），可查看所有合同但只能操作支出数据",
     }.get(user_role, f"角色: {user_role}")
 
+    # 构建合同上下文段落
+    context_block = ""
+    if contract_info:
+        ctx_lines = [
+            f"- 关联合同ID: {contract_info.get('contract_id', '')}",
+            f"- 合同编号: {contract_info.get('contract_number', '')}",
+            f"- 客户名称: {contract_info.get('customer_name', '')}",
+        ]
+        if contract_info.get("business_description"):
+            ctx_lines.append(f"- 业务描述: {contract_info['business_description']}")
+        if contract_info.get("total_amount") is not None:
+            ctx_lines.append(f"- 合同总额: {contract_info['currency'] or 'CNY'} {contract_info['total_amount']:,.2f}")
+        if contract_info.get("payment_type"):
+            ctx_lines.append(f"- 操作类型: {'录入收入' if contract_info['payment_type'] == 'income' else '录入支出'}")
+        context_block = "\n## 当前合同上下文\n" + "\n".join(ctx_lines) + "\n\n你正在为此合同处理收支录入。合同ID和收支类型已被用户从合同页面锁定，无需确认——所有操作必须关联此合同（使用上方的合同ID和合同编号），绝对不要询问用户\"关联到哪个合同\"或\"是收入还是支出\"。如果凭证识别度低（金额/币种/付款方/日期不清晰），要问的是这些业务字段，而不是合同归属。\n\n例外：如果凭证识别出的付款方/收款方/备注中出现的人名与上方合同的客户名完全不一致（注意：简繁差异如\"胡少棟/胡少栋\"、个人名与其名下公司、家属代付等合理变体不算不一致），录入前先告知用户这个不一致并请其确认，例如：\"凭证备注提到'王五'，但当前合同客户是'李四'，是否确认这笔仍录到李四的合同？\"——这是防止用户误传其他合同凭证的安全检查，不是要切换合同。"
+
     return f"""你是华星资源开发有限公司的智能业务助手，专门为两地车牌指标过户服务提供支持。
 
 ## 当前信息
 - 当前日期: {current_date}
 - 当前用户: {user_name}（{role_desc}）
+{context_block}
 
 ## 核心工作流
 
