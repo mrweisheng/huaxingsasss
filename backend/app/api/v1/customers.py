@@ -1,7 +1,7 @@
 """
 客户管理API路由
 """
-from typing import Optional, List
+from typing import Optional
 import base64
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
@@ -10,7 +10,7 @@ from sqlalchemy import or_
 from app.db.session import get_db
 from app.core.chinese import search_variants
 from app.models.customer import Customer
-from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerResponse
+from app.schemas.customer import CustomerUpdate, CustomerResponse
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
 from app.core.permissions import Role, is_admin, can_view_income
@@ -75,65 +75,6 @@ def list_customers(
             total_pages=(total + per_page - 1) // per_page
         )
     )
-
-
-@router.post("", response_model=CustomerResponse, status_code=status.HTTP_201_CREATED)
-def create_customer(
-    customer_data: CustomerCreate,
-    current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
-):
-    """创建客户"""
-    # expense 角色不可创建客户
-    if current_user.role == Role.EXPENSE:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权创建客户")
-    # 校验：至少提供电话或邮箱
-    if not customer_data.phone and not customer_data.email:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="电话和邮箱至少填写一项"
-        )
-
-    # 检查是否已存在（同名+同电话 或 同名+同邮箱，排除已删除）
-    existing = None
-    if customer_data.phone:
-        existing = db.query(Customer).filter(
-            Customer.name == customer_data.name,
-            Customer.phone == customer_data.phone,
-            Customer.is_deleted == False,
-        ).first()
-    if not existing and customer_data.email:
-        existing = db.query(Customer).filter(
-            Customer.name == customer_data.name,
-            Customer.email == customer_data.email,
-            Customer.is_deleted == False,
-        ).first()
-
-    if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="客户已存在（同名且电话/邮箱相同）"
-        )
-
-    # 创建客户
-    customer = Customer(
-        name=customer_data.name,
-        contact_person=customer_data.contact_person,
-        phone=customer_data.phone,
-        email=customer_data.email,
-        id_card_number_encrypted=base64.b64encode(customer_data.id_card_number.encode()).decode() if customer_data.id_card_number else None,
-        business_license=customer_data.business_license,
-        address=customer_data.address,
-        wechat_group_name=customer_data.wechat_group_name,
-        remarks=customer_data.remarks,
-        created_by=current_user.id
-    )
-    
-    db.add(customer)
-    db.commit()
-    db.refresh(customer)
-    
-    return customer
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse)

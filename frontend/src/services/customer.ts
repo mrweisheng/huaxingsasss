@@ -12,9 +12,6 @@ export const customerApi = {
   getById: (id: number, signal?: AbortSignal): Promise<Customer> =>
     api.get(`/customers/${id}`, { signal }),
 
-  create: (data: Partial<Customer>): Promise<Customer> =>
-    api.post('/customers', data),
-
   update: (id: number, data: Partial<Customer>): Promise<Customer> =>
     api.put(`/customers/${id}`, data),
 

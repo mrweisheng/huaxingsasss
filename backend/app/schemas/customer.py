@@ -20,11 +20,6 @@ class CustomerBase(BaseModel):
     remarks: Optional[str] = Field(None, description="备注")
 
 
-class CustomerCreate(CustomerBase):
-    """创建客户"""
-    pass
-
-
 class CustomerUpdate(BaseModel):
     """更新客户"""
 

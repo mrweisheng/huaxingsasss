@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Button, message, Empty, Modal, Form } from 'antd'
+import { Input, Button, Empty, message } from 'antd'
 import {
   SearchOutlined,
-  PlusOutlined,
   PhoneOutlined,
   IdcardOutlined,
   FileTextOutlined,
@@ -123,9 +122,6 @@ export default function CustomerList() {
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(1)
   const [keyword, setKeyword] = useState('')
-  const [modalOpen, setModalOpen] = useState(false)
-  const [submitting, setSubmitting] = useState(false)
-  const [form] = Form.useForm()
   const abortControllerRef = useRef<AbortController | null>(null)
   // 删除二次确认弹窗状态
   const [deleteTarget, setDeleteTarget] = useState<{ id: number; name: string; contractCount: number } | null>(null)
@@ -194,23 +190,6 @@ export default function CustomerList() {
     setPage(1)
   }, 400)
 
-  const handleAddCustomer = async () => {
-    try {
-      const values = await form.validateFields()
-      setSubmitting(true)
-      await customerApi.create(values)
-      message.success('已新增「' + values.name + '」')
-      setModalOpen(false)
-      form.resetFields()
-      loadData()
-    } catch (err: any) {
-      if (err?.errorFields) return
-      message.error(err?.response?.data?.detail || '创建失败')
-    } finally {
-      setSubmitting(false)
-    }
-  }
-
   const handleDeleteConfirmed = async () => {
     if (!deleteTarget) return
     setDeleting(true)
@@ -247,9 +226,6 @@ export default function CustomerList() {
             style={{ width: 260 }}
             prefix={<SearchOutlined />}
           />
-          <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalOpen(true)}>
-            新增客户
-          </Button>
         </div>
       </div>
 
@@ -458,46 +434,6 @@ export default function CustomerList() {
           </div>
         </div>
       )}
-
-      {/* 新增客户 Modal */}
-      <Modal
-        title="新增客户"
-        open={modalOpen}
-        onOk={handleAddCustomer}
-        onCancel={() => { setModalOpen(false); form.resetFields() }}
-        confirmLoading={submitting}
-        okText="确认新增"
-        cancelText="取消"
-        destroyOnClose
-        centered
-      >
-        <Form form={form} layout="vertical" style={{ marginTop: 16 }}>
-          <Form.Item name="name" label="客户名称" rules={[{ required: true, message: '请输入客户名称' }]}>
-            <Input placeholder="公司名称或个人姓名" />
-          </Form.Item>
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item name="contact_person" label="联系人" style={{ flex: 1 }}>
-              <Input placeholder="联系人姓名" />
-            </Form.Item>
-            <Form.Item name="phone" label="联系电话" style={{ flex: 1 }}
-              rules={[{ pattern: /^(\+?852[2-9]\d{7}|\+?861[3-9]\d{9}|\+?[1-9]\d{6,14})$/, message: '请输入有效号码' }]}>
-              <Input placeholder="内地/香港号码" />
-            </Form.Item>
-          </div>
-          <Form.Item name="email" label="邮箱" rules={[{ type: 'email', message: '格式有误' }]}>
-            <Input placeholder="电子邮箱" />
-          </Form.Item>
-          <Form.Item name="id_card_number" label="证件号码">
-            <Input placeholder="身份证/回乡证" />
-          </Form.Item>
-          <Form.Item name="address" label="地址">
-            <Input.TextArea rows={2} placeholder="详细地址" />
-          </Form.Item>
-          <Form.Item name="remarks" label="备注">
-            <Input.TextArea rows={2} placeholder="备注信息" />
-          </Form.Item>
-        </Form>
-      </Modal>
 
       {/* 删除客户二次确认（5 秒读秒） */}
       <DangerConfirmModal
