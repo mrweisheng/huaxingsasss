@@ -25,10 +25,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    # 不做来源限制：allow_credentials=True 与 allow_origins=["*"] 互斥（W3C CORS 规范禁止），
+    # 必须用 allow_origin_regex=".*" 让中间件把请求 Origin 原样回填，等价于"不限来源"
+    allow_origin_regex=".*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Request-ID"],
 )
 
 app.add_middleware(RequestLoggingMiddleware)

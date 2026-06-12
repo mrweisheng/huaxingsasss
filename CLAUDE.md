@@ -32,6 +32,7 @@
 - 禁止修改已上线接口的响应格式
 - 数据库操作只走 Service 层，路由层不操作 ORM
 - 禁止把 agent 能做的判断用 Python if/else 硬编码实现（除非属于"工具能力约束"或"数据完整性"边界）
+- **后端不做任何请求来源限制**：CORS 必须用 `allow_origin_regex=".*"` + `allow_credentials=True`（不能用 `allow_origins=["*"]`——与凭据模式互斥，浏览器会拒收 `*`，导致预检失败）
 
 ## 设计系统 · 业务色彩
 
