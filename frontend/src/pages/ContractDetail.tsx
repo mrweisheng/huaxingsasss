@@ -20,6 +20,7 @@ import { paymentApi } from '@/services/payment'
 import { useAuthStore } from '@/store/useAuthStore'
 import { API_BASE_URL } from '@/services/api'
 import { formatMoney, formatMoneyShort } from '@/utils/money'
+import { isNoReceipt } from '@/utils/payment'
 import type { Contract, Payment } from '@/types'
 import './ContractDetail.css'
 
@@ -261,6 +262,11 @@ export default function ContractDetail() {
                 </Tooltip>
                 {payment.paid_amount_in_cny != null && payment.currency !== 'CNY' && (
                   <span className="cd-pay-card-cny">≈ ¥{formatMoneyShort(payment.paid_amount_in_cny)}</span>
+                )}
+                {isNoReceipt(payment) && (
+                  <Tooltip title="无凭证 · 用户口头确认">
+                    <span className="cd-pay-card-no-receipt">无凭证</span>
+                  </Tooltip>
                 )}
               </div>
               <div className="cd-pay-card-meta">

@@ -6,6 +6,7 @@ import { paymentApi, type PaymentListParams } from '@/services/payment'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
 import { formatMoney } from '@/utils/money'
+import { isNoReceipt } from '@/utils/payment'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { Payment } from '@/types'
 import './PaymentList.css'
@@ -309,6 +310,11 @@ export default function PaymentList() {
             <span className={`pl-cell-amount ${isPaid ? 'success' : ''}`}>
               {fmt(record.paid_amount, record.currency)}
             </span>
+            {isNoReceipt(record) && (
+              <Tooltip title="无凭证 · 用户口头确认">
+                <span className="pl-cell-no-receipt">无凭证</span>
+              </Tooltip>
+            )}
             {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
               <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
                 ≈ ¥{Math.round(record.paid_amount_in_cny).toLocaleString('zh-CN')}

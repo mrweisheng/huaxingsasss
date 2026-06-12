@@ -688,6 +688,7 @@ class ToolExecutorV2(ToolExecutor):
         description: Optional[str] = None,
         receipt_data: Optional[dict] = None,
         receipt_file_ids: list[str] = None,
+        no_receipt: bool = False,
     ) -> str:
         """统一的付款记录创建（收入/支出）。
 
@@ -706,6 +707,7 @@ class ToolExecutorV2(ToolExecutor):
             description: 简短业务说明（不超过30字）
             receipt_data: 凭证分析结构化数据
             receipt_file_ids: 要关联的凭证文件ID列表（多张凭证合并录入时传入）
+            no_receipt: 声明这是用户口头确认的无凭证小额支出（仅 type=expense 可用）
         """
         # 角色权限校验：income 只能创建收入，expense 只能创建支出
         if type == "income" and not self._can_view_income():
@@ -723,6 +725,35 @@ class ToolExecutorV2(ToolExecutor):
         # 支出必须有收款方
         if type == "expense" and not payee_name:
             return json.dumps({"error": "创建支出记录必须指定收款方名称"}, ensure_ascii=False)
+
+        # ─────────────────────────────────────────────────────────
+        # 无凭证支出栅栏：数据完整性边界，三道硬约束
+        # 仅返回结构化错误，不嵌入"请先..."等行为指令（CLAUDE.md 工具铁律）
+        # ─────────────────────────────────────────────────────────
+        if no_receipt:
+            if type != "expense":
+                return json.dumps({
+                    "error": "no_receipt 仅支持 type=expense",
+                    "code": "NO_RECEIPT_INCOME_FORBIDDEN",
+                }, ensure_ascii=False)
+            missing_fields = []
+            if not payee_name:
+                missing_fields.append("payee_name")
+            if not description:
+                missing_fields.append("description")
+            if not paid_date:
+                missing_fields.append("paid_date")
+            if missing_fields:
+                return json.dumps({
+                    "error": "no_receipt 支出缺少必填字段",
+                    "code": "NO_RECEIPT_MISSING_FIELDS",
+                    "missing_fields": missing_fields,
+                }, ensure_ascii=False)
+            if receipt_image_path or receipt_data or receipt_file_ids:
+                return json.dumps({
+                    "error": "no_receipt=true 与凭证字段互斥",
+                    "code": "NO_RECEIPT_WITH_RECEIPT_DATA",
+                }, ensure_ascii=False)
 
         # 凭证路径处理：支持多张凭证合并录入
         resolved_path, file_hash, additional_receipts = self._resolve_receipt_paths(
@@ -760,7 +791,8 @@ class ToolExecutorV2(ToolExecutor):
         #   2. 否则回退 _build_payment_description 拼接（金额+期数+收款方+合同业务）
         # 不能直接走 _build 拼接，否则 description 会变成
         # "HK$4,330 →MINKFAIR... 购买港车 底盘号..." 这种堆字段串。
-        if not description:
+        # 无凭证支出场景跳过：栅栏 2 已强制 description 必填，LLM 必须显式给出。
+        if not description and not no_receipt:
             hint = ""
             if isinstance(receipt_data, dict):
                 hint = receipt_data.get("business_hint", "") or ""
@@ -834,6 +866,20 @@ class ToolExecutorV2(ToolExecutor):
                             self.db, contract, payment.paid_amount, payment.currency,
                             amt_cny, payment.paid_date,
                         )
+            elif no_receipt:
+                # 无凭证支出：用户口头确认，强制 paid + 累加合同累计支出
+                # service 因无 receipt_image_path 创建了 pending 记录，需要手动转 paid
+                from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
+                needs_contract_update = payment.status == "pending"
+                payment.status = "paid"
+                base_note = notes or description or ""
+                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
+                if needs_contract_update:
+                    amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                    PaymentService._add_to_contract_expense(
+                        self.db, contract, payment.paid_amount, payment.currency,
+                        amt_cny, payment.paid_date,
+                    )
 
             self.db.commit()
             self.db.refresh(payment)
@@ -865,6 +911,16 @@ class ToolExecutorV2(ToolExecutor):
         """更新付款记录。增强：传入 receipt_data 时自动生成 description。"""
         payment_id = kwargs.get("payment_id")
         receipt_data = kwargs.get("receipt_data")
+
+        # 前缀保护：原 notes 含「[无凭证支出]」审计标记 → 用户/LLM 改 notes 时自动补回
+        # 防止审计标记被无意覆盖。仅在传入 notes 字段且不带前缀时介入。
+        new_notes = kwargs.get("notes")
+        if payment_id and new_notes is not None:
+            from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
+            existing = self.db.query(Payment).filter(Payment.id == payment_id).first()
+            if existing and (existing.notes or "").startswith(NO_RECEIPT_NOTE_PREFIX):
+                if not new_notes.startswith(NO_RECEIPT_NOTE_PREFIX):
+                    kwargs["notes"] = f"{NO_RECEIPT_NOTE_PREFIX} {new_notes}".strip()
 
         # 先调父类完成核心更新
         result_str = super().update_payment(**kwargs)
@@ -1179,7 +1235,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment_record",
-            "description": "创建付款记录（统一收入/支出）。type=income 为客户收入，type=expense 为公司支出（必须指定 payee_name）。有凭证时自动设为 paid 状态并参与结算。重要：receipt_data 必须原样回传 analyze_files 返回的完整对象，不要只挑业务字段——其中的 _source_file_id 是关联凭证文件的关键，缺少会导致凭证图片丢失。",
+            "description": "创建付款记录（统一收入/支出）。type=income 为客户收入，type=expense 为公司支出（必须指定 payee_name）。有凭证时自动设为 paid 状态并参与结算。无凭证小额支出（如返点、现金杂费）通过 no_receipt=true 显式声明，仅 type=expense 可用。重要：receipt_data 必须原样回传 analyze_files 返回的完整对象，不要只挑业务字段——其中的 _source_file_id 是关联凭证文件的关键，缺少会导致凭证图片丢失。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "amount", "currency", "paid_date", "type"],
@@ -1194,12 +1250,16 @@ TOOL_DEFINITIONS = [
                     "payment_method": {"type": "string", "enum": ["bank_transfer", "wechat", "alipay", "cash", "check", "unknown"], "description": "付款方式"},
                     "receipt_image_path": {"type": "string", "description": "凭证图片路径"},
                     "notes": {"type": "string", "description": "备注"},
-                    "description": {"type": "string", "description": "简短业务说明（不超过30字）"},
+                    "description": {"type": "string", "description": "简短业务说明（不超过30字）。no_receipt=true 时必填。"},
                     "receipt_data": {"type": "object", "description": "凭证分析数据完整 JSON 对象（含 _source_file_id）。禁止只挑部分字段回传。"},
                     "receipt_file_ids": {
                         "type": "array",
                         "items": {"type": "string"},
                         "description": "要关联的凭证文件ID列表（从 analyze_files 结果获取）。传多个时表示多张凭证合并录入同一笔付款。不传时按系统追踪自动分配。",
+                    },
+                    "no_receipt": {
+                        "type": "boolean",
+                        "description": "声明这是用户口头确认的无凭证小额支出（如返点、现金杂费）。仅 type=expense 可用。设为 true 时不得再传 receipt_image_path/receipt_data/receipt_file_ids，且 description/payee_name/paid_date 必填。设为 true 后记录直接落 paid 并累加合同累计支出，notes 自动加「[无凭证支出]」前缀。",
                     },
                 },
             },

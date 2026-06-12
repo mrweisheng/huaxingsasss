@@ -115,11 +115,11 @@ START → call_model_node（LLM 决策）
 | 层 | 文件 | 职责 | 决策方 |
 |---|---|---|---|
 | Agent 图 | `orchestrator/unified_agent.py` | 单层循环：call_model ↔ execute_tool → finalize 落库 | LLM 决策 + 代码执行 |
-| 工具执行 | `ai/tools_v2.py` `ToolExecutorV2` | 调 Service 层，返回纯 JSON 事实；含 mode guard + document guard | 代码（确定性） |
+| 工具执行 | `ai/tools_v2.py` `ToolExecutorV2` | 调 Service 层，返回纯 JSON 事实；execute() 已重写，**不再有 mode guard / document guard**（v1 父类的白名单与文档守卫在 v2 入口被绕过） | 代码（确定性） |
 | Service | `services/*.py` | 业务规则、权限校验、事务边界 | 代码（确定性） |
 | 模型 / DB | `models/*.py` | ORM 映射、表结构 | 代码 |
 | 提示词 | `ai/prompts_v2.py` | 业务偏好、追问策略、字段解释、确认规则 | LLM 软规则 |
-| 写入防护 | `unified_agent.py` `_WRITABLE_TOOLS` + `_CONFIRM_KEYWORDS` | 轻量确认检测：LLM 上轮回复含确认关键词 → 放行写入；不含 → 拦截 | 代码硬约束 |
+| 写入确认 | `ai/prompts_v2.py` `build_system_prompt` 的「确认规则」段 | LLM 自主判断"先列计划、再等同意、后执行"，不在代码层做关键词拦截 | LLM 软规则 |
 
 ### Agent 循环架构
 
@@ -130,15 +130,13 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
       │                ↓           ↓
       │       execute_tool_node   finalize_node（chat_history 落库，幂等）
       │              │
-      │              ├─ 写入工具（_WRITABLE_TOOLS）→ 确认关键词检测
-      │              │   └─ 上文无确认 → 拦截，让 LLM 先展示计划
-      │              │   └─ 上文有确认 → 执行
-      │              └─ 普通工具 → 直接执行 → ToolMessage 回灌
+      │              └─ 忠实执行 LLM 决定的工具调用（不在代码层做确认拦截）
+      │                  → ToolMessage 回灌
       └──────────────┘
 ```
 
 - `call_model_node`：LLM 决定展示什么、调哪个工具、追问还是结束。附件信息自动注入到用户消息上下文。
-- `execute_tool_node`：执行工具调用。写入工具（`create_customer`/`create_contract`/`create_payment_record`/`match_and_confirm_payment`/`update_payment`）受确认防护——检查 LLM 上轮回复是否含确认关键词（`确认/是否/同意/继续/对吗/正确吗/确认吗/可以吗/行吗`），未展示则拦截并提示 LLM 先向用户确认。同时发 SSE `tool_start`/`tool_end` 事件给前端。
+- `execute_tool_node`：忠实执行 LLM 决定调用的工具，不在代码层做确认关键词拦截。**写入是否需要先向用户确认完全交由 LLM 根据 system prompt 的「确认规则」自主判断**（CLAUDE.md「Agent 模式铁律」：禁止用 if/else 偷懒代替 LLM 决策）。同时发 SSE `tool_start`/`tool_end` 事件给前端。
 - `finalize_node`：`chat_history` 落库（checkpoint 存机器可读状态，`chat_history` 存人类可读消息），用 `_finalized` 标记做幂等防护。
 - `should_continue`：有 tool_calls → execute_tool_node，否则 → finalize_node。
 
@@ -187,14 +185,14 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 
 心跳机制：事件间隔超过 `_HEARTBEAT_INTERVAL` 秒时自动发 `thinking` 心跳事件，防止前端长时间无事件。
 
-确认机制：纯聊天交互。LLM 先展示操作计划（列客户名、金额、币种等），用户自然语言回复确认，LLM 再调写入工具。代码层通过 `_CONFIRM_KEYWORDS` 检测 LLM 上轮回复是否含确认词——未展示则拦截写入并提示 LLM 先确认。
+确认机制：纯聊天交互。LLM 先展示操作计划（列客户名、金额、币种等），用户自然语言回复确认，LLM 再调写入工具。**确认逻辑完全由 LLM 根据 system prompt 的「确认规则」自主判断，代码层不做关键词拦截**（symbol `_WRITABLE_TOOLS` / `_CONFIRM_KEYWORDS` 已在重构中删除）。
 
 ## 扩展指引（新增功能时如何不破坏现有架构）
 
 ### 新增工具
 1. `tools_v2.py` `TOOL_DEFINITIONS` 加 OpenAI function 定义（描述写清楚字段语义和限制）
 2. `ToolExecutorV2` 中实现 `def <tool_name>(self, **kwargs) -> str`，**只返回事实 JSON**，不嵌入"请先..."等行为指令（铁律）
-3. 如果是写入工具，加入 `unified_agent.py` 的 `_WRITABLE_TOOLS` 集合
+3. 如果是写入工具，在 `prompts_v2.py` 的「确认规则」段把工具名加入"必须先列计划"的清单（不要在代码层加白名单）
 4. 如果是查询工具（不写库），直接可用，无需额外配置
 5. 如需前端展示工具摘要，在 `unified_agent.py` `extract_tool_summary()` 加分支
 
