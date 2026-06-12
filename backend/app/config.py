@@ -85,6 +85,7 @@ class Settings(BaseSettings):
     RECEIPT_UPLOAD_DIR: str = "/data/contract-system/receipts"
     SCREENSHOT_UPLOAD_DIR: str = "/data/contract-system/screenshots"
     TEMP_UPLOAD_DIR: str = "/data/contract-system/temp"
+    AGENT_FILE_DIR: str = "/data/contract-system/agent-files"  # Agent 持久化附件（历史回看）
     MAX_FILE_SIZE: int = 52428800  # 50MB
     
     # 日志配置

@@ -136,6 +136,7 @@ def resolve_file_path(file_id: str, user_id: int) -> str | None:
     from app.config import settings  # 延迟导入避免循环依赖
 
     for base_dir in (
+        os.path.join(settings.AGENT_FILE_DIR, str(user_id)),  # 新：持久化目录优先
         os.path.join(settings.TEMP_UPLOAD_DIR, str(user_id)),
         settings.TEMP_UPLOAD_DIR,
     ):

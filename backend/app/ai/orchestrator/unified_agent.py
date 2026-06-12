@@ -350,6 +350,7 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
 
     用 _persisted_count 游标只处理本轮新增消息，避免每轮全量重复插入。
     同时跳过纯 tool_call 中间态 AIMessage（空 content + 仅 tool_calls），前端无需展示。
+    顺带把 user 消息里的 attachments 回填到 agent_file.session_id。
     """
     deps = _get_deps(config)
     db = deps["db"]
@@ -359,11 +360,15 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
         return {"should_end": True, "_finalized": True}
 
     from app.models.chat_history import ChatHistory
+    from app.models.agent_file import AgentFile
 
     session_id = state.get("session_id", "")
     messages = state.get("messages", [])
     cursor = state.get("_persisted_count", 0)
     new_msgs = messages[cursor:]
+
+    # 收集本轮 user 消息中的 attachments file_id，稍后批量回填 session_id
+    new_attachment_ids: list[str] = []
 
     for msg in new_msgs:
         msg_type = getattr(msg, "type", None)
@@ -387,6 +392,11 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
                 db.add(record)
             elif msg_type == "human":
                 attachments = addl.get("attachments") or None
+                if attachments:
+                    for a in attachments:
+                        fid = a.get("file_id") if isinstance(a, dict) else None
+                        if fid:
+                            new_attachment_ids.append(fid)
                 record = ChatHistory(
                     user_id=user.id, session_id=session_id,
                     question=getattr(msg, "content", "") or "", answer=None,
@@ -413,6 +423,21 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
                 db.add(record)
         except Exception:
             logger.warning("chat_history 落库跳过: type=%s session_id=%s", msg_type, session_id, exc_info=True)
+
+    # 回填 agent_file.session_id（仅当本表存在对应 file_id 时；旧上传走 TEMP_UPLOAD_DIR 的不会有记录）
+    if new_attachment_ids and session_id:
+        try:
+            (
+                db.query(AgentFile)
+                .filter(
+                    AgentFile.file_id.in_(new_attachment_ids),
+                    AgentFile.user_id == user.id,
+                    AgentFile.session_id.is_(None),
+                )
+                .update({AgentFile.session_id: session_id}, synchronize_session=False)
+            )
+        except Exception:
+            logger.warning("agent_file.session_id 回填失败: session=%s", session_id, exc_info=True)
 
     db.commit()
     logger.info(

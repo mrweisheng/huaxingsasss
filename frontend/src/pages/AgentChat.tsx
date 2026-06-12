@@ -29,9 +29,10 @@ import {
 } from '@ant-design/icons'
 import StarLogoWelcome from '@/components/StarLogoWelcome'
 import { useAgentStore } from '@/store/useAgentStore'
-import type { ChatMessage } from '@/types/agent'
+import type { ChatMessage, AttachmentItem } from '@/types/agent'
 import { MarkdownRenderer, ToolCallBlock, WittyLoadingText } from '@/components/AgentChatShared'
 import { compressImage } from '@/utils/imageCompress'
+import { useAgentFile } from '@/hooks/useAgentFile'
 
 const { Text } = Typography
 
@@ -60,6 +61,109 @@ const FILE_TYPE_META: Record<string, { icon: JSX.Element; bg: string; fg: string
   default: { icon: <PaperClipOutlined />, bg: 'linear-gradient(135deg, #e5e7eb, #d1d5db)', fg: '#374151', label: '文件' },
 }
 
+/* ── 单张历史图片：当轮本地用 preview，历史会话从 useAgentFile 拉 Blob URL ── */
+const AttachmentImage = memo(function AttachmentImage({
+  att, single,
+}: {
+  att: AttachmentItem
+  single: boolean
+}) {
+  // 当轮本地上传带 preview（base64 字符串），直接用
+  // 历史回看没 preview → 按 fileId 拉远端
+  const { url: fetched, loading, error } = useAgentFile(att.preview ? null : att.fileId)
+  const src = att.preview || fetched
+
+  const style: React.CSSProperties = {
+    width: '100%',
+    maxHeight: single ? 280 : 160,
+    objectFit: 'cover',
+    borderRadius: 10,
+    display: 'block',
+    cursor: 'pointer',
+  }
+
+  if (src) {
+    return <img src={src} alt={att.fileName || '图片'} style={style} />
+  }
+  if (loading) {
+    return (
+      <div style={{ ...style, background: 'rgba(255,255,255,0.12)', display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100 }}>
+        <Spin size="small" />
+      </div>
+    )
+  }
+  // error 或 fileId 缺失：占位提示
+  return (
+    <div style={{ ...style, background: 'rgba(255,255,255,0.12)', color: 'rgba(255,255,255,0.7)', fontSize: 12, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: 100, padding: 12, textAlign: 'center' }}>
+      {error === 'gone' ? '附件已被清理' : '附件已失效'}
+    </div>
+  )
+})
+
+/* ── 单个非图片附件卡片：点击下载（历史回看可用，当轮上传也可用）── */
+const AttachmentFile = memo(function AttachmentFile({ att }: { att: AttachmentItem }) {
+  const { url, loading, error } = useAgentFile(att.fileId)
+  const cfg = FILE_TYPE_META[att.fileType] || FILE_TYPE_META.default
+
+  const inner = (
+    <div
+      style={{
+        display: 'flex', alignItems: 'center', gap: 10,
+        background: 'rgba(255,255,255,0.12)',
+        border: '1px solid rgba(255,255,255,0.15)',
+        borderRadius: 10,
+        padding: '8px 10px',
+        minWidth: 200,
+        cursor: url ? 'pointer' : 'default',
+        opacity: error ? 0.6 : 1,
+        transition: 'background 0.15s',
+      }}
+      title={error === 'gone' ? '附件已被清理' : error ? '附件已失效' : att.fileName}
+    >
+      <div style={{
+        width: 40, height: 48, borderRadius: 6,
+        background: cfg.bg,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        color: cfg.fg, fontSize: 20, flexShrink: 0,
+        boxShadow: '0 1px 3px rgba(0,0,0,0.10)',
+      }}>
+        {loading ? <Spin size="small" /> : cfg.icon}
+      </div>
+      <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
+        <span style={{
+          fontSize: 13, color: '#fff', fontWeight: 500,
+          overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+        }}>
+          {att.fileName || '文件'}
+        </span>
+        <span style={{
+          fontSize: 11, color: 'rgba(255,255,255,0.7)',
+          marginTop: 2,
+        }}>
+          {error === 'gone' ? '附件已被清理'
+            : error ? '附件已失效'
+            : (att.fileName || '').toLowerCase().split('.').pop()?.toUpperCase() || '文件'}
+        </span>
+      </div>
+    </div>
+  )
+
+  if (url) {
+    return (
+      <a
+        href={url}
+        download={att.fileName || att.fileId}
+        target="_blank"
+        rel="noopener noreferrer"
+        style={{ textDecoration: 'none' }}
+      >
+        {inner}
+      </a>
+    )
+  }
+  return inner
+})
+
 const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
   msg: ChatMessage
   streaming?: boolean
@@ -68,8 +172,9 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
     const attachments = msg.attachments || []
     const hasText = !!msg.content
     const hasAttachments = attachments.length > 0
-    const imageAttachments = attachments.filter(a => a.fileType === 'image' && a.preview)
-    const fileAttachments = attachments.filter(a => !(a.fileType === 'image' && a.preview))
+    // 图片：当轮 preview 或历史 fileId 都算图片（不再硬性要求 preview）
+    const imageAttachments = attachments.filter(a => a.fileType === 'image')
+    const fileAttachments = attachments.filter(a => a.fileType !== 'image')
 
     return (
       <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 20 }}>
@@ -104,65 +209,16 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
                   }}
                 >
                   {imageAttachments.map((att, i) => (
-                    <img
-                      key={i}
-                      src={att.preview}
-                      alt={att.fileName || '图片'}
-                      style={{
-                        width: '100%',
-                        maxHeight: imageAttachments.length === 1 ? 280 : 160,
-                        objectFit: 'cover',
-                        borderRadius: 10,
-                        display: 'block',
-                        cursor: 'pointer',
-                      }}
-                    />
+                    <AttachmentImage key={att.fileId || i} att={att} single={imageAttachments.length === 1} />
                   ))}
                 </div>
               )}
 
               {fileAttachments.length > 0 && (
                 <div style={{ padding: '8px 10px', display: 'flex', flexDirection: 'column', gap: 6 }}>
-                  {fileAttachments.map((att, i) => {
-                    const cfg = FILE_TYPE_META[att.fileType] || FILE_TYPE_META.default
-                    return (
-                      <div
-                        key={i}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: 10,
-                          background: 'rgba(255,255,255,0.12)',
-                          border: '1px solid rgba(255,255,255,0.15)',
-                          borderRadius: 10,
-                          padding: '8px 10px',
-                          minWidth: 200,
-                        }}
-                      >
-                        <div style={{
-                          width: 40, height: 48, borderRadius: 6,
-                          background: cfg.bg,
-                          display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          color: cfg.fg, fontSize: 20, flexShrink: 0,
-                          boxShadow: '0 1px 3px rgba(0,0,0,0.10)',
-                        }}>
-                          {cfg.icon}
-                        </div>
-                        <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}>
-                          <span style={{
-                            fontSize: 13, color: '#fff', fontWeight: 500,
-                            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-                          }}>
-                            {att.fileName || '文件'}
-                          </span>
-                          <span style={{
-                            fontSize: 11, color: 'rgba(255,255,255,0.7)',
-                            marginTop: 2,
-                          }}>
-                            {(att.fileName || '').toLowerCase().split('.').pop()?.toUpperCase() || ''} 文件
-                          </span>
-                        </div>
-                      </div>
-                    )
-                  })}
+                  {fileAttachments.map((att, i) => (
+                    <AttachmentFile key={att.fileId || i} att={att} />
+                  ))}
                 </div>
               )}
 

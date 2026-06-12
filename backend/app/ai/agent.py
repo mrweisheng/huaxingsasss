@@ -287,8 +287,14 @@ class ContractAgent:
     def delete_session(self, session_id: str) -> bool:
         """删除会话及其所有消息。
 
-        同时清理 chat_sessions 表中的元数据行（避免遗留孤儿 session_id）。
+        同时清理 chat_sessions 表中的元数据行（避免遗留孤儿 session_id），
+        以及 agent_file 表中本会话的附件记录与物理文件（避免磁盘膨胀）。
         """
+        import os
+        from pathlib import Path
+        from app.models.agent_file import AgentFile
+        from app.config import settings
+
         history_deleted = (
             self.db.query(ChatHistory)
             .filter(
@@ -306,9 +312,33 @@ class ContractAgent:
             )
             .delete()
         )
+
+        # 级联清理 agent_file：先删物理文件，再标记软删（保留行供审计）
+        file_records = (
+            self.db.query(AgentFile)
+            .filter(
+                AgentFile.session_id == session_id,
+                AgentFile.user_id == self.user.id,
+                AgentFile.is_deleted == False,
+            )
+            .all()
+        )
+        files_cleaned = 0
+        for f in file_records:
+            try:
+                full_path = Path(settings.AGENT_FILE_DIR) / f.storage_path
+                if full_path.exists():
+                    full_path.unlink()
+                f.soft_delete()
+                files_cleaned += 1
+            except Exception:
+                logger.warning(
+                    "agent_file 物理清理失败: file_id=%s path=%s", f.file_id, f.storage_path, exc_info=True
+                )
+
         self.db.commit()
         logger.info(
-            "delete_session: history=%d session_row=%d session=%s",
-            history_deleted, session_deleted, session_id[:8],
+            "delete_session: history=%d session_row=%d files=%d session=%s",
+            history_deleted, session_deleted, files_cleaned, session_id[:8],
         )
         return (history_deleted + session_deleted) > 0

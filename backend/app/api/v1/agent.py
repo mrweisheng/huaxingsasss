@@ -5,16 +5,20 @@ import json
 import os
 import uuid
 import logging
+import mimetypes
+from pathlib import Path
 from typing import Optional
 
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.api.dependencies import get_current_user
+from app.core.permissions import is_admin
 from app.models.user import User
 from app.models.chat_session import ChatSession
+from app.models.agent_file import AgentFile
 from app.schemas.agent import ChatRequest, UploadResponse, CreateSessionRequest
 from app.ai.agent import ContractAgent
 from app.config import settings
@@ -227,14 +231,16 @@ async def chat(
 async def upload_file(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
-    """上传文件到按用户隔离的临时目录，供聊天中使用。
+    """上传文件到持久化目录 + 落 agent_file 表，供聊天 + 历史回看共用。
 
-    路径格式：TEMP_UPLOAD_DIR/{user_id}/{file_id}
-    - 用户隔离：避免 file_id 跨用户访问（虽然当前 LLM 不会跨用户传，但防御性写法）
-    - 启动时清理过期文件（参见 main.py 的 _cleanup_temp_uploads）
+    路径格式：AGENT_FILE_DIR/{user_id}/{file_id}{ext}
+    - 与之前的 TEMP_UPLOAD_DIR 相同的平铺结构，resolve_file_path 兼容查找
+    - 上传时 session_id 留空，finalize_node 落库时按 file_id 回填
+    - 历史回看通过 GET /agent/files/{file_id} 拉取
     """
-    user_dir = os.path.join(settings.TEMP_UPLOAD_DIR, str(current_user.id))
+    user_dir = os.path.join(settings.AGENT_FILE_DIR, str(current_user.id))
     os.makedirs(user_dir, exist_ok=True)
 
     content = await file.read()
@@ -246,10 +252,43 @@ async def upload_file(
     original_ext = ""
     if file.filename and "." in file.filename:
         original_ext = "." + file.filename.rsplit(".", 1)[-1].lower()
-    file_path = os.path.join(user_dir, file_id + original_ext)
+    fname_on_disk = file_id + original_ext
+    file_path = os.path.join(user_dir, fname_on_disk)
 
     with open(file_path, "wb") as f:
         f.write(content)
+
+    # 推断 file_type 分类（与前端 FileType 对齐）
+    ext = original_ext.lstrip(".")
+    if ext in ("jpg", "jpeg", "png", "gif", "webp", "bmp"):
+        file_type = "image"
+    elif ext == "pdf":
+        file_type = "pdf"
+    elif ext in ("doc", "docx"):
+        file_type = "word"
+    elif ext in ("xls", "xlsx"):
+        file_type = "excel"
+    elif ext in ("txt", "csv", "md"):
+        file_type = "text"
+    else:
+        file_type = "text"
+
+    mime_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+
+    # 落表（相对路径只存 user_id/filename，避免绝对路径硬编码）
+    relative_path = f"{current_user.id}/{fname_on_disk}"
+    record = AgentFile(
+        file_id=file_id,
+        user_id=current_user.id,
+        session_id=None,  # finalize_node 回填
+        original_name=file.filename,
+        mime_type=mime_type,
+        file_size=len(content),
+        storage_path=relative_path,
+        file_type=file_type,
+    )
+    db.add(record)
+    db.commit()
 
     return {
         "code": 200,
@@ -259,6 +298,40 @@ async def upload_file(
             "file_size": len(content),
         },
     }
+
+
+@router.get("/files/{file_id}")
+def get_agent_file(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """按 file_id 拉取附件物理文件（鉴权 + 文件 owner 校验）。
+
+    用于历史会话回看时前端从接口拿原文件渲染（图片走 Blob URL，文档触发下载）。
+    旧会话（agent_file 表里没记录）→ 404。
+    文件已被清理 → 410 Gone（明确语义，让前端展示「附件已失效」）。
+    """
+    record = (
+        db.query(AgentFile)
+        .filter(AgentFile.file_id == file_id, AgentFile.is_deleted == False)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="附件不存在或已失效")
+
+    if record.user_id != current_user.id and not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="无权访问该附件")
+
+    full_path = Path(settings.AGENT_FILE_DIR) / record.storage_path
+    if not full_path.exists():
+        raise HTTPException(status_code=410, detail="附件已被清理")
+
+    return FileResponse(
+        path=str(full_path),
+        media_type=record.mime_type or "application/octet-stream",
+        filename=record.original_name or file_id,
+    )
 
 
 @router.get("/history/{session_id}")
