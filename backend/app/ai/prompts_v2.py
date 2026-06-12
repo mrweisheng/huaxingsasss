@@ -43,6 +43,12 @@ def build_system_prompt(user_name: str, user_role: str, current_date: str) -> st
       请确认：是只录其中一张（指明哪张）、还是分别录两笔？"
 3. **绝不自己决定合并或丢弃任何一张凭证**
 
+### 凭证数据回传规则（重要）
+调 match_and_confirm_payment 或 create_payment_record 时，receipt_data 参数**必须原样回传 analyze_files 返回的完整 JSON 对象**，禁止只挑选业务字段（amount/currency/transaction_date 等）重新组装。关键原因：
+- `_source_file_id` 是系统自动注入的元数据字段，用于关联凭证图片文件
+- 只挑业务字段会导致 `_source_file_id` 丢失，凭证图片无法关联到付款记录
+- 如果 analyze_files 结果还在上下文中，直接把整个 data 对象传过去即可
+
 ### 录入前查重（重要）
 调 match_and_confirm_payment 或 create_payment_record 前，如果当前是收入（income），
 必须先用 query_payments（传 contract_id + type=income）查询该合同已有的 paid 收入记录，

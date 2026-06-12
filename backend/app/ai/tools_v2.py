@@ -396,6 +396,14 @@ class ToolExecutorV2(ToolExecutor):
         if not isinstance(receipt_data, dict):
             return json.dumps({"error": "receipt_data 格式错误，请从 analyze_files 结果中获取"}, ensure_ascii=False)
 
+        # 观测：检测 LLM 是否漏传 _source_file_id（不阻塞，仅打 warning）
+        if isinstance(receipt_data, dict) and not receipt_data.get("_source_file_id") and not receipt_file_ids:
+            logger.warning(
+                "match_and_confirm_payment: receipt_data 缺少 _source_file_id 且无 receipt_file_ids，"
+                "凭证图片可能丢失。contract_id=%s, session=%s",
+                contract_id, self.session_id,
+            )
+
         # 提取凭证关键字段
         amount = None
         try:
@@ -722,6 +730,14 @@ class ToolExecutorV2(ToolExecutor):
         )
         if resolved_path:
             receipt_image_path = resolved_path
+
+        # 观测：检测 LLM 是否漏传 _source_file_id（不阻塞，仅打 warning）
+        if isinstance(receipt_data, dict) and not receipt_data.get("_source_file_id") and not receipt_file_ids:
+            logger.warning(
+                "create_payment_record: receipt_data 缺少 _source_file_id 且无 receipt_file_ids，"
+                "凭证图片可能丢失。contract_id=%s, session=%s",
+                contract_id, self.session_id,
+            )
 
         # 凭证去重：同合同下相同文件哈希的凭证不允许重复录入
         if resolved_path and file_hash:
@@ -1156,7 +1172,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_payment_record",
-            "description": "创建付款记录（统一收入/支出）。type=income 为客户收入，type=expense 为公司支出（必须指定 payee_name）。有凭证时自动设为 paid 状态并参与结算。",
+            "description": "创建付款记录（统一收入/支出）。type=income 为客户收入，type=expense 为公司支出（必须指定 payee_name）。有凭证时自动设为 paid 状态并参与结算。重要：receipt_data 必须原样回传 analyze_files 返回的完整对象，不要只挑业务字段——其中的 _source_file_id 是关联凭证文件的关键，缺少会导致凭证图片丢失。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "amount", "currency", "paid_date", "type"],
@@ -1172,7 +1188,7 @@ TOOL_DEFINITIONS = [
                     "receipt_image_path": {"type": "string", "description": "凭证图片路径"},
                     "notes": {"type": "string", "description": "备注"},
                     "description": {"type": "string", "description": "简短业务说明（不超过30字）"},
-                    "receipt_data": {"type": "object", "description": "凭证分析数据"},
+                    "receipt_data": {"type": "object", "description": "凭证分析数据完整 JSON 对象（含 _source_file_id）。禁止只挑部分字段回传。"},
                     "receipt_file_ids": {
                         "type": "array",
                         "items": {"type": "string"},
@@ -1186,13 +1202,13 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "match_and_confirm_payment",
-            "description": "根据凭证分析结果，自动匹配合同中待确认(pending)的付款记录。匹配成功则更新为paid；无匹配则创建新付款记录。需要先调 analyze_files 获取凭证数据，再传入 receipt_data。",
+            "description": "根据凭证分析结果，自动匹配合同中待确认(pending)的付款记录。匹配成功则更新为paid；无匹配则创建新付款记录。需要先调 analyze_files 获取凭证数据，再传入 receipt_data。重要：receipt_data 必须原样回传 analyze_files 返回的完整对象，不要只挑业务字段——其中的 _source_file_id 是关联凭证文件的关键，缺少会导致凭证图片丢失。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "receipt_data"],
                 "properties": {
                     "contract_id": {"type": "integer", "description": "关联合同ID"},
-                    "receipt_data": {"type": "object", "description": "analyze_files 返回的凭证分析结果（JSON对象）"},
+                    "receipt_data": {"type": "object", "description": "analyze_files 返回的凭证分析结果完整 JSON 对象（含 _source_file_id）。禁止只挑部分字段回传。"},
                     "payment_type": {"type": "string", "enum": ["income", "expense"], "description": "收入或支出，默认 income"},
                     "receipt_file_ids": {
                         "type": "array",
