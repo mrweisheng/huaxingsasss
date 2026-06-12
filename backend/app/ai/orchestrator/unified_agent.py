@@ -4,14 +4,13 @@
 
 节点：
   1. call_model_node      — LLM 推理（将决定调哪个工具）
-  2. execute_tool_node    — 执行工具 + 轻量确认防护
-  3. finalize_node        — chat_history 落库
+  2. execute_tool_node    — 执行工具
+  3. finalize_node        — chat_history 增量落库
 
 设计原则：
   - 无意图推断路由 — LLM 通过 analyze_files 工具自主决定
   - 无子图 — 单一 Agent 循环
-  - 无 mode guard / document guard — 工具集合简洁，无需模式锁定
-  - 轻量确认 — 写入工具前检查 LLM 上文是否展示计划
+  - 写入确认完全交给 LLM 自主判断（system prompt 约束），不在代码层做关键词拦截
 
 图缓存（v2.1）：
   - 节点函数不再通过闭包捕获 db/user/executor，而是从 config["configurable"] 运行时读取
@@ -36,13 +35,6 @@ from app.ai.prompts_v2 import build_system_prompt
 from app.config import settings
 
 logger = logging.getLogger(__name__)
-
-# 需要确认的写入工具
-_WRITABLE_TOOLS = frozenset({
-    "create_customer", "create_contract",
-    "create_payment_record", "match_and_confirm_payment",
-    "update_payment",
-})
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -150,31 +142,6 @@ def _get_deps(config: RunnableConfig) -> dict:
     if not deps:
         raise RuntimeError("Agent 图缺少请求级依赖：config.configurable._deps 未注入")
     return deps
-
-
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 轻量确认：检查 LLM 上文是否已展示计划并请求确认
-# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-_CONFIRM_KEYWORDS = frozenset({
-    "确认", "是否", "同意", "继续", "对吗", "正确吗",
-    "确认吗", "可以吗", "行吗",
-})
-
-
-def _has_confirmation_in_context(messages: list) -> bool:
-    """检查 LLM 是否在当前轮（最后一条 HumanMessage 之前）展示过确认询问。
-
-    只检查 messages[-1]：确认一定是上一轮 AI 回复的内容。
-    不扫描全部历史，避免早期"对吗"永久绕过防护。
-    """
-    if not messages:
-        return False
-    last_msg = messages[-1]
-    if not isinstance(last_msg, AIMessage):
-        return False
-    content = (last_msg.content or "").lower()
-    return any(kw in content for kw in _CONFIRM_KEYWORDS)
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -325,8 +292,8 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
 async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
     """执行工具调用。
 
-    写入工具执行前检查 LLM 上文是否展示过确认请求。
-    未展示 → 返回错误让 LLM 先确认。
+    写入是否需要先确认完全交由 LLM 根据 system prompt 的「确认规则」自主判断，
+    本节点只负责忠实执行 LLM 决定调用的工具。
     """
     deps = _get_deps(config)
     executor = deps["executor"]
@@ -351,29 +318,6 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
             "name": tool_name,
             "arguments": tc.get("arguments", "{}"),
         })
-
-        # ── 轻量确认防护 ──
-        if tool_name in _WRITABLE_TOOLS:
-            if not _has_confirmation_in_context(state.get("messages", [])):
-                logger.warning("确认防护拦截: tool=%s（上文无确认询问）", tool_name)
-                error_content = json.dumps({
-                    "error": f"请先向用户展示操作计划并请求确认后，再调用 {tool_name}。",
-                    "tool": tool_name,
-                    "hint": "你应该先回复用户（不调任何写入工具），列出将要创建/修改的内容（客户名、金额、业务类型），"
-                            "明确问「是否确认？」，等用户回复「确认」后再在下一轮调用此工具。",
-                }, ensure_ascii=False)
-                tool_messages.append(ToolMessage(
-                    content=error_content,
-                    tool_call_id=tc["id"],
-                ))
-                # SSE: 工具结束事件（被拦截）
-                await adispatch_custom_event("tool_end", {
-                    "id": tc["id"],
-                    "name": tool_name,
-                    "result": error_content,
-                    "summary": None,
-                })
-                continue
 
         # ── 执行工具 ──
         try:
@@ -400,7 +344,11 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
 
 
 async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
-    """chat_history 落库"""
+    """chat_history 增量落库
+
+    用 _persisted_count 游标只处理本轮新增消息，避免每轮全量重复插入。
+    同时跳过纯 tool_call 中间态 AIMessage（空 content + 仅 tool_calls），前端无需展示。
+    """
     deps = _get_deps(config)
     db = deps["db"]
     user = deps["user"]
@@ -411,17 +359,26 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
     from app.models.chat_history import ChatHistory
 
     session_id = state.get("session_id", "")
-    for msg in state.get("messages", []):
+    messages = state.get("messages", [])
+    cursor = state.get("_persisted_count", 0)
+    new_msgs = messages[cursor:]
+
+    for msg in new_msgs:
         msg_type = getattr(msg, "type", None)
         auto_filled = bool(getattr(msg, "additional_kwargs", {}).get("auto_filled", False))
         user_metadata = {"auto_filled": True} if auto_filled else None
         try:
             if msg_type == "ai":
+                content = (getattr(msg, "content", "") or "").strip()
+                tool_calls = getattr(msg, "tool_calls", None)
+                # 跳过纯 tool_call 中间态：无文本只是工具调用，前端没什么可展示
+                if not content and tool_calls:
+                    continue
                 record = ChatHistory(
                     user_id=user.id, session_id=session_id,
                     question="", answer=getattr(msg, "content", "") or "",
                     role="assistant",
-                    tool_calls=getattr(msg, "tool_calls", None),
+                    tool_calls=tool_calls,
                     llm_model=settings.DEEPSEEK_AGENT_MODEL,
                 )
                 db.add(record)
@@ -448,8 +405,15 @@ async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:
             logger.warning("chat_history 落库跳过: type=%s session_id=%s", msg_type, session_id, exc_info=True)
 
     db.commit()
-    logger.info("finalize_node 完成: session_id=%s msg_count=%d", session_id, len(state.get("messages", [])))
-    return {"should_end": True, "_finalized": True}
+    logger.info(
+        "finalize_node 完成: session_id=%s msg_total=%d new=%d cursor=%d→%d",
+        session_id, len(messages), len(new_msgs), cursor, len(messages),
+    )
+    return {
+        "should_end": True,
+        "_finalized": True,
+        "_persisted_count": len(messages),
+    }
 
 
 # ── 路由 ──

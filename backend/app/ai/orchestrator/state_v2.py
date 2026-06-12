@@ -31,3 +31,4 @@ class AgentState(TypedDict, total=False):
     # ── chat_history 落库标记 ──
     chat_history_meta: dict
     _finalized: bool
+    _persisted_count: int   # 已落库的 messages 数量游标（跨轮持久化在 checkpointer 里，新会话默认 0）
