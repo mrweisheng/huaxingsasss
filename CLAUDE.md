@@ -33,6 +33,7 @@
 - 数据库操作只走 Service 层，路由层不操作 ORM
 - 禁止把 agent 能做的判断用 Python if/else 硬编码实现（除非属于"工具能力约束"或"数据完整性"边界）
 - **后端不做任何请求来源限制**：CORS 必须用 `allow_origin_regex=".*"` + `allow_credentials=True`（不能用 `allow_origins=["*"]`——与凭据模式互斥，浏览器会拒收 `*`，导致预检失败）
+- **前端改动必须构建后再推送**：只要本次提交修改了 `frontend/src/**` 任意文件，commit 前必须 `cd frontend && npm run build` 生成 `frontend/dist/`，并把构建产物一起 `git add` 加入同一个 commit 推送。原因：生产环境直接消费 `frontend/dist/`，不在服务器跑 build——源码改了但 dist 没更新等同于没改。后端独立改动不受此约束。
 
 ## 设计系统 · 业务色彩
 
