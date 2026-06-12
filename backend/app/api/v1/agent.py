@@ -301,11 +301,14 @@ async def upload_file(
             base = original_name.rsplit(".", 1)[0]
             original_name = f"{base}.jpg"
 
-    # 为图片文件生成缩略图（200px），供前端在 HEIC 等浏览器不支持的格式上传后展示预览
+    # 为图片文件生成缩略图（200px），供前端在 HEIC 等浏览器不支持的格式上传后展示预览。
+    # 直接返回 data URL：浏览器原生 <img src> 不会带 Authorization 头，走 API 路径必 401；
+    # 200px JPEG 体积约 15-25KB，base64 后 ~30KB，单次上传响应可接受。
     thumbnail_url = None
     _image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif")
     if original_ext in _image_exts:
         try:
+            import base64 as _b64
             from PIL import Image as PILImage
             import io as _io2
             with PILImage.open(_io2.BytesIO(content)) as img:
@@ -315,11 +318,12 @@ async def upload_file(
                 thumb_buf = _io2.BytesIO()
                 img.save(thumb_buf, format="JPEG", quality=80)
                 thumb_bytes = thumb_buf.getvalue()
+            # 物理文件留存，兼容旧的 /thumbnail 端点和将来可能的服务端使用
             thumb_name = f"{file_id}_thumb.jpg"
             thumb_path = os.path.join(user_dir, thumb_name)
             with open(thumb_path, "wb") as f:
                 f.write(thumb_bytes)
-            thumbnail_url = f"/api/v1/agent/files/{file_id}/thumbnail"
+            thumbnail_url = "data:image/jpeg;base64," + _b64.b64encode(thumb_bytes).decode("ascii")
         except Exception:
             # 缩略图生成失败不影响主流程
             pass
