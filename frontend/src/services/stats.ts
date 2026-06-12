@@ -21,19 +21,16 @@ export interface DailyTrendItem {
   customer_count: number
 }
 
-export interface TopCustomerItem {
-  customer_id: number
-  customer_name: string
-  contract_count: number
-  total_income: CurrencyAmount
-  total_expense: CurrencyAmount
-  profit: CurrencyAmount
+export interface MonthlyReceiptTrendItem {
+  date: string             // YYYY-MM-DD
+  cny: number
+  hkd: number
 }
 
 export interface FinancialOverview {
   kpi: KpiData
   daily_trend: DailyTrendItem[]
-  top_customers: TopCustomerItem[]
+  monthly_receipt_trend: MonthlyReceiptTrendItem[]
 }
 
 export const statsApi = {

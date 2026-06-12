@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Spin, Empty, Segmented, Tooltip } from 'antd'
+import { Spin, Empty, Tooltip } from 'antd'
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -20,7 +20,6 @@ const CURRENCY_SYMBOL: Record<Currency, string> = { CNY: '¥', HKD: 'HK$' }
 export default function FinancialOverview() {
   const [loading, setLoading] = useState(true)
   const [data, setData] = useState<FinancialOverviewType | null>(null)
-  const [topCurrency, setTopCurrency] = useState<Currency>('CNY')
 
   useEffect(() => {
     statsApi.getOverview()
@@ -44,7 +43,7 @@ export default function FinancialOverview() {
     )
   }
 
-  const { kpi, daily_trend, top_customers } = data
+  const { kpi, daily_trend, monthly_receipt_trend } = data
 
   // 回款率 = 已收 / (已收 + 应收)，分币种算。0 分母时返回 null。
   const collectionRate = (c: Currency): number | null => {
@@ -194,19 +193,14 @@ export default function FinancialOverview() {
         />
       </div>
 
-      {/* ── TOP 10 客户利润（全宽） ── */}
+      {/* ── 月度收款趋势（全宽，双币种曲线） ── */}
       <div className="fo-chart-card fo-chart-card--full">
         <div className="fo-chart-card__title">
-          <span>客户利润排名 TOP 10</span>
-          <Segmented
-            size="small"
-            value={topCurrency}
-            onChange={(v) => setTopCurrency(v as Currency)}
-            options={['CNY', 'HKD']}
-          />
+          <span>月度收款趋势</span>
+          <span className="fo-chart-card__subtitle">近 30 天 · 按凭证付款日期 · CNY 与 HKD 分线</span>
         </div>
         <ReactECharts
-          option={topCustomerOption(top_customers, topCurrency)}
+          option={monthlyReceiptTrendOption(monthly_receipt_trend)}
           style={{ height: 360 }}
           notMerge
         />
@@ -320,53 +314,110 @@ function dailyBusinessTrendOption(data: FinancialOverviewType['daily_trend']) {
   }
 }
 
-function topCustomerOption(data: FinancialOverviewType['top_customers'], currency: Currency) {
-  // 按所选币种的利润排序，取前 10
-  const sorted = [...data]
-    .filter(d => (d.profit[currency] || 0) !== 0 || (d.total_income[currency] || 0) !== 0)
-    .sort((a, b) => b.profit[currency] - a.profit[currency])
-    .slice(0, 10)
-  const names = sorted.map(d => d.customer_name)
-  const sym = CURRENCY_SYMBOL[currency]
+/**
+ * 月度收款趋势：双曲线（CNY + HKD），按凭证付款日期聚合
+ *
+ * 颜色：
+ *   - CNY 线：华星金 #c9952b （已收/落袋 状态色家族，金钱语义）
+ *   - HKD 线：teal #0d9488  （结清/到账 状态色家族，与金色高对比、易区分）
+ * 平滑曲线 + 区域渐变填充，区别上方"业务趋势"的柱状图。
+ */
+function monthlyReceiptTrendOption(data: FinancialOverviewType['monthly_receipt_trend']) {
+  const dates = data.map(d => d.date.slice(5))
+  const fullDates = data.map(d => d.date)
+  const cnyData = data.map(d => Number(d.cny) || 0)
+  const hkdData = data.map(d => Number(d.hkd) || 0)
+
   return {
     tooltip: {
       trigger: 'axis',
-      axisPointer: { type: 'shadow' },
+      axisPointer: { type: 'line', lineStyle: { color: '#cbd5e1', type: 'dashed' } },
       formatter: (params: any[]) => {
         const idx = params[0].dataIndex
-        const item = sorted[idx]
-        return `<b>${item.customer_name}</b><br/>合同数：${item.contract_count}<br/>` +
-          params.map(p => `${p.marker} ${p.seriesName}：${sym}${formatMoney(Number(p.value)).full}`).join('<br/>')
+        const date = fullDates[idx]
+        let s = `<b>${date}</b><br/>`
+        params.forEach(p => {
+          const sym = p.seriesName === 'CNY' ? CURRENCY_SYMBOL.CNY : CURRENCY_SYMBOL.HKD
+          s += `${p.marker} ${p.seriesName}：<b>${sym}${formatMoney(Number(p.value)).full}</b><br/>`
+        })
+        return s
       },
     },
-    legend: { data: ['已收', '支出', '利润'], top: 0, right: 0 },
-    grid: { top: 40, bottom: 24, left: 100, right: 30 },
-    xAxis: {
-      type: 'value',
-      axisLabel: { fontSize: 12, formatter: (v: number) => formatMoneyShort(v) },
+    legend: {
+      data: ['CNY', 'HKD'],
+      top: 0,
+      right: 8,
+      itemWidth: 14,
+      itemHeight: 10,
+      textStyle: { fontSize: 12 },
     },
-    yAxis: { type: 'category', data: names, axisLabel: { fontSize: 12 } },
+    grid: { top: 50, bottom: 50, left: 60, right: 30 },
+    xAxis: {
+      type: 'category',
+      boundaryGap: false,
+      data: dates,
+      axisLabel: {
+        fontSize: 11,
+        color: '#64748b',
+        interval: dates.length > 20 ? 2 : 1,
+      },
+      axisLine: { lineStyle: { color: '#e2e8f0' } },
+      axisTick: { show: false },
+    },
+    yAxis: {
+      type: 'value',
+      name: '金额',
+      nameTextStyle: { fontSize: 11, color: '#64748b', padding: [0, 30, 0, 0] },
+      min: 0,
+      axisLabel: {
+        fontSize: 11,
+        color: '#64748b',
+        formatter: (v: number) => formatMoneyShort(v),
+      },
+      splitLine: { lineStyle: { color: '#f1f5f9', type: 'dashed' } },
+    },
     series: [
       {
-        name: '已收',
-        type: 'bar',
-        data: sorted.map(d => d.total_income[currency]),
-        itemStyle: { color: '#0d9486', borderRadius: [0, 4, 4, 0] },
-        barMaxWidth: 16,
+        name: 'CNY',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        showSymbol: false,
+        data: cnyData,
+        lineStyle: { width: 2.5, color: '#c9952b' },
+        itemStyle: { color: '#c9952b', borderColor: '#fff', borderWidth: 2 },
+        emphasis: { focus: 'series', scale: 1.2 },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(201, 149, 43, 0.28)' },
+              { offset: 1, color: 'rgba(201, 149, 43, 0.02)' },
+            ],
+          },
+        },
       },
       {
-        name: '支出',
-        type: 'bar',
-        data: sorted.map(d => d.total_expense[currency]),
-        itemStyle: { color: '#dc2626', borderRadius: [0, 4, 4, 0] },
-        barMaxWidth: 16,
-      },
-      {
-        name: '利润',
-        type: 'bar',
-        data: sorted.map(d => d.profit[currency]),
-        itemStyle: { color: '#c9952b', borderRadius: [0, 4, 4, 0] },
-        barMaxWidth: 16,
+        name: 'HKD',
+        type: 'line',
+        smooth: true,
+        symbol: 'circle',
+        symbolSize: 6,
+        showSymbol: false,
+        data: hkdData,
+        lineStyle: { width: 2.5, color: '#0d9488' },
+        itemStyle: { color: '#0d9488', borderColor: '#fff', borderWidth: 2 },
+        emphasis: { focus: 'series', scale: 1.2 },
+        areaStyle: {
+          color: {
+            type: 'linear', x: 0, y: 0, x2: 0, y2: 1,
+            colorStops: [
+              { offset: 0, color: 'rgba(13, 148, 136, 0.24)' },
+              { offset: 1, color: 'rgba(13, 148, 136, 0.02)' },
+            ],
+          },
+        },
       },
     ],
   }

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.models.contract import Contract
 from app.models.customer import Customer
+from app.models.payment import Payment
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,13 @@ class StatsService:
         # ── 2. 每日业务趋势（滚动近 30 天） ──
         daily_trend = StatsService._build_daily_business_trend(db)
 
-        # ── 3. TOP 10 客户 ──
-        top_customers = StatsService._build_top_customers(db)
+        # ── 3. 月度收款趋势（滚动近 30 天，按币种分线） ──
+        receipt_trend = StatsService._build_monthly_receipt_trend(db)
 
         return {
             "kpi": kpi,
             "daily_trend": daily_trend,
-            "top_customers": top_customers,
+            "monthly_receipt_trend": receipt_trend,
         }
 
     @staticmethod
@@ -140,46 +141,41 @@ class StatsService:
         return result
 
     @staticmethod
-    def _build_top_customers(db: Session, limit: int = 10) -> list:
-        """按客户收入排名（按币种分组，不跨币种合并）"""
+    def _build_monthly_receipt_trend(db: Session, days: int = 30) -> list:
+        """构建滚动近 N 天的每日收款趋势（按币种分线）。
+
+        口径：以付款记录的 paid_date 为聚合日；只统计 type=income 且 paid_date 非空（已实际到账）。
+        金额取 paid_amount，按 CNY/HKD 分别汇总；缺失日期 0 填充，保证 X 轴等距。
+        """
+        today = date.today()
+        start = today - timedelta(days=days - 1)
+
         rows = db.query(
-            Customer.id.label("customer_id"),
-            Customer.name.label("customer_name"),
-            Contract.currency,
-            func.count(Contract.id).label("contract_count"),
-            func.sum(Contract.paid_amount).label("total_income"),
-            func.sum(Contract.total_expense).label("total_expense"),
-        ).join(
-            Contract, Contract.customer_id == Customer.id
+            Payment.paid_date.label("paid_date"),
+            Payment.currency.label("currency"),
+            func.sum(Payment.paid_amount).label("total"),
         ).filter(
-            Contract.is_deleted == False,
-            Customer.is_deleted == False,
-        ).group_by(
-            Customer.id, Customer.name, Contract.currency,
-        ).all()
+            Payment.is_deleted == False,
+            Payment.type == "income",
+            Payment.paid_date.isnot(None),
+            Payment.paid_date >= start,
+            Payment.paid_date <= today,
+        ).group_by(Payment.paid_date, Payment.currency).all()
 
-        # 合并到客户维度：每个客户下按币种拆
-        by_cust: dict[int, dict] = {}
+        by_day: dict[date, dict[str, Decimal]] = {}
         for r in rows:
-            cid = r.customer_id
             cur = r.currency if r.currency in ("CNY", "HKD") else "CNY"
-            if cid not in by_cust:
-                by_cust[cid] = {
-                    "customer_id": cid,
-                    "customer_name": r.customer_name,
-                    "contract_count": 0,
-                    "total_income": {"CNY": Decimal("0"), "HKD": Decimal("0")},
-                    "total_expense": {"CNY": Decimal("0"), "HKD": Decimal("0")},
-                    "profit": {"CNY": Decimal("0"), "HKD": Decimal("0")},
-                }
-            by_cust[cid]["contract_count"] += r.contract_count or 0
-            by_cust[cid]["total_income"][cur] += r.total_income or Decimal("0")
-            by_cust[cid]["total_expense"][cur] += r.total_expense or Decimal("0")
-            by_cust[cid]["profit"][cur] = (
-                by_cust[cid]["total_income"][cur] - by_cust[cid]["total_expense"][cur]
-            )
+            slot = by_day.setdefault(r.paid_date, {"CNY": Decimal("0"), "HKD": Decimal("0")})
+            slot[cur] += r.total or Decimal("0")
 
-        result = list(by_cust.values())
-        # 按 CNY 业务量排序（admin 视角下 CNY 是主要参考币种；HKD 同理可单独看）
-        result.sort(key=lambda x: x["total_income"]["CNY"] + x["total_income"]["HKD"], reverse=True)
-        return result[:limit]
+        result = []
+        for i in range(days):
+            d = start + timedelta(days=i)
+            slot = by_day.get(d, {"CNY": Decimal("0"), "HKD": Decimal("0")})
+            result.append({
+                "date": d.isoformat(),
+                "cny": slot["CNY"],
+                "hkd": slot["HKD"],
+            })
+        return result
+

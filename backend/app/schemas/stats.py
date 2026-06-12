@@ -32,18 +32,15 @@ class DailyTrendItem(BaseModel):
     customer_count: int = Field(0, description="当日成交不重复客户数")
 
 
-class TopCustomerItem(BaseModel):
-    """TOP 客户条目（按币种分组）"""
-    customer_id: int
-    customer_name: str
-    contract_count: int = Field(0, description="合同数")
-    total_income: CurrencyAmount = Field(default_factory=CurrencyAmount, description="已收总额（按币种）")
-    total_expense: CurrencyAmount = Field(default_factory=CurrencyAmount, description="支出总额（按币种）")
-    profit: CurrencyAmount = Field(default_factory=CurrencyAmount, description="利润（按币种）")
+class MonthlyReceiptTrendItem(BaseModel):
+    """每日收款趋势条目（滚动近 30 天，按币种分线）"""
+    date: str = Field(..., description="付款日期 YYYY-MM-DD")
+    cny: Decimal = Field(Decimal("0"), description="当日 CNY 实收金额")
+    hkd: Decimal = Field(Decimal("0"), description="当日 HKD 实收金额")
 
 
 class FinancialOverview(BaseModel):
     """财务总览响应"""
     kpi: KpiData
     daily_trend: List[DailyTrendItem] = Field(default_factory=list)
-    top_customers: List[TopCustomerItem] = Field(default_factory=list)
+    monthly_receipt_trend: List[MonthlyReceiptTrendItem] = Field(default_factory=list)
