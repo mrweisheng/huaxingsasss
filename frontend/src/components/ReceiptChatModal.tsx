@@ -582,7 +582,7 @@ export default function ReceiptChatModal({
                 type="primary"
                 icon={<SendOutlined />}
                 onClick={handleSend}
-                disabled={!inputText.trim() && pendingFiles.length === 0}
+                disabled={hasUploading || (!inputText.trim() && pendingFiles.length === 0)}
                 className="receipt-chat-send-btn"
               >
                 发送

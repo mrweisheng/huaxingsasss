@@ -427,21 +427,45 @@ const CenterInputBox = memo(function CenterInputBox({
       )}
 
       {pendingFiles.length > 0 && (
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8, alignItems: 'center' }}>
           {pendingFiles.map((pf, i) => {
             const f = pf.file
             const name = f.name.toLowerCase()
             const isHeic = name.endsWith('.heic') || name.endsWith('.heif')
-            const icon = isHeic
-              ? (pf.status === 'uploading'
-                  ? <Spin size="small" style={{ color: 'var(--brand-gold)' }} />
-                  : pf.status === 'error'
-                    ? <PictureOutlined style={{ color: 'var(--color-danger)' }} />
-                    : <PictureOutlined style={{ color: 'var(--brand-gold)' }} />)
-              : name.endsWith('.pdf') ? <FilePdfOutlined style={{ color: '#dc2626' }} />
+            if (isHeic) {
+              const thumb = pf.status === 'uploading' ? (
+                <span style={{ height: 40, width: 40, borderRadius: 8, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <Spin size="small" style={{ color: 'var(--brand-gold)' }} />
+                </span>
+              ) : pf.status === 'error' ? (
+                <span style={{ height: 40, width: 40, borderRadius: 8, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <PictureOutlined style={{ fontSize: 18, color: 'var(--color-danger)' }} />
+                </span>
+              ) : pf.uploaded?.thumbnailUrl ? (
+                <img src={pf.uploaded.thumbnailUrl} alt={f.name} style={{ height: 40, width: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--border-default)' }} />
+              ) : (
+                <span style={{ height: 40, width: 40, borderRadius: 8, background: 'var(--bg-subtle)', border: '1px solid var(--border-default)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+                  <PictureOutlined style={{ fontSize: 18, color: 'var(--brand-gold)' }} />
+                </span>
+              )
+              return (
+                <span key={pf.id} style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }} onClick={() => onRemoveFile(i)}>
+                  {thumb}
+                  <span style={{ position: 'absolute', top: -6, right: -6, background: 'var(--color-danger)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, lineHeight: '16px', textAlign: 'center', boxShadow: '0 2px 4px rgba(220,38,38,0.3)' }}>×</span>
+                </span>
+              )
+            }
+            if (f.type.startsWith('image/')) {
+              return (
+                <span key={pf.id} style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }} onClick={() => onRemoveFile(i)}>
+                  <img src={URL.createObjectURL(f)} alt={f.name} style={{ height: 40, width: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--border-default)' }} />
+                  <span style={{ position: 'absolute', top: -6, right: -6, background: 'var(--color-danger)', color: '#fff', borderRadius: '50%', width: 16, height: 16, fontSize: 10, lineHeight: '16px', textAlign: 'center', boxShadow: '0 2px 4px rgba(220,38,38,0.3)' }}>×</span>
+                </span>
+              )
+            }
+            const icon = name.endsWith('.pdf') ? <FilePdfOutlined style={{ color: '#dc2626' }} />
               : name.endsWith('.docx') || name.endsWith('.doc') ? <FileWordOutlined style={{ color: 'var(--brand-primary)' }} />
               : name.endsWith('.xlsx') || name.endsWith('.xls') ? <FileExcelOutlined style={{ color: 'var(--color-success)' }} />
-              : f.type.startsWith('image/') ? <PictureOutlined style={{ color: 'var(--brand-gold)' }} />
               : <FileTextOutlined style={{ color: 'var(--color-warning)' }} />
             return (
               <Tag key={pf.id} closable onClose={() => onRemoveFile(i)} style={{ margin: 0, fontSize: 12, borderRadius: 6 }}>

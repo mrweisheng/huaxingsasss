@@ -457,6 +457,15 @@ export default function ContractChatModal({
               const f = pf.file
               const isHeic = f.name.toLowerCase().endsWith('.heic') || f.name.toLowerCase().endsWith('.heif')
               if (isHeic) {
+                const inner = pf.status === 'uploading' ? (
+                  <Spin size="small" style={{ color: 'var(--brand-gold)' }} />
+                ) : pf.status === 'error' ? (
+                  <PictureOutlined style={{ fontSize: 18, color: 'var(--color-danger)' }} />
+                ) : pf.uploaded?.thumbnailUrl ? (
+                  <img src={pf.uploaded.thumbnailUrl} alt={f.name} className="contract-chat-pending-thumb" />
+                ) : (
+                  <PictureOutlined style={{ fontSize: 18, color: 'var(--brand-gold)' }} />
+                )
                 return (
                   <span key={i} className="contract-chat-pending-preview" onClick={() => removePendingFile(i)}>
                     <span style={{
@@ -465,7 +474,7 @@ export default function ContractChatModal({
                       border: '1px solid var(--border-default)',
                       display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
                     }}>
-                      <PictureOutlined style={{ fontSize: 18, color: 'var(--brand-gold)' }} />
+                      {inner}
                     </span>
                     <span className="contract-chat-pending-remove">×</span>
                   </span>
