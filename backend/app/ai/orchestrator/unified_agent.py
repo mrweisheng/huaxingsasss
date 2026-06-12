@@ -298,6 +298,13 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
     deps = _get_deps(config)
     executor = deps["executor"]
 
+    # 跨 turn 恢复：从 AgentState 恢复上轮 analyze_files 发现的凭证 file_id
+    # （每个 HTTP 请求重建 ToolExecutorV2 实例，实例属性会丢失，
+    #   但 AgentState 通过 checkpointer 跨 turn 持久化）
+    saved_file_ids = state.get("_pending_receipt_file_ids") or []
+    if saved_file_ids:
+        executor._pending_receipt_file_ids = list(saved_file_ids)
+
     last_msg = state["messages"][-1]
     if not getattr(last_msg, "tool_calls", None):
         return {}
@@ -342,7 +349,12 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
             additional_kwargs={"summary": summary} if summary else {},
         ))
 
-    return {"messages": tool_messages}
+    # 跨 turn 同步：把 executor 上的 _pending_receipt_file_ids 写回 state
+    # （analyze_files 会追加，match_and_confirm/create_payment 会消费清空）
+    return {
+        "messages": tool_messages,
+        "_pending_receipt_file_ids": list(executor._pending_receipt_file_ids),
+    }
 
 
 async def finalize_node(state: AgentState, config: RunnableConfig) -> dict:

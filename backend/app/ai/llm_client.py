@@ -86,7 +86,7 @@ class VisionModelClient:
             )
 
         if response.status_code != 200:
-            raise Exception(f"SiliconFlow API error: {response.text}")
+            raise Exception(f"DashScope API error: {response.text}")
 
         result = response.json()
         content = result["choices"][0]["message"]["content"]
@@ -152,7 +152,7 @@ class AgentModelClient:
         max_tokens: int = 4096,
     ) -> AsyncGenerator[dict, None]:
         """
-        流式调用 SiliconFlow Agent 模型，支持函数调用和指数退避重试。
+        流式调用 DeepSeek Agent 模型，支持函数调用和指数退避重试。
         逐个 yield 解析后的 SSE 事件。
 
         重试条件：429（限流）、5xx（服务端错误）、TimeoutException、ConnectError
@@ -186,7 +186,7 @@ class AgentModelClient:
                 yielded_count = 0
                 try:
                     logger.info(
-                        "SiliconFlow Agent 请求: model=%s, base_url=%s, attempt=%d/%d",
+                        "DeepSeek Agent 请求: model=%s, base_url=%s, attempt=%d/%d",
                         self.model, self.base_url, attempt + 1, self.max_retries,
                     )
                     async with client.stream(
@@ -196,7 +196,7 @@ class AgentModelClient:
                         headers=headers,
                     ) as response:
                         logger.info(
-                            "SiliconFlow Agent 响应状态: %d, content_type=%s",
+                            "DeepSeek Agent 响应状态: %d, content_type=%s",
                             response.status_code,
                             response.headers.get("content-type", "unknown"),
                         )
@@ -207,7 +207,7 @@ class AgentModelClient:
                                 retry_after = self.retry_base_delay * (2 ** attempt)
                             retry_after = max(retry_after, self.retry_base_delay)
                             logger.warning(
-                                "SiliconFlow Agent 限流 429，%.1fs 后重试 (attempt %d/%d)",
+                                "DeepSeek Agent 限流 429，%.1fs 后重试 (attempt %d/%d)",
                                 retry_after, attempt + 1, self.max_retries,
                             )
                             await response.aread()
@@ -217,7 +217,7 @@ class AgentModelClient:
                         if response.status_code >= 500:
                             delay = self.retry_base_delay * (2 ** attempt)
                             logger.warning(
-                                "SiliconFlow Agent 服务端错误 %d，%.1fs 后重试 (attempt %d/%d)",
+                                "DeepSeek Agent 服务端错误 %d，%.1fs 后重试 (attempt %d/%d)",
                                 response.status_code, delay, attempt + 1, self.max_retries,
                             )
                             await response.aread()
@@ -227,7 +227,7 @@ class AgentModelClient:
                         if response.status_code >= 400:
                             error_body = await response.aread()
                             raise Exception(
-                                f"SiliconFlow Agent API error {response.status_code}: {error_body.decode()}"
+                                f"DeepSeek Agent API error {response.status_code}: {error_body.decode()}"
                             )
 
                         # 成功：处理 SSE 流
@@ -237,12 +237,12 @@ class AgentModelClient:
                         async for line in response.aiter_lines():
                             sse_line_count += 1
                             if sse_line_count <= 3:
-                                logger.debug("SiliconFlow Agent SSE line #%d: %s", sse_line_count, line[:200] if len(line) > 200 else line)
+                                logger.debug("DeepSeek Agent SSE line #%d: %s", sse_line_count, line[:200] if len(line) > 200 else line)
                             if not line.startswith("data: "):
                                 continue
                             data = line[6:]
                             if data == "[DONE]":
-                                logger.info("SiliconFlow Agent SSE 流结束, 共 %d 行", sse_line_count)
+                                logger.info("DeepSeek Agent SSE 流结束, 共 %d 行", sse_line_count)
                                 for tc in current_tool_calls.values():
                                     yield {
                                         "type": "tool_call",
@@ -308,7 +308,7 @@ class AgentModelClient:
                             if finish_reason == "length":
                                 if current_tool_calls:
                                     logger.warning(
-                                        "SiliconFlow Agent 流式返回 length 截断且含 tool_calls，"
+                                        "DeepSeek Agent 流式返回 length 截断且含 tool_calls，"
                                         "已强制 flush %d 个工具调用",
                                         len(current_tool_calls),
                                     )
@@ -341,20 +341,20 @@ class AgentModelClient:
                 except (httpx.TimeoutException, httpx.ConnectError) as e:
                     if yielded_count > 0:
                         logger.error(
-                            "SiliconFlow Agent 流传输中途断开（已 yield %d 个事件），放弃重试: %s",
+                            "DeepSeek Agent 流传输中途断开（已 yield %d 个事件），放弃重试: %s",
                             yielded_count, type(e).__name__,
                         )
                         raise
                     last_error = e
                     delay = self.retry_base_delay * (2 ** attempt)
                     logger.warning(
-                        "SiliconFlow Agent 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
+                        "DeepSeek Agent 网络错误: %s，%.1fs 后重试 (attempt %d/%d)",
                         type(e).__name__, delay, attempt + 1, self.max_retries,
                     )
                     await asyncio.sleep(delay)
                     continue
 
         raise Exception(
-            f"SiliconFlow Agent API 在 {self.max_retries} 次重试后仍失败: {last_error}"
+            f"DeepSeek Agent API 在 {self.max_retries} 次重试后仍失败: {last_error}"
         )
 

@@ -16,7 +16,7 @@
   - 合同去重检测（file_hash）
   - Redis 缓存（VL 分析结果）
   - 自动创建付款记录（contract purpose 时）
-  - VL 失败 fallback（百炼 → SiliconFlow）
+   - VL 失败 fallback
 """
 import json
 import os
