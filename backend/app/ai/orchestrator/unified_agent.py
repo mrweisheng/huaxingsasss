@@ -152,6 +152,7 @@ def _convert_messages(
     messages: list, user, attachments: list = None,
     session_context: Optional[dict] = None,
     contract_info: Optional[dict] = None,
+    session_mode: str = "chat",
 ) -> list:
     """将 LangChain BaseMessage 列表转为 OpenAI 格式消息列表。"""
     system_content = build_system_prompt(
@@ -160,6 +161,7 @@ def _convert_messages(
         current_date=date.today().isoformat(),
         session_context=session_context,
         contract_info=contract_info,
+        session_mode=session_mode,
     )
     result = [{"role": "system", "content": system_content}]
 
@@ -278,6 +280,7 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
         msgs, user, attachments,
         session_context=session_context,
         contract_info=contract_info,
+        session_mode=state.get("session_mode", "chat"),
     )
 
     full_text = ""

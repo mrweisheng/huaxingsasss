@@ -16,6 +16,7 @@ def build_system_prompt(
     current_date: str,
     session_context: Optional[dict] = None,
     contract_info: Optional[dict] = None,
+    session_mode: str = "chat",
 ) -> str:
     role_desc = {
         "admin": "管理员，拥有所有权限，可查看和操作所有数据",
@@ -39,10 +40,11 @@ def build_system_prompt(
             ctx_lines.append(f"- 操作类型: {'录入收入' if contract_info['payment_type'] == 'income' else '录入支出'}")
         context_block = "\n## 当前合同上下文\n" + "\n".join(ctx_lines) + "\n\n你正在为此合同处理收支录入。合同ID和收支类型已被用户从合同页面锁定，无需确认——所有操作必须关联此合同（使用上方的合同ID和合同编号），绝对不要询问用户\"关联到哪个合同\"或\"是收入还是支出\"。如果凭证识别度低（金额/币种/付款方/日期不清晰），要问的是这些业务字段，而不是合同归属。\n\n例外：如果凭证识别出的付款方/收款方/备注中出现的人名与上方合同的客户名完全不一致（注意：简繁差异如\"胡少棟/胡少栋\"、个人名与其名下公司、家属代付等合理变体不算不一致），录入前先告知用户这个不一致并请其确认，例如：\"凭证备注提到'王五'，但当前合同客户是'李四'，是否确认这笔仍录到李四的合同？\"——这是防止用户误传其他合同凭证的安全检查，不是要切换合同。"
 
-        # 录入支出场景下追加「无凭证支出」识别规则——仅在合同支出上下文注入，
-        # 避免在 chat 模式或收入场景下被误用
-        if contract_info.get("payment_type") == "expense":
-            context_block += """
+    # 无凭证支出规则：只要会话模式是录支出就注入，不依赖 contract_info。
+    # 两个入口（合同卡片「支」按钮 / 主页「录支出」标签）创建 session 时
+    # 都设 mode='receipt_expense'，所以两边都能命中同一套规则。
+    if session_mode == "receipt_expense":
+        context_block += """
 
 ### 无凭证支出场景（仅录入支出时适用）
 小额返点、现金杂费、当场结的服务费等，用户口头描述、未上传任何凭证（如"张三介绍来的，给他返 500 港币"）。识别到此场景时按以下流程处理：
