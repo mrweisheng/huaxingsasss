@@ -4,13 +4,14 @@ import {
 } from 'antd'
 import {
   SendOutlined, RobotOutlined, UserOutlined, PaperClipOutlined,
-  StopOutlined, InboxOutlined, PlusOutlined,
+  StopOutlined, InboxOutlined, PlusOutlined, PictureOutlined,
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
-import type { ChatMessage, FileType } from '@/types/agent'
+import type { ChatMessage, FileType, UploadResult } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
+import { usePendingFiles } from '@/hooks/usePendingFiles'
 import {
   readSSEStream,
   computeEventUpdates,
@@ -115,7 +116,7 @@ export default function ReceiptChatModal({
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
-  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const { pendingFiles, addFiles, removeFile, clear: clearPending, hasUploading, toSendPayload } = usePendingFiles()
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const sessionCreatingRef = useRef(false)
@@ -129,7 +130,7 @@ export default function ReceiptChatModal({
     if (!open) return
     setMessages([])
     setInputText('')
-    setPendingFiles([])
+    clearPending()
     setSessionId(null)
     sessionCreatingRef.current = false
 
@@ -197,7 +198,7 @@ export default function ReceiptChatModal({
   }, [sessionId])
 
   // SSE 流式发送
-  const doSend = useCallback(async (text: string, files?: File[]) => {
+  const doSend = useCallback(async (text: string, files?: Array<{ file: File; uploaded?: UploadResult }>) => {
     // 懒创建 session：没有 sessionId 时先建一个
     let activeSessionId = sessionId
     if (!activeSessionId) {
@@ -224,19 +225,26 @@ export default function ReceiptChatModal({
     setIsStreaming(true)
 
     // 本地附件预览
-    const localAttachments: { file: File; fileType: FileType; preview?: string }[] = []
+    const localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: UploadResult }[] = []
     if (files && files.length > 0) {
-      for (const file of files) {
+      for (const item of files) {
+        const file = item.file
         const fileType = getFileType(file)
+        // 已上传的 HEIC 直接用 thumbnailUrl 做预览，否则走 FileReader
         let preview: string | undefined
-        if (file.type.startsWith('image/')) {
-          preview = await new Promise<string>((resolve) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result as string)
-            reader.readAsDataURL(file)
-          })
+        if (item.uploaded) {
+          preview = item.uploaded.thumbnailUrl ?? undefined
+        } else {
+          const isHeic = file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')
+          if (file.type.startsWith('image/') && !isHeic) {
+            preview = await new Promise<string>((resolve) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve(reader.result as string)
+              reader.readAsDataURL(file)
+            })
+          }
         }
-        localAttachments.push({ file, fileType, preview })
+        localAttachments.push({ file, fileType, preview, uploaded: item.uploaded })
       }
     }
 
@@ -270,12 +278,27 @@ export default function ReceiptChatModal({
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
 
-    // 上传文件
+    // 上传文件（已上传的 HEIC 跳过）
     const uploaded: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
     for (const local of localAttachments) {
       try {
-        const res = await agentApi.uploadFile(local.file)
-        uploaded.push({ file_id: res.data.fileId, file_type: local.fileType, fileName: local.file.name, preview: local.preview })
+        if (local.uploaded) {
+          // HEIC 已在选文件时上传完成，直接复用 fileId
+          uploaded.push({
+            file_id: local.uploaded.fileId,
+            file_type: local.fileType,
+            fileName: local.file.name,
+            preview: local.preview,
+          })
+        } else {
+          const res = await agentApi.uploadFile(local.file)
+          uploaded.push({
+            file_id: res.data.fileId,
+            file_type: local.fileType,
+            fileName: local.file.name,
+            preview: local.preview,
+          })
+        }
       } catch {
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, content: '' } : m
@@ -313,11 +336,11 @@ export default function ReceiptChatModal({
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
     if (!text && pendingFiles.length === 0) return
-    const files = pendingFiles.length > 0 ? [...pendingFiles] : undefined
+    const payload = pendingFiles.length > 0 ? toSendPayload() : undefined
     setInputText('')
-    setPendingFiles([])
-    await doSend(text, files)
-  }, [inputText, pendingFiles, doSend])
+    clearPending()
+    await doSend(text, payload)
+  }, [inputText, pendingFiles, doSend, hasUploading, toSendPayload, clearPending])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -340,17 +363,17 @@ export default function ReceiptChatModal({
     e.preventDefault()
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) {
-      setPendingFiles(prev => [...prev, ...files])
+      addFiles(files)
     }
-  }, [])
+  }, [addFiles])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
   }, [])
 
   const removePendingFile = useCallback((index: number) => {
-    setPendingFiles(prev => prev.filter((_, i) => i !== index))
-  }, [])
+    removeFile(index)
+  }, [removeFile])
 
   const hasMessages = messages.some(m => m.role === 'user' || m.role === 'assistant')
 
@@ -429,38 +452,61 @@ export default function ReceiptChatModal({
           {pendingFiles.length > 0 && (
             <div className="receipt-chat-pending-files">
               <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4 }}>待发送</span>
-              {pendingFiles.map((f, i) => {
+              {pendingFiles.map((pf, i) => {
+                const f = pf.file
+                const isHeic = f.name.toLowerCase().endsWith('.heic') || f.name.toLowerCase().endsWith('.heif')
+                // HEIC 文件：根据上传状态显示不同占位（uploading 转圈 / done 缩略图 / error 错误）
+                if (isHeic) {
+                  const inner = pf.status === 'uploading' ? (
+                    <Spin size="small" style={{ color: 'var(--brand-gold)' }} />
+                  ) : pf.status === 'error' ? (
+                    <PictureOutlined style={{ fontSize: 18, color: 'var(--color-danger)' }} />
+                  ) : pf.uploaded?.thumbnailUrl ? (
+                    <img src={pf.uploaded.thumbnailUrl} alt={f.name} className="receipt-chat-pending-thumb" />
+                  ) : (
+                    <PictureOutlined style={{ fontSize: 18, color: 'var(--brand-gold)' }} />
+                  )
+                  return (
+                    <span key={pf.id} className="receipt-chat-pending-preview" onClick={() => removePendingFile(i)}>
+                      <span style={{
+                        height: 40, width: 40, borderRadius: 8,
+                        background: 'var(--bg-subtle)',
+                        border: '1px solid var(--border-default)',
+                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        {inner}
+                      </span>
+                      <span className="receipt-chat-pending-remove">×</span>
+                    </span>
+                  )
+                }
                 if (f.type.startsWith('image/')) {
                   return (
-                    <span key={i} className="receipt-chat-pending-preview" onClick={() => removePendingFile(i)}>
+                    <span key={pf.id} className="receipt-chat-pending-preview" onClick={() => removePendingFile(i)}>
                       <img src={URL.createObjectURL(f)} alt={f.name} className="receipt-chat-pending-thumb" />
                       <span className="receipt-chat-pending-remove">×</span>
                     </span>
                   )
                 }
                 return (
-                  <Tag key={i} closable onClose={() => removePendingFile(i)} style={{ margin: 0, fontSize: 12 }}>
+                  <Tag key={pf.id} closable onClose={() => removePendingFile(i)} style={{ margin: 0, fontSize: 12 }}>
                     {f.name.length > 16 ? f.name.slice(0, 14) + '…' : f.name}
                   </Tag>
                 )
               })}
               {/* 图片未满 2 张时显示「+」按钮，点击再选一张 */}
               {(() => {
-                const imageCount = pendingFiles.filter(f => f.type.startsWith('image/')).length
-                const hasNonImage = pendingFiles.some(f => !f.type.startsWith('image/'))
+                const imageCount = pendingFiles.filter(pf => pf.file.type.startsWith('image/')).length
+                const hasNonImage = pendingFiles.some(pf => !pf.file.type.startsWith('image/'))
                 if (imageCount > 0 && imageCount < 2 && !hasNonImage) {
                   return (
                     <Upload
                       beforeUpload={(file: File) => {
-                        compressImage(file).then((compressed) => {
-                          setPendingFiles(prev => {
-                            if (prev.filter(f => f.type.startsWith('image/')).length >= 2) {
-                              message.warning('图片最多携带 2 张')
-                              return prev
-                            }
-                            return [...prev, compressed]
-                          })
-                        })
+                        if (imageCount >= 2) {
+                          message.warning('图片最多携带 2 张')
+                          return false
+                        }
+                        compressImage(file).then((compressed) => addFiles([compressed]))
                         return false
                       }}
                       showUploadList={false}
@@ -496,20 +542,14 @@ export default function ReceiptChatModal({
             <Upload
               beforeUpload={(file: File) => {
                 const isImage = file.type.startsWith('image/')
+                const imageCount = pendingFiles.filter(pf => pf.file.type.startsWith('image/')).length
+                const nonImageCount = pendingFiles.length - imageCount
                 if (isImage) {
-                  compressImage(file).then((compressed) => {
-                    setPendingFiles(prev => {
-                      const imageCount = prev.filter(f => f.type.startsWith('image/')).length
-                      if (imageCount >= 2) { message.warning('图片最多携带 2 张'); return prev }
-                      return [...prev, compressed]
-                    })
-                  })
+                  if (imageCount >= 2) { message.warning('图片最多携带 2 张'); return false }
+                  compressImage(file).then((compressed) => addFiles([compressed]))
                 } else {
-                  setPendingFiles(prev => {
-                    const nonImageCount = prev.filter(f => !f.type.startsWith('image/')).length
-                    if (nonImageCount >= 1) { message.warning('文档类一次只能携带一份'); return prev }
-                    return [...prev, file]
-                  })
+                  if (nonImageCount >= 1) { message.warning('文档类一次只能携带一份'); return false }
+                  addFiles([file])
                 }
                 return false
               }}

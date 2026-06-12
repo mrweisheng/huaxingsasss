@@ -26,7 +26,10 @@ interface AgentState {
   createSession: (mode?: 'chat' | 'contract_entry' | 'receipt_income' | 'receipt_expense', title?: string) => Promise<string>
   switchSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
-  sendMessage: (content: string, attachments?: File[]) => Promise<void>
+  sendMessage: (
+    content: string,
+    pendingAttachments?: Array<{ file: File; uploaded?: { fileId: string; fileName?: string; fileSize?: number; thumbnailUrl?: string | null } }>,
+  ) => Promise<void>
   stopGeneration: () => void
   clearError: () => void
   setSelectedTool: (tool: AgentState['selectedTool']) => void
@@ -80,19 +83,34 @@ function applyEventToStore(
   return [result.action, result.nextThoughtId, undefined]
 }
 
-/** 把客户端 File 列表转换为上传后的服务端附件元数据。*/
+/** 把客户端 File 列表转换为上传后的服务端附件元数据。
+ *  - 如果传入了 uploaded（HEIC 已在选文件时上传），直接复用，跳过上传
+ *  - 否则调后端 /agent/upload
+ */
 async function uploadPendingFiles(
-  localAttachments: { file: File; fileType: FileType; preview?: string }[],
-): Promise<{ file_id: string; file_type: FileType; fileName?: string; preview?: string }[]> {
-  const uploaded: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
+  localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: { fileId: string; fileName?: string; fileSize?: number; thumbnailUrl?: string | null } }[],
+): Promise<{ file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string }[]> {
+  const uploaded: { file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string }[] = []
   for (const local of localAttachments) {
-    const res = await agentApi.uploadFile(local.file)
-    uploaded.push({
-      file_id: res.data.fileId,
-      file_type: local.fileType,
-      fileName: local.file.name,
-      preview: local.preview,
-    })
+    if (local.uploaded) {
+      // HEIC 已在选文件时上传完成：直接复用 fileId/thumbnailUrl
+      uploaded.push({
+        file_id: local.uploaded.fileId,
+        file_type: local.fileType,
+        fileName: local.file.name,
+        preview: local.uploaded.thumbnailUrl ?? local.preview,
+        thumbnailUrl: local.uploaded.thumbnailUrl ?? undefined,
+      })
+    } else {
+      const res = await agentApi.uploadFile(local.file)
+      uploaded.push({
+        file_id: res.data.fileId,
+        file_type: local.fileType,
+        fileName: local.file.name,
+        preview: local.preview,
+        thumbnailUrl: res.data.thumbnailUrl ?? undefined,
+      })
+    }
   }
   return uploaded
 }
@@ -150,7 +168,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   setSelectedTool: (tool) => set({ selectedTool: tool }),
 
-  sendMessage: async (content: string, attachments?: File[]) => {
+  sendMessage: async (
+    content: string,
+    pendingAttachments?: Array<{ file: File; uploaded?: { fileId: string; fileName?: string; fileSize?: number; thumbnailUrl?: string | null } }>,
+  ) => {
     const { currentSessionId, selectedTool } = get()
     let sessionId = currentSessionId
 
@@ -163,9 +184,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
 
     // 生成本地附件预览（图片 base64），不阻塞 UI
-    const localAttachments: { file: File; fileType: FileType; preview?: string }[] = []
-    if (attachments && attachments.length > 0) {
-      for (const file of attachments) {
+    // 已上传的 HEIC 直接用 thumbnailUrl 作为 preview，不再 FileReader
+    const localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: { fileId: string; fileName?: string; fileSize?: number; thumbnailUrl?: string | null } }[] = []
+    if (pendingAttachments && pendingAttachments.length > 0) {
+      for (const pa of pendingAttachments) {
+        const file = pa.file
         const name = file.name.toLowerCase()
         let fileType: FileType
         if (file.type.startsWith('image/')) {
@@ -182,14 +205,22 @@ export const useAgentStore = create<AgentState>((set, get) => ({
           fileType = 'image'
         }
         let preview: string | undefined
-        if (file.type.startsWith('image/')) {
-          preview = await new Promise<string>((resolve) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result as string)
-            reader.readAsDataURL(file)
-          })
+        if (pa.uploaded) {
+          // HEIC 已在选文件时上传完成，直接用后端返回的 JPEG thumbnail_url 作为预览
+          preview = pa.uploaded.thumbnailUrl ?? undefined
+        } else {
+          // HEIC 跳过 FileReader base64 预览：Chrome 无法渲染 data:image/heic
+          // 此时意味着调用方没有提前上传（理论上不会发生——HEIC 必提前上传），防御性跳过
+          const isHeic = name.endsWith('.heic') || name.endsWith('.heif')
+          if (file.type.startsWith('image/') && !isHeic) {
+            preview = await new Promise<string>((resolve) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve(reader.result as string)
+              reader.readAsDataURL(file)
+            })
+          }
         }
-        localAttachments.push({ file, fileType, preview })
+        localAttachments.push({ file, fileType, preview, uploaded: pa.uploaded })
       }
     }
 
@@ -223,7 +254,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }))
 
     // 上传附件 → 拿 file_id
-    let uploadedAttachments: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
+    let uploadedAttachments: { file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string }[] = []
     if (localAttachments.length > 0) {
       try {
         uploadedAttachments = await uploadPendingFiles(localAttachments)

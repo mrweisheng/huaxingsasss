@@ -301,6 +301,29 @@ async def upload_file(
             base = original_name.rsplit(".", 1)[0]
             original_name = f"{base}.jpg"
 
+    # 为图片文件生成缩略图（200px），供前端在 HEIC 等浏览器不支持的格式上传后展示预览
+    thumbnail_url = None
+    _image_exts = (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".heic", ".heif")
+    if original_ext in _image_exts:
+        try:
+            from PIL import Image as PILImage
+            import io as _io2
+            with PILImage.open(_io2.BytesIO(content)) as img:
+                img.thumbnail((200, 200), PILImage.LANCZOS)
+                if img.mode != "RGB":
+                    img = img.convert("RGB")
+                thumb_buf = _io2.BytesIO()
+                img.save(thumb_buf, format="JPEG", quality=80)
+                thumb_bytes = thumb_buf.getvalue()
+            thumb_name = f"{file_id}_thumb.jpg"
+            thumb_path = os.path.join(user_dir, thumb_name)
+            with open(thumb_path, "wb") as f:
+                f.write(thumb_bytes)
+            thumbnail_url = f"/api/v1/agent/files/{file_id}/thumbnail"
+        except Exception:
+            # 缩略图生成失败不影响主流程
+            pass
+
     # 推断 file_type 分类（与前端 FileType 对齐）
     ext = original_ext.lstrip(".")
     if ext in ("jpg", "jpeg", "png", "gif", "webp", "bmp"):
@@ -342,6 +365,7 @@ async def upload_file(
             "file_id": file_id,
             "file_name": file.filename,
             "file_size": len(content),
+            "thumbnail_url": thumbnail_url,
         },
     }
 
@@ -377,6 +401,38 @@ def get_agent_file(
         path=str(full_path),
         media_type=record.mime_type or "application/octet-stream",
         filename=record.original_name or file_id,
+    )
+
+
+@router.get("/files/{file_id}/thumbnail")
+def get_agent_file_thumbnail(
+    file_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """按 file_id 拉取附件缩略图（JPEG 格式）。
+
+    用于前端在 HEIC 等浏览器不支持的格式上传后展示预览。
+    """
+    record = (
+        db.query(AgentFile)
+        .filter(AgentFile.file_id == file_id, AgentFile.is_deleted == False)
+        .first()
+    )
+    if not record:
+        raise HTTPException(status_code=404, detail="附件不存在或已失效")
+
+    if record.user_id != current_user.id and not is_admin(current_user):
+        raise HTTPException(status_code=403, detail="无权访问该附件")
+
+    thumb_name = f"{file_id}_thumb.jpg"
+    thumb_path = Path(settings.AGENT_FILE_DIR) / str(record.user_id) / thumb_name
+    if not thumb_path.exists():
+        raise HTTPException(status_code=404, detail="缩略图不存在")
+
+    return FileResponse(
+        path=str(thumb_path),
+        media_type="image/jpeg",
     )
 
 

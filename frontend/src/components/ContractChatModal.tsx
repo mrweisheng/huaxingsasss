@@ -4,13 +4,14 @@ import {
 } from 'antd'
 import {
   SendOutlined, RobotOutlined, UserOutlined, PaperClipOutlined,
-  StopOutlined, InboxOutlined,
+  StopOutlined, InboxOutlined, PictureOutlined,
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
-import type { ChatMessage, FileType } from '@/types/agent'
+import type { ChatMessage, FileType, UploadResult } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
+import { usePendingFiles } from '@/hooks/usePendingFiles'
 import './ContractChatModal.css'
 
 interface ContractChatModalProps {
@@ -97,7 +98,7 @@ export default function ContractChatModal({
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
-  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const { pendingFiles, addFiles, removeFile, clear: clearPending, hasUploading, toSendPayload } = usePendingFiles()
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
   const sessionCreatingRef = useRef(false)
@@ -110,7 +111,7 @@ export default function ContractChatModal({
     contractCreatedRef.current = false
     setMessages([])
     setInputText('')
-    setPendingFiles([])
+    clearPending()
     setSessionId(null)
     sessionCreatingRef.current = false
 
@@ -141,7 +142,7 @@ export default function ContractChatModal({
   }
 
   // SSE 流式发送
-  const doSend = useCallback(async (text: string, files?: File[]) => {
+  const doSend = useCallback(async (text: string, files?: Array<{ file: File; uploaded?: UploadResult }>) => {
     // 懒创建 session
     let activeSessionId = sessionId
     if (!activeSessionId) {
@@ -166,19 +167,26 @@ export default function ContractChatModal({
     setIsStreaming(true)
 
     // 本地附件预览
-    const localAttachments: { file: File; fileType: FileType; preview?: string }[] = []
+    const localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: UploadResult }[] = []
     if (files && files.length > 0) {
-      for (const file of files) {
+      for (const item of files) {
+        const file = item.file
         const fileType = getFileType(file)
+        // 已上传的 HEIC 直接用 thumbnailUrl 做预览，否则走 FileReader
         let preview: string | undefined
-        if (file.type.startsWith('image/')) {
-          preview = await new Promise<string>((resolve) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result as string)
-            reader.readAsDataURL(file)
-          })
+        if (item.uploaded) {
+          preview = item.uploaded.thumbnailUrl ?? undefined
+        } else {
+          const isHeic = file.name.toLowerCase().endsWith('.heic') || file.name.toLowerCase().endsWith('.heif')
+          if (file.type.startsWith('image/') && !isHeic) {
+            preview = await new Promise<string>((resolve) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve(reader.result as string)
+              reader.readAsDataURL(file)
+            })
+          }
         }
-        localAttachments.push({ file, fileType, preview })
+        localAttachments.push({ file, fileType, preview, uploaded: item.uploaded })
       }
     }
 
@@ -212,12 +220,27 @@ export default function ContractChatModal({
 
     setMessages(prev => [...prev, userMsg, assistantMsg])
 
-    // 上传文件
+    // 上传文件（已上传的 HEIC 跳过）
     const uploaded: { file_id: string; file_type: string; fileName?: string; preview?: string }[] = []
     for (const local of localAttachments) {
       try {
-        const res = await agentApi.uploadFile(local.file)
-        uploaded.push({ file_id: res.data.fileId, file_type: local.fileType, fileName: local.file.name, preview: local.preview })
+        if (local.uploaded) {
+          // HEIC 已在选文件时上传完成，直接复用 fileId
+          uploaded.push({
+            file_id: local.uploaded.fileId,
+            file_type: local.fileType,
+            fileName: local.file.name,
+            preview: local.preview,
+          })
+        } else {
+          const res = await agentApi.uploadFile(local.file)
+          uploaded.push({
+            file_id: res.data.fileId,
+            file_type: local.fileType,
+            fileName: local.file.name,
+            preview: local.preview,
+          })
+        }
       } catch {
         setMessages(prev => prev.map(m =>
           m.id === assistantId ? { ...m, content: '' } : m
@@ -323,13 +346,17 @@ export default function ContractChatModal({
   }, [sessionId])
 
   const handleSend = useCallback(async () => {
+    if (hasUploading) {
+      message.warning('文件上传中，请稍候…')
+      return
+    }
     const text = inputText.trim()
     if (!text && pendingFiles.length === 0) return
-    const files = pendingFiles.length > 0 ? [...pendingFiles] : undefined
+    const payload = pendingFiles.length > 0 ? toSendPayload() : undefined
     setInputText('')
-    setPendingFiles([])
-    await doSend(text, files)
-  }, [inputText, pendingFiles, doSend])
+    clearPending()
+    await doSend(text, payload)
+  }, [inputText, pendingFiles, doSend, hasUploading, toSendPayload, clearPending])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -354,17 +381,17 @@ export default function ContractChatModal({
     e.preventDefault()
     const files = Array.from(e.dataTransfer.files)
     if (files.length > 0) {
-      setPendingFiles(prev => [...prev, ...files])
+      addFiles(files)
     }
-  }, [])
+  }, [addFiles])
 
   const handleDragOver = useCallback((e: React.DragEvent) => {
     e.preventDefault()
   }, [])
 
   const removePendingFile = useCallback((index: number) => {
-    setPendingFiles(prev => prev.filter((_, i) => i !== index))
-  }, [])
+    removeFile(index)
+  }, [removeFile])
 
   const hasMessages = messages.some(m => m.role === 'user' || m.role === 'assistant')
 
@@ -426,7 +453,24 @@ export default function ContractChatModal({
         {pendingFiles.length > 0 && (
           <div className="contract-chat-pending-files">
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4 }}>待发送</span>
-            {pendingFiles.map((f, i) => {
+            {pendingFiles.map((pf, i) => {
+              const f = pf.file
+              const isHeic = f.name.toLowerCase().endsWith('.heic') || f.name.toLowerCase().endsWith('.heif')
+              if (isHeic) {
+                return (
+                  <span key={i} className="contract-chat-pending-preview" onClick={() => removePendingFile(i)}>
+                    <span style={{
+                      height: 40, width: 40, borderRadius: 8,
+                      background: 'var(--bg-subtle)',
+                      border: '1px solid var(--border-default)',
+                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                    }}>
+                      <PictureOutlined style={{ fontSize: 18, color: 'var(--brand-gold)' }} />
+                    </span>
+                    <span className="contract-chat-pending-remove">×</span>
+                  </span>
+                )
+              }
               if (f.type.startsWith('image/')) {
                 return (
                   <span key={i} className="contract-chat-pending-preview" onClick={() => removePendingFile(i)}>
@@ -447,16 +491,12 @@ export default function ContractChatModal({
           <Upload
             beforeUpload={(file: File) => {
               const isImage = file.type.startsWith('image/')
+              const nonImageCount = pendingFiles.filter(pf => !pf.file.type.startsWith('image/')).length
               if (isImage) {
-                compressImage(file).then((compressed) => {
-                  setPendingFiles(prev => [...prev, compressed])
-                })
+                compressImage(file).then((compressed) => addFiles([compressed]))
               } else {
-                setPendingFiles(prev => {
-                  const nonImageCount = prev.filter(f => !f.type.startsWith('image/')).length
-                  if (nonImageCount >= 1) { message.warning('合同/文档类一次只能携带一份'); return prev }
-                  return [...prev, file]
-                })
+                if (nonImageCount >= 1) { message.warning('合同/文档类一次只能携带一份'); return false }
+                addFiles([file])
               }
               return false
             }}
@@ -489,10 +529,10 @@ export default function ContractChatModal({
               type="primary"
               icon={<SendOutlined />}
               onClick={handleSend}
-              disabled={!inputText.trim() && pendingFiles.length === 0}
+              disabled={hasUploading || (!inputText.trim() && pendingFiles.length === 0)}
               className="contract-chat-send-btn"
             >
-              发送
+              {hasUploading ? '上传中…' : '发送'}
             </Button>
           )}
         </div>

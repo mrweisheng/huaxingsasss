@@ -42,6 +42,7 @@ function mapUploadResult(raw: any): UploadResult {
     fileId: raw.file_id,
     fileName: raw.file_name ?? '',
     fileSize: raw.file_size ?? 0,
+    thumbnailUrl: raw.thumbnail_url ?? null,
   }
 }
 

@@ -33,6 +33,7 @@ import type { ChatMessage, AttachmentItem } from '@/types/agent'
 import { MarkdownRenderer, ToolCallBlock, WittyLoadingText } from '@/components/AgentChatShared'
 import { compressImage } from '@/utils/imageCompress'
 import { useAgentFile } from '@/hooks/useAgentFile'
+import { usePendingFiles, type PendingFile } from '@/hooks/usePendingFiles'
 
 const { Text } = Typography
 
@@ -388,7 +389,7 @@ const ToolTag = ({ value, onRemove }: { value: string; onRemove: () => void }) =
 }
 
 const CenterInputBox = memo(function CenterInputBox({
-  value, onChange, onSend, onFileSelect, isStreaming, onStop, pendingFiles, onRemoveFile, toolTag,
+  value, onChange, onSend, onFileSelect, isStreaming, onStop, pendingFiles, onRemoveFile, hasUploading, toolTag,
 }: {
   value: string
   onChange: (v: string) => void
@@ -396,8 +397,9 @@ const CenterInputBox = memo(function CenterInputBox({
   onFileSelect: (f: File) => boolean
   isStreaming: boolean
   onStop: () => void
-  pendingFiles: File[]
+  pendingFiles: PendingFile[]
   onRemoveFile: (i: number) => void
+  hasUploading: boolean
   toolTag?: React.ReactNode
 }) {
   return (
@@ -426,14 +428,23 @@ const CenterInputBox = memo(function CenterInputBox({
 
       {pendingFiles.length > 0 && (
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
-          {pendingFiles.map((f, i) => {
+          {pendingFiles.map((pf, i) => {
+            const f = pf.file
             const name = f.name.toLowerCase()
-            const icon = name.endsWith('.pdf') ? <FilePdfOutlined style={{ color: '#dc2626' }} />
+            const isHeic = name.endsWith('.heic') || name.endsWith('.heif')
+            const icon = isHeic
+              ? (pf.status === 'uploading'
+                  ? <Spin size="small" style={{ color: 'var(--brand-gold)' }} />
+                  : pf.status === 'error'
+                    ? <PictureOutlined style={{ color: 'var(--color-danger)' }} />
+                    : <PictureOutlined style={{ color: 'var(--brand-gold)' }} />)
+              : name.endsWith('.pdf') ? <FilePdfOutlined style={{ color: '#dc2626' }} />
               : name.endsWith('.docx') || name.endsWith('.doc') ? <FileWordOutlined style={{ color: 'var(--brand-primary)' }} />
               : name.endsWith('.xlsx') || name.endsWith('.xls') ? <FileExcelOutlined style={{ color: 'var(--color-success)' }} />
+              : f.type.startsWith('image/') ? <PictureOutlined style={{ color: 'var(--brand-gold)' }} />
               : <FileTextOutlined style={{ color: 'var(--color-warning)' }} />
             return (
-              <Tag key={i} closable onClose={() => onRemoveFile(i)} style={{ margin: 0, fontSize: 12, borderRadius: 6 }}>
+              <Tag key={pf.id} closable onClose={() => onRemoveFile(i)} style={{ margin: 0, fontSize: 12, borderRadius: 6 }}>
                 {icon} {f.name.length > 16 ? f.name.slice(0, 14) + '…' : f.name}
               </Tag>
             )
@@ -472,7 +483,7 @@ const CenterInputBox = memo(function CenterInputBox({
             type="primary"
             icon={<SendOutlined />}
             onClick={onSend}
-            disabled={!value.trim() && pendingFiles.length === 0}
+            disabled={hasUploading || (!value.trim() && pendingFiles.length === 0)}
             style={{ borderRadius: 8, height: 36, padding: '0 18px', fontSize: 14 }}
           >
             发送
@@ -486,7 +497,7 @@ const CenterInputBox = memo(function CenterInputBox({
 /* ── 欢迎内容（空状态共享）── */
 const WelcomeContent = memo(function WelcomeContent({
   inputText, onChange, onSend, onFileSelect, isStreaming, onStop,
-  pendingFiles, onRemoveFile, selectedTool, setSelectedTool,
+  pendingFiles, onRemoveFile, hasUploading, selectedTool, setSelectedTool,
 }: {
   inputText: string
   onChange: (v: string) => void
@@ -494,8 +505,9 @@ const WelcomeContent = memo(function WelcomeContent({
   onFileSelect: (f: File) => boolean
   isStreaming: boolean
   onStop: () => void
-  pendingFiles: File[]
+  pendingFiles: PendingFile[]
   onRemoveFile: (i: number) => void
+  hasUploading: boolean
   selectedTool: 'contract_entry' | 'receipt_income' | 'receipt_expense' | null
   setSelectedTool: (v: 'contract_entry' | 'receipt_income' | 'receipt_expense' | null) => void
 }) {
@@ -589,6 +601,7 @@ const WelcomeContent = memo(function WelcomeContent({
           onStop={onStop}
           pendingFiles={pendingFiles}
           onRemoveFile={onRemoveFile}
+          hasUploading={hasUploading}
           toolTag={selectedTool ? (
             <ToolTag value={selectedTool} onRemove={() => setSelectedTool(null)} />
           ) : null}
@@ -637,7 +650,7 @@ const WelcomeContent = memo(function WelcomeContent({
 /* ── 主组件 ── */
 export default function AgentChat() {
   const [inputText, setInputText] = useState('')
-  const [pendingFiles, setPendingFiles] = useState<File[]>([])
+  const { pendingFiles, addFiles, removeFile, clear: clearPending, hasUploading, toSendPayload } = usePendingFiles()
   const messageListRef = useRef<HTMLDivElement>(null)
 
   const screens = Grid.useBreakpoint()
@@ -676,14 +689,12 @@ export default function AgentChat() {
           e.preventDefault()
           const file = item.getAsFile()
           if (file) {
-            setPendingFiles((prev) => {
-              const imageCount = prev.filter(f => f.type.startsWith('image/')).length
-              if (imageCount >= 2) {
-                message.warning('图片最多携带 2 张')
-                return prev
-              }
-              return [...prev, file]
-            })
+            const imageCount = pendingFiles.filter(pf => pf.file.type.startsWith('image/')).length
+            if (imageCount >= 2) {
+              message.warning('图片最多携带 2 张')
+              return
+            }
+            addFiles([file])
           }
           return
         }
@@ -691,7 +702,7 @@ export default function AgentChat() {
     }
     document.addEventListener('paste', handlePaste)
     return () => document.removeEventListener('paste', handlePaste)
-  }, [])
+  }, [pendingFiles, addFiles])
 
   const TOOL_DEFAULT_TEXT: Record<string, string> = {
     contract_entry: '录入合同',
@@ -700,6 +711,10 @@ export default function AgentChat() {
   }
 
   const handleSend = useCallback(async () => {
+    if (hasUploading) {
+      message.warning('文件上传中，请稍候…')
+      return
+    }
     const text = inputText.trim()
     if (!text && pendingFiles.length === 0) {
       message.warning('请输入内容或上传文件')
@@ -707,11 +722,11 @@ export default function AgentChat() {
     }
     // 有文件无文字时：优先用工具标签的默认文案，否则用"录入了文件"
     const finalText = text || TOOL_DEFAULT_TEXT[selectedTool || ''] || '录入了文件'
-    const filesToSend = pendingFiles.length > 0 ? [...pendingFiles] : undefined
+    const payload = pendingFiles.length > 0 ? toSendPayload() : undefined
     setInputText('')
-    setPendingFiles([])
-    await sendMessage(finalText, filesToSend)
-  }, [inputText, pendingFiles, sendMessage, selectedTool])
+    clearPending()
+    await sendMessage(finalText, payload)
+  }, [inputText, pendingFiles, sendMessage, selectedTool, hasUploading, toSendPayload, clearPending])
 
   // 新建会话：只重置本地状态，不创建后端 session（延迟到发第一条消息时）
   const handleNewChat = useCallback(() => {
@@ -733,34 +748,31 @@ export default function AgentChat() {
     const isImage = file.type.startsWith('image/')
 
     // 文件数量约束：图片最多 2 张，非图片（合同/文档）最多 1 份
-    setPendingFiles((prev) => {
-      const imageCount = prev.filter(f => f.type.startsWith('image/')).length
-      const nonImageCount = prev.length - imageCount
+    const imageCount = pendingFiles.filter(pf => pf.file.type.startsWith('image/')).length
+    const nonImageCount = pendingFiles.length - imageCount
 
-      if (isImage) {
-        if (imageCount >= 2) {
-          message.warning('图片最多携带 2 张')
-          return prev // 不添加
-        }
-      } else {
-        if (nonImageCount >= 1) {
-          message.warning('合同/文档类一次只能携带一份')
-          return prev // 不添加
-        }
+    if (isImage) {
+      if (imageCount >= 2) {
+        message.warning('图片最多携带 2 张')
+        return false
       }
+    } else {
+      if (nonImageCount >= 1) {
+        message.warning('合同/文档类一次只能携带一份')
+        return false
+      }
+    }
 
-      // 通过约束，异步压缩后加入待发列表
-      compressImage(file).then((compressed) => {
-        setPendingFiles((p) => [...p, compressed])
-      })
-      return prev // 本次渲染不变，compressImage 回调里再加
+    // 通过约束，异步压缩后加入待发列表（压缩 promise 让 antd Upload 不立刻上传）
+    compressImage(file).then((compressed) => {
+      addFiles([compressed])
     })
-    return false
-  }, [])
+    return false // 阻止 antd Upload 默认上传
+  }, [pendingFiles, addFiles])
 
   const removePendingFile = useCallback((index: number) => {
-    setPendingFiles((prev) => prev.filter((_, i) => i !== index))
-  }, [])
+    removeFile(index)
+  }, [removeFile])
 
   const hasMessages = messages.some((m) => m.role === 'user' || m.role === 'assistant')
 
@@ -834,6 +846,7 @@ export default function AgentChat() {
             onRemoveFile={removePendingFile}
             selectedTool={selectedTool}
             setSelectedTool={setSelectedTool}
+            hasUploading={hasUploading}
           />
         ) : (
           <div style={{ maxWidth: 768, margin: '0 auto' }}>
@@ -934,12 +947,52 @@ export default function AgentChat() {
                 <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4, whiteSpace: 'nowrap' }}>
                   待发送附件
                 </span>
-                {pendingFiles.map((f, i) => {
+                {pendingFiles.map((pf, i) => {
+                  const f = pf.file
                   const name = f.name.toLowerCase()
+                  const isHeic = name.endsWith('.heic') || name.endsWith('.heif')
+                  // HEIC 文件在 Chrome 中无法渲染：根据上传状态显示不同占位
+                  if (isHeic) {
+                    const inner = pf.status === 'uploading' ? (
+                      <Spin size="small" style={{ color: 'var(--brand-gold)' }} />
+                    ) : pf.status === 'error' ? (
+                      <PictureOutlined style={{ fontSize: 18, color: 'var(--color-danger)' }} />
+                    ) : pf.uploaded?.thumbnailUrl ? (
+                      // 上传完成：用后端返回的 JPEG 缩略图（浏览器可渲染）
+                      <img src={pf.uploaded.thumbnailUrl} alt={f.name}
+                        style={{ height: 40, width: 40, borderRadius: 8, objectFit: 'cover', border: '1px solid var(--border-default)' }}
+                      />
+                    ) : (
+                      <PictureOutlined style={{ fontSize: 18, color: 'var(--brand-gold)' }} />
+                    )
+                    return (
+                      <span
+                        key={pf.id} style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                        onClick={() => removePendingFile(i)}
+                      >
+                        <span style={{
+                          height: 40, width: 40, borderRadius: 8,
+                          background: 'var(--bg-subtle)',
+                          border: '1px solid var(--border-default)',
+                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+                          verticalAlign: 'top',
+                        }}>
+                          {inner}
+                        </span>
+                        <span style={{
+                          position: 'absolute', top: -6, right: -6,
+                          background: 'var(--color-danger)', color: '#fff',
+                          borderRadius: '50%', width: 16, height: 16,
+                          fontSize: 10, lineHeight: '16px', textAlign: 'center',
+                          boxShadow: '0 2px 4px rgba(220,38,38,0.3)',
+                        }}>×</span>
+                      </span>
+                    )
+                  }
                   if (f.type.startsWith('image/')) {
                     return (
                       <span
-                        key={i} style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
+                        key={pf.id} style={{ position: 'relative', display: 'inline-block', cursor: 'pointer' }}
                         onClick={() => removePendingFile(i)}
                       >
                         <img
@@ -961,15 +1014,15 @@ export default function AgentChat() {
                     : name.endsWith('.xlsx') || name.endsWith('.xls') ? <FileExcelOutlined style={{ color: 'var(--color-success)' }} />
                     : <FileTextOutlined style={{ color: 'var(--color-warning)' }} />
                   return (
-                    <Tag key={i} closable onClose={() => removePendingFile(i)} color="default" style={{ margin: 0, fontSize: 12, borderRadius: 4 }}>
+                    <Tag key={pf.id} closable onClose={() => removePendingFile(i)} color="default" style={{ margin: 0, fontSize: 12, borderRadius: 4 }}>
                       {icon} {f.name.length > 20 ? f.name.slice(0, 18) + '…' : f.name}
                     </Tag>
                   )
                 })}
                 {/* 图片未满 2 张时显示「+」按钮，点击再选一张 */}
                 {(() => {
-                  const imageCount = pendingFiles.filter(f => f.type.startsWith('image/')).length
-                  const hasNonImage = pendingFiles.some(f => !f.type.startsWith('image/'))
+                  const imageCount = pendingFiles.filter(pf => pf.file.type.startsWith('image/')).length
+                  const hasNonImage = pendingFiles.some(pf => !pf.file.type.startsWith('image/'))
                   if (imageCount > 0 && imageCount < 2 && !hasNonImage) {
                     return (
                       <Upload
@@ -1058,10 +1111,10 @@ export default function AgentChat() {
                 <Button
                   type="primary" size="large" icon={<SendOutlined />}
                   onClick={handleSend}
-                  disabled={!inputText.trim() && pendingFiles.length === 0}
+                  disabled={hasUploading || (!inputText.trim() && pendingFiles.length === 0)}
                   style={{ borderRadius: 8, height: 40, padding: '0 20px', flexShrink: 0, fontSize: 14 }}
                 >
-                  发送
+                  {hasUploading ? '上传中…' : '发送'}
                 </Button>
               )}
             </div>

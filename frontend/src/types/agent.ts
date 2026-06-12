@@ -78,4 +78,5 @@ export interface UploadResult {
   fileId: string
   fileName: string
   fileSize: number
+  thumbnailUrl?: string | null
 }
