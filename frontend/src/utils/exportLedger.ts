@@ -73,7 +73,7 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
   const response = await contractApi.getListWithPayments({
     date_from: options.dateFrom,
     date_to: options.dateTo,
-    per_page: 2000,
+    per_page: 500,
   })
   const contracts = response.items
 
