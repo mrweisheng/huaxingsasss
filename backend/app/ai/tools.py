@@ -33,7 +33,7 @@ from app.core.business_types import BusinessType
 from app.services.contract_service import ContractService
 from app.services.customer_service import CustomerService
 from app.services.payment_service import PaymentService
-from app.utils.file_utils import calculate_file_hash, validate_file_id_in_dir
+from app.utils.file_utils import calculate_file_hash, resolve_file_path, validate_file_id_in_dir
 
 
 def _escape_ilike(keyword: str) -> str:
@@ -694,12 +694,13 @@ class ToolExecutor:
 
     def _ensure_file_in_receipt_dir(self, file_path: str) -> Optional[str]:
         """如果 file_path 是 agent_upload/{file_id} 格式，
-        把文件从临时目录复制到凭证目录，返回新路径。
+        把文件从上传目录复制到凭证目录，返回新路径。
         否则原样返回。
 
-        路径查找顺序（2026/06 重构后支持用户隔离）：
-        1. TEMP_UPLOAD_DIR/{self.user.id}/{file_id}（新格式）
-        2. TEMP_UPLOAD_DIR/{file_id}（旧格式，兼容历史数据）
+        文件定位委托 file_utils.resolve_file_path —— 它是项目里
+        唯一知道文件可能在哪些目录的函数（AGENT_FILE_DIR 持久化目录、
+        TEMP_UPLOAD_DIR/{user_id} 用户隔离、TEMP_UPLOAD_DIR 旧全局），
+        以后新增/调整存储目录只改它，不必同步本函数。
         """
         self._last_receipt_file_hash = None
         if not file_path:
@@ -712,29 +713,9 @@ class ToolExecutor:
             else:
                 return file_path
         file_id = file_path[len("agent_upload/"):]
-        # 路径穿越防御：校验 file_id
-        safe_file_id = validate_file_id_in_dir(file_id, settings.TEMP_UPLOAD_DIR)
-        if not safe_file_id:
-            logger.warning("凭证文件路径校验失败: file_id=%s", file_id)
-            return None
-        # 兼容新旧两种命名：file_id（旧版无扩展名）和 file_id.ext（新版带扩展名）
-        candidates = []
-        for base_dir in [
-            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id)),
-            settings.TEMP_UPLOAD_DIR,
-        ]:
-            safe_path = validate_file_id_in_dir(file_id, base_dir)
-            if safe_path:
-                candidates.append(safe_path)
-            if safe_path and os.path.isdir(base_dir):
-                for f in os.listdir(base_dir):
-                    if f == file_id or f.startswith(file_id + "."):
-                        candidate = os.path.join(base_dir, f)
-                        if os.path.realpath(candidate).startswith(os.path.realpath(base_dir) + os.sep):
-                            candidates.append(candidate)
-        temp_path = next((p for p in candidates if os.path.exists(p)), None)
+        temp_path = resolve_file_path(file_id, self.user.id)
         if not temp_path:
-            logger.warning("凭证文件复制跳过: 临时文件不存在 file_id=%s, user=%s", file_id, self.user.id)
+            logger.warning("凭证文件复制跳过: 文件不存在 file_id=%s, user=%s", file_id, self.user.id)
             return None
         try:
             with open(temp_path, "rb") as f:
@@ -819,22 +800,8 @@ class ToolExecutor:
         if not customer:
             return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
 
-        # 处理文件：支持用户隔离路径与旧全局路径
-        # 新版 agent.py 保留扩展名（file_id.docx），旧版无扩展名（file_id），两种都要搜索
-        candidates = []
-        for base_dir in [
-            os.path.join(settings.TEMP_UPLOAD_DIR, str(self.user.id)),
-            settings.TEMP_UPLOAD_DIR,
-        ]:
-            candidates.append(os.path.join(base_dir, file_id))
-            # 也匹配带扩展名的文件（glob 匹配 file_id.*）
-            parent = os.path.dirname(os.path.join(base_dir, file_id))
-            name_prefix = os.path.basename(file_id)
-            if os.path.isdir(base_dir):
-                for f in os.listdir(base_dir):
-                    if f.startswith(name_prefix + ".") or f == name_prefix:
-                        candidates.append(os.path.join(base_dir, f))
-        temp_file_path = next((p for p in candidates if os.path.exists(p)), None)
+        # 处理文件：路径解析委托 resolve_file_path（统一支持 AGENT_FILE_DIR / TEMP_UPLOAD_DIR）
+        temp_file_path = resolve_file_path(file_id, self.user.id)
         file_hash = None
         original_file_path = f"agent_upload/{file_id}"
 
