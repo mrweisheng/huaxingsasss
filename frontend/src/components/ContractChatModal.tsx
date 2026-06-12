@@ -8,6 +8,7 @@ import {
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
+import { compressImage } from '@/utils/imageCompress'
 import type { ChatMessage, FileType } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
 import './ContractChatModal.css'
@@ -446,14 +447,16 @@ export default function ContractChatModal({
           <Upload
             beforeUpload={(file: File) => {
               const isImage = file.type.startsWith('image/')
-              if (!isImage) {
+              if (isImage) {
+                compressImage(file).then((compressed) => {
+                  setPendingFiles(prev => [...prev, compressed])
+                })
+              } else {
                 setPendingFiles(prev => {
                   const nonImageCount = prev.filter(f => !f.type.startsWith('image/')).length
                   if (nonImageCount >= 1) { message.warning('合同/文档类一次只能携带一份'); return prev }
                   return [...prev, file]
                 })
-              } else {
-                setPendingFiles(prev => [...prev, file])
               }
               return false
             }}

@@ -346,10 +346,9 @@ class FileAnalyzer:
         mime = detect_image_mime(header)
 
         if mime:
-            # 图片 → VL 分类
+            # 图片 → VL 分类（前端已压缩，直接传）
             try:
-                compressed_bytes, compressed_mime = compress_image(file_bytes, mime)
-                classify_result = call_vl_model(compressed_bytes, compressed_mime, FILE_CLASSIFY_PROMPT)
+                classify_result = call_vl_model(file_bytes, mime, FILE_CLASSIFY_PROMPT)
                 if isinstance(classify_result, dict):
                     raw_type = classify_result.get("type", "") or classify_result.get("document_type", "")
                     return _map_classified_type(raw_type)
@@ -379,9 +378,8 @@ class FileAnalyzer:
         mime = detect_image_mime(header)
 
         if mime:
-            # 图片 → VL 模型
-            compressed_bytes, compressed_mime = compress_image(file_bytes, mime)
-            structured = call_vl_model(compressed_bytes, compressed_mime, prompt)
+            # 图片 → VL 模型（前端已压缩，直接传）
+            structured = call_vl_model(file_bytes, mime, prompt)
             return {"success": True, "data": structured, "file_type": "image"}
 
         if header[:4] == b"%PDF":

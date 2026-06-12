@@ -9,7 +9,7 @@ export async function compressImage(
   file: File,
   options: { maxEdge?: number; quality?: number } = {},
 ): Promise<File> {
-  const { maxEdge = 1920, quality = 0.8 } = options
+  const { maxEdge = 1600, quality = 0.85 } = options
 
   if (!file.type.startsWith('image/') || file.type === 'image/gif') {
     return file

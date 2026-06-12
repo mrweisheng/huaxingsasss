@@ -1,4 +1,4 @@
-﻿import { useState, useRef, useEffect, useCallback, memo } from 'react'
+import { useState, useRef, useEffect, useCallback, memo } from 'react'
 import {
   Modal, Input, Button, Avatar, Upload, Tag, Spin, message,
 } from 'antd'
@@ -8,6 +8,7 @@ import {
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
+import { compressImage } from '@/utils/imageCompress'
 import type { ChatMessage, FileType } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
 import {
@@ -451,12 +452,14 @@ export default function ReceiptChatModal({
                   return (
                     <Upload
                       beforeUpload={(file: File) => {
-                        setPendingFiles(prev => {
-                          if (prev.filter(f => f.type.startsWith('image/')).length >= 2) {
-                            message.warning('图片最多携带 2 张')
-                            return prev
-                          }
-                          return [...prev, file]
+                        compressImage(file).then((compressed) => {
+                          setPendingFiles(prev => {
+                            if (prev.filter(f => f.type.startsWith('image/')).length >= 2) {
+                              message.warning('图片最多携带 2 张')
+                              return prev
+                            }
+                            return [...prev, compressed]
+                          })
                         })
                         return false
                       }}
@@ -493,16 +496,21 @@ export default function ReceiptChatModal({
             <Upload
               beforeUpload={(file: File) => {
                 const isImage = file.type.startsWith('image/')
-                setPendingFiles(prev => {
-                  const imageCount = prev.filter(f => f.type.startsWith('image/')).length
-                  const nonImageCount = prev.length - imageCount
-                  if (isImage) {
-                    if (imageCount >= 2) { message.warning('图片最多携带 2 张'); return prev }
-                  } else {
+                if (isImage) {
+                  compressImage(file).then((compressed) => {
+                    setPendingFiles(prev => {
+                      const imageCount = prev.filter(f => f.type.startsWith('image/')).length
+                      if (imageCount >= 2) { message.warning('图片最多携带 2 张'); return prev }
+                      return [...prev, compressed]
+                    })
+                  })
+                } else {
+                  setPendingFiles(prev => {
+                    const nonImageCount = prev.filter(f => !f.type.startsWith('image/')).length
                     if (nonImageCount >= 1) { message.warning('文档类一次只能携带一份'); return prev }
-                  }
-                  return [...prev, file]
-                })
+                    return [...prev, file]
+                  })
+                }
                 return false
               }}
               showUploadList={false}
