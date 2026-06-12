@@ -158,6 +158,31 @@ export default function ReceiptChatModal({
     }
   }, [messages])
 
+  // 剪贴板粘贴图片
+  useEffect(() => {
+    const handlePaste = (e: ClipboardEvent) => {
+      const items = e.clipboardData?.items
+      if (!items) return
+      for (const item of items) {
+        if (item.type.startsWith('image/')) {
+          e.preventDefault()
+          const file = item.getAsFile()
+          if (file) {
+            const imageCount = pendingFiles.filter(pf => pf.file.type.startsWith('image/')).length
+            if (imageCount >= 2) {
+              message.warning('图片最多携带 2 张')
+              return
+            }
+            addFiles([file])
+          }
+          return
+        }
+      }
+    }
+    document.addEventListener('paste', handlePaste)
+    return () => document.removeEventListener('paste', handlePaste)
+  }, [pendingFiles, addFiles])
+
   // 判断文件类型
   const getFileType = (file: File): FileType => {
     if (file.type.startsWith('image/')) return 'image'
@@ -165,7 +190,7 @@ export default function ReceiptChatModal({
     if (name.endsWith('.pdf')) return 'pdf'
     if (name.endsWith('.docx') || name.endsWith('.doc')) return 'word'
     if (name.endsWith('.xlsx') || name.endsWith('.xls')) return 'excel'
-    return 'text'
+    return 'image'
   }
 
   /**
