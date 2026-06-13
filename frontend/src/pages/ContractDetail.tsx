@@ -14,14 +14,19 @@ import {
   EnvironmentOutlined,
   ClockCircleFilled,
   LoadingOutlined,
+  PlusOutlined,
+  EditOutlined,
+  DeleteOutlined,
 } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
+import { additionalItemApi } from '@/services/contractAdditionalItem'
 import { paymentApi } from '@/services/payment'
+import AdditionalItemFormModal from '@/components/AdditionalItemFormModal'
 import { useAuthStore } from '@/store/useAuthStore'
 import { API_BASE_URL } from '@/services/api'
 import { formatMoney, formatMoneyShort } from '@/utils/money'
 import { isNoReceipt } from '@/utils/payment'
-import type { Contract, Payment } from '@/types'
+import type { Contract, Payment, ContractAdditionalItem } from '@/types'
 import './ContractDetail.css'
 
 const statusMap: Record<string, { text: string; cls: string }> = {
@@ -151,6 +156,7 @@ export default function ContractDetail() {
   const [error, setError] = useState('')
   const [completing, setCompleting] = useState(false)
   const [receiptLoading, setReceiptLoading] = useState<number | null>(null)
+  const [addlModal, setAddlModal] = useState<{ open: boolean; mode: 'add' | 'edit'; editing: ContractAdditionalItem | null }>({ open: false, mode: 'add', editing: null })
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const handleComplete = async () => {
@@ -164,6 +170,29 @@ export default function ContractDetail() {
       message.error(e.response?.data?.detail || '操作失败')
     } finally {
       setCompleting(false)
+    }
+  }
+
+  // 附加项增删改后刷新详情（同步 additional_items + additional_total_by_currency 冗余字段）
+  const reloadDetail = async () => {
+    if (!contract) return
+    try {
+      const c = await contractApi.getById(contract.id)
+      setContract(c)
+    } catch {
+      /* 静默：刷新失败不阻塞用户 */
+    }
+  }
+
+  const openAddItem = () => setAddlModal({ open: true, mode: 'add', editing: null })
+  const openEditItem = (it: ContractAdditionalItem) => setAddlModal({ open: true, mode: 'edit', editing: it })
+  const handleDeleteItem = async (it: ContractAdditionalItem) => {
+    try {
+      await additionalItemApi.remove(it.id)
+      message.success('附加项已删除')
+      reloadDetail()
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '删除失败')
     }
   }
 
@@ -265,6 +294,16 @@ export default function ContractDetail() {
   const unpaid = Math.max(0, total - paid)
   const paymentState: 'pending' | 'cleared' | 'overpaid' =
     overpaid > 0 ? 'overpaid' : unpaid > 0 ? 'pending' : 'cleared'
+
+  // 附加项：分币种汇总 + 业务色色条（卡片左侧色条用合同业务色：车辆钢蓝 / 两地牌朱砂）
+  const addlItems = contract.additional_items || []
+  const addlSummary = contract.additional_total_by_currency || {}
+  const addlEntries = Object.entries(addlSummary).filter(([, v]) => Number(v) > 0)
+  const bizColorMap: Record<string, string> = {
+    '车辆业务': '#2d5b8a', '车辆买卖': '#2d5b8a',
+    '中港牌业务': '#b8423b', '两地牌过户': '#b8423b',
+  }
+  const addlBarColor = bizColorMap[contract.business_type || ''] || 'var(--brand-primary)'
 
   // 利润计算 — 以合同主要币种为基准
   const profitMain = (contract.paid_amount || 0) - (contract.total_expense || 0)
@@ -528,7 +567,7 @@ export default function ContractDetail() {
                   <span className="cd-fn-metric-value cleared">{fmt(0, cur)}</span>
                   <span className="cd-fn-metric-status cleared">已结清 ✓</span>
                   {paymentState === 'overpaid' && (
-                    <Tooltip title={`实付超出合同总额 ${fmtFull(overpaid, cur)}\n常见原因：装饰费、过户费、议价加价等`}>
+                    <Tooltip title={`实付超出合同字面金额 ${fmtFull(overpaid, cur)}。\n常见原因：附加项应收、装饰费、过户费、议价加价、手续费等多付`}>
                       <span className="cd-fn-metric-extra">
                         加项收入 +{fmt(overpaid, cur)}
                       </span>
@@ -614,6 +653,71 @@ export default function ContractDetail() {
         </div>
       ) : null}
 
+      {/* ⑥ 附加项明细 — 应收清单的细化补充（车险/保养/人工费等），非独立财务实体 */}
+      <div className="cd-addl-section">
+        <div className="cd-section-title cd-addl-title">
+          <span><DollarOutlined /> 附加项明细{addlItems.length > 0 && ` (${addlItems.length})`}</span>
+          {role !== 'expense' && (
+            <Button size="small" type="primary" icon={<PlusOutlined />} onClick={openAddItem} className="cd-addl-add-btn">
+              添加附加项
+            </Button>
+          )}
+        </div>
+
+        {addlItems.length > 0 ? (
+          <>
+            <div className="cd-addl-grid">
+              {addlItems.map((it) => (
+                <div key={it.id} className="cd-addl-card" style={{ borderLeftColor: addlBarColor }}>
+                  <div className="cd-addl-card-head">
+                    <span className="cd-addl-card-name">{it.name}</span>
+                    <Tooltip title={fmtFull(it.amount, it.currency)}>
+                      <span className="cd-addl-card-amount">{fmt(it.amount, it.currency)}</span>
+                    </Tooltip>
+                  </div>
+                  {it.paid_to && <div className="cd-addl-card-paidto">付：{it.paid_to}</div>}
+                  {it.description && <div className="cd-addl-card-desc">{it.description}</div>}
+                  {(it.occurred_date || it.remarks) && (
+                    <div className="cd-addl-card-meta">
+                      {it.occurred_date && <span>{it.occurred_date}</span>}
+                      {it.remarks && <span className="cd-addl-card-remarks">{it.remarks}</span>}
+                    </div>
+                  )}
+                  {role !== 'expense' && (
+                    <div className="cd-addl-card-actions">
+                      <Tooltip title="编辑">
+                        <EditOutlined onClick={() => openEditItem(it)} />
+                      </Tooltip>
+                      <Popconfirm
+                        title="删除附加项"
+                        description="引用此附加项的付款标签会自动置空。"
+                        onConfirm={() => handleDeleteItem(it)}
+                        okText="删除"
+                        cancelText="取消"
+                      >
+                        <DeleteOutlined className="cd-addl-act-del" />
+                      </Popconfirm>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            {addlEntries.length > 0 && (
+              <div className="cd-addl-summary">
+                <span className="cd-addl-summary-label">附加项汇总</span>
+                {addlEntries.map(([cur, amt]) => (
+                  <span key={cur} className="cd-addl-summary-val">{fmt(Number(amt), cur)}</span>
+                ))}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="cd-addl-empty">
+            {role !== 'expense' ? '暂无附加项。可添加车险、保养改装、人工费等应收项。' : '暂无附加项'}
+          </div>
+        )}
+      </div>
+
       {/* ⑦ 付款条款 — 步骤图标化 */}
       {cd?.payment_terms && cd.payment_terms.length > 0 && (
         <div className="cd-section">
@@ -688,6 +792,17 @@ export default function ContractDetail() {
           </div>
         )}
       </div>
+
+      {/* 附加项 新增/编辑 表单 Modal */}
+      <AdditionalItemFormModal
+        open={addlModal.open}
+        mode={addlModal.mode}
+        contractId={contract.id}
+        contractCurrency={cur}
+        editing={addlModal.editing}
+        onClose={() => setAddlModal({ open: false, mode: 'add', editing: null })}
+        onSuccess={reloadDetail}
+      />
 
     </div>
   )

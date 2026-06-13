@@ -551,6 +551,23 @@ export default function ContractList() {
                       <span className="amount-hero-value">
                         {renderAmount(contract.total_amount, contract.currency)}
                       </span>
+                      {contract.additional_total_by_currency &&
+                        Object.values(contract.additional_total_by_currency).some(v => Number(v) > 0) && (
+                          <Tooltip
+                            title={`含附加项：${Object.entries(contract.additional_total_by_currency)
+                              .filter(([, v]) => Number(v) > 0)
+                              .map(([cur, v]) => `${currencySymbol[cur] || cur}${formatMoney(Number(v)).full}`)
+                              .join(' + ')}`}
+                          >
+                            <span style={{ fontSize: 11, color: '#c9952b', marginLeft: 6, fontWeight: 600, whiteSpace: 'nowrap' }}>
+                              +{' '}
+                              {Object.entries(contract.additional_total_by_currency)
+                                .filter(([, v]) => Number(v) > 0)
+                                .map(([cur, v]) => `${currencySymbol[cur] || cur}${formatMoney(Number(v)).display}`)
+                                .join(' + ')}
+                            </span>
+                          </Tooltip>
+                        )}
                     </div>
 
                     {/* 已付 / 未付 — 并排对比 */}

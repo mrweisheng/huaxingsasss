@@ -56,6 +56,9 @@ export interface Contract {
   paid_count: number
   expense_count: number
   payment_total_count: number
+  additional_total_by_currency?: Record<string, number>
+  /** 详情接口返回（ContractDetailResponse）；列表接口不返回 */
+  additional_items?: ContractAdditionalItem[]
   created_at: string
   updated_at: string
 }
@@ -94,6 +97,23 @@ export interface Payment {
   source: string
   notes?: string
   description?: string
+  additional_item_id?: number
+  created_at: string
+  updated_at: string
+}
+
+/** 合同附加项：应收清单上的一行（车险/保养/人工费等），非独立财务实体，无已收/未收概念 */
+export interface ContractAdditionalItem {
+  id: number
+  contract_id: number
+  name: string
+  amount: number
+  currency: string
+  paid_to?: string
+  description?: string
+  occurred_date?: string
+  remarks?: string
+  created_by?: number
   created_at: string
   updated_at: string
 }
