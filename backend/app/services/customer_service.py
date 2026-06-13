@@ -3,18 +3,132 @@
 """
 import base64
 import logging
-from typing import Optional, Tuple
+from typing import Optional, Tuple, List
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.models.customer import Customer
 from app.models.contract import Contract
+from app.schemas.customer import CustomerUpdate
+from app.core.chinese import search_variants
 from app.services.audit_service import AuditService
 
 logger = logging.getLogger(__name__)
 
 
+def _escape_ilike(text: str) -> str:
+    """转义 ILIKE 查询中的特殊字符 % 和 _"""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 class CustomerService:
+
+    @staticmethod
+    def get_list(
+        db: Session,
+        page: int = 1,
+        per_page: int = 20,
+        keyword: Optional[str] = None,
+    ) -> Tuple[List[Customer], int]:
+        """
+        客户列表（带 keyword 模糊搜索 + 分页）。
+
+        关键词命中规则：客户名（繁简兼容）/ 电话 / 邮箱 / 微信群名（繁简兼容）。
+        """
+        query = db.query(Customer).filter(Customer.is_deleted == False)
+
+        if keyword:
+            variants = search_variants(keyword)
+            escaped = [_escape_ilike(v) for v in variants]
+            name_filters = [Customer.name.ilike(f"%{v}%") for v in escaped]
+            wechat_filters = [Customer.wechat_group_name.ilike(f"%{v}%") for v in escaped]
+            query = query.filter(
+                or_(
+                    *name_filters,
+                    Customer.phone.ilike(f"%{_escape_ilike(keyword)}%"),
+                    Customer.email.ilike(f"%{_escape_ilike(keyword)}%"),
+                    *wechat_filters,
+                )
+            )
+
+        total = query.count()
+        items = (
+            query.order_by(Customer.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+        return items, total
+
+    @staticmethod
+    def get_by_id(db: Session, customer_id: int) -> Optional[Customer]:
+        """获取客户详情（排除已软删除）"""
+        return (
+            db.query(Customer)
+            .filter(
+                Customer.id == customer_id,
+                Customer.is_deleted == False,
+            )
+            .first()
+        )
+
+    @staticmethod
+    def update(
+        db: Session,
+        customer_id: int,
+        customer_data: CustomerUpdate,
+        updated_by: Optional[int] = None,
+    ) -> Optional[Customer]:
+        """
+        更新客户。返回更新后的实例；客户不存在时返回 None。
+
+        身份证号字段做加密映射（id_card_number → id_card_number_encrypted）。
+        TODO(security): 当前为 base64 编码（可逆），生产应升级为 Fernet/AES-GCM。
+        """
+        customer = CustomerService.get_by_id(db, customer_id)
+        if not customer:
+            return None
+
+        old_values = {
+            "name": customer.name,
+            "phone": customer.phone,
+            "email": customer.email,
+            "wechat_group_name": customer.wechat_group_name,
+            "address": customer.address,
+            "remarks": customer.remarks,
+        }
+
+        update_data = customer_data.model_dump(exclude_unset=True)
+
+        # id_card_number 字段需要加密映射到 id_card_number_encrypted
+        if "id_card_number" in update_data:
+            id_card = update_data.pop("id_card_number")
+            customer.id_card_number_encrypted = (
+                base64.b64encode(id_card.encode()).decode() if id_card else None
+            )
+
+        for field, value in update_data.items():
+            setattr(customer, field, value)
+
+        db.commit()
+        db.refresh(customer)
+
+        if updated_by:
+            try:
+                AuditService.log(
+                    db,
+                    user_id=updated_by,
+                    action="update",
+                    entity_type="customer",
+                    entity_id=customer_id,
+                    old_values=old_values,
+                    new_values=update_data,
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=customer, action=update, error=%s", e)
+
+        return customer
 
     @staticmethod
     def delete_customer(db: Session, customer_id: int, user_id: int = None) -> bool:

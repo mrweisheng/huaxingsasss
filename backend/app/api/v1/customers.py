@@ -1,28 +1,21 @@
 """
 客户管理API路由
+
+CLAUDE.md 硬规则：路由层不操作 ORM，所有 DB 访问下沉到 CustomerService。
 """
 from typing import Optional
-import base64
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import or_
 
 from app.db.session import get_db
-from app.core.chinese import search_variants
-from app.models.customer import Customer
 from app.schemas.customer import CustomerUpdate, CustomerResponse
-from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
-from app.api.dependencies import get_current_user, require_role
-from app.core.permissions import Role, is_admin, can_view_income
+from app.schemas.response import PaginatedResponse, PaginationModel
+from app.api.dependencies import get_current_user
+from app.core.permissions import Role, is_admin
 from app.models.user import User
 from app.services.customer_service import CustomerService
 
 router = APIRouter()
-
-
-def escape_ilike(text: str) -> str:
-    """转义 ILIKE 查询中的特殊字符 % 和 _"""
-    return text.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')
 
 
 @router.get("", response_model=PaginatedResponse[CustomerResponse])
@@ -31,45 +24,19 @@ def list_customers(
     per_page: int = Query(20, ge=1, le=100, description="每页数量"),
     keyword: Optional[str] = Query(None, description="搜索关键词"),
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """获取客户列表"""
-    query = db.query(Customer).filter(Customer.is_deleted == False)
+    """获取客户列表（客户对所有角色全部可见）"""
+    items, total = CustomerService.get_list(db, page=page, per_page=per_page, keyword=keyword)
 
-    # 客户对所有角色全部可见（admin/income/expense）
-
-    # 关键词搜索
-    if keyword:
-        variants = search_variants(keyword)
-        escaped = [escape_ilike(v) for v in variants]
-        name_filters = [Customer.name.ilike(f"%{v}%") for v in escaped]
-        wechat_filters = [Customer.wechat_group_name.ilike(f"%{v}%") for v in escaped]
-        query = query.filter(
-            or_(
-                *name_filters,
-                Customer.phone.ilike(f"%{escape_ilike(keyword)}%"),
-                Customer.email.ilike(f"%{escape_ilike(keyword)}%"),
-                *wechat_filters,
-            )
-        )
-    
-    # 总数
-    total = query.count()
-    
-    # 分页
-    items = query.order_by(Customer.created_at.desc())\
-        .offset((page - 1) * per_page)\
-        .limit(per_page)\
-        .all()
-    
     return PaginatedResponse(
         items=[CustomerResponse.model_validate(item) for item in items],
         pagination=PaginationModel(
             page=page,
             per_page=per_page,
             total=total,
-            total_pages=(total + per_page - 1) // per_page
-        )
+            total_pages=(total + per_page - 1) // per_page,
+        ),
     )
 
 
@@ -77,22 +44,12 @@ def list_customers(
 def get_customer(
     customer_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """获取客户详情"""
-    customer = db.query(Customer).filter(
-        Customer.id == customer_id,
-        Customer.is_deleted == False,
-    ).first()
-    
+    """获取客户详情（客户详情对所有角色可见）"""
+    customer = CustomerService.get_by_id(db, customer_id)
     if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="客户不存在"
-        )
-
-    # 客户详情对所有角色可见
-
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
     return customer
 
 
@@ -101,64 +58,15 @@ def update_customer(
     customer_id: int,
     customer_data: CustomerUpdate,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """更新客户"""
-    customer = db.query(Customer).filter(
-        Customer.id == customer_id,
-        Customer.is_deleted == False,
-    ).first()
-
-    if not customer:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="客户不存在"
-        )
-
-    # 权限检查：income 可改任意客户，expense 不可修改
+    """更新客户（income 可改任意客户，expense 不可修改）"""
     if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改客户")
 
-    # 记录旧值用于审计
-    old_values = {
-        "name": customer.name,
-        "phone": customer.phone,
-        "email": customer.email,
-        "wechat_group_name": customer.wechat_group_name,
-        "address": customer.address,
-        "remarks": customer.remarks,
-    }
-
-    # 更新字段（处理加密字段映射）
-    update_data = customer_data.model_dump(exclude_unset=True)
-
-    # 特殊处理：id_card_number → id_card_number_encrypted
-    if 'id_card_number' in update_data:
-        id_card = update_data.pop('id_card_number')
-        # TODO: 生产环境应使用 Fernet 对称加密（cryptography.fernet）
-        customer.id_card_number_encrypted = base64.b64encode(id_card.encode()).decode() if id_card else None
-
-    for field, value in update_data.items():
-        setattr(customer, field, value)
-    
-    db.commit()
-    db.refresh(customer)
-
-    # 审计日志
-    try:
-        from app.services.audit_service import AuditService
-        AuditService.log(
-            db,
-            user_id=current_user.id,
-            action="update",
-            entity_type="customer",
-            entity_id=customer_id,
-            old_values=old_values,
-            new_values=update_data,
-        )
-    except Exception:
-        pass
-    
+    customer = CustomerService.update(db, customer_id, customer_data, updated_by=current_user.id)
+    if not customer:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
     return customer
 
 
@@ -166,28 +74,18 @@ def update_customer(
 def delete_customer(
     customer_id: int,
     current_user: User = Depends(get_current_user),
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
 ):
-    """删除客户（软删除）"""
-    # 权限检查（仅管理员可删除）
+    """删除客户（软删除，仅管理员）"""
     if not is_admin(current_user):
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="仅管理员可删除客户"
-        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="仅管理员可删除客户")
 
     try:
         success = CustomerService.delete_customer(db, customer_id, user_id=current_user.id)
     except ValueError as e:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(e)
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="客户不存在"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="客户不存在")
 
     return {"message": "删除成功"}

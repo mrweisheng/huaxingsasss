@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Spin, Empty, Tooltip } from 'antd'
+import { Empty, Tooltip } from 'antd'
 import {
   ArrowUpOutlined,
   ArrowDownOutlined,
@@ -28,9 +28,29 @@ export default function FinancialOverview() {
   }, [])
 
   if (loading) {
+    // 骨架屏：6 张 KPI 卡 + 2 张图表占位，匹配真实布局，避免白屏
     return (
-      <div className="app-loading-section">
-        <Spin size="large" />
+      <div className="fo-container">
+        <div className="fo-kpi-row">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="fo-kpi-card" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div className="app-skel-block app-skel-line w-50" />
+                <div className="app-skel-block" style={{ width: 24, height: 24, borderRadius: 6 }} />
+              </div>
+              <div className="app-skel-block" style={{ height: 32, width: '70%' }} />
+              <div className="app-skel-block app-skel-line w-60" />
+            </div>
+          ))}
+        </div>
+        <div className="fo-chart-card fo-chart-card--full">
+          <div className="app-skel-block" style={{ width: 220, height: 18, marginBottom: 12 }} />
+          <div className="app-skel-block" style={{ height: 320, borderRadius: 8 }} />
+        </div>
+        <div className="fo-chart-card fo-chart-card--full">
+          <div className="app-skel-block" style={{ width: 220, height: 18, marginBottom: 12 }} />
+          <div className="app-skel-block" style={{ height: 340, borderRadius: 8 }} />
+        </div>
       </div>
     )
   }

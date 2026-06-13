@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Spin, Alert, Popconfirm, message, Tabs, Tooltip } from 'antd'
+import { Button, Alert, Popconfirm, message, Tabs, Tooltip } from 'antd'
 import {
   ArrowLeftOutlined,
   FileOutlined,
@@ -196,7 +196,57 @@ export default function ContractDetail() {
     return () => { controller.abort() }
   }, [id])
 
-  if (loading) return <div className="app-loading-page"><Spin tip="加载中..." /></div>
+  if (loading) {
+    // 骨架屏：与正常布局结构一致 —— 顶栏 / 身份卡 / 财务概览 / 付款时间线
+    // 让用户首屏即看到页面骨架，避免空白页
+    return (
+      <div className="contract-detail-container">
+        <div className="detail-header">
+          <div className="app-skel-block" style={{ width: 92, height: 32, borderRadius: 6 }} />
+        </div>
+        <div className="cd-identity-card">
+          <div className="cd-id-row">
+            <div className="app-skel-block" style={{ width: 56, height: 22, borderRadius: 11 }} />
+            <div className="app-skel-block" style={{ width: 80, height: 22, borderRadius: 11 }} />
+            <div className="app-skel-block" style={{ width: 140, height: 18 }} />
+            <div className="app-skel-block" style={{ width: 220, height: 14, marginLeft: 'auto' }} />
+          </div>
+          <div className="cd-id-row cd-id-row-sub" style={{ marginTop: 12 }}>
+            <div className="app-skel-block app-skel-line w-50" />
+            <div className="app-skel-block app-skel-line w-30" />
+          </div>
+        </div>
+        <div className="cd-finance-panel" style={{ marginTop: 16 }}>
+          <div className="cd-fn-hero" style={{ display: 'flex', gap: 24, alignItems: 'center' }}>
+            <div className="app-skel-block" style={{ width: 220, height: 36 }} />
+            <div className="app-skel-block" style={{ flex: 1, height: 12, borderRadius: 6 }} />
+            <div className="app-skel-block" style={{ width: 60, height: 16 }} />
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginTop: 16 }}>
+            {[0, 1, 2].map(i => (
+              <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="app-skel-block app-skel-line w-40" />
+                <div className="app-skel-block" style={{ height: 28, width: '70%' }} />
+                <div className="app-skel-block app-skel-line w-60" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="app-skel-block" style={{ width: 160, height: 18 }} />
+          <div style={{ display: 'flex', gap: 12, overflow: 'hidden' }}>
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div
+                key={i}
+                className="app-skel-block"
+                style={{ width: 220, height: 110, borderRadius: 8, flexShrink: 0 }}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    )
+  }
   if (error)    return <Alert type="error" message={error} showIcon />
   if (!contract) return <Alert type="warning" message="合同不存在" showIcon />
 

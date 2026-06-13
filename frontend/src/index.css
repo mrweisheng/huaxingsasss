@@ -452,6 +452,35 @@ body {
   min-height: 60vh;
 }
 
+/* ─── 骨架屏（全局基类） ───
+ * 所有页面级骨架元素继承 .app-skel-block，避免每个页面各写一份 shimmer。
+ * .app-skel-line / .app-skel-block-* 提供常用尺寸预设。
+ */
+.app-skel-block {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    rgba(0, 0, 0, 0.08) 50%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: 6px;
+  animation: appSkelShimmer 1.4s ease-in-out infinite;
+}
+.app-skel-line { height: 12px; }
+.app-skel-line.w-30 { width: 30%; }
+.app-skel-line.w-40 { width: 40%; }
+.app-skel-line.w-50 { width: 50%; }
+.app-skel-line.w-60 { width: 60%; }
+.app-skel-line.w-70 { width: 70%; }
+.app-skel-line.w-80 { width: 80%; }
+.app-skel-line.w-100 { width: 100%; }
+
+@keyframes appSkelShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 /* 角标装饰 */
 .corner-accent {
   position: absolute;

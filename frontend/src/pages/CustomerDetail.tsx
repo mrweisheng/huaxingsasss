@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { Button, message, Spin, Empty, Tooltip } from 'antd'
+import { Button, message, Empty, Tooltip } from 'antd'
 import {
   ArrowLeftOutlined,
   PhoneOutlined,
@@ -196,9 +196,51 @@ export default function CustomerDetail() {
   const dominantBizSuffix = dominantBizClass.replace('biz-', '')
 
   if (loading) {
+    // 骨架屏：与档案卡片 + 合同卡片网格结构一致，避免白屏
     return (
-      <div className="cd-wrap app-loading-page">
-        <Spin size="large" />
+      <div className="cd-wrap">
+        <div className="cd-back">
+          <div className="app-skel-block" style={{ width: 120, height: 32, borderRadius: 6 }} />
+        </div>
+        <div className="cd-profile">
+          <div className="cd-profile-top">
+            <div className="cd-profile-id" style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
+              <div className="app-skel-block" style={{ width: 56, height: 56, borderRadius: '50%' }} />
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                <div className="app-skel-block" style={{ width: 160, height: 24 }} />
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <div className="app-skel-block" style={{ width: 110, height: 22, borderRadius: 11 }} />
+                  <div className="app-skel-block" style={{ width: 80, height: 22, borderRadius: 11 }} />
+                </div>
+              </div>
+            </div>
+            <div className="cd-profile-actions" style={{ display: 'flex', gap: 8 }}>
+              <div className="app-skel-block" style={{ width: 72, height: 32, borderRadius: 6 }} />
+              <div className="app-skel-block" style={{ width: 72, height: 32, borderRadius: 6 }} />
+            </div>
+          </div>
+          <div className="divider-gold" style={{ margin: '16px 0 14px' }} />
+          <div className="cd-info-grid">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <div key={i} className="cd-info-item" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <div className="app-skel-block app-skel-line w-40" />
+                <div className="app-skel-block app-skel-line w-70" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 10 }}>
+          <div className="app-skel-block" style={{ width: 140, height: 18 }} />
+          <div className="contract-grid">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div
+                key={i}
+                className="app-skel-block"
+                style={{ height: 220, borderRadius: 12 }}
+              />
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
