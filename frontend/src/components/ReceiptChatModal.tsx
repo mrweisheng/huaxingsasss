@@ -408,7 +408,7 @@ export default function ReceiptChatModal({
       open={open}
       onCancel={handleClose}
       footer={null}
-      width={600}
+      width="70%"
       centered
       destroyOnHidden
       className={`receipt-chat-modal receipt-chat-modal--${paymentType}`}
