@@ -280,20 +280,26 @@ export default function ContractDetail() {
   if (!contract) return <Alert type="warning" message="合同不存在" showIcon />
 
   const cur = contract.currency
-  const progressRaw = calcProgress(contract.paid_amount, contract.total_amount)
-  const progress = Math.min(progressRaw, 100)  // 视觉进度条 cap 在 100%
   const authToken = localStorage.getItem('access_token')
   const contractFileUrl = contract.original_file_path
     ? `${API_BASE_URL}/contracts/${contract.id}/file?token=${authToken}`
     : null
   const statusInfo = statusMap[contract.status] || { text: contract.status, cls: '' }
-  // 收款三态：未付 / 已结清 / 加项收入（实付 > 合同价，业务上常见的装饰费/过户费/议价加价）
+  // 应收口径统一：合同应收 = 合同金额 + 附加项（折算到合同主币种，与已收同口径）
+  // addlNum = 附加项折算值（null/未维护或缺汇率时为 0，降级为合同金额）
   const paid = Number(contract.paid_amount || 0)
   const total = Number(contract.total_amount || 0)
-  const overpaid = Math.max(0, paid - total)
-  const unpaid = Math.max(0, total - paid)
+  const addlNum = contract.additional_total_in_contract_currency != null
+    ? Number(contract.additional_total_in_contract_currency) : 0
+  const receivable = total + addlNum
+  const hasAddl = addlNum > 0
+  const overpaid = Math.max(0, paid - receivable)
+  const unpaid = Math.max(0, receivable - paid)
+  // 收款三态：待收（已收 < 应收）/ 已结清（=应收）/ 超收（>应收）
   const paymentState: 'pending' | 'cleared' | 'overpaid' =
     overpaid > 0 ? 'overpaid' : unpaid > 0 ? 'pending' : 'cleared'
+  const progressRaw = calcProgress(paid, receivable)
+  const progress = Math.min(progressRaw, 100)  // 视觉进度条 cap 在 100%
 
   // 附加项：分币种汇总 + 业务色色条（卡片左侧色条用合同业务色：车辆钢蓝 / 两地牌朱砂）
   const addlItems = contract.additional_items || []
@@ -504,10 +510,17 @@ export default function ContractDetail() {
         {/* ── 行1：合同总额 + 进度条（单行） ── */}
         <div className="cd-fn-hero">
           <div className="cd-fn-hero-left">
-            <span className="cd-fn-hero-label">合同总额</span>
-            <Tooltip title={`${fmtFull(contract.total_amount, cur)}\n${amountToChinese(contract.total_amount, cur)}`}>
-              <span className="cd-fn-hero-value">{fmt(contract.total_amount, cur)}</span>
+            <span className="cd-fn-hero-label">{hasAddl ? '合同应收' : '合同总额'}</span>
+            <Tooltip title={hasAddl
+              ? `合同应收 ${fmtFull(receivable, cur)}\n= 合同金额 ${fmtFull(total, cur)} + 附加项折算 ${fmtFull(addlNum, cur)}\n${amountToChinese(receivable, cur)}`
+              : `${fmtFull(total, cur)}\n${amountToChinese(total, cur)}`}>
+              <span className="cd-fn-hero-value">{fmt(receivable, cur)}</span>
             </Tooltip>
+            {hasAddl && (
+              <span style={{ fontSize: 12, color: 'var(--brand-gold)', fontWeight: 600, marginLeft: 4, whiteSpace: 'nowrap' }}>
+                含附加项 +{fmt(addlNum, cur)}
+              </span>
+            )}
             {showCnyHint && (
               <span className="cd-fn-hero-cny">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</span>
             )}
@@ -552,9 +565,9 @@ export default function ContractDetail() {
             <div className="cd-fn-metric-row">
               {paymentState === 'pending' ? (
                 <>
-                  <Tooltip title={`${fmtFull(contract.remaining_amount, cur)}\n${amountToChinese(contract.remaining_amount, cur)}`}>
+                  <Tooltip title={`${fmtFull(unpaid, cur)}\n${amountToChinese(unpaid, cur)}`}>
                     <span className="cd-fn-metric-value remaining">
-                      {fmt(contract.remaining_amount, cur)}
+                      {fmt(unpaid, cur)}
                     </span>
                   </Tooltip>
                   <span className="cd-fn-metric-status remaining">待收中</span>
@@ -567,9 +580,9 @@ export default function ContractDetail() {
                   <span className="cd-fn-metric-value cleared">{fmt(0, cur)}</span>
                   <span className="cd-fn-metric-status cleared">已结清 ✓</span>
                   {paymentState === 'overpaid' && (
-                    <Tooltip title={`实付超出合同字面金额 ${fmtFull(overpaid, cur)}。\n常见原因：附加项应收、装饰费、过户费、议价加价、手续费等多付`}>
+                    <Tooltip title={`实付超出合同应收 ${fmtFull(overpaid, cur)}。\n可能原因：手续费、多付等（应收已含附加项）`}>
                       <span className="cd-fn-metric-extra">
-                        加项收入 +{fmt(overpaid, cur)}
+                        超收 +{fmt(overpaid, cur)}
                       </span>
                     </Tooltip>
                   )}
@@ -705,9 +718,14 @@ export default function ContractDetail() {
             {addlEntries.length > 0 && (
               <div className="cd-addl-summary">
                 <span className="cd-addl-summary-label">附加项汇总</span>
-                {addlEntries.map(([cur, amt]) => (
-                  <span key={cur} className="cd-addl-summary-val">{fmt(Number(amt), cur)}</span>
+                {addlEntries.map(([c2, amt]) => (
+                  <span key={c2} className="cd-addl-summary-val">{fmt(Number(amt), c2)}</span>
                 ))}
+                {hasAddl && (
+                  <span className="cd-addl-summary-conv" style={{ color: 'var(--brand-gold)' }}>
+                    折算 ≈ {fmt(addlNum, cur)}
+                  </span>
+                )}
               </div>
             )}
           </>

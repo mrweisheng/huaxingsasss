@@ -57,6 +57,8 @@ export interface Contract {
   expense_count: number
   payment_total_count: number
   additional_total_by_currency?: Record<string, number>
+  /** 附加项折算到合同主币种的总额（应收口径统一用）；null=未维护/缺汇率 */
+  additional_total_in_contract_currency?: number | null
   /** 详情接口返回（ContractDetailResponse）；列表接口不返回 */
   additional_items?: ContractAdditionalItem[]
   created_at: string
