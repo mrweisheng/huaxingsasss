@@ -32,7 +32,6 @@ class ContractAgent:
     def __init__(self, db: Session, user: User):
         self.db = db
         self.user = user
-        self.executor = ToolExecutor(db, user)
         self._mode: str = "chat"
         self._session_context: Optional[dict] = None
 
@@ -60,31 +59,6 @@ class ContractAgent:
     # ------------------------------------------------------------------
     # chat_history 上下文（finalize_node 调用）
     # ------------------------------------------------------------------
-
-    @staticmethod
-    def _serialize_messages(messages: List[dict]) -> str:
-        """将消息列表序列化为纯文本，供摘要模型使用。
-
-        标注：旧 ReAct 时使用。目前已无调用方。
-        """
-        lines = []
-        for m in messages:
-            role = m.get("role", "")
-            content = m.get("content", "") or ""
-            if role == "user":
-                lines.append(f"用户: {content[:500]}")
-            elif role == "assistant":
-                tool_calls = m.get("tool_calls")
-                if tool_calls:
-                    tools_desc = ", ".join(
-                        tc.get("function", {}).get("name", "") for tc in tool_calls
-                    )
-                    lines.append(f"助手(调用工具: {tools_desc}): {content[:500]}")
-                else:
-                    lines.append(f"助手: {content[:500]}")
-            elif role == "tool":
-                lines.append(f"工具结果: {content[:300]}")
-        return "\n".join(lines)
 
     def _save_message(
         self,
