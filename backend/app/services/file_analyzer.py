@@ -32,14 +32,14 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.contract import Contract
-from app.ai.prompts_v2 import (
+from app.ai.prompts import (
     CONTRACT_ANALYSIS_PROMPT,
     RECEIPT_ANALYSIS_PROMPT,
     GROUP_CHAT_ANALYSIS_PROMPT,
     FILE_CLASSIFY_PROMPT,
 )
 from app.utils.file_utils import calculate_file_hash, resolve_file_path
-from app.ai.tools import _get_redis_pool
+from app.ai.tool_executor_base import _get_redis_pool
 from app.utils.file_analysis import (
     compress_image,
     detect_image_mime,

@@ -28,10 +28,10 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, System
 from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.runnables import RunnableConfig
 
-from app.ai.orchestrator.state_v2 import AgentState
-from app.ai.tools_v2 import TOOL_DEFINITIONS, ToolExecutorV2
+from app.ai.orchestrator.state import AgentState
+from app.ai.tool_executor import TOOL_DEFINITIONS, ToolExecutorV2
 from app.ai.llm_client import AgentModelClient
-from app.ai.prompts_v2 import build_system_prompt
+from app.ai.prompts import build_system_prompt
 from app.config import settings
 
 logger = logging.getLogger(__name__)

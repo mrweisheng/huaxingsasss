@@ -12,7 +12,7 @@ from typing import List, Optional
 
 from sqlalchemy.orm import Session
 
-from app.ai.tools import ToolExecutor
+from app.ai.tool_executor_base import ToolExecutor
 from app.config import settings
 from app.models.chat_history import ChatHistory
 from app.models.chat_session import ChatSession

@@ -18,7 +18,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Optional
 
-from app.ai.tools import ToolExecutor, _get_redis_pool
+from app.ai.tool_executor_base import ToolExecutor, _get_redis_pool
 from app.services.file_analyzer import FileAnalyzer
 from app.services.payment_service import PaymentService
 from app.services.exchange_rate_service import ExchangeRateService

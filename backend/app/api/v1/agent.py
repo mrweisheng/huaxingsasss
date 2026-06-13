@@ -20,7 +20,7 @@ from app.models.user import User
 from app.models.chat_session import ChatSession
 from app.models.agent_file import AgentFile
 from app.schemas.agent import ChatRequest, UploadResponse, CreateSessionRequest
-from app.ai.agent import ContractAgent
+from app.ai.chat_session_service import ContractAgent
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -142,7 +142,7 @@ async def chat(
         try:
             # ━━━ v2 统一 Agent 图（单层循环，进程级缓存） ━━━
             from app.ai.orchestrator.unified_agent import get_compiled_graph, _default_llm_client
-            from app.ai.tools_v2 import ToolExecutorV2
+            from app.ai.tool_executor import ToolExecutorV2
             from app.ai.orchestrator.sse_adapter import adapt_langgraph_stream_v2
             from app.ai.orchestrator.checkpointer import get_checkpointer
 

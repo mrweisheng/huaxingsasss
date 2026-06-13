@@ -15,7 +15,7 @@ import httpx
 from app.config import settings
 # Prompt 统一：parse_contract_image 改用 prompts_v2 的权威常量，
 # 消除内联旧版与 prompts_v2.py 新版 business_type 枚举不一致的问题。
-from app.ai.prompts_v2 import CONTRACT_ANALYSIS_PROMPT
+from app.ai.prompts import CONTRACT_ANALYSIS_PROMPT
 
 logger = logging.getLogger(__name__)
 
