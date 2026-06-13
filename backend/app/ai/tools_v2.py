@@ -991,13 +991,11 @@ class ToolExecutorV2(ToolExecutor):
         if kwargs.get("contract_id"):
             query = query.filter(Payment.contract_id == kwargs["contract_id"])
 
-        # 角色权限
+        # 角色权限：仅按 payment.type 隔离收支，合同对所有角色可见
         if self.user.role == "income":
             query = query.filter(Payment.type == "income")
-            query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
         elif self.user.role == "expense":
             query = query.filter(Payment.type == "expense")
-            query = query.filter(Payment.created_by == self.user.id)
 
         groups = {"contract": Payment.contract_id}
         group_col = groups.get(group_by, Payment.contract_id)

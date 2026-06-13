@@ -101,20 +101,19 @@ export default function Layout() {
   const role = user?.role || ''
 
   /* ── 业务菜单（不含小星助手）── */
-  const businessMenuItems: { key: string; icon: JSX.Element; label: string }[] = []
-
-  if (role === 'admin' || role === 'income') {
-    businessMenuItems.push({
+  /* 客户/合同对所有角色全部可见，仅按 payment.type 隔离收支 */
+  const businessMenuItems: { key: string; icon: JSX.Element; label: string }[] = [
+    {
       key: '/customers',
       icon: <TeamOutlined />,
       label: '客户管理',
-    })
-    businessMenuItems.push({
+    },
+    {
       key: '/contracts',
       icon: <FileTextOutlined />,
       label: '合同管理',
-    })
-  }
+    },
+  ]
 
   const paymentLabel =
     role === 'expense' ? '支出管理' : role === 'income' ? '收入管理' : '收付管理'

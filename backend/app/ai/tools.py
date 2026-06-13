@@ -184,11 +184,8 @@ class ToolExecutor:
         merged_data["payment_terms"] = normalized
 
     def _can_access_contract(self, contract: Contract) -> bool:
-        if self.user.role == Role.ADMIN:
-            return True
-        if self.user.role == Role.EXPENSE:
-            return True  # expense 可查看所有合同（用于关联支出）
-        return contract.sales_person_id == self.user.id
+        # 合同对所有角色全部可见（admin/income/expense），仅按 payment.type 隔离收支
+        return True
 
     def _is_admin(self) -> bool:
         return _perm_is_admin(self.user)
@@ -295,11 +292,7 @@ class ToolExecutor:
     ) -> str:
         query = self.db.query(Customer).filter(Customer.is_deleted == False)
 
-        # 权限过滤：参照 REST API customers.py 的逻辑
-        if self.user.role == Role.EXPENSE:
-            return json.dumps({"error": "当前角色无权查看客户"}, ensure_ascii=False)
-        if self.user.role == Role.INCOME:
-            query = query.filter(Customer.created_by == self.user.id)
+        # 客户对所有角色全部可见（admin/income/expense）
 
         has_filter = bool(name or phone or wechat_group)
 
@@ -352,9 +345,8 @@ class ToolExecutor:
         return json.dumps({"customers": results, "total": len(results)}, ensure_ascii=False)
 
     def search_contracts(self, **kwargs) -> str:
+        # 合同对所有角色全部可见
         sales_person_id = None
-        if self.user.role == Role.INCOME:
-            sales_person_id = self.user.id
 
         # 判断是否无筛选条件
         has_filter = any(kwargs.get(k) for k in (
@@ -470,9 +462,8 @@ class ToolExecutor:
             business_type: 业务类型过滤（车辆买卖/两地牌过户/年检保险/其他）。
                 传入时仅返回该类型合同。
         """
+        # 合同对所有角色全部可见
         sales_person_id = None
-        if self.user.role == Role.INCOME:
-            sales_person_id = self.user.id
 
         normalized = BusinessType.normalize(business_type) if business_type else None
 
@@ -503,13 +494,11 @@ class ToolExecutor:
         if kwargs.get("type"):
             query = query.filter(Payment.type == kwargs["type"])
 
-        # 角色权限：income 只看收入+自己合同，expense 只看支出+自己创建的
+        # 角色权限：仅按 payment.type 隔离收支，合同对所有角色可见
         if self.user.role == Role.INCOME:
             query = query.filter(Payment.type == "income")
-            query = query.join(Contract).filter(Contract.sales_person_id == self.user.id)
         elif self.user.role == Role.EXPENSE:
             query = query.filter(Payment.type == "expense")
-            query = query.filter(Payment.created_by == self.user.id)
 
         page = kwargs.get("page", 1)
         per_page = kwargs.get("per_page", 20)
@@ -589,9 +578,7 @@ class ToolExecutor:
         if not customer:
             return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
 
-        # income 角色只能修改自己创建的客户
-        if self.user.role == Role.INCOME and customer.created_by != self.user.id:
-            return json.dumps({"error": "无权修改其他用户创建的客户"}, ensure_ascii=False)
+        # 客户对所有角色可改（admin/income）；expense 不可改客户由 mode_guard / 工具白名单控制
 
         updatable = ["phone", "email", "id_card_number", "wechat_group_name", "address", "remarks"]
         updated = {}
@@ -1046,10 +1033,7 @@ class ToolExecutor:
         if missing:
             return json.dumps({"error": f"缺少必填参数: {', '.join(missing)}"}, ensure_ascii=False)
 
-        if self.user.role == Role.INCOME:
-            contract = self.db.query(Contract).filter(Contract.id == kwargs["contract_id"]).first()
-            if not contract or contract.sales_person_id != self.user.id:
-                return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
+        # 合同对所有角色可见，income 可在任意合同上录入收入；类型隔离由 _can_view_income/_expense 守卫
 
         # 期数处理：LLM 指定 → 检查碰撞；未指定 → 自动计算
         installment_number = kwargs.get("installment_number")
@@ -1195,9 +1179,7 @@ class ToolExecutor:
             if not self._can_view_income():
                 return json.dumps({"error": "当前角色无权更新收入记录"}, ensure_ascii=False)
 
-        # income 角色校验合同所有权
-        if self.user.role == Role.INCOME and payment.contract and payment.contract.sales_person_id != self.user.id:
-            return json.dumps({"error": "无权操作该合同的付款"}, ensure_ascii=False)
+        # 合同对所有角色可见，income 可更新任意合同的收入流水（类型隔离由 _can_view_income/_expense 守卫）
 
         # 可更新字段白名单
         updatable_fields = ["notes", "payment_method", "receipt_image_path", "receipt_data", "installment_name", "paid_date"]
@@ -1339,10 +1321,7 @@ class ToolExecutor:
                 Payment.type == "income",
                 Payment.is_deleted == False,
             )
-            if self.user.role == Role.INCOME:
-                pending_query = pending_query.join(Contract).filter(
-                    Contract.sales_person_id == self.user.id
-                )
+            # 合同对所有角色可见，不再按 sales_person_id 过滤匹配候选
             pending_payments = pending_query.all()
 
             for p in pending_payments:
@@ -1408,9 +1387,7 @@ class ToolExecutor:
         if contract_id:
             query = query.filter(Contract.id == contract_id)
 
-        # 角色权限：income 只看自己合同的全文
-        if self.user.role == Role.INCOME:
-            query = query.filter(Contract.sales_person_id == self.user.id)
+        # 合同对所有角色可见，不再按 sales_person_id 过滤全文搜索范围
 
         # ILIKE 模糊搜索
         query = query.filter(Contract.contract_text.ilike(f"%{_escape_ilike(keyword)}%"))
@@ -1505,8 +1482,7 @@ class ToolExecutor:
             Payment.type == "expense",
         )
 
-        if self.user.role == Role.EXPENSE:
-            query = query.filter(Payment.created_by == self.user.id)
+        # 支出对所有 expense/admin 全部可见，不再按 created_by 隔离
 
         if kwargs.get("contract_id"):
             query = query.filter(Payment.contract_id == kwargs["contract_id"])
@@ -1566,11 +1542,9 @@ class ToolExecutor:
         elif kwargs.get("type"):
             query = query.filter(Payment.type == kwargs["type"])
 
-        need_contract_join = self.user.role == Role.INCOME or kwargs.get("customer_name")
+        need_contract_join = bool(kwargs.get("customer_name"))
         if need_contract_join:
             query = query.join(Contract)
-            if self.user.role == Role.INCOME:
-                query = query.filter(Contract.sales_person_id == self.user.id)
             if kwargs.get("customer_name"):
                 query = query.join(Customer).filter(
                     Customer.name.ilike(f"%{_escape_ilike(kwargs['customer_name'])}%")
@@ -1670,8 +1644,7 @@ class ToolExecutor:
         if status:
             query = query.filter(Contract.status == status)
 
-        if self.user.role == Role.INCOME:
-            query = query.filter(Contract.sales_person_id == self.user.id)
+        # 合同对所有角色可见，不再按 sales_person_id 过滤
 
         contracts = query.order_by(Contract.end_date).all()
         results = []
@@ -1687,27 +1660,20 @@ class ToolExecutor:
 
     def get_overview(self) -> str:
         """全局统计概览，用于回答'现在什么情况''有哪些数据'等开放式问题。
-        按角色隔离数据范围：
-        - admin：全部数据
-        - income：仅自己创建的客户 + 自己名下的合同 + 这些合同的收入
-        - expense：所有合同（用于关联支出）+ 自己创建的支出；无客户视角
+        数据范围：客户/合同对所有角色全部可见，仅按 payment.type 隔离收支视角：
+        - admin：客户 + 合同 + 收入 + 支出
+        - income：客户 + 合同 + 收入（不看支出）
+        - expense：客户 + 合同 + 支出（不看收入）
         """
         from sqlalchemy import func
 
-        # ── 客户范围 ──
+        # ── 客户范围：对所有角色可见 ──
         customer_query = self.db.query(Customer).filter(Customer.is_deleted == False)
-        if self.user.role == Role.INCOME:
-            customer_query = customer_query.filter(Customer.created_by == self.user.id)
-        # expense 不展示客户列表（参照 search_customers 的硬隔离）
-        show_customers = self.user.role != Role.EXPENSE
 
-        # ── 合同范围 ──
+        # ── 合同范围：对所有角色可见 ──
         contract_query = self.db.query(Contract).filter(Contract.is_deleted == False)
-        if self.user.role == Role.INCOME:
-            contract_query = contract_query.filter(Contract.sales_person_id == self.user.id)
-        # admin/expense 看全部合同
 
-        customers_total = customer_query.count() if show_customers else 0
+        customers_total = customer_query.count()
         contracts_total = contract_query.count()
 
         status_counts = (
@@ -1718,23 +1684,19 @@ class ToolExecutor:
         by_status = {s: c for s, c in status_counts}
 
         # ── 最近客户 ──
+        latest_customers = (
+            customer_query.order_by(Customer.created_at.desc()).limit(5).all()
+        )
         recent_customers = []
-        if show_customers:
-            latest_customers = (
-                customer_query.order_by(Customer.created_at.desc()).limit(5).all()
+        for c in latest_customers:
+            cc_query = self.db.query(Contract).filter(
+                Contract.customer_id == c.id, Contract.is_deleted == False
             )
-            # 客户的合同数也要按角色过滤
-            for c in latest_customers:
-                cc_query = self.db.query(Contract).filter(
-                    Contract.customer_id == c.id, Contract.is_deleted == False
-                )
-                if self.user.role == Role.INCOME:
-                    cc_query = cc_query.filter(Contract.sales_person_id == self.user.id)
-                recent_customers.append({
-                    "id": c.id,
-                    "name": c.name,
-                    "contract_count": cc_query.count(),
-                })
+            recent_customers.append({
+                "id": c.id,
+                "name": c.name,
+                "contract_count": cc_query.count(),
+            })
 
         # ── 最近合同 ──
         latest_contracts = (
@@ -1768,12 +1730,11 @@ class ToolExecutor:
             "contracts_by_status": by_status,
             "expiring_contracts_30days": expiring_count,
             "recent_contracts": recent_contracts,
+            "recent_customers": recent_customers,
             "scope": self.user.role,  # 让 LLM 知道当前数据范围
         }
-        if show_customers:
-            result["recent_customers"] = recent_customers
 
-        # 收入：admin 看全部，income 只看自己合同的，expense 不看
+        # 收入：admin/income 看全部收入，expense 不看收入
         if self.user.role != Role.EXPENSE:
             income_rows = self.db.query(
                 Payment.currency,
@@ -1782,12 +1743,7 @@ class ToolExecutor:
                 Payment.is_deleted == False,
                 Payment.type == "income",
                 Payment.status == "paid",
-            )
-            if self.user.role == Role.INCOME:
-                income_rows = income_rows.join(Contract).filter(
-                    Contract.sales_person_id == self.user.id
-                )
-            income_rows = income_rows.group_by(Payment.currency).all()
+            ).group_by(Payment.currency).all()
 
             income_by_currency = {"CNY": 0.0, "HKD": 0.0}
             for r in income_rows:
@@ -1795,7 +1751,7 @@ class ToolExecutor:
                     income_by_currency[r.currency] = float(r.total)
             result["income_by_currency"] = income_by_currency
 
-        # 支出：admin 看全部，expense 只看自己创建的，income 不看
+        # 支出：admin/expense 看全部支出，income 不看支出
         if self.user.role != Role.INCOME:
             expense_rows = self.db.query(
                 Payment.currency,
@@ -1804,10 +1760,7 @@ class ToolExecutor:
                 Payment.is_deleted == False,
                 Payment.type == "expense",
                 Payment.status == "paid",
-            )
-            if self.user.role == Role.EXPENSE:
-                expense_rows = expense_rows.filter(Payment.created_by == self.user.id)
-            expense_rows = expense_rows.group_by(Payment.currency).all()
+            ).group_by(Payment.currency).all()
 
             expense_by_currency = {"CNY": 0.0, "HKD": 0.0}
             for r in expense_rows:

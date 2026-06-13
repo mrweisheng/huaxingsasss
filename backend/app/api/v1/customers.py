@@ -36,12 +36,8 @@ def list_customers(
     """获取客户列表"""
     query = db.query(Customer).filter(Customer.is_deleted == False)
 
-    # admin/income 可查看全部，expense 不可查看客户
-    if current_user.role == Role.EXPENSE:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权查看客户")
-    if current_user.role == Role.INCOME:
-        query = query.filter(Customer.created_by == current_user.id)
-    
+    # 客户对所有角色全部可见（admin/income/expense）
+
     # 关键词搜索
     if keyword:
         variants = search_variants(keyword)
@@ -94,15 +90,8 @@ def get_customer(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="客户不存在"
         )
-    
-    # 权限检查
-    if current_user.role == Role.EXPENSE:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权查看客户")
-    if current_user.role == Role.INCOME and customer.created_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问此客户"
-        )
+
+    # 客户详情对所有角色可见
 
     return customer
 
@@ -126,15 +115,10 @@ def update_customer(
             detail="客户不存在"
         )
 
-    # 权限检查
+    # 权限检查：income 可改任意客户，expense 不可修改
     if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改客户")
-    if current_user.role == Role.INCOME and customer.created_by != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权修改此客户"
-        )
-    
+
     # 更新字段（处理加密字段映射）
     update_data = customer_data.model_dump(exclude_unset=True)
 

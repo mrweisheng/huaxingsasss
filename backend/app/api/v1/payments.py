@@ -60,13 +60,11 @@ def list_payments(
     if date_to:
         query = query.filter(Payment.paid_date <= date_to)
 
-    # 角色权限：income 只看收入+自己合同，expense 只看支出+自己创建的，admin 全量
+    # 角色权限：income 看全部收入流水，expense 看全部支出流水，admin 全量
     if current_user.role == Role.INCOME:
         query = query.filter(Payment.type == "income")
-        query = query.filter(Contract.sales_person_id == current_user.id)
     elif current_user.role == Role.EXPENSE:
         query = query.filter(Payment.type == "expense")
-        query = query.filter(Payment.created_by == current_user.id)
 
     total = query.count()
     items = query.order_by(Payment.paid_date.desc().nullsfirst(), Payment.created_at.desc())\
@@ -102,15 +100,13 @@ def get_contract_payments(
     db: Session = Depends(get_db)
 ):
     """获取合同的付款记录（按角色过滤类型）"""
-    # P1-3: 校验合同存在 + income 角色归属
     contract = db.query(Contract).filter(Contract.id == contract_id).first()
     if not contract:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
 
+    # 合同对所有角色可见，仅按 payment.type 隔离收支
     if current_user.role == Role.INCOME:
         type_filter = "income"
-        if contract.sales_person_id != current_user.id:
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此合同")
     elif current_user.role == Role.EXPENSE:
         type_filter = "expense"
     else:
@@ -136,11 +132,10 @@ def get_receipt_image(
     if not payment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="付款记录不存在")
 
-    # 权限检查：admin 全量，income 只看自己合同，expense 只看自己创建的
-    contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
-    if current_user.role == Role.INCOME and contract and contract.sales_person_id != current_user.id:
+    # 权限检查：按 payment.type 隔离收支（income 只能看收入凭证，expense 只能看支出凭证，admin 全量）
+    if current_user.role == Role.INCOME and payment.type != "income":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
-    if current_user.role == Role.EXPENSE and payment.created_by != current_user.id:
+    if current_user.role == Role.EXPENSE and payment.type != "expense":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问")
 
     if not payment.receipt_image_path:

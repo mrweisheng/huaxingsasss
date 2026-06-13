@@ -23,13 +23,13 @@ const tabs: NavTab[] = [
     key: '/customers',
     icon: <TeamOutlined />,
     label: '客户',
-    roles: ['admin', 'income'],
+    roles: ['admin', 'income', 'expense'],
   },
   {
     key: '/contracts',
     icon: <FileTextOutlined />,
     label: '合同',
-    roles: ['admin', 'income'],
+    roles: ['admin', 'income', 'expense'],
   },
   {
     key: '/payments',

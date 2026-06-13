@@ -45,11 +45,8 @@ def list_contracts(
     db: Session = Depends(get_db)
 ):
     """获取合同列表"""
-    # admin/expense 可查看全部，income 只看自己负责的
-    if current_user.role == Role.INCOME:
-        sales_person_id = current_user.id
-    else:
-        sales_person_id = None
+    # 合同对所有角色全部可见（admin/income/expense），不再按 sales_person_id 过滤
+    sales_person_id = None
 
     # 解析 customer_ids
     parsed_customer_ids: Optional[List[int]] = None
@@ -117,13 +114,8 @@ def get_contract(
         from app.models.customer import Customer
         customer = db.query(Customer).filter(Customer.id == contract.customer_id).first()
         contract.customer_name = customer.name if customer else None
-    
-    # 权限检查：income 只能看自己合同，expense/admin 可看所有
-    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权访问此合同"
-        )
+
+    # 合同详情对所有角色可见，不再按 sales_person_id 校验
 
     return contract
 
@@ -139,8 +131,7 @@ def download_contract_file(
     if not contract:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同不存在")
 
-    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问此合同")
+    # 合同文件对所有角色可见，不再按 sales_person_id 校验
 
     if not contract.original_file_path:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="合同文件不存在")
@@ -190,15 +181,10 @@ def update_contract(
             detail="合同不存在"
         )
     
-    # 权限检查：income 只能改自己合同，expense 不可修改
+    # 权限检查：income 可改任意合同，expense 不可修改
     if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改合同")
-    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权修改此合同"
-        )
-    
+
     updated_contract = ContractService.update_contract(db, contract_id, contract_data)
     
     return updated_contract
@@ -278,15 +264,10 @@ def confirm_parsed_data(
             detail="合同不存在"
         )
     
-    # 权限检查：income 只能操作自己合同，expense 不可操作
+    # 权限检查：income 可操作任意合同，expense 不可操作
     if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权操作合同")
-    if current_user.role == Role.INCOME and contract.sales_person_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="无权操作此合同"
-        )
-    
+
     # 更新解析数据
     confidence = parsed_data.get('confidence', 0.9)
     updated_contract = ContractService.update_contract_data(
