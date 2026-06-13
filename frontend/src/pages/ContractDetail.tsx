@@ -293,6 +293,10 @@ export default function ContractDetail() {
     ? Number(contract.additional_total_in_contract_currency) : 0
   const receivable = total + addlNum
   const hasAddl = addlNum > 0
+  // 有附加项明细但缺汇率未折算：hero 仍按合同总额显示（receivable=total），
+  // 但提示用户附加项未计入应收，避免"hero 说总额、下方却挂附加项卡片"的认知割裂
+  const hasAddlItems = (contract.additional_items || []).length > 0
+  const addlUnconverted = hasAddlItems && !hasAddl
   const overpaid = Math.max(0, paid - receivable)
   const unpaid = Math.max(0, receivable - paid)
   // 收款三态：待收（已收 < 应收）/ 已结清（=应收）/ 超收（>应收）
@@ -520,6 +524,13 @@ export default function ContractDetail() {
               <span style={{ fontSize: 12, color: 'var(--brand-gold)', fontWeight: 600, marginLeft: 4, whiteSpace: 'nowrap' }}>
                 含附加项 +{fmt(addlNum, cur)}
               </span>
+            )}
+            {addlUnconverted && (
+              <Tooltip title={`${hasAddlItems ? contract.additional_items!.length : 0} 项附加项因币种缺汇率未折算，未计入合同应收，详见下方附加项明细`}>
+                <span style={{ fontSize: 12, color: 'var(--money-due)', fontWeight: 600, marginLeft: 4, whiteSpace: 'nowrap' }}>
+                  含{contract.additional_items!.length}项未折算
+                </span>
+              </Tooltip>
             )}
             {showCnyHint && (
               <span className="cd-fn-hero-cny">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</span>
