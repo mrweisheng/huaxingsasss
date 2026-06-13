@@ -147,5 +147,24 @@ class CustomerService:
         db.commit()
         db.refresh(customer)
 
+        # 审计日志
+        if created_by:
+            try:
+                AuditService.log(
+                    db,
+                    user_id=created_by,
+                    action="create",
+                    entity_type="customer",
+                    entity_id=customer.id,
+                    new_values={
+                        "name": customer.name,
+                        "phone": customer.phone,
+                        "email": customer.email,
+                        "contact_person": customer.contact_person,
+                    },
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=customer, action=create, error=%s", e)
+
         logger.info("创建客户: id=%d, name=%s", customer.id, customer.name)
         return customer, True

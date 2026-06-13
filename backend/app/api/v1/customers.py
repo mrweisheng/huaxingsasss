@@ -119,6 +119,16 @@ def update_customer(
     if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改客户")
 
+    # 记录旧值用于审计
+    old_values = {
+        "name": customer.name,
+        "phone": customer.phone,
+        "email": customer.email,
+        "wechat_group_name": customer.wechat_group_name,
+        "address": customer.address,
+        "remarks": customer.remarks,
+    }
+
     # 更新字段（处理加密字段映射）
     update_data = customer_data.model_dump(exclude_unset=True)
 
@@ -133,6 +143,21 @@ def update_customer(
     
     db.commit()
     db.refresh(customer)
+
+    # 审计日志
+    try:
+        from app.services.audit_service import AuditService
+        AuditService.log(
+            db,
+            user_id=current_user.id,
+            action="update",
+            entity_type="customer",
+            entity_id=customer_id,
+            old_values=old_values,
+            new_values=update_data,
+        )
+    except Exception:
+        pass
     
     return customer
 

@@ -130,6 +130,28 @@ class PaymentService:
         db.commit()
         db.refresh(payment)
 
+        # 审计日志
+        if created_by:
+            try:
+                AuditService.log(
+                    db,
+                    user_id=created_by,
+                    action="create",
+                    entity_type="payment",
+                    entity_id=payment.id,
+                    new_values={
+                        "contract_id": contract_id,
+                        "type": type,
+                        "amount": float(amount) if amount else None,
+                        "currency": currency,
+                        "status": payment.status,
+                        "installment_number": installment_number,
+                        "paid_date": str(paid_date) if paid_date else None,
+                    },
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=payment, action=create, error=%s", e)
+
         return payment
 
     @staticmethod
@@ -247,11 +269,19 @@ class PaymentService:
         }
 
     @staticmethod
-    def update_payment(db: Session, payment_id: int, payment_data: PaymentUpdate) -> Optional[Payment]:
+    def update_payment(db: Session, payment_id: int, payment_data: PaymentUpdate, updated_by: Optional[int] = None) -> Optional[Payment]:
         """更新付款记录。补充凭证时自动从 pending 转为 paid 并参与结算。"""
         payment = db.query(Payment).filter(Payment.id == payment_id).first()
         if not payment:
             return None
+
+        # 记录旧值用于审计
+        old_values = {
+            "status": payment.status,
+            "notes": payment.notes,
+            "payment_method": payment.payment_method,
+            "paid_date": str(payment.paid_date) if payment.paid_date else None,
+        }
 
         was_pending = payment.status == 'pending'
         had_receipt = bool(payment.receipt_image_path) or bool(payment.receipt_data)
@@ -298,6 +328,25 @@ class PaymentService:
 
         db.commit()
         db.refresh(payment)
+
+        # 审计日志
+        if updated_by:
+            try:
+                new_values = {k: v for k, v in update_data.items() if v is not None}
+                if should_settle:
+                    new_values["status"] = "paid"
+                AuditService.log(
+                    db,
+                    user_id=updated_by,
+                    action="update",
+                    entity_type="payment",
+                    entity_id=payment_id,
+                    old_values=old_values,
+                    new_values=new_values,
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=payment, action=update, error=%s", e)
+
         return payment
 
     @staticmethod

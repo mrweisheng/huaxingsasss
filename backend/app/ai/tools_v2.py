@@ -541,6 +541,27 @@ class ToolExecutorV2(ToolExecutor):
                     self.db.commit()
                     self.db.refresh(payment)
 
+                    # 审计日志
+                    try:
+                        from app.services.audit_service import AuditService
+                        AuditService.log(
+                            self.db,
+                            user_id=self.user.id,
+                            action="confirm_payment",
+                            entity_type="payment",
+                            entity_id=payment.id,
+                            old_values={"status": "pending"},
+                            new_values={
+                                "status": "paid",
+                                "amount": float(payment.amount),
+                                "currency": payment.currency,
+                                "paid_date": str(payment.paid_date) if payment.paid_date else None,
+                                "contract_id": contract_id,
+                            },
+                        )
+                    except Exception as e:
+                        logger.warning("审计日志写入失败: entity=payment, action=confirm_payment, error=%s", e)
+
                     matched = {
                         "id": payment.id,
                         "installment_name": payment.installment_name,

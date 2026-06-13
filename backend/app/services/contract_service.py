@@ -231,6 +231,27 @@ class ContractService:
         db.commit()
         db.refresh(contract)
 
+        # 审计日志
+        try:
+            AuditService.log(
+                db,
+                user_id=sales_person_id,
+                action="create",
+                entity_type="contract",
+                entity_id=contract.id,
+                new_values={
+                    "contract_number": contract.contract_number,
+                    "title": contract.title,
+                    "business_type": contract.business_type,
+                    "customer_id": contract.customer_id,
+                    "currency": contract.currency,
+                    "total_amount": float(contract.total_amount) if contract.total_amount else None,
+                    "status": contract.status,
+                },
+            )
+        except Exception as e:
+            logger.warning("审计日志写入失败: entity=contract, action=create, error=%s", e)
+
         # 所有合同统一维护 _in_cny 字段（CNY 合同为原值，非 CNY 合同按汇率折算）
         if contract.total_amount > 0:
             if contract.currency == "CNY":
@@ -269,13 +290,23 @@ class ContractService:
     def update_contract(
         db: Session,
         contract_id: int,
-        contract_data: ContractUpdate
+        contract_data: ContractUpdate,
+        updated_by: Optional[int] = None,
     ) -> Optional[Contract]:
         """更新合同"""
         contract = ContractService.get_contract(db, contract_id)
 
         if not contract:
             return None
+
+        # 记录旧值用于审计
+        old_values = {
+            "status": contract.status,
+            "wechat_group": contract.wechat_group,
+            "remarks": contract.remarks,
+            "title": contract.title,
+            "business_type": contract.business_type,
+        }
 
         # 更新字段
         update_data = contract_data.model_dump(exclude_unset=True)
@@ -284,6 +315,22 @@ class ContractService:
 
         db.commit()
         db.refresh(contract)
+
+        # 审计日志
+        if updated_by:
+            try:
+                new_values = {k: v for k, v in update_data.items() if v is not None}
+                AuditService.log(
+                    db,
+                    user_id=updated_by,
+                    action="update",
+                    entity_type="contract",
+                    entity_id=contract_id,
+                    old_values=old_values,
+                    new_values=new_values,
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=contract, action=update, error=%s", e)
 
         return contract
 
@@ -340,7 +387,8 @@ class ContractService:
         db: Session,
         contract_id: int,
         contract_data: Dict[str, Any],
-        confidence: float
+        confidence: float,
+        updated_by: Optional[int] = None,
     ) -> Optional[Contract]:
         """更新AI解析的合同数据"""
         contract = ContractService.get_contract(db, contract_id)
@@ -348,6 +396,15 @@ class ContractService:
         if not contract:
             return None
         
+        # 记录旧值用于审计
+        old_values = {
+            "status": contract.status,
+            "total_amount": float(contract.total_amount) if contract.total_amount else None,
+            "currency": contract.currency,
+            "business_type": contract.business_type,
+            "business_description": contract.business_description,
+        }
+
         # 更新结构化数据
         contract.contract_data = contract_data
         
@@ -419,5 +476,27 @@ class ContractService:
 
         db.commit()
         db.refresh(contract)
+
+        # 审计日志
+        if updated_by:
+            try:
+                new_values = {
+                    "status": contract.status,
+                    "total_amount": float(contract.total_amount) if contract.total_amount else None,
+                    "currency": contract.currency,
+                    "business_type": contract.business_type,
+                    "confidence": contract.confidence,
+                }
+                AuditService.log(
+                    db,
+                    user_id=updated_by,
+                    action="update_data",
+                    entity_type="contract",
+                    entity_id=contract_id,
+                    old_values=old_values,
+                    new_values=new_values,
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=contract, action=update_data, error=%s", e)
         
         return contract

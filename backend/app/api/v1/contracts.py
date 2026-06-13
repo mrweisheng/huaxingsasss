@@ -1,4 +1,4 @@
-﻿"""
+"""
 合同管理API路由
 """
 import logging
@@ -185,7 +185,7 @@ def update_contract(
     if current_user.role == Role.EXPENSE:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="expense角色无权修改合同")
 
-    updated_contract = ContractService.update_contract(db, contract_id, contract_data)
+    updated_contract = ContractService.update_contract(db, contract_id, contract_data, updated_by=current_user.id)
     
     return updated_contract
 
@@ -274,7 +274,8 @@ def confirm_parsed_data(
         db=db,
         contract_id=contract_id,
         contract_data=parsed_data.get('data', {}),
-        confidence=confidence
+        confidence=confidence,
+        updated_by=current_user.id,
     )
     
     return updated_contract

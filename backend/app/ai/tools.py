@@ -578,6 +578,15 @@ class ToolExecutor:
         if not customer:
             return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
 
+        # 记录旧值用于审计
+        old_values = {
+            "phone": customer.phone,
+            "email": customer.email,
+            "wechat_group_name": customer.wechat_group_name,
+            "address": customer.address,
+            "remarks": customer.remarks,
+        }
+
         # 客户对所有角色可改（admin/income）；expense 不可改客户由 mode_guard / 工具白名单控制
 
         updatable = ["phone", "email", "id_card_number", "wechat_group_name", "address", "remarks"]
@@ -597,6 +606,22 @@ class ToolExecutor:
         try:
             self.db.commit()
             self.db.refresh(customer)
+
+            # 审计日志
+            try:
+                from app.services.audit_service import AuditService
+                AuditService.log(
+                    self.db,
+                    user_id=self.user.id,
+                    action="update",
+                    entity_type="customer",
+                    entity_id=customer_id,
+                    old_values=old_values,
+                    new_values=updated,
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=customer, action=update, error=%s", e)
+
             return json.dumps({
                 "success": True,
                 "customer": {
@@ -981,7 +1006,7 @@ class ToolExecutor:
                 "title": contract.title,
                 "business_description": contract.business_description,
             }
-            updated = ContractService.update_contract(self.db, contract_id, contract_update)
+            updated = ContractService.update_contract(self.db, contract_id, contract_update, updated_by=self.user.id)
             if not updated:
                 self._document_context = None  # 更新失败也消费上下文
                 return json.dumps({"error": "更新失败"}, ensure_ascii=False)
@@ -1216,7 +1241,7 @@ class ToolExecutor:
         try:
             from app.schemas.payment import PaymentUpdate
             payment_update = PaymentUpdate(**updates)
-            updated = PaymentService.update_payment(self.db, payment_id, payment_update)
+            updated = PaymentService.update_payment(self.db, payment_id, payment_update, updated_by=self.user.id)
             if not updated:
                 return json.dumps({"error": "更新失败"}, ensure_ascii=False)
 
