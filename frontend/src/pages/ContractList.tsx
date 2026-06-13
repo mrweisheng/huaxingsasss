@@ -428,7 +428,35 @@ export default function ContractList() {
         </div>
       )}
 
-      {contracts.length === 0 && !loading ? (
+      {loading && contracts.length === 0 ? (
+        view === 'ledger' ? (
+          <div className="ct-skel-card" style={{ minHeight: 360 }}>
+            <div className="ct-skel-row">
+              <div className="ct-skel-block ct-skel-pill" />
+              <div className="ct-skel-block ct-skel-pill" />
+              <div className="ct-skel-block ct-skel-meta" />
+            </div>
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="ct-skel-block ct-skel-line ct-skel-w-100" />
+            ))}
+          </div>
+        ) : (
+          <div className="contract-grid">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={i} className="ct-skel-card">
+                <div className="ct-skel-row">
+                  <div className="ct-skel-block ct-skel-pill" />
+                  <div className="ct-skel-block ct-skel-meta" />
+                </div>
+                <div className="ct-skel-block ct-skel-title ct-skel-w-80" />
+                <div className="ct-skel-block ct-skel-amount" />
+                <div className="ct-skel-block ct-skel-line ct-skel-w-60" />
+                <div className="ct-skel-block ct-skel-progress ct-skel-w-100" />
+              </div>
+            ))}
+          </div>
+        )
+      ) : contracts.length === 0 && !loading ? (
         <Empty description="暂无合同数据" className="empty-state" />
       ) : (
         <>

@@ -5,12 +5,13 @@ import logging
 from decimal import Decimal
 from datetime import date
 from pathlib import Path
-from typing import Optional
-from sqlalchemy.orm import Session
-from sqlalchemy import func
+from typing import Optional, List, Tuple
+from sqlalchemy.orm import Session, contains_eager
+from sqlalchemy import func, or_
 
 from app.models.payment import Payment
 from app.models.contract import Contract
+from app.models.customer import Customer
 from app.schemas.payment import PaymentUpdate
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.audit_service import AuditService
@@ -21,6 +22,82 @@ logger = logging.getLogger(__name__)
 
 class PaymentService:
     """付款服务类"""
+
+    @staticmethod
+    def get_payments(
+        db: Session,
+        page: int = 1,
+        per_page: int = 20,
+        contract_id: Optional[int] = None,
+        keyword: Optional[str] = None,
+        status: Optional[str] = None,
+        payment_type: Optional[str] = None,
+        date_from: Optional[date] = None,
+        date_to: Optional[date] = None,
+        role_type_filter: Optional[str] = None,
+    ) -> Tuple[List[Payment], int]:
+        """
+        获取付款记录列表（带 contract / customer 一次性 join 加载，消除 N+1）。
+
+        Args:
+            role_type_filter: 角色级类型过滤。'income' / 'expense' / None（admin 全量）。
+                与显式 payment_type 是 AND 关系。
+
+        Returns:
+            (付款列表, 总数)。每条 Payment 已挂上 contract_number / customer_name /
+            contract_business_description 三个临时字段供 PaymentResponse 序列化。
+        """
+        query = (
+            db.query(Payment)
+            .outerjoin(Contract, Payment.contract_id == Contract.id)
+            .outerjoin(Customer, Contract.customer_id == Customer.id)
+            .options(
+                contains_eager(Payment.contract).contains_eager(Contract.customer)
+            )
+            .filter(Payment.is_deleted == False)
+        )
+
+        if contract_id:
+            query = query.filter(Payment.contract_id == contract_id)
+        if keyword:
+            query = query.filter(
+                or_(
+                    Contract.contract_number.ilike(f"%{keyword}%"),
+                    Customer.name.ilike(f"%{keyword}%"),
+                )
+            )
+        if status:
+            query = query.filter(Payment.status == status)
+        if payment_type:
+            query = query.filter(Payment.type == payment_type)
+        if role_type_filter in ("income", "expense"):
+            query = query.filter(Payment.type == role_type_filter)
+        if date_from:
+            query = query.filter(Payment.paid_date >= date_from)
+        if date_to:
+            query = query.filter(Payment.paid_date <= date_to)
+
+        total = query.count()
+        items = (
+            query.order_by(Payment.paid_date.desc().nullsfirst(), Payment.created_at.desc())
+            .offset((page - 1) * per_page)
+            .limit(per_page)
+            .all()
+        )
+
+        # 把 join 出来的字段挂到 ORM 对象上，PaymentResponse 直接读
+        for item in items:
+            ct = item.contract
+            if ct:
+                item.contract_number = ct.contract_number
+                item.contract_business_description = ct.business_description
+                item.customer_name = ct.customer.name if ct.customer else None
+            else:
+                item.contract_number = None
+                item.contract_business_description = None
+                item.customer_name = None
+
+        return items, total
 
     @staticmethod
     def _generate_description(contract, payment_type, installment_number, payee_name=None, installment_name=None):

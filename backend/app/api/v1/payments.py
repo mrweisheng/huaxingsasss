@@ -40,47 +40,26 @@ def list_payments(
     db: Session = Depends(get_db)
 ):
     """获取付款记录列表"""
-    query = db.query(Payment).filter(Payment.is_deleted == False)\
-        .outerjoin(Contract, Payment.contract_id == Contract.id)\
-        .outerjoin(Customer, Contract.customer_id == Customer.id)
-
-    if contract_id:
-        query = query.filter(Payment.contract_id == contract_id)
-    if keyword:
-        query = query.filter(
-            Contract.contract_number.ilike(f'%{keyword}%') |
-            Customer.name.ilike(f'%{keyword}%')
-        )
-    if status:
-        query = query.filter(Payment.status == status)
-    if payment_type:
-        query = query.filter(Payment.type == payment_type)
-    if date_from:
-        query = query.filter(Payment.paid_date >= date_from)
-    if date_to:
-        query = query.filter(Payment.paid_date <= date_to)
-
-    # 角色权限：income 看全部收入流水，expense 看全部支出流水，admin 全量
+    # 角色 → payment.type 隔离（income 看 income / expense 看 expense / admin 全量）
     if current_user.role == Role.INCOME:
-        query = query.filter(Payment.type == "income")
+        role_type_filter = "income"
     elif current_user.role == Role.EXPENSE:
-        query = query.filter(Payment.type == "expense")
+        role_type_filter = "expense"
+    else:
+        role_type_filter = None
 
-    total = query.count()
-    items = query.order_by(Payment.paid_date.desc().nullsfirst(), Payment.created_at.desc())\
-        .offset((page - 1) * per_page)\
-        .limit(per_page)\
-        .all()
-
-    # 填充 contract_number、customer_name、contract_business_description
-    for item in items:
-        contract = db.query(Contract).filter(Contract.id == item.contract_id).first()
-        if contract:
-            item.contract_number = contract.contract_number
-            item.contract_business_description = contract.business_description
-            if contract.customer_id:
-                customer = db.query(Customer).filter(Customer.id == contract.customer_id).first()
-                item.customer_name = customer.name if customer else None
+    items, total = PaymentService.get_payments(
+        db=db,
+        page=page,
+        per_page=per_page,
+        contract_id=contract_id,
+        keyword=keyword,
+        status=status,
+        payment_type=payment_type,
+        date_from=date_from,
+        date_to=date_to,
+        role_type_filter=role_type_filter,
+    )
 
     return PaginatedResponse(
         items=[PaymentResponse.model_validate(item) for item in items],

@@ -772,3 +772,54 @@
     grid-template-columns: repeat(4, 1fr);
   }
 }
+
+/* ══════════════════════════════════════════════
+   骨架屏（首次加载占位，避免白屏）
+   ══════════════════════════════════════════════ */
+.ct-skel-card {
+  position: relative;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: 16px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 200px;
+  overflow: hidden;
+}
+
+.ct-skel-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ct-skel-block {
+  background: linear-gradient(
+    90deg,
+    rgba(0, 0, 0, 0.04) 0%,
+    rgba(0, 0, 0, 0.08) 50%,
+    rgba(0, 0, 0, 0.04) 100%
+  );
+  background-size: 200% 100%;
+  border-radius: 6px;
+  animation: ctSkelShimmer 1.4s ease-in-out infinite;
+}
+
+.ct-skel-pill { height: 22px; width: 90px; border-radius: 11px; }
+.ct-skel-meta { height: 12px; flex: 1; max-width: 140px; }
+.ct-skel-title { height: 18px; }
+.ct-skel-line { height: 12px; }
+.ct-skel-w-40 { width: 40%; }
+.ct-skel-w-60 { width: 60%; }
+.ct-skel-w-80 { width: 80%; }
+.ct-skel-w-100 { width: 100%; }
+.ct-skel-amount { height: 56px; border-radius: 8px; }
+.ct-skel-progress { height: 8px; border-radius: 4px; }
+
+@keyframes ctSkelShimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}

@@ -230,7 +230,23 @@ export default function CustomerList() {
       </div>
 
       {/* 客户卡片网格 */}
-      {items.length === 0 && !loading ? (
+      {loading && items.length === 0 ? (
+        <div className="cl-grid">
+          {Array.from({ length: 8 }).map((_, i) => (
+            <div key={i} className="cl-skel-card">
+              <div className="cl-skel-row">
+                <div className="cl-skel-block cl-skel-avatar" />
+                <div className="cl-skel-block cl-skel-name" />
+                <div className="cl-skel-block cl-skel-pill" />
+              </div>
+              <div className="cl-skel-block cl-skel-line w-60" />
+              <div className="cl-skel-block cl-skel-receipt" />
+              <div className="cl-skel-block cl-skel-line w-80" />
+              <div className="cl-skel-block cl-skel-line w-100" />
+            </div>
+          ))}
+        </div>
+      ) : items.length === 0 && !loading ? (
         <Empty description="暂无客户" className="empty-state" />
       ) : (
         <div className="cl-grid">
