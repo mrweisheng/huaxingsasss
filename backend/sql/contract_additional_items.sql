@@ -47,3 +47,12 @@ COMMENT ON COLUMN payments.additional_item_id
 -- 标签反查索引（仅命中打标行）
 CREATE INDEX IF NOT EXISTS idx_payments_addl_item
     ON payments(additional_item_id) WHERE additional_item_id IS NOT NULL;
+
+
+-- 4. contracts 表扩展：附加项折算到合同主币种的总额（应收口径统一用）
+--    与 paid_amount 同币种口径，使「应收 = 合同金额 + 附加项」可直接与已收比较。
+--    NULL 表示未折算（缺汇率或合同从未维护过附加项），前端降级用 total_amount。
+ALTER TABLE contracts
+    ADD COLUMN IF NOT EXISTS additional_total_in_contract_currency DECIMAL(15,2);
+COMMENT ON COLUMN contracts.additional_total_in_contract_currency
+    IS '附加项折算到合同主币种的总额（与 paid_amount 同口径，用于应收口径统一）；缺汇率或未维护时为 NULL，由 AdditionalItemService 增删改时同步维护';

@@ -9,11 +9,12 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 
 from sqlalchemy import or_, func, String
-from sqlalchemy.orm import Session, contains_eager, selectinload
+from sqlalchemy.orm import Session, contains_eager, selectinload, with_loader_criteria
 
 from app.config import settings
 from app.core.chinese import search_variants
 from app.models.contract import Contract
+from app.models.contract_additional_item import ContractAdditionalItem
 from app.models.customer import Customer
 from app.models.payment import Payment
 from app.schemas.contract import ContractCreate, ContractUpdate
@@ -295,7 +296,14 @@ class ContractService:
         因此只在此方法加载。
         """
         return db.query(Contract).options(
-            selectinload(Contract.additional_items)
+            selectinload(Contract.additional_items),
+            # 软删过滤：BaseModel 无全局软删过滤，显式注入条件，
+            # 让 selectinload 与潜在 lazy load 都排除已软删附加项（修审核 P1 泄漏）
+            with_loader_criteria(
+                ContractAdditionalItem,
+                lambda c: c.is_deleted == False,
+                include_lazy=True,
+            ),
         ).filter(
             Contract.id == contract_id,
             Contract.is_deleted == False

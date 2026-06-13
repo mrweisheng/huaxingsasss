@@ -1108,6 +1108,10 @@ class ToolExecutorV2(ToolExecutor):
         result["additional_total_by_currency"] = AdditionalItemService.get_summary_by_currency(
             self.db, contract_id
         )
+        # 附加项折算到合同主币种（应收口径统一用）；缺汇率返回 None，LLM 据此降级
+        result["additional_total_in_contract_currency"] = AdditionalItemService.get_additional_total_in_contract_currency(
+            self.db, contract_id
+        )
         return json.dumps(result, ensure_ascii=False, default=str)
 
     def list_additional_items(self, contract_id: int) -> str:

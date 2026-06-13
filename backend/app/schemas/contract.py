@@ -72,6 +72,7 @@ class ContractResponse(ContractBase):
     total_expense: Decimal = Decimal("0")
     total_expense_in_cny: Optional[Decimal] = Decimal("0")
     additional_total_by_currency: Optional[Dict[str, Any]] = None
+    additional_total_in_contract_currency: Optional[Decimal] = None
     confidence: Optional[float] = None
     needs_review: Optional[bool] = False
     status: str

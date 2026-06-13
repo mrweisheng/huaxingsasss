@@ -45,6 +45,8 @@ class Contract(BaseModel):
 
     # 附加项按币种汇总（冗余字段，避免列表/台账 N+1；由 AdditionalItemService 增删改时维护）
     additional_total_by_currency = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), comment='附加项按币种汇总，例 {"CNY": 20000, "HKD": 500}')
+    # 附加项折算到合同主币种的总额（与 paid_amount 同口径，应收口径统一用；缺汇率/未维护为 NULL）
+    additional_total_in_contract_currency = Column(DECIMAL(15, 2), comment='附加项折算到合同主币种的总额（应收口径统一用）')
 
     # 合同文件
     original_file_path = Column(String(500), nullable=False, comment="原始合同文件路径")

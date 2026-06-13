@@ -8,6 +8,7 @@
 （软删不会触发 FK 的 ON DELETE SET NULL，必须手动处理）。
 """
 import logging
+from datetime import date
 from decimal import Decimal
 from typing import Optional, List, Dict
 
@@ -19,6 +20,7 @@ from app.models.contract_additional_item import ContractAdditionalItem
 from app.models.payment import Payment
 from app.schemas.contract_additional_item import AdditionalItemCreate, AdditionalItemUpdate
 from app.services.audit_service import AuditService
+from app.services.exchange_rate_service import ExchangeRateService
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +53,21 @@ class AdditionalItemService:
     def get_summary_by_currency(db: Session, contract_id: int) -> Dict[str, float]:
         """读取合同附加项按币种汇总（只读，不写回）。供 Agent 工具 / 详情口径使用。"""
         return AdditionalItemService._recalculate_contract_summary(db, contract_id, write_back=False)
+
+    @staticmethod
+    def get_additional_total_in_contract_currency(db: Session, contract_id: int) -> Optional[float]:
+        """读取附加项折算到合同主币种的冗余总额（只读）。
+
+        增删改附加项时已维护 additional_total_in_contract_currency，此处直接读冗余字段，
+        零额外计算。未维护或缺汇率返回 None（调用方/前端降级为合同金额）。
+        """
+        contract = db.query(Contract).filter(
+            Contract.id == contract_id, Contract.is_deleted == False
+        ).first()
+        if not contract:
+            return None
+        val = contract.additional_total_in_contract_currency
+        return float(val) if val is not None else None
 
     @staticmethod
     def create(
@@ -195,14 +212,40 @@ class AdditionalItemService:
         return True
 
     @staticmethod
+    def _convert_summary_to_contract_currency(
+        db: Session, contract: Contract, summary: Dict[str, float]
+    ) -> Optional[Decimal]:
+        """把分币种附加项汇总折算到合同主币种。缺汇率抛 ValueError（由调用方兜底）。
+
+        rate_date 用 contract.signed_date（与 total_amount_in_cny 折算口径一致，见
+        contract_service 合同创建折算）；signed_date 缺省用 date.today()。
+        """
+        target = contract.currency
+        if not summary:
+            return Decimal("0")
+        rate_date = contract.signed_date or date.today()
+        total = Decimal("0")
+        for cur, amt in summary.items():
+            amt_dec = Decimal(str(amt))
+            if cur == target:
+                total += amt_dec
+            else:
+                _, converted = ExchangeRateService.convert_currency(
+                    db, amt_dec, cur, target, rate_date
+                )
+                total += converted
+        return total
+
+    @staticmethod
     def _recalculate_contract_summary(
         db: Session, contract_id: int, write_back: bool = True
     ) -> Dict[str, float]:
         """重算合同附加项按币种汇总。
 
-        write_back=True（默认，用于增删改）：写回 contracts.additional_total_by_currency，
-        保证 JSONB 冗余字段与明细表一致（列表/台账零 N+1 的数据底座）。
-        write_back=False（只读口径）：仅返回汇总，不写库。
+        write_back=True（默认，用于增删改）：写回 contracts.additional_total_by_currency
+        与 additional_total_in_contract_currency（折算到合同主币种，应收口径统一用），
+        保证冗余字段与明细表一致（列表/台账零 N+1）。
+        write_back=False（只读口径）：仅返回分币种汇总，不写库。
         """
         rows = (
             db.query(
@@ -224,4 +267,16 @@ class AdditionalItemService:
             contract = db.query(Contract).filter(Contract.id == contract_id).first()
             if contract:
                 contract.additional_total_by_currency = summary
+                # 折算到合同主币种（应收口径统一）；缺汇率兜底为 None，不阻断增删改
+                try:
+                    contract.additional_total_in_contract_currency = (
+                        AdditionalItemService._convert_summary_to_contract_currency(
+                            db, contract, summary
+                        )
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "附加项折算到合同币种失败 contract=%s: %s", contract_id, e
+                    )
+                    contract.additional_total_in_contract_currency = None
         return summary
