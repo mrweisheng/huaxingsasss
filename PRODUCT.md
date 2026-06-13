@@ -486,8 +486,8 @@ AI 整理结果，回复用户
 | 模块 | 文件 | 说明 |
 |------|------|------|
 | Agent 图 | `app/ai/orchestrator/unified_agent.py` | 单层循环架构 |
-| 工具执行 | `app/ai/tools_v2.py` | 14 个工具定义 |
-| 提示词 | `app/ai/prompts_v2.py` | 业务规则和追问策略 |
+| 工具执行 | `app/ai/tool_executor.py` | 14 个工具定义 |
+| 提示词 | `app/ai/prompts.py` | 业务规则和追问策略 |
 | LLM 客户端 | `app/ai/llm_client.py` | 统一 LLM 入口 |
 | 业务 Service | `app/services/*.py` | 业务规则、权限校验 |
 | 权限 | `app/core/permissions.py` | 角色和权限判断 |

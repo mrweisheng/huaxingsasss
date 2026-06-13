@@ -115,11 +115,11 @@ START → call_model_node（LLM 决策）
 | 层 | 文件 | 职责 | 决策方 |
 |---|---|---|---|
 | Agent 图 | `orchestrator/unified_agent.py` | 单层循环：call_model ↔ execute_tool → finalize 落库 | LLM 决策 + 代码执行 |
-| 工具执行 | `ai/tools_v2.py` `ToolExecutorV2` | 调 Service 层，返回纯 JSON 事实；execute() 已重写，**不再有 mode guard / document guard**（v1 父类的白名单与文档守卫在 v2 入口被绕过） | 代码（确定性） |
+| 工具执行 | `ai/tool_executor.py` `ToolExecutorV2`（继承 `ai/tool_executor_base.py` `ToolExecutor`） | 调 Service 层，返回纯 JSON 事实；execute() 已重写，**不再有 mode guard / document guard**（v1 父类的白名单与文档守卫在 v2 入口被绕过） | 代码（确定性） |
 | Service | `services/*.py` | 业务规则、权限校验、事务边界 | 代码（确定性） |
 | 模型 / DB | `models/*.py` | ORM 映射、表结构 | 代码 |
-| 提示词 | `ai/prompts_v2.py` | 业务偏好、追问策略、字段解释、确认规则 | LLM 软规则 |
-| 写入确认 | `ai/prompts_v2.py` `build_system_prompt` 的「确认规则」段 | LLM 自主判断"先列计划、再等同意、后执行"，不在代码层做关键词拦截 | LLM 软规则 |
+| 提示词 | `ai/prompts.py` | 业务偏好、追问策略、字段解释、确认规则 | LLM 软规则 |
+| 写入确认 | `ai/prompts.py` `build_system_prompt` 的「确认规则」段 | LLM 自主判断"先列计划、再等同意、后执行"，不在代码层做关键词拦截 | LLM 软规则 |
 
 ### Agent 循环架构
 
@@ -142,7 +142,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 
 ### 状态结构
 
-`state_v2.py` — 单一 `AgentState(TypedDict)`：
+`state.py` — 单一 `AgentState(TypedDict)`：
 
 | 字段 | 类型 | 用途 |
 |---|---|---|
@@ -150,11 +150,16 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `user_id` | `int` | 当前用户 ID |
 | `user_role` | `str` | admin / income / expense |
 | `session_id` | `str` | 会话 ID |
+| `session_context` | `Optional[dict]` | 从 chat_sessions.context 加载 `{contract_id, payment_type}` |
+| `session_mode` | `str` | 会话模式: chat / receipt_income / receipt_expense |
 | `attachments` | `list[dict]` | 当前轮附件 `[{file_id, file_type, file_name}]` |
 | `iteration_count` | `int` | 迭代计数 |
 | `should_end` | `bool` | 强制结束标记 |
 | `errors` | `Annotated[list[str], operator.add]` | 错误累积 |
+| `_pending_receipt_file_ids` | `list[str]` | 跨 turn 凭证文件追踪（analyze_files 发现 receipt 时记录，供后续 match_and_confirm/create_payment 消费） |
+| `chat_history_meta` | `dict` | chat_history 落库元数据 |
 | `_finalized` | `bool` | 落库幂等标记 |
+| `_persisted_count` | `int` | 已落库的 messages 数量游标（跨轮持久化在 checkpointer 里，新会话默认 0） |
 
 ## 技术锚点
 
@@ -165,8 +170,8 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 - Agent 编排：LangGraph 1.2.x · `StateGraph` / `astream_events(version="v2")`
 - Checkpoint：`AsyncPostgresSaver` + `psycopg3` `AsyncConnectionPool`（`autocommit=True`、`prepare_threshold=0`），复用现有 PG，`main.py:on_startup` 调 `init_checkpointer()` 自动建表
 - LLM 客户端：`backend/app/ai/llm_client.py` — `AgentModelClient`（统一 LLM 客户端，封装百炼 + SiliconFlow）。**不引入** `langchain-openai` / `ChatOpenAI`（ADR #2：百炼兼容模式 `tools` 与 `stream=True` 互斥）
-- 工具执行：`backend/app/ai/tools_v2.py` — 14 个工具（`TOOL_DEFINITIONS`，OpenAI function calling 格式）+ `ToolExecutorV2`（含 `mode guard` 拦截越权工具、`document guard` 按文件类型封锁高危工具）
-- 编排层：`backend/app/ai/orchestrator/` — `unified_agent.py`（Agent 图 + 节点） / `state_v2.py`（AgentState） / `checkpointer.py` / `sse_adapter.py`
+- 工具执行：`backend/app/ai/tool_executor.py` — 18 个工具（`TOOL_DEFINITIONS`，OpenAI function calling 格式）+ `ToolExecutorV2`（含 `mode guard` 拦截越权工具、`document guard` 按文件类型封锁高危工具）
+- 编排层：`backend/app/ai/orchestrator/` — `unified_agent.py`（Agent 图 + 节点） / `state.py`（AgentState） / `checkpointer.py` / `sse_adapter.py`
 - 业务封装：`backend/app/services/` — 工具层不直接 ORM，统一走 Service
 - 可观测性：`.env` 设 `LANGCHAIN_TRACING_V2=true` 后 LangGraph 节点自动埋点到 LangSmith（`main.py:on_startup` 同步 env）
 
@@ -190,9 +195,9 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 ## 扩展指引（新增功能时如何不破坏现有架构）
 
 ### 新增工具
-1. `tools_v2.py` `TOOL_DEFINITIONS` 加 OpenAI function 定义（描述写清楚字段语义和限制）
+1. `tool_executor.py` `TOOL_DEFINITIONS` 加 OpenAI function 定义（描述写清楚字段语义和限制）
 2. `ToolExecutorV2` 中实现 `def <tool_name>(self, **kwargs) -> str`，**只返回事实 JSON**，不嵌入"请先..."等行为指令（铁律）
-3. 如果是写入工具，在 `prompts_v2.py` 的「确认规则」段把工具名加入"必须先列计划"的清单（不要在代码层加白名单）
+3. 如果是写入工具，在 `prompts.py` 的「确认规则」段把工具名加入"必须先列计划"的清单（不要在代码层加白名单）
 4. 如果是查询工具（不写库），直接可用，无需额外配置
 5. 如需前端展示工具摘要，在 `unified_agent.py` `extract_tool_summary()` 加分支
 
@@ -202,11 +207,11 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 - 修改 `_default_llm_client()` 或在注入依赖时替换
 
 ### 新增可视化分析器
-1. `services/` 新建 `xxx_analyzer.py`，类比 `ContractAnalyzer.analyze_file` / `ReceiptAnalyzer.analyze_from_file`
+1. `services/` 新建 `xxx_analyzer.py`，类比 `FileAnalyzer.analyze_file`
 2. 在 `ToolExecutorV2.execute_analyze_files` 中调用
-3. `prompts_v2.py` 加对应的分析 prompt
+3. `prompts.py` 加对应的分析 prompt
 
-## 工具清单（tools_v2.py, 14 个）
+## 工具清单（tool_executor.py, 18 个）
 
 | 工具名 | 类型 | 写入防护 | 说明 |
 |---|---|---|---|
@@ -224,6 +229,10 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `match_and_confirm_payment` | 写入 | ✅ | 凭证录入收款记录。无匹配 pending → 创建新 paid 记录（主路径，合同录入不再产生 pending）；有匹配 pending（历史数据）→ 转 paid。description 自动从付款计划反查"定金/尾款"标签丰富 |
 | `update_payment` | 写入 | ✅ | 更新付款记录（补充凭证等） |
 | `search_contract_text` | 查询 | - | 合同全文搜索 |
+| `list_additional_items` | 查询 | - | 列出合同附加项 + 分币种汇总 |
+| `add_additional_item` | 写入 | ✅ | 新增附加项（车险/保养/人工费等应收项） |
+| `update_additional_item` | 写入 | - | 更新附加项字段 |
+| `delete_additional_item` | 写入 | ✅ | 软删附加项（引用付款标签自动置空） |
 
 ### Mode Guard（模式白名单）
 
@@ -244,18 +253,17 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 |---|---|
 | 入口路由 | `app/api/v1/agent.py` — `POST /chat`(SSE) / `POST /upload` / `GET/POST/DELETE /sessions` / `GET /history/{id}` |
 | Agent 图 + 节点 | `app/ai/orchestrator/unified_agent.py` — `_build_graph` / `get_compiled_graph` / `call_model_node` / `execute_tool_node` / `finalize_node` / `should_continue` |
-| Agent 状态 | `app/ai/orchestrator/state_v2.py` — `AgentState` |
+| Agent 状态 | `app/ai/orchestrator/state.py` — `AgentState` |
 | Checkpoint | `app/ai/orchestrator/checkpointer.py` — `get_checkpointer()` / `init_checkpointer()` |
 | SSE 适配 | `app/ai/orchestrator/sse_adapter.py` — `adapt_langgraph_stream_v2()` |
-| 工具定义 + 执行 | `app/ai/tools_v2.py` — `TOOL_DEFINITIONS`（14 个）+ `ToolExecutorV2` |
-| 旧工具文件（保留兼容） | `app/ai/tools.py` — `TOOL_DEFINITIONS`（17 个，v1 格式）+ `ToolExecutor` |
-| 提示词 | `app/ai/prompts_v2.py` — `build_system_prompt` + 分析 prompt（`FILE_CLASSIFY_PROMPT` / `CONTRACT_ANALYSIS_PROMPT` / `RECEIPT_ANALYSIS_PROMPT` / `GROUP_CHAT_ANALYSIS_PROMPT`） |
+| 工具定义 + 执行 | `app/ai/tool_executor.py` — `TOOL_DEFINITIONS`（18 个）+ `ToolExecutorV2` |
+| 旧工具文件（保留兼容） | `app/ai/tool_executor_base.py` — `ToolExecutor`（v1 父类） |
+| 提示词 | `app/ai/prompts.py` — `build_system_prompt` + 分析 prompt（`FILE_CLASSIFY_PROMPT` / `CONTRACT_ANALYSIS_PROMPT` / `RECEIPT_ANALYSIS_PROMPT` / `GROUP_CHAT_ANALYSIS_PROMPT`） |
 | LLM 客户端 | `app/ai/llm_client.py` — `AgentModelClient`（统一入口） |
-| 业务 Service | `app/services/{contract,payment,customer,contract_analyzer,receipt_analyzer,...}_service.py` |
+| 业务 Service | `app/services/{contract,payment,customer,file_analyzer,...}_service.py` |
 | 权限 | `app/core/permissions.py` — `Role` / `is_admin` / `can_view_income` / `can_view_expense` |
 | 配置 | `app/config.py` `Settings`（pydantic_settings，从 `.env` 读取） |
 | 启动/关闭 | `app/main.py` — `on_startup` 调 `init_checkpointer()` + LangSmith env 同步；`on_shutdown` 关闭连接池 |
-| 设计文档 | `docs/2026-06-06-langgraph-agent-orchestration.md`（v2.2，含 7 项 ADR） |
 | SQL 脚本 | `backend/sql/` + 根目录 `public.sql`（不通过 alembic 维护） |
 
 ## 命令
