@@ -287,6 +287,21 @@ class ContractService:
         ).first()
 
     @staticmethod
+    def get_contract_detail(db: Session, contract_id: int) -> Optional[Contract]:
+        """获取合同详情（预加载附加项明细，供详情接口 ContractDetailResponse 序列化）。
+
+        与 get_contract 的区别：selectinload(Contract.additional_items) 一次性把附加项
+        拉进内存（单合同只 1 条附加查询，无 N+1）。详情页需要附加项明细，列表页不需要，
+        因此只在此方法加载。
+        """
+        return db.query(Contract).options(
+            selectinload(Contract.additional_items)
+        ).filter(
+            Contract.id == contract_id,
+            Contract.is_deleted == False
+        ).first()
+
+    @staticmethod
     def update_contract(
         db: Session,
         contract_id: int,

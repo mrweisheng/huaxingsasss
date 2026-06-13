@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 from app.db.session import get_db
 from app.models.contract import Contract
 from app.schemas.contract import (
-    ContractCreate, ContractUpdate, ContractResponse, ContractWithPaymentsResponse,
+    ContractCreate, ContractUpdate, ContractResponse, ContractDetailResponse, ContractWithPaymentsResponse,
 )
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
@@ -94,14 +94,14 @@ def list_contracts(
     )
 
 
-@router.get("/{contract_id}", response_model=ContractResponse)
+@router.get("/{contract_id}", response_model=ContractDetailResponse)
 def get_contract(
     contract_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取合同详情"""
-    contract = ContractService.get_contract(db, contract_id)
+    """获取合同详情（含附加项明细）"""
+    contract = ContractService.get_contract_detail(db, contract_id)
 
     if not contract:
         raise HTTPException(
