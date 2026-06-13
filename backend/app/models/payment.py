@@ -60,6 +60,9 @@ class Payment(BaseModel):
     # 自动生成的可读描述
     description = Column(String(500), comment="自动生成的可读描述")
 
+    # 附加项标签（可选，仅展示用，不参与任何金额聚合）
+    additional_item_id = Column(Integer, ForeignKey("contract_additional_items.id", ondelete="SET NULL"), comment="附加项标签（可选）：记录这笔付款主要为某项附加项")
+
     # 审计
     created_by = Column(Integer, ForeignKey("users.id"), comment="创建者ID")
     

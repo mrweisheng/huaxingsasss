@@ -7,6 +7,7 @@ from datetime import date, datetime
 from decimal import Decimal
 
 from app.core.business_types import BusinessType, LEGACY_VALUES
+from app.schemas.contract_additional_item import AdditionalItemResponse
 from app.schemas.payment import PaymentResponse
 
 
@@ -70,6 +71,7 @@ class ContractResponse(ContractBase):
     remaining_amount_in_cny: Optional[Decimal] = None
     total_expense: Decimal = Decimal("0")
     total_expense_in_cny: Optional[Decimal] = Decimal("0")
+    additional_total_by_currency: Optional[Dict[str, Any]] = None
     confidence: Optional[float] = None
     needs_review: Optional[bool] = False
     status: str
@@ -98,6 +100,20 @@ class ContractWithPaymentsResponse(ContractResponse):
     payments: List[PaymentResponse] = Field(
         default_factory=list,
         description="付款流水明细（已按未删除过滤）",
+    )
+
+
+class ContractDetailResponse(ContractResponse):
+    """合同详情响应（含附加项明细）。
+
+    仅在 GET /contracts/{id} 场景使用——单独建子类避免在列表 ContractResponse 上声明
+    additional_items 列表字段，否则 pydantic from_attributes 会在列表查询时
+    getattr 触发 SQLAlchemy lazy load N+1。detail 接口由 Service 层 selectinload 预加载。
+    """
+
+    additional_items: List[AdditionalItemResponse] = Field(
+        default_factory=list,
+        description="附加项明细（已按未删除过滤）",
     )
 
 

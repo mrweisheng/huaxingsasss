@@ -42,7 +42,10 @@ class Contract(BaseModel):
     # 支出汇总
     total_expense = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出金额")
     total_expense_in_cny = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出折算CNY")
-    
+
+    # 附加项按币种汇总（冗余字段，避免列表/台账 N+1；由 AdditionalItemService 增删改时维护）
+    additional_total_by_currency = Column(JSONB, nullable=False, server_default=text("'{}'::jsonb"), comment='附加项按币种汇总，例 {"CNY": 20000, "HKD": 500}')
+
     # 合同文件
     original_file_path = Column(String(500), nullable=False, comment="原始合同文件路径")
     file_hash = Column(String(64), index=True, comment="文件SHA256哈希")
@@ -77,6 +80,7 @@ class Contract(BaseModel):
     # 关系
     customer = relationship("Customer", back_populates="contracts")
     payments = relationship("Payment", back_populates="contract", cascade="all, delete-orphan")
+    additional_items = relationship("ContractAdditionalItem", back_populates="contract", cascade="all, delete-orphan")
     
     # 索引
     __table_args__ = (
