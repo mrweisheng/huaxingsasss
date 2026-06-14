@@ -302,7 +302,6 @@ class ContractService:
             with_loader_criteria(
                 ContractAdditionalItem,
                 lambda c: c.is_deleted == False,
-                include_lazy=True,
             ),
         ).filter(
             Contract.id == contract_id,
