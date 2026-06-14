@@ -109,6 +109,29 @@ def guess_extension(content: bytes) -> str:
     return ".bin"
 
 
+def normalize_payment_terms(data: dict) -> None:
+    """归一化 payment_terms：installment_name→name, due_date→condition 兜底, 缺 name 补序号。"""
+    if not isinstance(data, dict):
+        return
+    terms = data.get("payment_terms")
+    if not isinstance(terms, list):
+        return
+    normalized = []
+    for idx, t in enumerate(terms, 1):
+        if not isinstance(t, dict):
+            normalized.append(t)
+            continue
+        nt = dict(t)
+        if "name" not in nt and "installment_name" in nt:
+            nt["name"] = nt.pop("installment_name")
+        if not nt.get("name"):
+            nt["name"] = f"第 {idx} 期"
+        if not nt.get("condition") and nt.get("due_date"):
+            nt["condition"] = str(nt["due_date"])
+        normalized.append(nt)
+    data["payment_terms"] = normalized
+
+
 # ─── VL / 文本模型调用（纯函数） ───
 
 def make_text_extraction_prompt(base_prompt: str) -> str:

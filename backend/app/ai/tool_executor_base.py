@@ -6,7 +6,6 @@ import base64
 import json
 import os
 import shutil
-from uuid import uuid4
 from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -14,7 +13,6 @@ from typing import Optional
 
 from datetime import timedelta
 
-import httpx
 import logging
 import redis as redis_lib
 
@@ -31,14 +29,10 @@ from app.models.payment import Payment
 from app.models.user import User
 from app.core.business_types import BusinessType
 from app.services.contract_service import ContractService
-from app.services.customer_service import CustomerService
+from app.services.customer_service import CustomerService, _escape_ilike
 from app.services.payment_service import PaymentService
+from app.utils.file_analysis import guess_extension, normalize_payment_terms
 from app.utils.file_utils import calculate_file_hash, resolve_file_path, validate_file_id_in_dir
-
-
-def _escape_ilike(keyword: str) -> str:
-    """转义 ILIKE 通配符，防止 SQL 注入"""
-    return keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 # 模块级 Redis 连接池，所有 ToolExecutor 实例共享，避免每次请求新建连接
@@ -159,29 +153,6 @@ class ToolExecutor:
             logger.debug("vl_cache命中内存: type=%s file_id=%s", analysis_type, file_id)
             return data
         return None
-
-    def _normalize_payment_terms(self, merged_data: dict) -> None:
-        """归一化 payment_terms：installment_name→name, due_date→condition兜底, 缺name补序号。
-        在最终合并数据上执行，覆盖 VL 输出和 Agent 传入两条路径。"""
-        if not isinstance(merged_data, dict):
-            return
-        terms = merged_data.get("payment_terms")
-        if not isinstance(terms, list):
-            return
-        normalized = []
-        for idx, t in enumerate(terms, 1):
-            if not isinstance(t, dict):
-                normalized.append(t)
-                continue
-            nt = dict(t)
-            if "name" not in nt and "installment_name" in nt:
-                nt["name"] = nt.pop("installment_name")
-            if not nt.get("name"):
-                nt["name"] = f"第 {idx} 期"
-            if not nt.get("condition") and nt.get("due_date"):
-                nt["condition"] = str(nt["due_date"])
-            normalized.append(nt)
-        merged_data["payment_terms"] = normalized
 
     def _can_access_contract(self, contract: Contract) -> bool:
         # 合同对所有角色全部可见（admin/income/expense），仅按 payment.type 隔离收支
@@ -605,32 +576,6 @@ class ToolExecutor:
             logger.exception("update_customer failed")
             return json.dumps({"error": f"更新客户失败: {str(e)}"}, ensure_ascii=False)
 
-    @staticmethod
-    def _guess_extension(content: bytes) -> str:
-        """通过文件头判断扩展名"""
-        if content[:4] == b"%PDF":
-            return ".pdf"
-        if content[:3] == b"\xff\xd8\xff":
-            return ".jpg"
-        if content[:4] == b"\x89PNG":
-            return ".png"
-        if content[:4] == b"GIF8":
-            return ".gif"
-        if content[:4] == b"RIFF" and len(content) > 11 and content[8:12] == b"WEBP":
-            return ".webp"
-        # Office Open XML (ZIP-based): .docx / .xlsx / .pptx 都以 PK\x03\x04 开头
-        if content[:4] == b"PK\x03\x04":
-            try:
-                text = content[:2000].decode("utf-8", errors="ignore")
-                if "word/" in text:
-                    return ".docx"
-                if "xl/" in text:
-                    return ".xlsx"
-            except Exception:
-                pass
-            return ".docx"
-        return ".bin"
-
     def _get_receipt_image_path(self, explicit_path: Optional[str] = None) -> Optional[str]:
         """获取凭证图片路径，三级策略：
         1. LLM 主动传的路径（最佳路径，直接用）
@@ -701,7 +646,7 @@ class ToolExecutor:
             with open(temp_path, "rb") as f:
                 content = f.read()
             self._last_receipt_file_hash = calculate_file_hash(content)
-            ext = self._guess_extension(content)
+            ext = guess_extension(content)
             year_month = datetime.now().strftime("%Y/%m")
             target_dir = Path(settings.RECEIPT_UPLOAD_DIR) / year_month
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -771,7 +716,7 @@ class ToolExecutor:
         )
 
         # ━━━ 归一化 payment_terms（VL 也可能写出 installment_name / 缺 name）━━━
-        self._normalize_payment_terms(merged)
+        normalize_payment_terms(merged)
 
         # 验证客户存在
         customer = self.db.query(Customer).filter(
@@ -811,7 +756,7 @@ class ToolExecutor:
             target_dir = Path(settings.CONTRACT_UPLOAD_DIR) / year_month
             target_dir.mkdir(parents=True, exist_ok=True)
 
-            ext = self._guess_extension(content)
+            ext = guess_extension(content)
             target_filename = f"{contract_number}{ext}"
             target_path = target_dir / target_filename
             shutil.copy2(temp_file_path, str(target_path))

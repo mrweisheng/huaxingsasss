@@ -12,7 +12,6 @@ celery_app = Celery(
     broker=settings.REDIS_URL,
     backend=settings.REDIS_URL,
     include=[
-        "app.tasks.receipt_ocr_tasks",
         "app.tasks.cleanup_tasks",
         "app.tasks.exchange_rate_tasks",
     ],

@@ -11,7 +11,6 @@
   - 轻量确认：写入工具执行前检查 LLM 上文是否展示确认请求
   - 无模式锁定：所有工具在所有场景下可用（权限由角色控制）
 """
-import asyncio
 import json
 import logging
 from datetime import date
@@ -27,7 +26,6 @@ from app.services.exchange_rate_service import ExchangeRateService
 from app.utils.file_utils import resolve_file_path
 from app.models.payment import Payment
 from app.models.contract import Contract
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -418,7 +416,8 @@ class ToolExecutorV2(ToolExecutor):
         payee_name = receipt_data.get("payee_name", "")
         transaction_date = receipt_data.get("transaction_date", "")
         business_hint = receipt_data.get("business_hint", "")
-        description = receipt_data.get("description", "") or business_hint or ""
+        payment_purpose = receipt_data.get("payment_purpose", "") or ""
+        description = payment_purpose or receipt_data.get("description", "") or business_hint or ""
         # 自动生成更可读的描述
         # 凭证本身的 OCR 结果几乎不会带"定金/尾款"这类标签，但合同 payment_terms 里有——
         # 用金额+币种从付款计划里反查最匹配的一期，把名字带进 description。
@@ -824,7 +823,7 @@ class ToolExecutorV2(ToolExecutor):
         if not description and not no_receipt:
             hint = ""
             if isinstance(receipt_data, dict):
-                hint = receipt_data.get("business_hint", "") or ""
+                hint = receipt_data.get("payment_purpose", "") or receipt_data.get("business_hint", "") or ""
             if hint:
                 description = hint
             else:

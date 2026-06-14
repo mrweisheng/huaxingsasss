@@ -10,7 +10,7 @@ from pydantic import Field, model_validator
 
 class Settings(BaseSettings):
     """应用配置类"""
-    
+
     # 应用基础配置
     APP_NAME: str = "合同管理系统"
     APP_ENV: str = "development"
@@ -19,24 +19,19 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    
+
     # 数据库配置
     POSTGRES_SERVER: str = "localhost"
     POSTGRES_PORT: int = 5432
     POSTGRES_DB: str = "contract_db"
     POSTGRES_USER: str = "admin"
     POSTGRES_PASSWORD: str = "dev_password"
-    
+
     @property
     def DATABASE_URL(self) -> str:
         password = quote_plus(self.POSTGRES_PASSWORD)
         return f"postgresql://{self.POSTGRES_USER}:{password}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
 
-    @property
-    def ASYNC_DATABASE_URL(self) -> str:
-        password = quote_plus(self.POSTGRES_PASSWORD)
-        return f"postgresql+asyncpg://{self.POSTGRES_USER}:{password}@{self.POSTGRES_SERVER}:{self.POSTGRES_PORT}/{self.POSTGRES_DB}"
-    
     # Redis配置
     REDIS_HOST: str = "localhost"
     REDIS_PORT: int = 6379
@@ -49,11 +44,7 @@ class Settings(BaseSettings):
             password = quote_plus(self.REDIS_PASSWORD)
             return f"redis://:{password}@{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
         return f"redis://{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
-    
-    # Celery配置
-    CELERY_BROKER_URL: str = "redis://localhost:6379/1"
-    CELERY_RESULT_BACKEND: str = "redis://localhost:6379/2"
-    
+
     # AI服务配置（DeepSeek 官方 - Agent 推理 + 文本结构化）
     DEEPSEEK_API_KEY: str = ""
     DEEPSEEK_BASE_URL: str = "https://api.deepseek.com"
@@ -76,9 +67,7 @@ class Settings(BaseSettings):
 
     # Agent配置
     AGENT_MAX_ITERATIONS: int = 8
-    AGENT_HISTORY_WINDOW: int = 100  # 历史加载上限（条数）
-    AGENT_MAX_SUMMARY_MESSAGES: int = 10  # 摘要后保留的最近消息条数
-    
+
     # 文件存储配置
     UPLOAD_DIR: str = "/data/contract-system"
     CONTRACT_UPLOAD_DIR: str = "/data/contract-system/contracts"
@@ -87,14 +76,13 @@ class Settings(BaseSettings):
     TEMP_UPLOAD_DIR: str = "/data/contract-system/temp"
     AGENT_FILE_DIR: str = "/data/contract-system/agent-files"  # Agent 持久化附件（历史回看）
     MAX_FILE_SIZE: int = 52428800  # 50MB
-    
+
     # 日志配置
     LOG_LEVEL: str = "DEBUG"
-    LOG_FORMAT: str = "json"
-    
+
     # 汇率配置（项目仅支持 CNY 和 HKD，故只需 HKD/CNY 默认值）
     DEFAULT_EXCHANGE_RATE_HKD_CNY: float = 0.92
-    
+
     @model_validator(mode="after")
     def validate_required(self):
         """启动时校验必填配置项"""
@@ -119,6 +107,8 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = True
+        # 容忍 .env 中的多余键（如已废弃但未清理的配置项），避免删除字段定义后启动崩溃
+        extra = "ignore"
 
 
 # 创建全局配置实例

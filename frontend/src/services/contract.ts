@@ -35,9 +35,6 @@ export const contractApi = {
   delete: (id: number): Promise<void> =>
     api.delete(`/contracts/${id}`),
 
-  confirmParsedData: (id: number, parsedData: any): Promise<Contract> =>
-    api.post(`/contracts/${id}/confirm-parsed-data`, parsedData),
-
   complete: (id: number): Promise<Contract> =>
     api.post(`/contracts/${id}/complete`),
 }
