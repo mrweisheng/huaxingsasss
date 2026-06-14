@@ -465,8 +465,6 @@ export default function ContractList() {
               contracts={contracts as ContractWithPayments[]}
               role={role}
               onDelete={handleDelete}
-              onAddIncome={(c) => setReceiptModal({ open: true, contract: c, type: 'income' })}
-              onAddExpense={(c) => setReceiptModal({ open: true, contract: c, type: 'expense' })}
             />
           ) : (
           <div className="contract-grid">

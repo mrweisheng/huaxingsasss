@@ -358,14 +358,19 @@ export default function ReceiptChatModal({
     }
   }, [sessionId, typeLabel, contractNumber, customerName, paymentType, contractId, applyEvent])
 
+  // 录入收入要求「说明文字 + 凭证」缺一不可；录入支出保持「两者都空才禁用」
+  const requireBoth = paymentType === 'income'
+  const missingText = !inputText.trim()
+  const missingFile = pendingFiles.length === 0
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim()
-    if (!text && pendingFiles.length === 0) return
+    if (requireBoth ? (!text || pendingFiles.length === 0) : (!text && pendingFiles.length === 0)) return
     const payload = pendingFiles.length > 0 ? toSendPayload() : undefined
     setInputText('')
     clearPending()
     await doSend(text, payload)
-  }, [inputText, pendingFiles, doSend, hasUploading, toSendPayload, clearPending])
+  }, [inputText, pendingFiles, doSend, hasUploading, toSendPayload, clearPending, requireBoth])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -592,7 +597,11 @@ export default function ReceiptChatModal({
               value={inputText}
               onChange={e => setInputText(e.target.value)}
               onKeyDown={handleKeyDown}
-              placeholder={pendingFiles.length > 0 ? '添加说明（可选）...' : '输入消息或上传凭证...'}
+              placeholder={
+                requireBoth
+                  ? (pendingFiles.length > 0 ? '添加说明...' : '说明文字 + 凭证缺一不可...')
+                  : (pendingFiles.length > 0 ? '添加说明（可选）...' : '输入消息或上传凭证...')
+              }
               autoSize={{ minRows: 1, maxRows: 4 }}
               disabled={isStreaming}
               variant="borderless"
@@ -607,7 +616,7 @@ export default function ReceiptChatModal({
                 type="primary"
                 icon={<SendOutlined />}
                 onClick={handleSend}
-                disabled={hasUploading || (!inputText.trim() && pendingFiles.length === 0)}
+                disabled={hasUploading || (requireBoth ? (missingText || missingFile) : (!inputText.trim() && pendingFiles.length === 0))}
                 className="receipt-chat-send-btn"
               >
                 发送
@@ -615,7 +624,17 @@ export default function ReceiptChatModal({
             )}
           </div>
           <div className="receipt-chat-input-hint">
-            拖拽文件到聊天区 · Enter 发送，Shift+Enter 换行
+            {requireBoth && !isStreaming && (missingText || missingFile) ? (
+              <span className="receipt-chat-input-warn">
+                {missingText && missingFile
+                  ? '请填写说明文字并上传凭证后发送'
+                  : missingText
+                  ? '请补充说明文字后再发送'
+                  : '请上传凭证后再发送'}
+              </span>
+            ) : (
+              '拖拽文件到聊天区 · Enter 发送，Shift+Enter 换行'
+            )}
           </div>
         </div>
       )}

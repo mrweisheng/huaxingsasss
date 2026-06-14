@@ -446,6 +446,11 @@
   margin-top: 6px;
 }
 
+.receipt-chat-input-warn {
+  color: var(--money-due);
+  font-weight: 500;
+}
+
 /* ── Markdown ── */
 .receipt-chat-markdown p:last-child {
   margin-bottom: 0;

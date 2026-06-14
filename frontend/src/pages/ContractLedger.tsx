@@ -24,8 +24,6 @@ interface Props {
   contracts: ContractWithPayments[]
   role: string
   onDelete: (id: number) => void
-  onAddIncome: (contract: ContractWithPayments) => void
-  onAddExpense: (contract: ContractWithPayments) => void
 }
 
 const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
@@ -115,7 +113,7 @@ function FlowItem({
   )
 }
 
-export default function ContractLedger({ contracts, role, onDelete, onAddIncome, onAddExpense }: Props) {
+export default function ContractLedger({ contracts, role, onDelete }: Props) {
   const navigate = useNavigate()
   const [receiptPreview, setReceiptPreview] = useState<{
     open: boolean
@@ -239,11 +237,6 @@ export default function ContractLedger({ contracts, role, onDelete, onAddIncome,
                     <FlowItem key={p.id} payment={p} currency={c.currency} onPreview={openReceiptPreview} />
                   ))
                 )}
-                {(role === 'admin' || role === 'income') && (
-                  <button className="flow-add-btn income-add" onClick={() => onAddIncome(c)}>
-                    ＋ 录入收入
-                  </button>
-                )}
               </div>
 
               {/* ── 支出列 ── */}
@@ -262,11 +255,6 @@ export default function ContractLedger({ contracts, role, onDelete, onAddIncome,
                   expenses.map(p => (
                     <FlowItem key={p.id} payment={p} currency={c.currency} onPreview={openReceiptPreview} />
                   ))
-                )}
-                {(role === 'admin' || role === 'expense') && (
-                  <button className="flow-add-btn expense-add" onClick={() => onAddExpense(c)}>
-                    ＋ 录入支出
-                  </button>
                 )}
               </div>
 
