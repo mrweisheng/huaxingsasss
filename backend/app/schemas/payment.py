@@ -43,6 +43,7 @@ class PaymentResponse(PaymentBase):
     contract_number: Optional[str] = None
     customer_name: Optional[str] = None
     contract_business_description: Optional[str] = None
+    contract_currency: Optional[str] = None  # 合同主币种（前端据此判断是否异币种展示）
     description: Optional[str] = None
     paid_amount: Decimal
     exchange_rate: Optional[Decimal]

@@ -80,9 +80,6 @@ class Settings(BaseSettings):
     # 日志配置
     LOG_LEVEL: str = "DEBUG"
 
-    # 汇率配置（项目仅支持 CNY 和 HKD，故只需 HKD/CNY 默认值）
-    DEFAULT_EXCHANGE_RATE_HKD_CNY: float = 0.92
-
     @model_validator(mode="after")
     def validate_required(self):
         """启动时校验必填配置项"""

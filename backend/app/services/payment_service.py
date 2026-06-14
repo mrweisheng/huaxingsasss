@@ -324,6 +324,9 @@ class PaymentService:
             total_expense_cny = sum(p.paid_amount_in_cny or 0 for p in expense_payments if p.status == 'paid')
 
         from app.schemas.payment import PaymentResponse
+        # 回填跨表动态字段（合同主币种等），供前端判断异币种展示
+        for p in all_payments:
+            p.contract_currency = contract.currency
         income_data = [PaymentResponse.model_validate(p).model_dump() for p in income_payments]
         expense_data = [PaymentResponse.model_validate(p).model_dump() for p in expense_payments]
 

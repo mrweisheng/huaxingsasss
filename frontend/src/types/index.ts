@@ -80,6 +80,7 @@ export interface Payment {
   contract_number?: string
   customer_name?: string
   contract_business_description?: string
+  contract_currency?: string  // 合同主币种（仅合同详情页回填，全局列表为空）
   installment_number: number
   installment_name?: string
   type: string

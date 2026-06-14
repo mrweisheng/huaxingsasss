@@ -356,12 +356,34 @@ export default function ContractDetail() {
                 </span>
               </div>
               <div className={`cd-pay-card-amount ${isPaid ? 'settled' : isExpense ? 'expense' : 'pending'}`}>
-                <Tooltip title={fmtFull(payment.paid_amount, payment.currency)}>
-                  <span>{fmt(payment.paid_amount, payment.currency)}</span>
-                </Tooltip>
-                {payment.paid_amount_in_cny != null && payment.currency !== 'CNY' && (
-                  <span className="cd-pay-card-cny">≈ ¥{formatMoneyShort(payment.paid_amount_in_cny)}</span>
-                )}
+                {(() => {
+                  // 异币种展示：合同主货币为主位，原始凭证币种为副位
+                  // 仅处理 CNY 合同 + 非 CNY 凭证（最常见场景，如 HKD 支出进 CNY 合同）
+                  const contractCur = payment.contract_currency
+                  const isMismatched = !!contractCur && payment.currency !== contractCur && payment.currency !== 'CNY'
+                    && contractCur === 'CNY' && payment.paid_amount_in_cny != null
+                  if (isMismatched) {
+                    return (
+                      <>
+                        <Tooltip title={fmtFull(payment.paid_amount_in_cny, contractCur!)}>
+                          <span>{fmt(payment.paid_amount_in_cny, contractCur!)}</span>
+                        </Tooltip>
+                        <span className="cd-pay-card-cny">原币 {fmt(payment.paid_amount, payment.currency)}</span>
+                      </>
+                    )
+                  }
+                  // 同币种或反向场景：保持原展示逻辑
+                  return (
+                    <>
+                      <Tooltip title={fmtFull(payment.paid_amount, payment.currency)}>
+                        <span>{fmt(payment.paid_amount, payment.currency)}</span>
+                      </Tooltip>
+                      {payment.paid_amount_in_cny != null && payment.currency !== 'CNY' && (
+                        <span className="cd-pay-card-cny">≈ ¥{formatMoneyShort(payment.paid_amount_in_cny)}</span>
+                      )}
+                    </>
+                  )
+                })()}
                 {isNoReceipt(payment) && (
                   <Tooltip title="无凭证 · 用户口头确认">
                     <span className="cd-pay-card-no-receipt">无凭证</span>

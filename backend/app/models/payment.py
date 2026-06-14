@@ -75,6 +75,7 @@ class Payment(BaseModel):
     customer_name: str = None  # type: ignore[assignment]
     contract_number: str = None  # type: ignore[assignment]
     contract_business_description: str = None  # type: ignore[assignment]
+    contract_currency: str = None  # type: ignore[assignment]
     
     # 索引和约束
     __table_args__ = (

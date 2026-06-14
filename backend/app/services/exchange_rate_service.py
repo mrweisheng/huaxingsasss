@@ -8,18 +8,12 @@ from typing import Optional, Tuple
 from sqlalchemy.orm import Session
 
 from app.models.exchange_rate import ExchangeRate
-from app.config import settings
 
 logger = logging.getLogger(__name__)
 
 
 class ExchangeRateService:
     """汇率管理服务"""
-
-    # 项目仅支持 CNY 和 HKD，故 fallback 只需 HKD/CNY
-    FALLBACK_RATES = {
-        ("HKD", "CNY"): Decimal(str(getattr(settings, "DEFAULT_EXCHANGE_RATE_HKD_CNY", "0.92"))),
-    }
 
     @staticmethod
     def get_exchange_rate(
@@ -33,9 +27,12 @@ class ExchangeRateService:
 
         查找优先级：
         1. 数据库精确日期匹配
-        2. API 自动获取（frankfurter.dev → open.er-api.com）并存库
-        3. 数据库 30 天内最近 / 系统默认
-        4. 硬编码 fallback
+        2. API 自动获取（frankfurter.dev → currency-api）并存库
+        3. 数据库 90 天内最近 / 系统默认
+
+        ⚠️ 不再提供硬编码 fallback：取不到汇率返回 None，
+        上层（convert_to_cny 等）必须据此抛错阻断录入，绝不静默兜底。
+        财务数据正确性红线：宁可阻断录入，也不用错误汇率折算。
 
         Args:
             from_currency: 源币种（项目仅支持 HKD）
@@ -43,7 +40,7 @@ class ExchangeRateService:
             rate_date: 汇率日期
 
         Returns:
-            汇率值 Decimal，如果找不到则返回配置中的默认值
+            汇率值 Decimal；取不到时返回 None（上层负责报错）
         """
         if from_currency == to_currency:
             return Decimal('1.0')
@@ -65,19 +62,16 @@ class ExchangeRateService:
         if fetched:
             return fetched
 
-        # 3+4. 30天内最近 / 系统默认 / 硬编码 fallback
+        # 3. 30天内最近 / 系统默认
         record = ExchangeRateService._query_rate_record(db, from_currency, to_currency, rate_date)
         if record:
             return record.rate
 
-        fallback = ExchangeRateService.FALLBACK_RATES.get((from_currency.upper(), to_currency.upper()))
-        if fallback:
-            logger.warning(
-                "汇率 fallback 到硬编码: %s/%s, date=%s, rate=%s",
-                from_currency, to_currency, rate_date, fallback,
-            )
-            return fallback
-
+        # 取不到汇率：返回 None，上层负责抛错阻断录入
+        logger.warning(
+            "汇率获取失败（无 fallback）: %s/%s, date=%s —— 上层应阻断录入",
+            from_currency, to_currency, rate_date,
+        )
         return None
 
     @staticmethod
@@ -161,12 +155,11 @@ class ExchangeRateService:
         查询汇率记录的核心逻辑
 
         查找优先级：
-        1. 当日汇率
-        2. 30 天内最近汇率
-        3. 系统默认汇率
-        4. None（调用方处理 fallback）
+        1. 90 天内最近汇率（汇率短期波动有限，作为 API 失败时的可靠保障）
+        2. 系统默认汇率（管理员手动维护的 source='system' 长期参考汇率）
+        3. None（调用方负责报错阻断，绝不硬编码兜底）
         """
-        start_date = rate_date - timedelta(days=30)
+        start_date = rate_date - timedelta(days=90)
 
         rate_record = db.query(ExchangeRate).filter(
             ExchangeRate.from_currency == from_currency,

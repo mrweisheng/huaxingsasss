@@ -535,22 +535,26 @@ class ToolExecutorV2(ToolExecutor):
                     if additional_receipts:
                         payment.additional_receipt_files = additional_receipts
 
-                    # 计算汇率
+                    # 计算汇率（取不到直接抛错阻断录入，绝不静默兜底把 HKD 当 CNY）
                     if currency and currency != "CNY":
                         try:
                             _, amount_in_cny = ExchangeRateService.convert_to_cny(
                                 self.db, Decimal(str(amount)), currency, payment.paid_date
                             )
-                            if amount_in_cny:
-                                payment.amount_in_cny = amount_in_cny
-                                payment.paid_amount_in_cny = amount_in_cny
-                        except Exception:
-                            pass
+                            payment.amount_in_cny = amount_in_cny
+                            payment.paid_amount_in_cny = amount_in_cny
+                        except ValueError as ve:
+                            # 汇率取不到：给出明确错误，让 LLM 告知用户具体原因
+                            raise ValueError(
+                                f"无法获取 {payment.paid_date} 的 {currency} 兑 CNY 汇率，"
+                                f"录入已阻断。请让管理员在汇率管理页面手动维护该日期汇率后重试。"
+                            ) from ve
 
                     # 更新合同汇总金额（pending→paid 必须累加，否则合同已收为 0）
                     contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
                     if contract:
-                        amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                        # amt_cny 用于跨币种统计：非 CNY 已在上方折算赋值；CNY 则原值即 CNY 等值
+                        amt_cny = payment.paid_amount_in_cny if payment.paid_amount_in_cny is not None else payment.paid_amount
                         if payment_type == "expense":
                             PaymentService._add_to_contract_expense(
                                 self.db, contract, payment.paid_amount, payment.currency,
@@ -591,13 +595,19 @@ class ToolExecutorV2(ToolExecutor):
                         "installment_name": payment.installment_name,
                         "amount": float(payment.amount),
                         "currency": payment.currency,
+                        "exchange_rate": float(payment.exchange_rate) if payment.exchange_rate else None,
+                        "amount_in_cny": float(payment.amount_in_cny) if payment.amount_in_cny else None,
+                        "paid_amount_in_cny": float(payment.paid_amount_in_cny) if payment.paid_amount_in_cny else None,
+                        "contract_currency": contract.currency if contract else None,
+                        "currency_mismatch": bool(contract and payment.currency != contract.currency),
                         "status": payment.status,
                         "paid_date": str(payment.paid_date) if payment.paid_date else None,
                     }
                 except Exception as e:
                     self.db.rollback()
                     logger.exception("match_and_confirm 匹配更新失败")
-                    match_error = "匹配更新失败，请重试或转人工"
+                    # 携带异常原文，让 LLM 能看到具体原因（如汇率取不到）并如实告知用户
+                    match_error = str(e) if str(e) else "匹配更新失败，请重试或转人工"
 
         # 匹配阶段异常 → 阻断创建新记录，向上抛错让 LLM 看到失败并重试或询问用户
         if match_error:
@@ -676,7 +686,7 @@ class ToolExecutorV2(ToolExecutor):
                         )
                         payment.status = "paid"
                         payment.notes = (payment.notes or "") + "（附凭证分析数据）"
-                        amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                        amt_cny = payment.paid_amount_in_cny if payment.paid_amount_in_cny is not None else payment.paid_amount
                         if payment_type == "expense":
                             PaymentService._add_to_contract_expense(
                                 self.db, contract, payment.paid_amount, payment.currency,
@@ -697,6 +707,11 @@ class ToolExecutorV2(ToolExecutor):
                     "installment_name": payment.installment_name,
                     "amount": float(payment.amount),
                     "currency": payment.currency,
+                    "exchange_rate": float(payment.exchange_rate) if payment.exchange_rate else None,
+                    "amount_in_cny": float(payment.amount_in_cny) if payment.amount_in_cny else None,
+                    "paid_amount_in_cny": float(payment.paid_amount_in_cny) if payment.paid_amount_in_cny else None,
+                    "contract_currency": contract.currency if contract else None,
+                    "currency_mismatch": bool(contract and payment.currency != contract.currency),
                     "status": payment.status,
                     "paid_date": str(payment.paid_date) if payment.paid_date else None,
                 }
@@ -888,7 +903,7 @@ class ToolExecutorV2(ToolExecutor):
                 payment.status = "paid"  # 有凭证 → 直接确认
                 payment.notes = (notes or "") + "（附凭证）" if notes else "凭证录入"
                 if needs_contract_update:
-                    amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                    amt_cny = payment.paid_amount_in_cny if payment.paid_amount_in_cny is not None else payment.paid_amount
                     if type == "expense":
                         PaymentService._add_to_contract_expense(
                             self.db, contract, payment.paid_amount, payment.currency,
@@ -908,7 +923,7 @@ class ToolExecutorV2(ToolExecutor):
                 base_note = notes or description or ""
                 payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
                 if needs_contract_update:
-                    amt_cny = payment.paid_amount_in_cny or payment.paid_amount
+                    amt_cny = payment.paid_amount_in_cny if payment.paid_amount_in_cny is not None else payment.paid_amount
                     PaymentService._add_to_contract_expense(
                         self.db, contract, payment.paid_amount, payment.currency,
                         amt_cny, payment.paid_date,
@@ -925,6 +940,11 @@ class ToolExecutorV2(ToolExecutor):
                     "type": payment.type,
                     "amount": float(payment.amount),
                     "currency": payment.currency,
+                    "exchange_rate": float(payment.exchange_rate) if payment.exchange_rate else None,
+                    "amount_in_cny": float(payment.amount_in_cny) if payment.amount_in_cny else None,
+                    "paid_amount_in_cny": float(payment.paid_amount_in_cny) if payment.paid_amount_in_cny else None,
+                    "contract_currency": contract.currency,
+                    "currency_mismatch": payment.currency != contract.currency,
                     "status": payment.status,
                     "paid_date": str(payment.paid_date) if payment.paid_date else None,
                 },
