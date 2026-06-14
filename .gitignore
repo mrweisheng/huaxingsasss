@@ -77,3 +77,6 @@ backend/nul
 .workbuddy/
 
 .codegraph/
+
+# 数据库快照（含运行时数据，不纳入版本追踪）
+public.sql

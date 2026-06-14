@@ -210,6 +210,41 @@ class ToolExecutorV2(ToolExecutor):
                 return term_name
         return ""
 
+    def _resolve_payment_description(
+        self, receipt_data: dict, contract, amount: float,
+        currency: str, payment_type: str = "income",
+    ) -> str:
+        """统一 description 生成逻辑，所有凭证→付款路径共用。
+
+        优先级：
+          1. 凭证原文 — payment_purpose（"该款项系付"等字段，最有价值）
+          2. 业务推断 — business_hint（"两地牌相关费用"等，笼统但有）
+          3. 兜底拼接 — 期数匹配 + _build_payment_description
+        """
+        # 1. 凭证提取的具体内容优先
+        hint = (
+            receipt_data.get("payment_purpose", "")
+            or receipt_data.get("business_hint", "")
+            or ""
+        )
+        if hint:
+            return hint[:100]
+
+        # 2. 兜底：期数匹配 + 格式化拼接
+        term_label = self._match_payment_term_label(
+            contract, amount or 0, currency, payment_type,
+        )
+        payee = (
+            receipt_data.get("payee_name", "")
+            if payment_type == "expense" else None
+        )
+        return self._build_payment_description(
+            amount=amount, currency=currency,
+            installment_name=term_label,
+            business_hint="",
+            payee_name=payee, contract=contract,
+        )
+
     # ═══════════════════════════════════════════════════════════
     # 统一执行入口（简化版，无 mode guard / document guard）
     # ═══════════════════════════════════════════════════════════
@@ -415,25 +450,10 @@ class ToolExecutorV2(ToolExecutor):
         payer_name = receipt_data.get("payer_name", "")
         payee_name = receipt_data.get("payee_name", "")
         transaction_date = receipt_data.get("transaction_date", "")
-        business_hint = receipt_data.get("business_hint", "")
-        payment_purpose = receipt_data.get("payment_purpose", "") or ""
-        description = payment_purpose or receipt_data.get("description", "") or business_hint or ""
-        # 自动生成更可读的描述
-        # 凭证本身的 OCR 结果几乎不会带"定金/尾款"这类标签，但合同 payment_terms 里有——
-        # 用金额+币种从付款计划里反查最匹配的一期，把名字带进 description。
-        # 仅用于描述参考，不写入 installment_number 等结构化字段。
-        term_label_hint = (
-            receipt_data.get("installment_name")
-            or self._match_payment_term_label(contract, amount or 0, currency, payment_type)
+        # 统一 description 生成（优先级：凭证原文 → 业务推断 → 期数匹配拼接）
+        description = self._resolve_payment_description(
+            receipt_data, contract, amount or 0, currency, payment_type,
         )
-        auto_desc = self._build_payment_description(
-            amount=amount, currency=currency,
-            installment_name=term_label_hint or "",
-            business_hint=business_hint,
-            payee_name=payee_name if payment_type == "expense" else None,
-            contract=contract,
-        )
-        description = description or auto_desc
         document_type = receipt_data.get("document_type", "")
 
         # 查该合同所有 pending 状态同类型付款记录
@@ -814,29 +834,12 @@ class ToolExecutorV2(ToolExecutor):
                 }, ensure_ascii=False)
 
         # 自动生成 description（如果 Agent 未提供）
-        # 与 match_and_confirm_payment 对齐：
-        #   1. 优先用 receipt_data.business_hint 原文（VL 已抽取的简短业务说明，最干净）
-        #   2. 否则回退 _build_payment_description 拼接（金额+期数+收款方+合同业务）
-        # 不能直接走 _build 拼接，否则 description 会变成
-        # "HK$4,330 →MINKFAIR... 购买港车 底盘号..." 这种堆字段串。
-        # 无凭证支出场景跳过：栅栏 2 已强制 description 必填，LLM 必须显式给出。
+        # 统一走 _resolve_payment_description（凭证原文 → 业务推断 → 期数匹配拼接）
+        # 无凭证支出场景跳过：栅栏已强制 description 必填，LLM 必须显式给出。
         if not description and not no_receipt:
-            hint = ""
-            if isinstance(receipt_data, dict):
-                hint = receipt_data.get("payment_purpose", "") or receipt_data.get("business_hint", "") or ""
-            if hint:
-                description = hint
-            else:
-                term_label_hint = installment_name or self._match_payment_term_label(
-                    contract, amount or 0, currency, type,
-                )
-                description = self._build_payment_description(
-                    amount=amount, currency=currency,
-                    installment_name=term_label_hint or "",
-                    business_hint="",
-                    payee_name=payee_name if type == "expense" else None,
-                    contract=contract,
-                )
+            description = self._resolve_payment_description(
+                receipt_data or {}, contract, amount or 0, currency, type,
+            )
 
         # 期数
         if not installment_number:
@@ -962,18 +965,15 @@ class ToolExecutorV2(ToolExecutor):
         if not result.get("success") or not payment_id:
             return result_str
 
-        # 如果传入凭证数据但 description 未设置 → 自动生成
+        # 如果传入凭证数据但 description 未设置 → 自动生成（统一路径）
         if isinstance(receipt_data, dict) and not kwargs.get("description"):
             payment = self.db.query(Payment).filter(Payment.id == payment_id).first()
             if payment:
                 contract = payment.contract
-                hint = receipt_data.get("business_hint", "")
-                desc = self._build_payment_description(
-                    amount=float(payment.amount) if payment.amount else 0,
-                    currency=payment.currency or "CNY",
-                    installment_name=payment.installment_name or "",
-                    business_hint=hint,
-                    contract=contract,
+                desc = self._resolve_payment_description(
+                    receipt_data, contract,
+                    float(payment.amount) if payment.amount else 0,
+                    payment.currency or "CNY",
                 )
                 payment.description = desc
                 self.db.commit()
