@@ -374,8 +374,12 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
         try:
             result = await asyncio.to_thread(executor.execute, tool_name, args)
         except Exception as e:
+            # 完整 traceback + 工具名 + 参数，便于定位 NameError 等
+            logger.exception(
+                "execute_tool_node 异常: tool=%s, args=%s, error=%s",
+                tool_name, json.dumps(args, ensure_ascii=False, default=str)[:500], e,
+            )
             result = json.dumps({"error": f"工具执行出错: {tool_name} → {e}"}, ensure_ascii=False)
-            logger.warning("工具执行出错: %s → %s", tool_name, e)
 
         # SSE: 工具结束事件（附带结构化摘要）
         summary = extract_tool_summary(tool_name, result)

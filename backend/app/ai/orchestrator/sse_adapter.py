@@ -187,7 +187,8 @@ async def adapt_langgraph_stream_v2(
             session_id, event_count, last_event_name, heartbeat_idx,
         )
     except Exception as e:
-        logger.error(
+        # 输出完整 traceback，便于定位 NameError 等异常的精确位置
+        logger.exception(
             "SSE adapter: astream_events 异常 (after %d events, last=%s): %s, session_id=%s",
             event_count, last_event_name, e, session_id,
         )

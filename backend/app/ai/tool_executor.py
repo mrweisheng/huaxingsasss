@@ -537,6 +537,10 @@ class ToolExecutorV2(ToolExecutor):
 
                     # 计算汇率（取不到直接抛错阻断录入，绝不静默兜底把 HKD 当 CNY）
                     if currency and currency != "CNY":
+                        logger.info(
+                            "match_and_confirm 汇率计算: payment_id=%s, currency=%s, amount=%s (type=%s), paid_date=%s",
+                            payment.id, currency, amount, type(amount).__name__, payment.paid_date,
+                        )
                         try:
                             _, amount_in_cny = ExchangeRateService.convert_to_cny(
                                 self.db, Decimal(str(amount)), currency, payment.paid_date
