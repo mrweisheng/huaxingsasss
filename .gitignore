@@ -32,6 +32,11 @@ yarn-error.log*
 *.swo
 *~
 
+# 临时文件
+*.tmp
+*.tmp.*
+*.bak
+
 # 操作系统
 .DS_Store
 Thumbs.db
@@ -48,6 +53,7 @@ uploads/
 *.jpeg
 *.gif
 *.pdf
+*.heic
 
 # Docker
 docker-compose.override.yml
