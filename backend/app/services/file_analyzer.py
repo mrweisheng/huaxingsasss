@@ -183,6 +183,7 @@ class FileAnalyzer:
         db: Optional[Session] = None,
         user_id: Optional[int] = None,
         skip_duplicate_check: bool = False,
+        contract_id: Optional[int] = None,
     ) -> dict:
         """统一分析入口
 
@@ -190,9 +191,10 @@ class FileAnalyzer:
             file_path: 文件绝对路径
             file_name: 原始文件名（用于判断文件类型和缓存 key）
             purpose: 分析目的 (auto/contract/receipt/vehicle/id_document/group_chat/general)
-            db: 数据库 session（仅 contract purpose 用于去重检测）
+            db: 数据库 session（contract purpose 用于去重检测；receipt 在有 contract_id 时用于凭证去重）
             user_id: 用户 ID（仅用于日志）
             skip_duplicate_check: 跳过去重检测
+            contract_id: 合同 ID（receipt 去重时限定合同范围；合同去重不使用此参数）
 
         Returns:
             {
@@ -268,6 +270,40 @@ class FileAnalyzer:
                 "file_type": None,
                 "file_hash": file_hash,
             }
+
+        # ── 凭证去重检测（VL 分析前拦截，省时省钱）──
+        # 仅当识别为 receipt 且有合同上下文时检查（凭证去重 scope = 合同内）
+        if actual_purpose == "receipt" and db is not None and contract_id and not skip_duplicate_check:
+            from app.models.payment import Payment
+            existing = db.query(Payment).filter(
+                Payment.contract_id == contract_id,
+                Payment.receipt_file_hash == file_hash,
+                Payment.is_deleted == False,
+            ).first()
+            if existing:
+                logger.info(
+                    "file_analyzer: 凭证去重命中(VL前拦截): contract_id=%s, existing_payment_id=%s, hash=%s",
+                    contract_id, existing.id, file_hash[:12],
+                )
+                return {
+                    "success": True,
+                    "type": "receipt",
+                    "duplicate_detected": True,
+                    "data": None,
+                    "file_hash": file_hash,
+                    "file_type": None,
+                    "existing_payment": {
+                        "id": existing.id,
+                        "type": existing.type,
+                        "amount": float(existing.amount) if existing.amount else 0,
+                        "currency": existing.currency,
+                        "status": existing.status,
+                        "paid_date": str(existing.paid_date) if existing.paid_date else None,
+                        "payee_name": existing.payee_name,
+                        "description": existing.description,
+                    },
+                    "message": "该凭证已在此合同下录入过",
+                }
 
         # ── 步骤 2：按 purpose 选 prompt，执行分析 ──
         prompt = _PURPOSE_PROMPTS[actual_purpose]

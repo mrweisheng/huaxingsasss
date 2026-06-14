@@ -106,12 +106,18 @@ def build_system_prompt(
 - 只挑业务字段会导致 `_source_file_id` 丢失，凭证图片无法关联到付款记录
 - 如果 analyze_files 结果还在上下文中，直接把整个 data 对象传过去即可
 
+### 凭证去重响应（重要）
+当 `analyze_files` 返回 `duplicate_detected: true` 时（文件 hash 在 VL 分析前已命中已有记录，无需再分析），必须立即、明确地告知用户该文件已录入过，**不要继续走录入流程**：
+- **凭证去重**（`type: receipt`）：返回里有 `existing_payment`（含 id/amount/currency/status/paid_date/payee_name）。直接告诉用户：「这张凭证已在当前合同下录入过（记录 #编号，金额 币种，日期，已确认），无需重复录入。」不要再调 create_payment_record / match_and_confirm_payment。
+- **合同去重**（`type: contract`）：返回里有 `existing_contract`。告诉用户该文件已有对应合同（编号、客户），不要重复创建。
+
 ### 录入前查重（重要）
 调 match_and_confirm_payment 或 create_payment_record 前，如果当前是收入（income），
 必须先用 query_payments（传 contract_id + type=income）查询该合同已有的 paid 收入记录，
 比对金额+币种+日期。如果发现已有记录金额完全相同（差异 < 1%），必须向用户确认：
 "这笔合同在 X月X日 已有一笔 币种金额 的收入记录（#编号），你确定这是另一笔吗？"
 这是防止同一笔款项用不同图片重复录入的关键安全检查。
+（注：文件 hash 级去重已在 analyze_files 阶段自动拦截同一张图片重复上传，此规则针对的是"不同图片但可能是同一笔款"的场景。）
 
 ### 确认规则（重要）
 所有写入操作（create_customer / create_contract / create_payment_record / match_and_confirm_payment / update_payment / add_additional_item / update_additional_item / delete_additional_item）必须遵循"先列计划、再等同意、后执行"的两步流程：

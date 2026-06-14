@@ -338,23 +338,39 @@ class ToolExecutorV2(ToolExecutor):
                     })
                     continue
 
-                # 调 FileAnalyzer
+                # 调 FileAnalyzer（传入 contract_id 用于凭证去重，receipt 模式下在 VL 分析前拦截）
                 file_name = file_id  # file_id 作为文件名 fallback
+                session_contract_id = (
+                    self.session_context.get("contract_id")
+                    if isinstance(self.session_context, dict) else None
+                )
                 analysis = FileAnalyzer.analyze(
                     file_path, file_name,
                     purpose=purpose,
                     db=self.db,
                     user_id=self.user.id,
+                    contract_id=session_contract_id,
                 )
 
                 if analysis.get("duplicate_detected"):
-                    results.append({
-                        "file_id": file_id, "success": True,
-                        "type": "contract",
-                        "duplicate_detected": True,
-                        "existing_contract": analysis.get("existing_contract"),
-                        "message": "该文件已在系统中存在对应的合同记录",
-                    })
+                    # 合同去重 / 凭证去重 都走这个分支（VL 分析前已拦截）
+                    dup_type = analysis.get("type", "contract")
+                    if dup_type == "receipt":
+                        results.append({
+                            "file_id": file_id, "success": True,
+                            "type": "receipt",
+                            "duplicate_detected": True,
+                            "existing_payment": analysis.get("existing_payment"),
+                            "message": "该凭证已在此合同下录入过",
+                        })
+                    else:
+                        results.append({
+                            "file_id": file_id, "success": True,
+                            "type": "contract",
+                            "duplicate_detected": True,
+                            "existing_contract": analysis.get("existing_contract"),
+                            "message": "该文件已在系统中存在对应的合同记录",
+                        })
                 elif analysis.get("success"):
                     # 注入 _source_file_id 到 data 中（供后续工具解析凭证路径）
                     data_with_fid = dict(analysis["data"]) if isinstance(analysis["data"], dict) else analysis["data"]
