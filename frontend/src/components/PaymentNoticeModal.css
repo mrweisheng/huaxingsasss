@@ -1,0 +1,211 @@
+/**
+ * 付款通知单 —— 纸质单据风格
+ *
+ * 设计参照传统「付款通知单 / 对账单」：
+ *   - 白底 A4 感的卡片（pn-sheet），宽 720px，截图清晰
+ *   - 表格全边框、表头浅灰底
+ *   - 未付余额块用暖橙底强调
+ *   - 标题用衬线体（serif），强化"单据"感
+ *
+ * 注意：所有元素必须能被 html-to-image 正确截图，
+ *       避免使用 CSS 变量（部分 var 在截图时会丢），改用直接颜色值。
+ */
+
+/* ── 弹窗外壳：antd Modal body 的内边距归零，让单据贴边 ── */
+.pn-modal .ant-modal-body {
+  padding: 0;
+  background: #f5f5f5;
+}
+
+/* ── 工具栏：下载按钮 + 关闭，浮在单据右上方，截图时隐藏 ── */
+.pn-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px 0;
+}
+
+/* ── 单据主体：白纸 ── */
+.pn-sheet {
+  width: 720px;
+  max-width: 100%;
+  margin: 0 auto;
+  padding: 40px 44px 36px;
+  background: #ffffff;
+  box-sizing: border-box;
+  color: #1f2329;
+  font-family: 'PingFang SC', 'Microsoft YaHei', 'Helvetica Neue', Arial, sans-serif;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+/* ── 抬头 ── */
+.pn-header {
+  text-align: center;
+  border-bottom: 2px solid #1f2329;
+  padding-bottom: 18px;
+  margin-bottom: 24px;
+}
+
+.pn-title {
+  font-family: 'STSong', 'SimSun', 'Songti SC', serif;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 8px;
+  color: #1f2329;
+  margin: 0 0 4px;
+}
+
+.pn-subtitle {
+  font-size: 12px;
+  color: #8c8c8c;
+  letter-spacing: 1px;
+}
+
+/* ── 客户信息区（左对齐两列） ── */
+.pn-party {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 20px;
+  font-size: 13px;
+}
+
+.pn-party-label {
+  color: #8c8c8c;
+  margin-right: 6px;
+}
+
+.pn-party-value {
+  color: #1f2329;
+  font-weight: 500;
+}
+
+/* ── 区块标题 ── */
+.pn-section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #1f2329;
+  margin: 18px 0 10px;
+  padding-left: 10px;
+  border-left: 4px solid #c8a45c;
+}
+
+/* ── 表格通用 ── */
+.pn-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.pn-table th,
+.pn-table td {
+  border: 1px solid #d9d9d9;
+  padding: 9px 12px;
+  text-align: left;
+  vertical-align: middle;
+}
+
+.pn-table th {
+  background: #fafafa;
+  font-weight: 600;
+  color: #595959;
+  white-space: nowrap;
+}
+
+.pn-table .pn-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.pn-table tbody tr:nth-child(even) {
+  background: #fcfcfc;
+}
+
+/* 合计行强调 */
+.pn-table .pn-row-total td {
+  background: #f6f1e7;
+  font-weight: 700;
+  color: #1f2329;
+  border-top: 2px solid #c8a45c;
+}
+
+.pn-unconverted-hint {
+  font-size: 11px;
+  color: #d48806;
+  font-weight: 400;
+  margin-left: 8px;
+}
+
+/* ── 未付余额块（暖橙底强调） ── */
+.pn-balance {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  padding: 16px 20px;
+  background: #fff7e6;
+  border: 1px solid #ffd591;
+  border-radius: 4px;
+}
+
+.pn-balance.cleared {
+  background: #f6ffed;
+  border-color: #b7eb8f;
+}
+
+.pn-balance-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: #1f2329;
+}
+
+.pn-balance-amount {
+  font-size: 22px;
+  font-weight: 700;
+  color: #d4380d;
+  font-variant-numeric: tabular-nums;
+}
+
+.pn-balance.cleared .pn-balance-amount {
+  color: #389e0d;
+}
+
+.pn-balance-cny {
+  display: block;
+  font-size: 12px;
+  color: #8c8c8c;
+  font-weight: 400;
+  margin-top: 2px;
+}
+
+/* ── 空状态 ── */
+.pn-empty {
+  text-align: center;
+  color: #bfbfbf;
+  padding: 16px;
+  font-size: 13px;
+}
+
+/* ── 落款 ── */
+.pn-footer {
+  margin-top: 32px;
+  padding-top: 16px;
+  border-top: 1px dashed #d9d9d9;
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: #8c8c8c;
+}
+
+.pn-footer-brand {
+  font-family: 'STSong', 'SimSun', serif;
+  font-size: 14px;
+  color: #595959;
+  letter-spacing: 2px;
+}
+
+/* ── 截图进行中的遮罩 ── */
+.pn-screenshotting .pn-toolbar {
+  display: none;
+}

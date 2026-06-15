@@ -193,6 +193,22 @@
   flex-shrink: 0;
 }
 
+/* 「付款通知单」按钮：与进度条之间用细分隔线划开 */
+.cd-fn-notice-btn {
+  margin-left: 6px;
+  padding-left: 14px;
+  border-left: 1px solid var(--border-color, rgba(0, 0, 0, 0.08));
+  border-radius: 0;
+  color: var(--brand-gold, #c8a45c);
+  border-color: var(--brand-gold, #c8a45c);
+  background: transparent;
+}
+.cd-fn-notice-btn:hover {
+  color: #a8863e !important;
+  border-color: #a8863e !important;
+  background: rgba(200, 164, 92, 0.08) !important;
+}
+
 /* 进度条 */
 .cd-fn-progress-label {
   font-size: 11px;

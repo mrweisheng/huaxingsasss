@@ -22,9 +22,13 @@ import { contractApi } from '@/services/contract'
 import { additionalItemApi } from '@/services/contractAdditionalItem'
 import { paymentApi } from '@/services/payment'
 import AdditionalItemFormModal from '@/components/AdditionalItemFormModal'
+import PaymentNoticeModal from '@/components/PaymentNoticeModal'
 import { useAuthStore } from '@/store/useAuthStore'
 import { API_BASE_URL } from '@/services/api'
-import { formatMoney, formatMoneyShort } from '@/utils/money'
+import { formatMoneyShort } from '@/utils/money'
+import {
+  fmt, fmtFull, amountToChinese, currencySymbol, methodMap,
+} from '@/utils/moneyFormat'
 import { isNoReceipt } from '@/utils/payment'
 import type { Contract, Payment, ContractAdditionalItem } from '@/types'
 import './ContractDetail.css'
@@ -39,22 +43,6 @@ const businessTypeCls: Record<string, string> = {
   '中港牌业务': 'type-zhonggang',
 }
 
-const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
-
-/** 缩写金额 + 货币符号（主显示用） */
-function fmt(amount: number | undefined | null, currency: string): string {
-  if (amount === undefined || amount === null) return '-'
-  const symbol = currencySymbol[currency] || '¥'
-  return `${symbol}${formatMoneyShort(amount)}`
-}
-
-/** 完整精确金额 + 货币符号（Tooltip 用） */
-function fmtFull(amount: number | undefined | null, currency: string): string {
-  if (amount === undefined || amount === null) return '-'
-  const symbol = currencySymbol[currency] || '¥'
-  return `${symbol}${formatMoney(amount).full}`
-}
-
 /** CNY 折算副文字（缩写） */
 function fmtCny(amount: number | undefined | null): string {
   if (amount === undefined || amount === null || amount === 0) return ''
@@ -66,67 +54,11 @@ function calcProgress(paid: number, total: number): number {
   return Math.round((paid / total) * 100)
 }
 
-function amountToChinese(amount: number, currency: string): string {
-  if (amount === 0) {
-    const cn = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency
-    return `${cn}零元整`
-  }
-  const digitMap = ['零', '壹', '貳', '叁', '肆', '伍', '陸', '柒', '捌', '玖']
-  const unitMap = ['', '拾', '佰', '仟']
-  const bigUnitMap = ['', '萬', '億']
-  const currencyName = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency
-  const intPart = Math.floor(amount)
-  const fracPart = Math.round((amount - intPart) * 100)
-  let result = ''
-  let intStr = intPart.toString()
-  let unitIdx = 0
-  let bigUnitIdx = 0
-  let hasNonZero = false
-  for (let i = intStr.length - 1; i >= 0; i--) {
-    const digit = parseInt(intStr[i])
-    if (digit !== 0) {
-      result = digitMap[digit] + unitMap[unitIdx] + result
-      hasNonZero = true
-    } else if (hasNonZero) {
-      result = digitMap[0] + result
-      hasNonZero = false
-    }
-    unitIdx++
-    if (unitIdx === 4) {
-      unitIdx = 0
-      bigUnitIdx++
-      if (bigUnitIdx < bigUnitMap.length && i > 0) {
-        result = bigUnitMap[bigUnitIdx] + result
-      }
-    }
-  }
-  result = result.replace(/零+$/, '')
-  if (!result) result = '零'
-  if (fracPart > 0) {
-    result += '元'
-    const jiao = Math.floor(fracPart / 10)
-    const fen = fracPart % 10
-    if (jiao > 0) result += digitMap[jiao] + '角'
-    if (fen > 0) result += digitMap[fen] + '分'
-  } else {
-    result += '元整'
-  }
-  return `${currencyName}${result}`
-}
-
 const paymentStatusMap: Record<string, { text: string }> = {
   pending:   { text: '待确认' },
   partial:   { text: '部分支付' },
   paid:      { text: '已确认' },
   cancelled: { text: '已取消' },
-}
-
-const methodMap: Record<string, string> = {
-  bank_transfer: '银行转账',
-  wechat: '微信',
-  alipay: '支付宝',
-  cash: '现金',
-  check: '支票',
 }
 
 /** 从 receipt_data 中提取摘要信息 */
@@ -157,6 +89,7 @@ export default function ContractDetail() {
   const [completing, setCompleting] = useState(false)
   const [receiptLoading, setReceiptLoading] = useState<number | null>(null)
   const [addlModal, setAddlModal] = useState<{ open: boolean; mode: 'add' | 'edit'; editing: ContractAdditionalItem | null }>({ open: false, mode: 'add', editing: null })
+  const [noticeOpen, setNoticeOpen] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
 
   const handleComplete = async () => {
@@ -564,6 +497,14 @@ export default function ContractDetail() {
               />
             </div>
             <span className={`cd-fn-progress-pct ${progress === 100 ? 'done' : ''}`}>{progress}%</span>
+            <Button
+              size="small"
+              icon={<FileTextOutlined />}
+              onClick={() => setNoticeOpen(true)}
+              className="cd-fn-notice-btn"
+            >
+              付款通知单
+            </Button>
           </div>
         </div>
 
@@ -850,6 +791,14 @@ export default function ContractDetail() {
         editing={addlModal.editing}
         onClose={() => setAddlModal({ open: false, mode: 'add', editing: null })}
         onSuccess={reloadDetail}
+      />
+
+      {/* 付款通知单（对账弹窗，可下载为图片发给客户） */}
+      <PaymentNoticeModal
+        open={noticeOpen}
+        contract={contract}
+        incomePayments={incomePayments}
+        onClose={() => setNoticeOpen(false)}
       />
 
     </div>
