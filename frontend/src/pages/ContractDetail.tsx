@@ -493,9 +493,6 @@ export default function ContractDetail() {
           )}
           <UserOutlined style={{ color: '#8c8c8c', fontSize: 13 }} />
           <span className="cd-customer-name">{contract.customer_name || '无客户名称'}</span>
-          {contract.title && (
-            <span className="cd-contract-title">— {contract.title}</span>
-          )}
           <div className="cd-id-meta">
             <span className="cd-contract-num">{contract.contract_number}</span>
             {contract.signed_date && (

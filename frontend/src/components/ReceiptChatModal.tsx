@@ -440,7 +440,9 @@ export default function ReceiptChatModal({
               </span>
             )}
             {contractTitle && (
-              <span className="receipt-chat-header-contract-title">{contractTitle}</span>
+              <span className="receipt-chat-header-contract-title" title={contractTitle}>
+                {contractTitle}
+              </span>
             )}
           </div>
         </div>

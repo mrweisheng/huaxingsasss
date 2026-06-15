@@ -216,7 +216,7 @@ export default function ContractList() {
     setDeleteTarget({
       id,
       number: ct?.contract_number || String(id),
-      title: ct?.title || ct?.business_description || '',
+      title: ct?.business_description || ct?.title || '',
     })
   }
 
@@ -527,13 +527,9 @@ export default function ContractList() {
                     <span className="customer-date-text">{formatDate(contract.signed_date)}</span>
                   </div>
 
-                  {/* 合同元信息：编号 + 标题 紧凑一行 */}
+                  {/* 合同元信息：编号 */}
                   <div className="contract-meta-row">
                     <span className="contract-meta-number">{contract.contract_number}</span>
-                    {(contract.title || contract.customer_name) && (
-                      <span className="contract-meta-sep">·</span>
-                    )}
-                    <span className="contract-meta-title">{contract.title || (contract.customer_name ? '合同详情' : '无标题')}</span>
                   </div>
 
                   {/* 业务描述 — 固定高度占位，统一卡片节奏 */}
@@ -693,7 +689,7 @@ export default function ContractList() {
           contractId={receiptModal.contract.id}
           contractNumber={receiptModal.contract.contract_number}
           customerName={receiptModal.contract.customer_name || ''}
-          contractTitle={receiptModal.contract.title}
+          contractTitle={receiptModal.contract.business_description}
           totalAmount={receiptModal.contract.total_amount}
           currency={receiptModal.contract.currency}
           status={receiptModal.contract.status}

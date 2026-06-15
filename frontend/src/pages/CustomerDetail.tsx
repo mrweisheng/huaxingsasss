@@ -475,9 +475,9 @@ export default function CustomerDetail() {
                     </span>
                   </div>
 
-                  {/* 标题行 + 签订日期（客户详情页客户名重复，改显合同标题）*/}
+                  {/* 业务标题行 + 签订日期 */}
                   <div className="customer-name-hero" style={{ paddingTop: '6px' }}>
-                    <span className="customer-name-text">{contract.title || '合同详情'}</span>
+                    <span className="customer-name-text">{contract.business_description || contract.title || '合同详情'}</span>
                     <span className="customer-date-text">
                       {contract.signed_date ? dayjs(contract.signed_date).format('YYYY-MM-DD') : '--'}
                     </span>
@@ -496,9 +496,6 @@ export default function CustomerDetail() {
                       </>
                     )}
                   </div>
-
-                  {/* 业务描述 */}
-                  <div className="business-desc">{contract.business_description || ''}</div>
 
                   {/* 金色分割线 */}
                   <div className="divider-gold card-divider" />

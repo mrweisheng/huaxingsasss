@@ -272,17 +272,18 @@
   white-space: nowrap;
 }
 
-/* ── 业务描述（固定高度，统一卡片节奏）── */
+/* ── 业务描述（卡片主语义，加重展示）── */
 .business-desc {
-  padding: 2px 18px 0;
-  font-size: 12px;
-  color: var(--text-secondary);
+  padding: 4px 18px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
   line-height: 1.5;
   display: -webkit-box;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
-  min-height: 36px; /* 12px × 1.5 × 2 = 36px → 统一卡片节奏 */
+  min-height: 38px; /* 13px × 1.5 × 2 ≈ 39px → 统一卡片节奏 */
 }
 
 /* ── 金色语义分割线（身份层 / 金额层）── */
