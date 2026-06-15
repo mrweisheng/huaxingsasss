@@ -55,6 +55,9 @@ export default function PaymentNoticeModal({ open, contract, incomePayments, onC
       const dataUrl = await toPng(sheetRef.current, {
         pixelRatio: 2,
         backgroundColor: '#ffffff',
+        // ⚡ 性能优化：通知单只用系统字体（PingFang/YaHei/SimSun），无 @font-face，
+        //    跳过字体下载+base64 嵌入（这一步常占 html-to-image 总耗时的 70%+）
+        skipFonts: true,
         // 过滤掉工具栏（虽然已用 CSS 隐藏，双保险）
         filter: (node) => {
           if (node instanceof HTMLElement) {
