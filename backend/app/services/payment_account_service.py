@@ -16,7 +16,7 @@ class PaymentAccountService:
     
     @staticmethod
     def list_accounts(db: Session) -> List[PaymentAccount]:
-        """列出所有有效收款账户（按 sort_order 升序）"""
+        """列出所有有效收款账户"""
         return (
             db.query(PaymentAccount)
             .filter(PaymentAccount.is_deleted == False)
@@ -29,21 +29,13 @@ class PaymentAccountService:
         """获取单个收款账户"""
         return (
             db.query(PaymentAccount)
-            .filter(
-                PaymentAccount.id == account_id,
-                PaymentAccount.is_deleted == False,
-            )
+            .filter(PaymentAccount.id == account_id, PaymentAccount.is_deleted == False)
             .first()
         )
     
     @staticmethod
-    def create_account(
-        db: Session,
-        data: PaymentAccountCreate,
-        user_id: int,
-    ) -> PaymentAccount:
+    def create_account(db: Session, data: PaymentAccountCreate, user_id: int) -> PaymentAccount:
         """创建收款账户"""
-        # 如果设置为默认，先取消其他默认
         if data.is_default:
             db.query(PaymentAccount).filter(
                 PaymentAccount.is_default == True,
@@ -51,17 +43,14 @@ class PaymentAccountService:
             ).update({"is_default": False})
         
         account = PaymentAccount(
-            name=data.name,
-            account_type=data.account_type,
             bank_name=data.bank_name,
             account_name=data.account_name,
             account_number=data.account_number,
+            fps_id=data.fps_id,
             branch=data.branch,
             address=data.address,
             phone=data.phone,
             swift_code=data.swift_code,
-            fps_id=data.fps_id,
-            qr_code_url=data.qr_code_url,
             is_default=data.is_default,
             sort_order=data.sort_order,
             remarks=data.remarks,
@@ -70,38 +59,6 @@ class PaymentAccountService:
         db.add(account)
         db.commit()
         db.refresh(account)
-        
-        logger.info("收款账户已创建: id=%s, name=%s", account.id, account.name)
-        return account
-    
-    @staticmethod
-    def update_account(
-        db: Session,
-        account_id: int,
-        data: PaymentAccountUpdate,
-    ) -> Optional[PaymentAccount]:
-        """更新收款账户"""
-        account = PaymentAccountService.get_account(db, account_id)
-        if not account:
-            return None
-        
-        update_data = data.model_dump(exclude_unset=True)
-        
-        # 如果设置为默认，先取消其他默认
-        if update_data.get("is_default"):
-            db.query(PaymentAccount).filter(
-                PaymentAccount.is_default == True,
-                PaymentAccount.is_deleted == False,
-                PaymentAccount.id != account_id,
-            ).update({"is_default": False})
-        
-        for field, value in update_data.items():
-            setattr(account, field, value)
-        
-        db.commit()
-        db.refresh(account)
-        
-        logger.info("收款账户已更新: id=%s, name=%s", account.id, account.name)
         return account
     
     @staticmethod
@@ -110,9 +67,6 @@ class PaymentAccountService:
         account = PaymentAccountService.get_account(db, account_id)
         if not account:
             return False
-        
         account.soft_delete()
         db.commit()
-        
-        logger.info("收款账户已删除: id=%s, name=%s", account.id, account.name)
         return True
