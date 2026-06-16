@@ -42,6 +42,8 @@ def verify_receipt(self, payment_id: int):
 
         if not payment.receipt_image_path or not os.path.isfile(payment.receipt_image_path):
             # 凭证文件丢失：标 failed，原因记明
+            # 防御：若该收入记录已 paid 结算（异常状态），先反扣避免合同金额虚高
+            _settle_back_if_paid(db, payment)
             _record_failure(payment, reason="凭证文件不存在或已丢失")
             db.commit()
             return {"status": "missing_file", "payment_id": payment_id}
@@ -60,6 +62,7 @@ def verify_receipt(self, payment_id: int):
             raise self.retry(exc=e, countdown=60)
 
         if not analysis.get("success"):
+            _settle_back_if_paid(db, payment)
             _record_failure(payment, reason=f"凭证识别失败：{analysis.get('error', '未知')}")
             db.commit()
             return {"status": "analyze_failed", "payment_id": payment_id}
@@ -126,6 +129,8 @@ def verify_receipt(self, payment_id: int):
                 logger.info("校验通过并结算: payment_id=%s", payment_id)
                 return {"status": "passed_settled", "payment_id": payment_id}
             else:
+                # 不符：标红不结算。防御性反扣（正常收入 paid 都需校验通过，此处多为历史数据）
+                _settle_back_if_paid(db, payment)
                 payment.verification_status = "failed"
                 db.commit()
                 logger.info("校验不符(标红不结算): payment_id=%s, reason=%s",
@@ -148,6 +153,23 @@ def verify_receipt(self, payment_id: int):
 
 
 # ── 辅助函数 ──
+
+def _settle_back_if_paid(db, payment: Payment):
+    """若一笔收入已 paid 结算，反向扣减合同已收金额并回退 pending。
+    用于校验失败/凭证丢失时的防御性处理（正常 pending→failed 不触发，主要兜底历史数据）。"""
+    if payment.status != "paid" or payment.type != "income":
+        return
+    contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+    if contract:
+        PaymentService._reverse_settlement(
+            db, contract, payment, is_income=True,
+            old_amount=payment.paid_amount or Decimal('0'),
+            old_currency=payment.currency,
+            old_paid_amount_in_cny=payment.paid_amount_in_cny or Decimal('0'),
+            old_paid_date=payment.paid_date,
+        )
+    payment.status = "pending"
+
 
 def _record_failure(payment: Payment, reason: str):
     payment.verification_status = "failed"

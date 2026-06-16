@@ -97,11 +97,23 @@ class PaymentService:
             if ct:
                 item.contract_number = ct.contract_number
                 item.contract_business_description = ct.business_description
+                item.contract_currency = ct.currency
                 item.customer_name = ct.customer.name if ct.customer else None
             else:
                 item.contract_number = None
                 item.contract_business_description = None
+                item.contract_currency = None
                 item.customer_name = None
+
+        # 批量填充 payment_account_title（避免 relationship 懒加载的 N+1）
+        account_ids = {item.payment_account_id for item in items if item.payment_account_id}
+        account_title_map = {}
+        if account_ids:
+            from app.models.payment_account import PaymentAccount
+            accts = db.query(PaymentAccount).filter(PaymentAccount.id.in_(account_ids)).all()
+            account_title_map = {a.id: a.title for a in accts}
+        for item in items:
+            item.payment_account_title = account_title_map.get(item.payment_account_id) if item.payment_account_id else None
 
         return items, total
 
@@ -340,6 +352,15 @@ class PaymentService:
         # 回填跨表动态字段（合同主币种等），供前端判断异币种展示
         for p in all_payments:
             p.contract_currency = contract.currency
+        # 批量填充 payment_account_title
+        account_ids = {p.payment_account_id for p in all_payments if p.payment_account_id}
+        account_title_map = {}
+        if account_ids:
+            from app.models.payment_account import PaymentAccount
+            accts = db.query(PaymentAccount).filter(PaymentAccount.id.in_(account_ids)).all()
+            account_title_map = {a.id: a.title for a in accts}
+        for p in all_payments:
+            p.payment_account_title = account_title_map.get(p.payment_account_id) if p.payment_account_id else None
         income_data = [PaymentResponse.model_validate(p).model_dump() for p in income_payments]
         expense_data = [PaymentResponse.model_validate(p).model_dump() for p in expense_payments]
 
@@ -593,11 +614,11 @@ class PaymentService:
     ) -> Optional[Payment]:
         """表单编辑付款。
 
-        - 金额/币种/日期/账户等字段的普通更新；
-        - 换凭证(new_receipt_path) 或 清除凭证(receipt_cleared)：
-          - 收入：重置 verification_status=pending，status 回退 pending（若原 paid 则反向扣减结算），
-            重新投递校验 task（由 API 层 .delay）。
-          - 支出：按新有无凭证调整 status/paid。
+        核心原则（避免合同金额不一致）：对收入，只要「金额/币种/日期/凭证」任一变化，
+        都先反扣旧结算（若已 paid）→ status 回 pending + verification 重置 →
+        由 API 层重新投递校验 task，通过后再按新值补结算。
+
+        支出：有无凭证都参与结算，金额/币种变化时同步调整合同支出汇总；凭证变化仅刷新校验提醒。
         """
         payment = db.query(Payment).filter(Payment.id == payment_id).first()
         if not payment:
@@ -606,15 +627,33 @@ class PaymentService:
         is_income = payment.type == "income"
         contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
 
-        # 记录金额/币种是否变化，用于重算结算
-        old_amount = payment.paid_amount
+        # 编辑前的快照（反扣必须用旧值，不能用已被改的当前值）
+        old_amount = payment.paid_amount or Decimal('0')
         old_currency = payment.currency
+        old_paid_amount_in_cny = payment.paid_amount_in_cny or Decimal('0')
+        old_paid_date = payment.paid_date
         old_status = payment.status
         was_settled = old_status == "paid"
 
-        # ── 普通字段更新 ──
+        # 判断哪些关键字段变化（决定是否需要重算结算）
+        amount_changed = payload.amount is not None and Decimal(str(payload.amount)) != old_amount
+        currency_changed = payload.currency is not None and payload.currency != old_currency
+        date_changed = payload.paid_date is not None and payload.paid_date != old_paid_date
+        receipt_changed = bool(receipt_cleared) or bool(new_receipt_path)
+        # 收入：金额/币种/日期/凭证任一变化都要重新校验
+        income_need_recheck = is_income and (amount_changed or currency_changed or date_changed or receipt_changed)
+        # 支出：金额/币种变化需调整合同支出汇总
+        expense_need_resettle = (not is_income) and (amount_changed or currency_changed) and was_settled
+
+        # ── 1. 先反扣旧结算（在改字段之前，用旧值反扣）──
+        if was_settled and contract and (income_need_recheck or expense_need_resettle):
+            PaymentService._reverse_settlement(
+                db, contract, payment, is_income,
+                old_amount, old_currency, old_paid_amount_in_cny, old_paid_date,
+            )
+
+        # ── 2. 普通字段更新 ──
         update_fields = payload.model_dump(exclude_unset=True, exclude_none=True)
-        # 单独处理嵌套对象与凭证字段
         for fld in ("amount", "currency", "paid_date", "payment_method", "installment_name",
                     "description", "notes", "payee_name", "payment_account_id"):
             if fld in update_fields:
@@ -622,13 +661,12 @@ class PaymentService:
         if "counterparty_account" in update_fields and not is_income:
             payment.counterparty_account = update_fields["counterparty_account"]
 
-        # amount 变了同步 paid_amount（表单口径：录入即全款）
-        if payload.amount is not None:
-            new_amount = Decimal(str(payload.amount))
+        # amount 变了同步 paid_amount + 重算 CNY 等值（金额/币种/日期任一变化都重算）
+        if amount_changed or currency_changed:
+            new_amount = Decimal(str(payload.amount)) if payload.amount is not None else payment.paid_amount
             payment.paid_amount = new_amount
-            # 重算 CNY 等值（币种或金额或日期变化）
-            eff_currency = payload.currency or payment.currency
-            eff_paid_date = payload.paid_date or payment.paid_date
+            eff_currency = payment.currency
+            eff_paid_date = payment.paid_date
             if eff_currency == "CNY":
                 payment.exchange_rate = Decimal('1.0')
                 payment.amount_in_cny = new_amount
@@ -639,29 +677,38 @@ class PaymentService:
                 payment.amount_in_cny = cny
                 payment.paid_amount_in_cny = cny
 
-        # ── 凭证更新分支 ──
-        receipt_changed = False
+        # ── 3. 凭证更新 ──
         if receipt_cleared:
             payment.receipt_image_path = None
             payment.receipt_file_hash = None
-            receipt_changed = True
         elif new_receipt_path:
             payment.receipt_image_path = new_receipt_path
             payment.receipt_file_hash = new_receipt_hash
-            receipt_changed = True
 
-        # ── 结算/校验状态调整 ──
-        # 收入：换凭证或清凭证 → 重置为待校验，status 回 pending（若已结算则反扣）
-        if is_income and receipt_changed:
-            if was_settled and contract:
-                # 反向扣减原结算
-                PaymentService._reverse_income_settlement(db, contract, payment, old_amount, old_currency)
-                payment.status = "pending"
+        # ── 4. 结算/校验状态调整 ──
+        if is_income and income_need_recheck:
+            # 收入：回退 pending，等重新校验通过后由 task 补结算
+            payment.status = "pending"
             payment.verification_status = "pending"
             payment.verification_result = None
             payment.verified_at = None
-        # 支出：清凭证后若原本因凭证 paid → 视为 no_receipt 仍 paid（业务允许无凭证支出）
-        # （支出逻辑：有无凭证都参与结算，校验仅提醒，不在此反转）
+        elif (not is_income) and expense_need_resettle and contract:
+            # 支出：按新值重新累加合同支出汇总
+            new_amount_in_cny = payment.paid_amount_in_cny or payment.paid_amount
+            PaymentService._add_to_contract_expense(
+                db, contract, payment.paid_amount, payment.currency, new_amount_in_cny, payment.paid_date
+            )
+            # 凭证变化时刷新校验提醒
+            if receipt_changed:
+                payment.verification_status = None
+                payment.verification_result = None
+                payment.verified_at = None
+
+        # 支出仅换凭证（金额没变）：不重算结算，只重置校验
+        if (not is_income) and receipt_changed and not expense_need_resettle:
+            payment.verification_status = None
+            payment.verification_result = None
+            payment.verified_at = None
 
         # 审计
         if updated_by:
@@ -669,7 +716,8 @@ class PaymentService:
                 AuditService.log(
                     db, user_id=updated_by, action="update", entity_type="payment",
                     entity_id=payment_id,
-                    old_values={"status": old_status, "amount": float(old_amount) if old_amount else None},
+                    old_values={"status": old_status, "amount": float(old_amount) if old_amount else None,
+                                "verification_status": payment.verification_status},
                     new_values=update_fields,
                 )
             except Exception as e:
@@ -677,25 +725,43 @@ class PaymentService:
 
         db.commit()
         db.refresh(payment)
-        logger.info("表单编辑付款: id=%d, receipt_changed=%s, status=%s, verification=%s",
-                    payment_id, receipt_changed, payment.status, payment.verification_status)
+        logger.info("表单编辑付款: id=%d, income_need_recheck=%s, expense_resettle=%s, receipt_changed=%s → status=%s, verification=%s",
+                    payment_id, income_need_recheck, expense_need_resettle, receipt_changed,
+                    payment.status, payment.verification_status)
         return payment
 
     @staticmethod
-    def _reverse_income_settlement(db: Session, contract: Contract, payment: Payment, old_amount, old_currency):
-        """反向扣减一笔已结算收入（编辑/重校验时回退 pending 用）"""
-        if old_currency == contract.currency:
-            contract.paid_amount = max((contract.paid_amount or 0) - old_amount, Decimal('0'))
-        else:
-            _, converted = ExchangeRateService.convert_currency(
-                db, old_amount, old_currency, contract.currency, payment.paid_date
+    def _reverse_settlement(
+        db: Session, contract: Contract, payment: Payment, is_income: bool,
+        old_amount: Decimal, old_currency: str, old_paid_amount_in_cny: Decimal, old_paid_date,
+    ):
+        """反向扣减一笔已结算记录的合同汇总（编辑/重校验时回退用）。
+        用编辑前的旧值反扣，避免用到已被改写的当前值。"""
+        if is_income:
+            if old_currency == contract.currency:
+                contract.paid_amount = max((contract.paid_amount or 0) - old_amount, Decimal('0'))
+            else:
+                _, converted = ExchangeRateService.convert_currency(
+                    db, old_amount, old_currency, contract.currency, old_paid_date
+                )
+                contract.paid_amount = max((contract.paid_amount or 0) - converted, Decimal('0'))
+            contract.paid_amount_in_cny = max(
+                (contract.paid_amount_in_cny or 0) - old_paid_amount_in_cny, Decimal('0')
             )
-            contract.paid_amount = max((contract.paid_amount or 0) - converted, Decimal('0'))
-        contract.paid_amount_in_cny = max(
-            (contract.paid_amount_in_cny or 0) - (payment.paid_amount_in_cny or 0), Decimal('0')
-        )
-        contract.remaining_amount = (contract.total_amount or 0) - (contract.paid_amount or 0)
-        contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
+            contract.remaining_amount = (contract.total_amount or 0) - (contract.paid_amount or 0)
+            contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
+        else:
+            # 支出反扣
+            if old_currency == contract.currency:
+                contract.total_expense = max((contract.total_expense or 0) - old_amount, Decimal('0'))
+            else:
+                _, converted = ExchangeRateService.convert_currency(
+                    db, old_amount, old_currency, contract.currency, old_paid_date
+                )
+                contract.total_expense = max((contract.total_expense or 0) - converted, Decimal('0'))
+            contract.total_expense_in_cny = max(
+                (contract.total_expense_in_cny or 0) - old_paid_amount_in_cny, Decimal('0')
+            )
 
     @staticmethod
     def settle_verified_payment(db: Session, payment_id: int) -> Optional[Payment]:
