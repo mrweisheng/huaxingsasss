@@ -653,34 +653,57 @@ export default function ContractDetail() {
             <div className="cd-addl-grid">
               {addlItems.map((it) => (
                 <div key={it.id} className="cd-addl-card" style={{ borderLeftColor: addlBarColor }}>
-                  <div className="cd-addl-card-head">
+                  {/* 第一行：项目名称（完整显示，不省略） + 悬浮操作 */}
+                  <div className="cd-addl-card-name-row">
                     <span className="cd-addl-card-name">{it.name}</span>
-                    <Tooltip title={fmtFull(it.amount, it.currency)}>
-                      <span className="cd-addl-card-amount">{fmt(it.amount, it.currency)}</span>
-                    </Tooltip>
+                    {role !== 'expense' && (
+                      <div className="cd-addl-card-actions">
+                        <Tooltip title="编辑">
+                          <EditOutlined onClick={() => openEditItem(it)} />
+                        </Tooltip>
+                        <Popconfirm
+                          title="删除附加项"
+                          description="引用此附加项的付款标签会自动置空。"
+                          onConfirm={() => handleDeleteItem(it)}
+                          okText="删除"
+                          cancelText="取消"
+                        >
+                          <DeleteOutlined className="cd-addl-act-del" />
+                        </Popconfirm>
+                      </div>
+                    )}
                   </div>
-                  {it.paid_to && <div className="cd-addl-card-paidto">付：{it.paid_to}</div>}
-                  {it.description && <div className="cd-addl-card-desc">{it.description}</div>}
-                  {(it.occurred_date || it.remarks) && (
-                    <div className="cd-addl-card-meta">
-                      {it.occurred_date && <span>{it.occurred_date}</span>}
-                      {it.remarks && <span className="cd-addl-card-remarks">{it.remarks}</span>}
-                    </div>
-                  )}
-                  {role !== 'expense' && (
-                    <div className="cd-addl-card-actions">
-                      <Tooltip title="编辑">
-                        <EditOutlined onClick={() => openEditItem(it)} />
-                      </Tooltip>
-                      <Popconfirm
-                        title="删除附加项"
-                        description="引用此附加项的付款标签会自动置空。"
-                        onConfirm={() => handleDeleteItem(it)}
-                        okText="删除"
-                        cancelText="取消"
-                      >
-                        <DeleteOutlined className="cd-addl-act-del" />
-                      </Popconfirm>
+                  {/* 第二行：金额（醒目，独占一行） */}
+                  <Tooltip title={fmtFull(it.amount, it.currency)}>
+                    <div className="cd-addl-card-amount">{fmt(it.amount, it.currency)}</div>
+                  </Tooltip>
+                  {/* 付给 / 说明 / 日期 / 备注 — 紧凑元信息 */}
+                  {(it.paid_to || it.description || it.occurred_date || it.remarks) && (
+                    <div className="cd-addl-card-info">
+                      {it.paid_to && (
+                        <div className="cd-addl-info-line">
+                          <span className="cd-addl-info-label">付给</span>
+                          <span className="cd-addl-info-val">{it.paid_to}</span>
+                        </div>
+                      )}
+                      {it.description && (
+                        <div className="cd-addl-info-line">
+                          <span className="cd-addl-info-label">说明</span>
+                          <span className="cd-addl-info-val">{it.description}</span>
+                        </div>
+                      )}
+                      {it.occurred_date && (
+                        <div className="cd-addl-info-line">
+                          <span className="cd-addl-info-label">日期</span>
+                          <span className="cd-addl-info-val">{it.occurred_date}</span>
+                        </div>
+                      )}
+                      {it.remarks && (
+                        <div className="cd-addl-info-line">
+                          <span className="cd-addl-info-label">备注</span>
+                          <span className="cd-addl-info-val">{it.remarks}</span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
