@@ -42,16 +42,16 @@ export interface PaymentAccountCreate {
 export const paymentAccountApi = {
   /** 获取收款账户列表 */
   list(): Promise<PaymentAccount[]> {
-    return api.get('/payment-accounts').then((res) => res.data)
+    return api.get('/payment-accounts')
   },
 
   /** 创建收款账户 */
   create(data: PaymentAccountCreate): Promise<PaymentAccount> {
-    return api.post('/payment-accounts', data).then((res) => res.data)
+    return api.post('/payment-accounts', data)
   },
 
   /** 删除收款账户 */
   delete(id: number): Promise<void> {
-    return api.delete(`/payment-accounts/${id}`).then((res) => res.data)
+    return api.delete(`/payment-accounts/${id}`)
   },
 }
