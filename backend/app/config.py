@@ -20,12 +20,12 @@ class Settings(BaseSettings):
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
-    # 数据库配置
-    POSTGRES_SERVER: str = "localhost"
-    POSTGRES_PORT: int = 5432
-    POSTGRES_DB: str = "contract_db"
-    POSTGRES_USER: str = "admin"
-    POSTGRES_PASSWORD: str = "dev_password"
+    # 数据库配置（全部必填，漏配直接报错，不留默认值兜底）
+    POSTGRES_SERVER: str
+    POSTGRES_PORT: int
+    POSTGRES_DB: str
+    POSTGRES_USER: str
+    POSTGRES_PASSWORD: str
 
     @property
     def DATABASE_URL(self) -> str:
@@ -82,11 +82,24 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_required(self):
-        """启动时校验必填配置项"""
+        """启动时校验必填配置项——缺失或为空直接拒绝启动，不留任何兜底默认值。"""
         if not self.SECRET_KEY or len(self.SECRET_KEY) < 32:
             raise ValueError(
                 "SECRET_KEY 必须设置且长度 ≥ 32 字符。"
                 "请检查 .env 文件或环境变量。"
+            )
+        # 数据库连接信息：任一缺失/为空即拒绝启动
+        db_fields = {
+            "POSTGRES_SERVER": self.POSTGRES_SERVER,
+            "POSTGRES_DB": self.POSTGRES_DB,
+            "POSTGRES_USER": self.POSTGRES_USER,
+            "POSTGRES_PASSWORD": self.POSTGRES_PASSWORD,
+        }
+        missing = [k for k, v in db_fields.items() if not v or not str(v).strip()]
+        if missing:
+            raise ValueError(
+                f"数据库配置缺失：{', '.join(missing)}。"
+                "请检查 .env 文件或环境变量，禁止使用硬编码默认值。"
             )
         if not self.DEEPSEEK_API_KEY:
             raise ValueError(
