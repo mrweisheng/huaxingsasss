@@ -107,7 +107,7 @@ export default function PaymentNoticeModal({ open, contract, incomePayments, onC
 
         {/* 抬头 */}
         <div className="pn-header">
-          <h2 className="pn-title">付款通知单</h2>
+          <h2 className="pn-title">明哥中港牌付款通知单</h2>
           <div className="pn-subtitle">PAYMENT NOTICE</div>
         </div>
 
@@ -212,7 +212,7 @@ export default function PaymentNoticeModal({ open, contract, incomePayments, onC
         <div className={`pn-balance ${isCleared ? 'cleared' : ''}`}>
           <div>
             <div className="pn-balance-label">
-              {isCleared ? '本次已结清' : '尚欠余额（大写）'}
+              {isCleared ? '本次已结清' : '今日需付（大写）'}
             </div>
             <span className="pn-balance-cny">{amountToChinese(isCleared ? 0 : unpaid, cur)}</span>
           </div>
@@ -227,7 +227,7 @@ export default function PaymentNoticeModal({ open, contract, incomePayments, onC
         {/* 落款 */}
         <div className="pn-footer">
           <div>
-            <div className="pn-footer-brand">华星 · 财务部</div>
+            <div className="pn-footer-brand">明哥中港牌</div>
             <div style={{ marginTop: 4 }}>如有疑问请联系您的业务经办人</div>
           </div>
           <div style={{ textAlign: 'right' }}>
