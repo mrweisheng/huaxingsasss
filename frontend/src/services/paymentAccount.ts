@@ -5,32 +5,38 @@ import api from './api'
 
 export interface PaymentAccount {
   id: number
-  bank_name: string
+  account_type: 'bank' | 'alipay' | 'wechat' | 'other'
+  title: string
   account_name: string
   account_number?: string
+  qr_code_url?: string
   fps_id?: string
+  bank_name?: string
   branch?: string
   address?: string
   phone?: string
   swift_code?: string
+  extra_info?: Record<string, any>
   is_default: boolean
   sort_order: number
-  remarks?: string
   created_at?: string
 }
 
 export interface PaymentAccountCreate {
-  bank_name: string
+  account_type: 'bank' | 'alipay' | 'wechat' | 'other'
+  title: string
   account_name: string
   account_number?: string
+  qr_code_url?: string
   fps_id?: string
+  bank_name?: string
   branch?: string
   address?: string
   phone?: string
   swift_code?: string
+  extra_info?: Record<string, any>
   is_default?: boolean
   sort_order?: number
-  remarks?: string
 }
 
 export const paymentAccountApi = {
