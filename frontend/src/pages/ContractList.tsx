@@ -263,7 +263,10 @@ export default function ContractList() {
     for (const c of contracts) {
       const cur = c.currency || 'CNY'
       if (!agg[cur]) agg[cur] = { total: 0, paid: 0, expense: 0 }
-      agg[cur].total += Number(c.total_amount || 0)
+      // 合同总额含附加项折算（与卡片/详情页同口径）
+      const addl = c.additional_total_in_contract_currency != null
+        ? Number(c.additional_total_in_contract_currency) : 0
+      agg[cur].total += Number(c.total_amount || 0) + addl
       agg[cur].paid += Number(c.paid_amount || 0)
       agg[cur].expense += Number(c.total_expense || 0)
     }
@@ -473,13 +476,18 @@ export default function ContractList() {
               const biz = contract.business_type ? bizVisual[contract.business_type] : null
               const bizClass = biz?.className || (contract.business_type ? 'biz-other' : '')
               const bizMiniSuffix = bizClass.replace('biz-', '')
-              const progressRaw = calculateProgress(contract.paid_amount, contract.total_amount)
-              const progress = Math.min(progressRaw, 100)  // 视觉进度条 cap 100%
-              // 三态：未付 / 已结清 / 加项收入（实付 > 合同价）
+              // 应收口径与详情页统一：receivable = 合同金额 + 附加项折算到主币种
+              // null/未维护或缺汇率时降级为合同金额，避免卡片"未含附加项"导致三态/进度失真
               const _paid = Number(contract.paid_amount || 0)
               const _total = Number(contract.total_amount || 0)
-              const _overpaid = Math.max(0, _paid - _total)
-              const _unpaid = Math.max(0, _total - _paid)
+              const _addl = contract.additional_total_in_contract_currency != null
+                ? Number(contract.additional_total_in_contract_currency) : 0
+              const _receivable = _total + _addl
+              const progressRaw = calculateProgress(_paid, _receivable)
+              const progress = Math.min(progressRaw, 100)  // 视觉进度条 cap 100%
+              // 三态：未付 / 已结清 / 加项收入（实付 > 应收）
+              const _overpaid = Math.max(0, _paid - _receivable)
+              const _unpaid = Math.max(0, _receivable - _paid)
               const _payState: 'pending' | 'cleared' | 'overpaid' =
                 _overpaid > 0 ? 'overpaid' : _unpaid > 0 ? 'pending' : 'cleared'
               const isHovered = hoveredCard === contract.id
@@ -539,27 +547,23 @@ export default function ContractList() {
                   <div className="divider-gold card-divider" />
 
                   <div className="amount-section">
-                    {/* 总金额 — 视觉锚点 */}
+                    {/* 总金额 — 视觉锚点（含附加项的应收值，与详情页同口径） */}
                     <div className="amount-hero">
                       <span className="amount-hero-label">合同总额</span>
                       <span className="amount-hero-value">
-                        {renderAmount(contract.total_amount, contract.currency)}
-                      </span>
-                      {contract.additional_total_in_contract_currency != null &&
-                        Number(contract.additional_total_in_contract_currency) > 0 && (
+                        {_addl > 0 ? (
                           <Tooltip
-                            title={`含附加项：${contract.additional_total_by_currency
+                            title={`应收 = 合同金额 ${formatMoney(_total).full} + 附加项折算 ${formatMoney(_addl).full}\n含：${contract.additional_total_by_currency
                               ? Object.entries(contract.additional_total_by_currency)
                                   .filter(([, v]) => Number(v) > 0)
                                   .map(([cur, v]) => `${currencySymbol[cur] || cur}${formatMoney(Number(v)).full}`)
                                   .join(' + ')
                               : ''}`}
                           >
-                            <span style={{ fontSize: 11, color: 'var(--brand-gold)', marginLeft: 6, fontWeight: 600, whiteSpace: 'nowrap' }}>
-                              +{currencySymbol[contract.currency] || ''}{formatMoney(Number(contract.additional_total_in_contract_currency)).display}
-                            </span>
+                            <span>{renderAmount(_receivable, contract.currency)}</span>
                           </Tooltip>
-                        )}
+                        ) : renderAmount(contract.total_amount, contract.currency)}
+                      </span>
                     </div>
 
                     {/* 已付 / 未付 — 并排对比 */}
@@ -594,7 +598,7 @@ export default function ContractList() {
                         <div className={`split-value ${_payState === 'pending' ? 'unpaid' : _payState === 'overpaid' ? 'overpaid' : 'paid'}`}>
                           {_payState === 'overpaid'
                             ? <>+{renderAmount(_overpaid, contract.currency)}</>
-                            : renderAmount(_payState === 'pending' ? contract.remaining_amount : 0, contract.currency)}
+                            : renderAmount(_payState === 'pending' ? _unpaid : 0, contract.currency)}
                         </div>
                         {contract.payment_total_count > 0 && (
                           <div className="split-meta">
