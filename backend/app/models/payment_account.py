@@ -10,7 +10,7 @@ class PaymentAccount(BaseModel):
     
     __tablename__ = "payment_accounts"
     
-    account_type = Column(String(20), nullable=False, index=True, comment="账户类型: bank/alipay/wechat/other")
+    account_type = Column(String(20), nullable=False, index=True, comment="账户类型: bank/alipay/wechat/cash/other")
     title = Column(String(200), nullable=False, comment="展示标题")
     account_name = Column(String(200), nullable=False, comment="户名")
     account_number = Column(String(100), comment="账号")

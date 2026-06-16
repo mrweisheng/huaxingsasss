@@ -101,6 +101,19 @@ export interface Payment {
   notes?: string
   description?: string
   additional_item_id?: number
+  // 表单录入新增字段
+  payment_account_id?: number
+  payment_account_title?: string
+  counterparty_account?: { account_name?: string; account_number?: string; bank_name?: string; branch?: string }
+  verification_status?: 'pending' | 'passed' | 'failed' | null
+  verification_result?: {
+    expected?: { amount?: number; currency?: string; payer?: string }
+    extracted?: { amount?: number; currency?: string; payer_name?: string }
+    match?: { amount?: boolean; currency?: boolean; payer?: boolean }
+    confidence?: number
+    reason?: string
+  }
+  verified_at?: string
   created_at: string
   updated_at: string
 }

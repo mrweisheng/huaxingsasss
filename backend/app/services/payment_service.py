@@ -78,8 +78,14 @@ class PaymentService:
             query = query.filter(Payment.paid_date <= date_to)
 
         total = query.count()
+        # 排序：凭证校验不符(failed)优先置顶醒目，其次按付款日期倒序
         items = (
-            query.order_by(Payment.paid_date.desc().nullsfirst(), Payment.created_at.desc())
+            query.order_by(
+                # failed 排前：CASE 当 verification_status='failed' 返回 0，否则 1
+                func.coalesce(Payment.verification_status != 'failed', True),
+                Payment.paid_date.desc().nullsfirst(),
+                Payment.created_at.desc(),
+            )
             .offset((page - 1) * per_page)
             .limit(per_page)
             .all()
@@ -129,6 +135,7 @@ class PaymentService:
         receipt_data: dict = None,
         receipt_file_hash: str = None,
         description: str = None,
+        require_verification: bool = False,
     ) -> Payment:
         """
         创建付款记录并自动计算汇率。
@@ -137,6 +144,8 @@ class PaymentService:
         Args:
             type: income（收入）或 expense（支出）
             payee_name: 收款方名称（仅 expense 使用）
+            require_verification: 表单入口专用——收入凭证需异步校验，即使有凭证也先落 pending 不结算，
+                校验通过后由 Celery task 回填 paid。不影响 agent 旧路径（默认 False，有凭证直接 paid）。
         """
         if type not in ("income", "expense"):
             raise ValueError(f"无效的付款类型: {type}，必须是 income 或 expense")
@@ -160,12 +169,16 @@ class PaymentService:
             )
 
         has_receipt = bool(receipt_image_path)
+        # require_verification=True：有凭证也先 pending，等异步校验通过再结算（表单收入入口）
+        # 否则维持原逻辑：有凭证直接 paid 结算
+        will_settle = has_receipt and not require_verification
 
         logger.info(
-            "创建付款: contract_id=%d, type=%s, amount=%s %s, receipt=%s → status=%s",
+            "创建付款: contract_id=%d, type=%s, amount=%s %s, receipt=%s, require_verification=%s → status=%s",
             contract_id, type, amount, currency,
             receipt_image_path or "无",
-            'paid' if has_receipt else 'pending',
+            require_verification,
+            'paid' if will_settle else 'pending',
         )
 
         payment = Payment(
@@ -186,7 +199,7 @@ class PaymentService:
             receipt_file_hash=receipt_file_hash,
             receipt_data=receipt_data,
             notes=notes,
-            status='paid' if has_receipt else 'pending',
+            status='paid' if will_settle else 'pending',
             created_by=created_by,
         )
 
@@ -197,8 +210,8 @@ class PaymentService:
 
         db.add(payment)
 
-        # 有凭证才参与结算：累加合同金额
-        if has_receipt:
+        # 有凭证且非待校验才参与结算：累加合同金额
+        if will_settle:
             if type == "expense":
                 PaymentService._add_to_contract_expense(db, contract, amount, currency, amount_in_cny, paid_date)
             else:
@@ -491,3 +504,220 @@ class PaymentService:
 
         logger.info("付款已删除: id=%d, contract_id=%d, type=%s", payment_id, payment.contract_id, payment.type)
         return True
+
+    # ──────────────────────────────────────────────────────────────
+    # 表单录入专用方法（与 agent 旧路径 create_payment_record 隔离）
+    # ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def create_payment_from_form(
+        db: Session,
+        contract_id: int,
+        payload,  # PaymentCreate schema 实例
+        created_by: int,
+        receipt_path: str = None,
+        receipt_file_hash: str = None,
+    ) -> Payment:
+        """表单创建付款（收入/支出统一入口）。
+
+        - 收入：有凭证 → status=pending + verification_status=pending（等异步校验通过才结算）；
+                PaymentCreate schema 已强制收入必须有凭证。
+        - 支出：有凭证 → 直接 paid 结算（弱校验提醒，不阻断）；无凭证(no_receipt) → paid 结算。
+
+        Args:
+            receipt_path: 已解析的凭证绝对路径（由 API 层从 file_id 解析）。None 表示无凭证。
+            receipt_file_hash: 凭证文件哈希（用于去重）。
+        """
+        contract = db.query(Contract).filter(Contract.id == contract_id).first()
+        if not contract:
+            raise ValueError(f"合同不存在：{contract_id}")
+
+        # 期数自动递增（同合同同类型）
+        installment_number = PaymentService.get_next_installment_number(db, contract_id, payload.type)
+
+        is_income = payload.type == "income"
+        has_receipt = bool(receipt_path)
+        # 收入必须校验；支出有凭证直接结算
+        require_verification = is_income
+
+        payment = PaymentService.create_payment_with_exchange_rate(
+            db=db,
+            contract_id=contract_id,
+            installment_number=installment_number,
+            currency=payload.currency,
+            amount=Decimal(str(payload.amount)),
+            paid_date=payload.paid_date,
+            payment_method=payload.payment_method,
+            receipt_image_path=receipt_path,
+            notes=payload.notes,
+            created_by=created_by,
+            type=payload.type,
+            payee_name=payload.payee_name if payload.type == "expense" else None,
+            installment_name=payload.installment_name,
+            description=payload.description,
+            require_verification=require_verification,
+        )
+
+        # 表单新增字段（account / counterparty）独立赋值
+        if is_income:
+            payment.payment_account_id = payload.payment_account_id
+        else:
+            payment.counterparty_account = (
+                payload.counterparty_account.model_dump(exclude_none=True)
+                if payload.counterparty_account else None
+            )
+
+        # verification_status：收入有凭证→pending（等校验）；支出→保持 None（弱校验 task 里按需设）
+        if is_income and has_receipt:
+            payment.verification_status = "pending"
+        payment.source = "manual"  # 表单录入标记（区别于 agent 的 screenshot/upload）
+
+        db.commit()
+        db.refresh(payment)
+
+        logger.info(
+            "表单创建付款: id=%d, contract_id=%d, type=%s, amount=%s, has_receipt=%s, verification=%s",
+            payment.id, contract_id, payload.type, payload.amount, has_receipt, payment.verification_status,
+        )
+        return payment
+
+    @staticmethod
+    def update_payment_from_form(
+        db: Session,
+        payment_id: int,
+        payload,  # PaymentUpdate schema 实例
+        updated_by: int,
+        new_receipt_path: str = None,
+        new_receipt_hash: str = None,
+        receipt_cleared: bool = False,
+    ) -> Optional[Payment]:
+        """表单编辑付款。
+
+        - 金额/币种/日期/账户等字段的普通更新；
+        - 换凭证(new_receipt_path) 或 清除凭证(receipt_cleared)：
+          - 收入：重置 verification_status=pending，status 回退 pending（若原 paid 则反向扣减结算），
+            重新投递校验 task（由 API 层 .delay）。
+          - 支出：按新有无凭证调整 status/paid。
+        """
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            return None
+
+        is_income = payment.type == "income"
+        contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+
+        # 记录金额/币种是否变化，用于重算结算
+        old_amount = payment.paid_amount
+        old_currency = payment.currency
+        old_status = payment.status
+        was_settled = old_status == "paid"
+
+        # ── 普通字段更新 ──
+        update_fields = payload.model_dump(exclude_unset=True, exclude_none=True)
+        # 单独处理嵌套对象与凭证字段
+        for fld in ("amount", "currency", "paid_date", "payment_method", "installment_name",
+                    "description", "notes", "payee_name", "payment_account_id"):
+            if fld in update_fields:
+                setattr(payment, fld, update_fields[fld])
+        if "counterparty_account" in update_fields and not is_income:
+            payment.counterparty_account = update_fields["counterparty_account"]
+
+        # amount 变了同步 paid_amount（表单口径：录入即全款）
+        if payload.amount is not None:
+            new_amount = Decimal(str(payload.amount))
+            payment.paid_amount = new_amount
+            # 重算 CNY 等值（币种或金额或日期变化）
+            eff_currency = payload.currency or payment.currency
+            eff_paid_date = payload.paid_date or payment.paid_date
+            if eff_currency == "CNY":
+                payment.exchange_rate = Decimal('1.0')
+                payment.amount_in_cny = new_amount
+                payment.paid_amount_in_cny = new_amount
+            else:
+                rate, cny = ExchangeRateService.convert_to_cny(db, new_amount, eff_currency, eff_paid_date)
+                payment.exchange_rate = rate
+                payment.amount_in_cny = cny
+                payment.paid_amount_in_cny = cny
+
+        # ── 凭证更新分支 ──
+        receipt_changed = False
+        if receipt_cleared:
+            payment.receipt_image_path = None
+            payment.receipt_file_hash = None
+            receipt_changed = True
+        elif new_receipt_path:
+            payment.receipt_image_path = new_receipt_path
+            payment.receipt_file_hash = new_receipt_hash
+            receipt_changed = True
+
+        # ── 结算/校验状态调整 ──
+        # 收入：换凭证或清凭证 → 重置为待校验，status 回 pending（若已结算则反扣）
+        if is_income and receipt_changed:
+            if was_settled and contract:
+                # 反向扣减原结算
+                PaymentService._reverse_income_settlement(db, contract, payment, old_amount, old_currency)
+                payment.status = "pending"
+            payment.verification_status = "pending"
+            payment.verification_result = None
+            payment.verified_at = None
+        # 支出：清凭证后若原本因凭证 paid → 视为 no_receipt 仍 paid（业务允许无凭证支出）
+        # （支出逻辑：有无凭证都参与结算，校验仅提醒，不在此反转）
+
+        # 审计
+        if updated_by:
+            try:
+                AuditService.log(
+                    db, user_id=updated_by, action="update", entity_type="payment",
+                    entity_id=payment_id,
+                    old_values={"status": old_status, "amount": float(old_amount) if old_amount else None},
+                    new_values=update_fields,
+                )
+            except Exception as e:
+                logger.warning("审计日志写入失败: entity=payment, action=update(form), error=%s", e)
+
+        db.commit()
+        db.refresh(payment)
+        logger.info("表单编辑付款: id=%d, receipt_changed=%s, status=%s, verification=%s",
+                    payment_id, receipt_changed, payment.status, payment.verification_status)
+        return payment
+
+    @staticmethod
+    def _reverse_income_settlement(db: Session, contract: Contract, payment: Payment, old_amount, old_currency):
+        """反向扣减一笔已结算收入（编辑/重校验时回退 pending 用）"""
+        if old_currency == contract.currency:
+            contract.paid_amount = max((contract.paid_amount or 0) - old_amount, Decimal('0'))
+        else:
+            _, converted = ExchangeRateService.convert_currency(
+                db, old_amount, old_currency, contract.currency, payment.paid_date
+            )
+            contract.paid_amount = max((contract.paid_amount or 0) - converted, Decimal('0'))
+        contract.paid_amount_in_cny = max(
+            (contract.paid_amount_in_cny or 0) - (payment.paid_amount_in_cny or 0), Decimal('0')
+        )
+        contract.remaining_amount = (contract.total_amount or 0) - (contract.paid_amount or 0)
+        contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
+
+    @staticmethod
+    def settle_verified_payment(db: Session, payment_id: int) -> Optional[Payment]:
+        """凭证校验通过后，把 pending 收入转为 paid 并补结算（由 Celery task 调用）。"""
+        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        if not payment:
+            return None
+        if payment.status == "paid":
+            return payment  # 幂等：已结算
+        if payment.type != "income":
+            return payment  # 仅收入走校验结算
+
+        contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+        amount_in_cny = payment.paid_amount_in_cny or payment.paid_amount
+        if contract:
+            PaymentService._add_to_contract_paid(
+                db, contract, payment.paid_amount, payment.currency, amount_in_cny, payment.paid_date
+            )
+        payment.status = "paid"
+        db.commit()
+        db.refresh(payment)
+        logger.info("校验通过补结算: payment_id=%d, contract_id=%d, amount=%s → paid",
+                    payment_id, payment.contract_id, payment.paid_amount)
+        return payment
+

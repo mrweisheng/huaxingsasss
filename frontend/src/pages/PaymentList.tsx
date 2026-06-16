@@ -1,13 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type Key } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Button, Select, Input, DatePicker, Empty, message, Image, Tabs, Tooltip } from 'antd'
-import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined } from '@ant-design/icons'
+import { Table, Button, Select, Input, DatePicker, Empty, message, Image, Tabs, Tooltip, Tag } from 'antd'
+import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined, EditOutlined, WarningOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
 import { formatMoney } from '@/utils/money'
 import { isNoReceipt } from '@/utils/payment'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
+import PaymentFormModal from '@/components/PaymentFormModal'
 import type { Payment } from '@/types'
 import './PaymentList.css'
 
@@ -125,6 +126,8 @@ export default function PaymentList() {
   // 删除二次确认弹窗状态
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // 编辑弹窗状态
+  const [editTarget, setEditTarget] = useState<Payment | null>(null)
 
   const defaultTab = role === 'expense' ? 'expense' : role === 'income' ? 'income' : 'all'
   const [activeTab, setActiveTab] = useState(defaultTab)
@@ -346,28 +349,51 @@ export default function PaymentList() {
         return <span className="pl-method-tag">{label}</span>
       },
     },
-    // 状态
+    // 状态（含凭证校验状态：failed 标红 / pending 校验中 / passed 已通过）
     {
       title: '状态',
       dataIndex: 'status',
       key: 'status',
-      width: 80,
-      minWidth: 70,
-      render: (s: string) => {
+      width: 100,
+      minWidth: 90,
+      render: (s: string, record: Payment) => {
         const info = statusMap[s]
-        if (!info) return <span className="payment-status">{s}</span>
-        return <span className={`payment-status ${s}`}>{info.text}</span>
+        const vs = record.verification_status
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {info
+              ? <span className={`payment-status ${s}`}>{info.text}</span>
+              : <span className="payment-status">{s}</span>}
+            {vs === 'failed' && (
+              <Tag color="error" style={{ margin: 0, fontSize: 11 }}>凭证不符</Tag>
+            )}
+            {vs === 'pending' && (
+              <Tag color="processing" style={{ margin: 0, fontSize: 11 }}>校验中</Tag>
+            )}
+          </div>
+        )
       },
     },
     // 操作
     {
       title: '操作',
       key: 'action',
-      width: 90,
-      minWidth: 80,
+      width: 120,
+      minWidth: 110,
       align: 'center' as const,
       render: (_: unknown, record: Payment) => (
         <div className="pl-action-btns">
+          {record.verification_status === 'failed' && (
+            <Tooltip title="凭证不符，点击编辑核对">
+              <Button
+                type="text"
+                size="small"
+                icon={<WarningOutlined />}
+                style={{ color: '#ff4d4f' }}
+                onClick={() => setEditTarget(record)}
+              />
+            </Tooltip>
+          )}
           {record.receipt_image_path ? (
             <Tooltip title="查看凭证">
               <Button
@@ -395,6 +421,14 @@ export default function PaymentList() {
           ) : (
             <span style={{ color: '#ccc', fontSize: 11 }}>-</span>
           )}
+          <Tooltip title="编辑">
+            <Button
+              type="text"
+              size="small"
+              icon={<EditOutlined />}
+              onClick={() => setEditTarget(record)}
+            />
+          </Tooltip>
           {role === 'admin' && (
             <Tooltip title="删除">
               <Button
@@ -634,6 +668,45 @@ export default function PaymentList() {
                     </span>
                   </div>
                 )}
+                {/* 凭证校验结果（不符/存疑时醒目展示） */}
+                {record.verification_result && record.verification_status !== 'passed' && (
+                  <div style={{
+                    padding: '8px 12px', marginBottom: 8, borderRadius: 6,
+                    background: record.verification_status === 'failed' ? '#fff2f0' : '#fffbe6',
+                    border: `1px solid ${record.verification_status === 'failed' ? '#ffccc7' : '#ffe58f'}`,
+                  }}>
+                    <div style={{ fontWeight: 600, color: record.verification_status === 'failed' ? '#cf1322' : '#d48806', marginBottom: 6, fontSize: 13 }}>
+                      <WarningOutlined style={{ marginRight: 6 }} />
+                      {record.verification_status === 'failed' ? '凭证校验不符' : '凭证校验存疑'}
+                    </div>
+                    {(() => {
+                      const vr = record.verification_result!
+                      const exp = vr.expected || {}
+                      const ext = vr.extracted || {}
+                      return (
+                        <div style={{ fontSize: 12, lineHeight: 1.8, color: '#595959' }}>
+                          {exp.amount != null && (
+                            <div>表单金额：<strong>{exp.currency} {exp.amount}</strong>
+                              {ext.amount != null && (
+                                <>　凭证识别：<strong style={{ color: vr.match?.amount === false ? '#cf1322' : '#52c41a' }}>{ext.currency || exp.currency} {ext.amount}</strong></>
+                              )}
+                            </div>
+                          )}
+                          {exp.payer && (
+                            <div>表单客户：{exp.payer}{ext.payer_name ? `　凭证付款方：${ext.payer_name}` : ''}</div>
+                          )}
+                          {vr.confidence != null && <div>识别置信度：{(vr.confidence * 100).toFixed(0)}%</div>}
+                          {vr.reason && <div style={{ marginTop: 4, color: '#8c8c8c' }}>{vr.reason}</div>}
+                        </div>
+                      )
+                    })()}
+                    <div style={{ marginTop: 6 }}>
+                      <Button type="link" size="small" icon={<EditOutlined />} onClick={() => setEditTarget(record)}>
+                        去核对/修改
+                      </Button>
+                    </div>
+                  </div>
+                )}
                 {record.notes ? (
                   <div style={{ padding: '8px 0' }}>
                     <span className="pl-expand-label" style={{ display: 'inline-block', marginBottom: 4 }}>备注</span>
@@ -666,6 +739,7 @@ export default function PaymentList() {
             onExpandedRowsChange: (keys: readonly Key[]) => setExpandedRowKeys([...keys]),
           }}
           rowClassName={(record) => {
+            if (record.verification_status === 'failed') return 'tr-verification-failed'
             if (record.status === 'paid') return 'tr-paid'
             return ''
           }}
@@ -710,6 +784,22 @@ export default function PaymentList() {
         onCancel={() => { if (!deleting) setDeleteTarget(null) }}
         confirming={deleting}
       />
+
+      {/* 编辑收支记录（修复凭证不符 / 改字段） */}
+      {editTarget && (
+        <PaymentFormModal
+          open={!!editTarget}
+          mode="edit"
+          editing={editTarget}
+          contractId={editTarget.contract_id}
+          contractNumber={editTarget.contract_number}
+          customerName={editTarget.customer_name}
+          contractTitle={editTarget.contract_business_description}
+          currency={editTarget.contract_currency || editTarget.currency}
+          onClose={() => setEditTarget(null)}
+          onSuccess={() => loadPayments()}
+        />
+      )}
     </div>
   )
 }

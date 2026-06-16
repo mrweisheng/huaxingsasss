@@ -2,7 +2,7 @@
 付款相关Pydantic模型
 """
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -22,17 +22,80 @@ class PaymentBase(BaseModel):
     notes: Optional[str] = Field(None, description="备注")
 
 
-class PaymentUpdate(BaseModel):
-    """更新付款"""
+class CounterpartyAccount(BaseModel):
+    """对方收款账户（仅expense使用，供应商不固定，存JSON不求建表）"""
 
-    paid_amount: Optional[Decimal] = Field(None, ge=0)
+    account_name: Optional[str] = Field(None, max_length=200, description="户名")
+    account_number: Optional[str] = Field(None, max_length=100, description="卡号/账号")
+    bank_name: Optional[str] = Field(None, max_length=100, description="开户行")
+    branch: Optional[str] = Field(None, max_length=200, description="网点")
+
+
+class VerificationResult(BaseModel):
+    """凭证校验明细"""
+
+    expected: Optional[dict] = Field(None, description="表单填写值 {amount, currency, payer}")
+    extracted: Optional[dict] = Field(None, description="凭证提取值 {amount, currency, payer_name}")
+    match: Optional[dict] = Field(None, description="比对结果 {amount: bool, payer: bool}")
+    confidence: Optional[float] = Field(None, description="VL 置信度 0-1")
+    reason: Optional[str] = Field(None, description="判定原因")
+
+
+class PaymentCreate(BaseModel):
+    """表单创建付款（收入/支出统一入口）
+
+    - 收入（income）：凭证必传（receipt_file_id 或 no_receipt 互斥；income 不允许 no_receipt），
+      提交后立即落库为 pending + verification_status=pending，由 Celery 异步校验。
+    - 支出（expense）：凭证可选；有凭证走 paid 结算并弱校验提醒，无凭证走 no_receipt 直接 paid。
+    """
+
+    type: str = Field(..., description="income/expense")
+    currency: str = Field(default="CNY", description="币种")
+    amount: Decimal = Field(..., gt=0, description="金额")
+    paid_date: date = Field(..., description="实际付款日期")
+    payment_method: Optional[str] = Field(None, description="付款方式")
+    installment_name: Optional[str] = Field(None, max_length=100, description="期数名称/业务说明，如'尾款'")
+    description: Optional[str] = Field(None, max_length=500, description="业务说明（对应模板第1项）")
+    notes: Optional[str] = Field(None, description="备注（对应模板第6项结算状态说明等）")
+    # 收入专属
+    payment_account_id: Optional[int] = Field(None, description="收款账户ID（income 关联己方预设账户）")
+    # 支出专属
+    payee_name: Optional[str] = Field(None, max_length=200, description="收款方名称（expense）")
+    counterparty_account: Optional[CounterpartyAccount] = Field(None, description="对方账户详情（expense）")
+    # 凭证
+    receipt_file_id: Optional[str] = Field(None, description="已上传凭证的文件ID（收入必传；支出可选）")
+    no_receipt: bool = Field(False, description="无凭证声明（仅expense可用，与receipt_file_id互斥）")
+
+    @model_validator(mode="after")
+    def _validate_receipt_rules(self):
+        """凭证规则校验"""
+        if self.type == "income":
+            # 收入必须有凭证
+            if not self.receipt_file_id:
+                raise ValueError("收入必须上传凭证")
+        else:
+            # 支出：凭证和无凭证声明互斥
+            if self.receipt_file_id and self.no_receipt:
+                raise ValueError("不能同时上传凭证和声明无凭证")
+        return self
+
+
+class PaymentUpdate(BaseModel):
+    """更新付款（编辑表单字段 / 换凭证）"""
+
+    amount: Optional[Decimal] = Field(None, gt=0)
+    currency: Optional[str] = None
     paid_date: Optional[date] = None
-    status: Optional[str] = None
-    notes: Optional[str] = None
     payment_method: Optional[str] = None
-    receipt_image_path: Optional[str] = None
-    receipt_data: Optional[dict] = None
     installment_name: Optional[str] = None
+    description: Optional[str] = None
+    notes: Optional[str] = None
+    payee_name: Optional[str] = None
+    counterparty_account: Optional[CounterpartyAccount] = None
+    payment_account_id: Optional[int] = None
+    # 换凭证：传新 file_id 触发重新校验；传空字符串表示删除凭证
+    receipt_file_id: Optional[str] = None
+    no_receipt: Optional[bool] = None
 
 
 class PaymentResponse(PaymentBase):
@@ -53,6 +116,13 @@ class PaymentResponse(PaymentBase):
     receipt_data: Optional[dict] = None
     additional_receipt_files: Optional[list[dict]] = None
     additional_item_id: Optional[int] = None
+    # 表单录入新增字段
+    payment_account_id: Optional[int] = None
+    payment_account_title: Optional[str] = None  # 账户展示标题（join 填充）
+    counterparty_account: Optional[dict] = None
+    verification_status: Optional[str] = None
+    verification_result: Optional[dict] = None
+    verified_at: Optional[datetime] = None
     status: str
     source: str
     created_at: datetime

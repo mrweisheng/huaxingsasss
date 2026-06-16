@@ -1,7 +1,7 @@
 """
 付款模型
 """
-from sqlalchemy import Column, String, Text, Integer, ForeignKey, DECIMAL, Date, Index, UniqueConstraint, text, JSON
+from sqlalchemy import Column, String, Text, Integer, ForeignKey, DECIMAL, Date, DateTime, Index, UniqueConstraint, text, JSON
 from sqlalchemy.orm import relationship
 from app.models.base import BaseModel
 
@@ -47,10 +47,22 @@ class Payment(BaseModel):
 
     # 收款方（仅支出使用）
     payee_name = Column(String(200), comment="收款方名称（仅expense使用）")
-    
+
+    # 收款账户（仅收入使用，关联己方预设账户 payment_accounts）
+    payment_account_id = Column(Integer, ForeignKey("payment_accounts.id", ondelete="SET NULL"), comment="收款账户ID（仅income使用）")
+
+    # 对方收款账户（仅支出使用，供应商不固定，存JSON不求建表）
+    counterparty_account = Column(JSON, comment="对方收款账户（仅expense使用）{account_name, account_number, bank_name, branch}")
+
     # 状态
     status = Column(String(20), nullable=False, default="pending", index=True, comment="状态: pending(待确认)/paid(已确认)")
-    
+
+    # 凭证校验状态（独立于结算状态 status，避免二义性）
+    # pending(校验中)/passed(通过)/failed(不符)/null(未触发校验，如支出无凭证)
+    verification_status = Column(String(20), comment="凭证校验状态: pending/passed/failed")
+    verification_result = Column(JSON, comment="校验明细 {expected, extracted, match:{amount,payer}, confidence, reason}")
+    verified_at = Column(DateTime(timezone=True), comment="凭证校验完成时间")
+
     # 来源标记
     source = Column(String(20), default="manual", index=True, comment="来源: manual/screenshot/upload")
     
@@ -68,6 +80,7 @@ class Payment(BaseModel):
     
     # 关系
     contract = relationship("Contract", back_populates="payments")
+    payment_account = relationship("PaymentAccount")  # 收款账户（仅income），不反向（避免账户删除影响）
 
     __allow_unmapped__ = True
 
@@ -82,6 +95,7 @@ class Payment(BaseModel):
         Index("idx_payments_contract", "contract_id"),
         Index("idx_payments_due_date", "due_date"),
         Index("idx_payments_status", "status"),
+        Index("idx_payments_verification_status", "verification_status"),
         Index("idx_payments_installment", "contract_id", "installment_number"),
         Index("idx_payments_source", "source"),
         Index("idx_payments_currency", "currency"),

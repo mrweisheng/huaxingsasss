@@ -5,7 +5,7 @@ import api from './api'
 
 export interface PaymentAccount {
   id: number
-  account_type: 'bank' | 'alipay' | 'wechat' | 'other'
+  account_type: 'bank' | 'alipay' | 'wechat' | 'cash' | 'other'
   title: string
   account_name: string
   account_number?: string
@@ -23,7 +23,7 @@ export interface PaymentAccount {
 }
 
 export interface PaymentAccountCreate {
-  account_type: 'bank' | 'alipay' | 'wechat' | 'other'
+  account_type: 'bank' | 'alipay' | 'wechat' | 'cash' | 'other'
   title: string
   account_name: string
   account_number?: string

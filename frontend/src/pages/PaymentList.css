@@ -2,6 +2,15 @@
    收付管理页面 · 专用样式
    ============================================================ */
 
+/* ── 凭证校验不符：红色醒目行（置顶展示，不参与结算）── */
+.payment-table .ant-table-tbody > tr.tr-verification-failed > td {
+  background: #fff2f0 !important;
+  border-left: 3px solid #ff4d4f;
+}
+.payment-table .ant-table-tbody > tr.tr-verification-failed:hover > td {
+  background: #ffece8 !important;
+}
+
 /* ── 页面容器 ── */
 .payment-list-container {
   padding: 20px 24px;

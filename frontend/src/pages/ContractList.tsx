@@ -5,7 +5,7 @@ import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextO
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractChatModal from '@/components/ContractChatModal'
-import ReceiptChatModal from '@/components/ReceiptChatModal'
+import PaymentFormModal from '@/components/PaymentFormModal'
 import ContractLedger from './ContractLedger'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { Contract, ContractWithPayments } from '@/types'
@@ -690,19 +690,20 @@ export default function ContractList() {
       />
 
       {receiptModal.contract && (
-        <ReceiptChatModal
+        <PaymentFormModal
           open={receiptModal.open}
+          mode="add"
           onClose={() => {
             setReceiptModal(prev => ({ ...prev, open: false }))
             loadContracts()
           }}
+          onSuccess={() => {}}
           contractId={receiptModal.contract.id}
           contractNumber={receiptModal.contract.contract_number}
           customerName={receiptModal.contract.customer_name || ''}
           contractTitle={receiptModal.contract.business_description}
           totalAmount={receiptModal.contract.total_amount}
           currency={receiptModal.contract.currency}
-          status={receiptModal.contract.status}
           paymentType={receiptModal.type}
         />
       )}

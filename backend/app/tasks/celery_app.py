@@ -14,6 +14,7 @@ celery_app = Celery(
     include=[
         "app.tasks.cleanup_tasks",
         "app.tasks.exchange_rate_tasks",
+        "app.tasks.receipt_verification_tasks",
     ],
 )
 
