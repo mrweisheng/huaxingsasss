@@ -547,23 +547,29 @@ export default function ContractList() {
                   <div className="divider-gold card-divider" />
 
                   <div className="amount-section">
-                    {/* 总金额 — 视觉锚点（含附加项的应收值，与详情页同口径） */}
+                    {/* 金额拆分展示：合同金额 + 附加项 */}
                     <div className="amount-hero">
-                      <span className="amount-hero-label">合同总额</span>
-                      <span className="amount-hero-value">
-                        {_addl > 0 ? (
+                      <div className="amount-tags-row">
+                        <div className="amount-tag">
+                          <span className="amount-tag-label">合同金额</span>
+                          <span className="amount-tag-value">{renderAmount(_total, contract.currency)}</span>
+                        </div>
+                        {_addl > 0 && (
                           <Tooltip
-                            title={`应收 = 合同金额 ${formatMoney(_total).full} + 附加项折算 ${formatMoney(_addl).full}\n含：${contract.additional_total_by_currency
+                            title={contract.additional_total_by_currency
                               ? Object.entries(contract.additional_total_by_currency)
                                   .filter(([, v]) => Number(v) > 0)
                                   .map(([cur, v]) => `${currencySymbol[cur] || cur}${formatMoney(Number(v)).full}`)
                                   .join(' + ')
-                              : ''}`}
+                              : ''}
                           >
-                            <span>{renderAmount(_receivable, contract.currency)}</span>
+                            <div className="amount-tag amount-tag--addl">
+                              <span className="amount-tag-label">附加项</span>
+                              <span className="amount-tag-value">{renderAmount(_addl, contract.currency)}</span>
+                            </div>
                           </Tooltip>
-                        ) : renderAmount(contract.total_amount, contract.currency)}
-                      </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* 已付 / 未付 — 并排对比 */}

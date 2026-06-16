@@ -314,6 +314,75 @@
   transition: background 0.25s ease;
 }
 
+/* 金额标签行 */
+.amount-tags-row {
+  display: flex;
+  gap: 16px;
+  align-items: flex-end;
+}
+
+.amount-tag {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.amount-tag-label {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.5px;
+}
+
+.amount-tag-value {
+  font-size: 26px;
+  font-weight: 800;
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -1px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 附加项标签：较小字号 + 金色 */
+.amount-tag--addl .amount-tag-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--brand-gold);
+  cursor: help;
+}
+
+/* 货币符号：略小、半透明 —— 让数字本身做主角 */
+.amount-tag-value .money-sym {
+  font-size: 18px;
+  font-weight: 600;
+  opacity: 0.55;
+  margin-right: 1px;
+}
+
+/* 单位后缀（万/亿）：18px 半透明同色，单位做辅助 */
+.amount-tag-value .money-unit {
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 700;
+  opacity: 0.7;
+  letter-spacing: 0.5px;
+  margin-left: 2px;
+}
+
+.amount-tag--addl .amount-tag-value .money-sym {
+  font-size: 14px;
+}
+
+.amount-tag--addl .amount-tag-value .money-unit {
+  font-size: 13px;
+}
+
 /* 业务色染 hero 底（与 CustomerList 收据同款语义）
    —— 未结清状态下显示业务色，已结清时保持中性绿底
    —— 因合同列表 .is-done 状态由数据而非样式判断，
@@ -325,47 +394,6 @@
 .contract-card.biz-cross .amount-hero {
   background: linear-gradient(135deg, var(--biz-cross-bg) 0%, #ffffff 100%);
   border-bottom-color: #f3d4d1;
-}
-
-.amount-hero-label {
-  font-size: 11px;
-  font-weight: 500;
-  color: var(--text-tertiary);
-  letter-spacing: 0.5px;
-}
-
-.amount-hero-value {
-  font-size: 26px;
-  font-weight: 800;
-  color: var(--text-primary);
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: -1px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  cursor: help;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 2px;
-}
-
-/* 货币符号：略小、半透明 —— 让数字本身做主角 */
-.amount-hero-value .money-sym {
-  font-size: 18px;
-  font-weight: 600;
-  opacity: 0.55;
-  margin-right: 1px;
-}
-
-/* 单位后缀（万/亿）：18px 半透明同色，单位做辅助 */
-.amount-hero-value .money-unit {
-  font-family: var(--font-sans);
-  font-size: 16px;
-  font-weight: 700;
-  opacity: 0.7;
-  letter-spacing: 0.5px;
-  margin-left: 2px;
 }
 
 /* ── 已付 / 未付（双栏对比）── */
