@@ -8,7 +8,7 @@ from datetime import datetime
 
 class PaymentAccountCreate(BaseModel):
     """创建收款账户请求"""
-    account_type: str = Field(..., pattern="^(bank|alipay|wechat|other)$", description="账户类型")
+    account_type: str = Field(..., pattern="^(bank|alipay|wechat|cash|other)$", description="账户类型")
     title: str = Field(..., max_length=200, description="展示标题")
     account_name: str = Field(..., max_length=200, description="户名")
     account_number: Optional[str] = Field(None, max_length=100, description="账号")
