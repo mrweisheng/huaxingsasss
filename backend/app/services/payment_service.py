@@ -12,6 +12,7 @@ from sqlalchemy import func, or_
 from app.models.payment import Payment
 from app.models.contract import Contract
 from app.models.customer import Customer
+from app.models.payment_account import PaymentAccount
 from app.schemas.payment import PaymentUpdate
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.audit_service import AuditService
@@ -22,6 +23,35 @@ logger = logging.getLogger(__name__)
 
 class PaymentService:
     """付款服务类"""
+
+    # ── 付款方式归一化（payment_method 合法值：bank_transfer/wechat/alipay/cash/check）──
+    # account_type（PaymentAccount）→ payment_method：bank 与 bank_transfer 命名不同，需归一
+    _ACCOUNT_TYPE_TO_METHOD = {
+        "bank": "bank_transfer",
+        "alipay": "alipay",
+        "wechat": "wechat",
+        "cash": "cash",
+    }
+
+    @staticmethod
+    def _method_from_account_type(account_type: Optional[str]) -> Optional[str]:
+        """收款账户类型 → 付款方式。other/None/未知类型返回 None（交 AI 凭证检测补全）。"""
+        if not account_type:
+            return None
+        return PaymentService._ACCOUNT_TYPE_TO_METHOD.get(account_type)
+
+    @staticmethod
+    def _method_from_document_type(doc_type: Optional[str]) -> Optional[str]:
+        """VL 凭证类型（document_type）→ 付款方式。
+        prompt 返回值见 ai/prompts.py RECEIPT_ANALYSIS_PROMPT：
+        bank_transfer/wechat/alipay/check 原样；cash_receipt→cash；其它→None。"""
+        if not doc_type:
+            return None
+        if doc_type == "cash_receipt":
+            return "cash"
+        if doc_type in ("bank_transfer", "wechat", "alipay", "cash", "check"):
+            return doc_type
+        return None
 
     @staticmethod
     def get_payments(
@@ -561,6 +591,17 @@ class PaymentService:
         # 收入必须校验；支出有凭证直接结算
         require_verification = is_income
 
+        # payment_method 兜底推导：收入且前端未传/为空时，按所选收款账户的 account_type 推导
+        # （bank→bank_transfer 等），避免 payment_method 落 null/unknown。other 及支出留空交 AI 凭证检测。
+        payment_method = payload.payment_method
+        if not payment_method and is_income and payload.payment_account_id:
+            account = db.query(PaymentAccount).filter(
+                PaymentAccount.id == payload.payment_account_id
+            ).first()
+            payment_method = PaymentService._method_from_account_type(
+                account.account_type if account else None
+            )
+
         payment = PaymentService.create_payment_with_exchange_rate(
             db=db,
             contract_id=contract_id,
@@ -568,7 +609,7 @@ class PaymentService:
             currency=payload.currency,
             amount=Decimal(str(payload.amount)),
             paid_date=payload.paid_date,
-            payment_method=payload.payment_method,
+            payment_method=payment_method,
             receipt_image_path=receipt_path,
             notes=payload.notes,
             created_by=created_by,
@@ -660,6 +701,18 @@ class PaymentService:
                 setattr(payment, fld, update_fields[fld])
         if "counterparty_account" in update_fields and not is_income:
             payment.counterparty_account = update_fields["counterparty_account"]
+
+        # payment_method 兜底：收入若仍为空（前端未传或账户类型为 other），按当前收款账户推导。
+        # 编辑切账户后 payment_account_id 已更新，这里用最新账户重新推导，保持与账户一致。
+        if is_income and not payment.payment_method and payment.payment_account_id:
+            account = db.query(PaymentAccount).filter(
+                PaymentAccount.id == payment.payment_account_id
+            ).first()
+            derived = PaymentService._method_from_account_type(
+                account.account_type if account else None
+            )
+            if derived:
+                payment.payment_method = derived
 
         # amount 变了同步 paid_amount + 重算 CNY 等值（金额/币种/日期任一变化都重算）
         if amount_changed or currency_changed:

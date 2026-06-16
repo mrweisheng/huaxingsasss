@@ -699,10 +699,8 @@ export default function ContractList() {
           }}
           onSuccess={() => {}}
           contractId={receiptModal.contract.id}
-          contractNumber={receiptModal.contract.contract_number}
           customerName={receiptModal.contract.customer_name || ''}
           contractTitle={receiptModal.contract.business_description}
-          totalAmount={receiptModal.contract.total_amount}
           currency={receiptModal.contract.currency}
           paymentType={receiptModal.type}
         />

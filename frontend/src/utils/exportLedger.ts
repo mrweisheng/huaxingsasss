@@ -7,6 +7,7 @@
 import ExcelJS from 'exceljs'
 import { contractApi } from '@/services/contract'
 import api from '@/services/api'
+import { methodMap } from '@/utils/moneyFormat'
 import dayjs from 'dayjs'
 
 const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
@@ -252,7 +253,7 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
         row.getCell(11).numFmt = '#,##0.00'
         row.getCell(12).value = p.currency || c.currency
         row.getCell(13).value = p.paid_date || ''
-        row.getCell(14).value = p.payment_method || ''
+        row.getCell(14).value = (p.payment_method && (methodMap[p.payment_method] || p.payment_method)) || ''
         row.getCell(15).value = p.payee_name || ''
 
         // 凭证列

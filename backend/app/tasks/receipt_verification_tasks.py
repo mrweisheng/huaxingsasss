@@ -70,6 +70,16 @@ def verify_receipt(self, payment_id: int):
         extracted = analysis.get("data") or {}
         confidence = float(extracted.get("confidence") or 0)
 
+        # 1.5 持久化 VL 识别结果到 receipt_data（含 document_type/amount/currency/payer_name 等），
+        #     解决校验后 receipt_data 仍为 null 的问题；同时按 document_type 补全 payment_method。
+        #     补全原则：仅当 payment_method 为空时（支出/未选账户/账户类型 other），AI 不覆盖用户明确选择。
+        if extracted:
+            payment.receipt_data = extracted
+        if not payment.payment_method:
+            derived = PaymentService._method_from_document_type(extracted.get("document_type"))
+            if derived:
+                payment.payment_method = derived
+
         # 2. 取表单期望值（金额/币种/付款方）
         expected_amount = payment.paid_amount
         expected_currency = payment.currency

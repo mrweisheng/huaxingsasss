@@ -349,6 +349,31 @@ export default function PaymentList() {
         return <span className="pl-method-tag">{label}</span>
       },
     },
+    // 收款/付款账户：收入显示己方收款账户名，支出显示对方收款方
+    {
+      title: '收款账户',
+      key: 'payment_account',
+      width: 160,
+      responsive: ['lg' as const],
+      render: (_: unknown, record: Payment) => {
+        if (record.type === 'income') {
+          // 己方预设收款账户（payment_account_title 由后端 join 填充）
+          if (!record.payment_account_title) return <span className="pl-cell-account-empty">-</span>
+          return (
+            <Tooltip title={record.payment_account_title}>
+              <span className="pl-cell-account">{record.payment_account_title}</span>
+            </Tooltip>
+          )
+        }
+        // 支出：对方收款方（payee_name）
+        if (!record.payee_name) return <span className="pl-cell-account-empty">-</span>
+        return (
+          <Tooltip title={record.payee_name}>
+            <span className="pl-cell-account">{record.payee_name}</span>
+          </Tooltip>
+        )
+      },
+    },
     // 状态（含凭证校验状态：failed 标红 / pending 校验中 / passed 已通过）
     {
       title: '状态',
@@ -636,6 +661,12 @@ export default function PaymentList() {
                     <span className="pl-expand-label">期数</span>
                     <span className="pl-expand-value">{record.installment_number ? `第${record.installment_number}期` : '-'}</span>
                   </div>
+                  {record.type === 'income' && record.payment_account_title && (
+                    <div className="pl-expand-row">
+                      <span className="pl-expand-label">收款账户</span>
+                      <span className="pl-expand-value">{record.payment_account_title}</span>
+                    </div>
+                  )}
                   {record.type === 'expense' && record.payee_name && (
                     <div className="pl-expand-row">
                       <span className="pl-expand-label">收款方</span>

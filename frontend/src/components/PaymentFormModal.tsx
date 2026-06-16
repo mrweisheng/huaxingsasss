@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Modal, Form, Input, InputNumber, Select, DatePicker, Upload, Alert, message, Divider } from 'antd'
-import { PlusOutlined, InboxOutlined } from '@ant-design/icons'
+import { Modal, Form, Input, InputNumber, Select, DatePicker, Upload, Alert, message } from 'antd'
+import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import type { UploadFile } from 'antd'
 import {
   paymentApi,
   type PaymentCreatePayload,
@@ -12,6 +11,28 @@ import {
 import { paymentAccountApi, type PaymentAccount } from '@/services/paymentAccount'
 import { compressImage } from '@/utils/imageCompress'
 import type { Payment } from '@/types'
+import './PaymentFormModal.css'
+
+/**
+ * 收款账户类型 → 付款方式的映射。
+ * payment_method 的合法值：bank_transfer/wechat/alipay/cash/check（见后端 models/payment.py）。
+ * account_type 的合法值：bank/alipay/wechat/cash/other（见 services/paymentAccount.ts）。
+ * 两套枚举命名不同（bank vs bank_transfer），此处归一；other 不映射，交后端 AI 凭证检测补全。
+ */
+const ACCOUNT_TYPE_TO_METHOD: Record<string, string> = {
+  bank: 'bank_transfer',
+  alipay: 'alipay',
+  wechat: 'wechat',
+  cash: 'cash',
+}
+
+/** 根据所选收款账户推导付款方式；找不到或类型为 other 返回 undefined。 */
+function deriveMethodFromAccount(accountId: number | undefined, accounts: PaymentAccount[]): string | undefined {
+  if (!accountId) return undefined
+  const acc = accounts.find(a => a.id === accountId)
+  if (!acc) return undefined
+  return ACCOUNT_TYPE_TO_METHOD[acc.account_type]
+}
 
 interface Props {
   open: boolean
@@ -40,8 +61,8 @@ interface Props {
  * - 支出：对方账户手填（供应商不固定），凭证可选，无凭证可声明。
  */
 export default function PaymentFormModal({
-  open, mode, contractId, contractNumber, customerName, contractTitle,
-  totalAmount, currency, paymentType, editing, onClose, onSuccess,
+  open, mode, contractId, customerName, contractTitle,
+  currency, paymentType, editing, onClose, onSuccess,
 }: Props) {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
@@ -50,12 +71,16 @@ export default function PaymentFormModal({
   const [newAccount, setNewAccount] = useState({ account_type: 'bank', title: '', account_name: '', account_number: '', bank_name: '', branch: '' })
   const [uploading, setUploading] = useState(false)
   const [uploadedFileId, setUploadedFileId] = useState<string | undefined>(undefined)
+  const [uploadedFile, setUploadedFile] = useState<{
+    file_id: string; file_name: string; file_type: string; preview_url?: string
+  } | null>(null)
   const [receiptCleared, setReceiptCleared] = useState(false)
   const isEdit = mode === 'edit'
   const isIncome = isEdit ? editing?.type === 'income' : paymentType === 'income'
   const contractCurrency = editing?.contract_currency || currency
 
-  const typeLabel = isIncome ? '收入' : '支出'
+  const typeLabel = isIncome ? '收款' : '转出'
+  const themeClass = isIncome ? 'pfm-income' : 'pfm-expense'
 
   // 加载收款账户列表
   useEffect(() => {
@@ -69,14 +94,16 @@ export default function PaymentFormModal({
   // 打开时初始化表单
   useEffect(() => {
     if (!open) return
+    // 清理旧的预览 URL
+    if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
     setUploadedFileId(undefined)
+    setUploadedFile(null)
     setReceiptCleared(false)
     if (isEdit && editing) {
       form.setFieldsValue({
         amount: editing.paid_amount,
         currency: editing.currency,
         paid_date: editing.paid_date ? dayjs(editing.paid_date) : undefined,
-        payment_method: editing.payment_method,
         installment_name: editing.installment_name,
         description: editing.description,
         notes: editing.notes,
@@ -89,7 +116,6 @@ export default function PaymentFormModal({
       form.setFieldsValue({
         currency: contractCurrency || 'CNY',
         paid_date: dayjs(),
-        payment_method: isIncome ? 'bank_transfer' : 'bank_transfer',
       })
     }
   }, [open, isEdit, editing, form, contractCurrency, isIncome])
@@ -102,8 +128,19 @@ export default function PaymentFormModal({
   const handleUpload = async (file: File) => {
     setUploading(true)
     try {
+      const isImage = file.type.startsWith('image/')
+      // 先创建预览 URL（用原始文件，保证预览清晰度）
+      const previewUrl = isImage ? URL.createObjectURL(file) : undefined
       const compressed = await compressImage(file)
       const res = await paymentApi.uploadReceipt(compressed)
+      // 清理旧预览 URL
+      if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
+      setUploadedFile({
+        file_id: res.file_id,
+        file_name: file.name,
+        file_type: file.type,
+        preview_url: previewUrl,
+      })
       setUploadedFileId(res.file_id)
       setReceiptCleared(false)
       message.success('凭证已上传')
@@ -113,6 +150,12 @@ export default function PaymentFormModal({
       setUploading(false)
     }
     return false  // 阻止 antd 默认上传
+  }
+
+  const handleRemoveFile = () => {
+    if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
+    setUploadedFile(null)
+    setUploadedFileId(undefined)
   }
 
   const handleAddAccount = async () => {
@@ -148,12 +191,18 @@ export default function PaymentFormModal({
 
       if (!isEdit) {
         // ── 新建 ──
+        // payment_method 不再从表单取（表单无该字段，恒为 undefined）；
+        // 收入按所选收款账户的 account_type 推导（bank→bank_transfer 等），
+        // 支出留空，交后端 AI 凭证检测补全。
+        const derivedMethod = isIncome
+          ? deriveMethodFromAccount(values.payment_account_id, accounts)
+          : undefined
         const payload: PaymentCreatePayload = {
           type: paymentType!,
           currency: values.currency,
           amount: Number(values.amount),
           paid_date: values.paid_date.format('YYYY-MM-DD'),
-          payment_method: values.payment_method,
+          payment_method: derivedMethod,
           installment_name: values.installment_name?.trim() || undefined,
           description: values.description?.trim() || undefined,
           notes: values.notes?.trim() || undefined,
@@ -180,11 +229,16 @@ export default function PaymentFormModal({
         message.success(`${typeLabel}已录入${isIncome ? '，正在校验凭证…' : ''}`)
       } else {
         // ── 编辑 ──
+        // 收入：按（可能变更后的）收款账户重新推导 payment_method，保持与账户一致；
+        // 支出：留空交后端 AI 补全。
+        const derivedMethod = isIncome
+          ? deriveMethodFromAccount(values.payment_account_id, accounts)
+          : undefined
         const payload: PaymentUpdatePayload = {
           amount: Number(values.amount),
           currency: values.currency,
           paid_date: values.paid_date.format('YYYY-MM-DD'),
-          payment_method: values.payment_method,
+          payment_method: derivedMethod,
           installment_name: values.installment_name?.trim() || undefined,
           description: values.description?.trim() || undefined,
           notes: values.notes?.trim() || undefined,
@@ -220,7 +274,12 @@ export default function PaymentFormModal({
 
   return (
     <Modal
-      title={`${isEdit ? '编辑' : '录入'}${typeLabel}${contractNumber ? ` · ${contractNumber}` : ''}`}
+      title={
+        <span className="pfm-title">
+          <span className={`pfm-title-bar ${themeClass}`} />
+          {isEdit ? '编辑' : '录入'}{typeLabel}
+        </span>
+      }
       open={open}
       onOk={handleOk}
       onCancel={onClose}
@@ -230,168 +289,194 @@ export default function PaymentFormModal({
       cancelText="取消"
       destroyOnClose
       maskClosable={false}
-      width={560}
+      width={760}
+      className={`pfm-modal ${themeClass}`}
     >
-      {/* 合同上下文回显 */}
+      {/* 顶部信息区：业务描述 + 客户（去冗余，不展示合同编号） */}
       {(contractTitle || customerName) && (
-        <div style={{ marginBottom: 16, padding: '8px 12px', background: '#f5f5f5', borderRadius: 6, fontSize: 13 }}>
-          {contractTitle && <div style={{ color: '#333' }}>业务：{contractTitle}</div>}
-          {customerName && <div style={{ color: '#666', marginTop: 2 }}>客户：{customerName}</div>}
-          {totalAmount != null && <div style={{ color: '#666', marginTop: 2 }}>合同金额：{totalAmount} {contractCurrency}</div>}
+        <div className={`pfm-context ${themeClass}`}>
+          {contractTitle && <div className="pfm-context-title">{contractTitle}</div>}
+          {customerName && <div className="pfm-context-sub">客户 · {customerName}</div>}
         </div>
       )}
 
-      <Form form={form} layout="vertical" requiredMark="optional">
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="amount" label="金额" rules={[{ required: true, message: '请输入金额' }]} style={{ flex: 1 }}>
-            <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="0.00" />
+      <Form form={form} layout="vertical" requiredMark="optional" className="pfm-form">
+        {/* 1. 款项说明 + 2. 日期（一行两列） */}
+        <div className="pfm-row">
+          <Form.Item
+            name="installment_name"
+            label={<span className="pfm-label"><i className="pfm-seq">1</i>款项说明</span>}
+            rules={[{ required: true, message: '请填写款项说明' }]}
+          >
+            <Input placeholder="如：定金、尾款、现牌款、保险费" maxLength={100} />
           </Form.Item>
-          <Form.Item name="currency" label="货币单位" rules={[{ required: true }]} style={{ width: 130 }}>
-            <Select options={[
-              { label: '人民币 CNY', value: 'CNY' },
-              { label: '港币 HKD', value: 'HKD' },
-            ]} />
-          </Form.Item>
-        </div>
 
-        <div style={{ display: 'flex', gap: 12 }}>
-          <Form.Item name="paid_date" label="日期" rules={[{ required: true, message: '请选择日期' }]} style={{ flex: 1 }}>
-            <DatePicker style={{ width: '100%' }} />
-          </Form.Item>
-          <Form.Item name="payment_method" label="方式" style={{ width: 160 }}>
-            <Select allowClear placeholder="选择方式" options={[
-              { label: '银行转账', value: 'bank_transfer' },
-              { label: '微信', value: 'wechat' },
-              { label: '支付宝', value: 'alipay' },
-              { label: '现金', value: 'cash' },
-              { label: '支票', value: 'check' },
-            ]} />
+          <Form.Item
+            name="paid_date"
+            label={<span className="pfm-label"><i className="pfm-seq">2</i>日期</span>}
+            rules={[{ required: true, message: '请选择日期' }]}
+          >
+            <DatePicker style={{ width: '100%' }} placeholder="选择付款日期" />
           </Form.Item>
         </div>
 
-        <Form.Item name="installment_name" label="款项说明" tooltip="对应模板第1项，如：定金、尾款、现牌款等">
-          <Input placeholder="如：定金、尾款、现牌款" maxLength={100} />
-        </Form.Item>
-
-        {/* 收入专属：收款账户 */}
-        {isIncome && (
-          <>
-            <Divider style={{ margin: '8px 0 16px', fontSize: 12 }} orientation="left" plain>
-              收款账户（己方）
-            </Divider>
-            <Form.Item name="payment_account_id" label="收款账户" rules={[{ required: true, message: '请选择收款账户' }]}>
-              <Select
-                placeholder="选择收款账户"
-                showSearch
-                optionFilterProp="label"
-                options={[
-                  ...accounts.map(a => ({
-                    label: a.title + (a.account_number ? ` · ${a.account_number}` : ''),
-                    value: a.id,
-                  })),
-                ]}
-                dropdownRender={(menu) => (
-                  <>
-                    {menu}
-                    <div style={{ padding: '4px 8px', borderTop: '1px dashed #d9d9d9', marginTop: 4 }}>
-                      <a onClick={(e) => { e.preventDefault(); setAddAccountOpen(true) }}>
-                        <PlusOutlined /> 新增其他账户
-                      </a>
-                    </div>
-                  </>
-                )}
-              />
-            </Form.Item>
-          </>
-        )}
-
-        {/* 支出专属：对方账户（供应商不固定，每次手填） */}
-        {!isIncome && (
-          <>
-            <Divider style={{ margin: '8px 0 16px', fontSize: 12 }} orientation="left" plain>
-              收款方（对方）
-            </Divider>
-            <Form.Item name="payee_name" label="收款方名称" rules={[{ required: true, message: '请填写收款方名称' }]}>
+        {/* 3. 收款账户（收入）/ 收款方（支出） */}
+        {isIncome ? (
+          <Form.Item
+            name="payment_account_id"
+            label={<span className="pfm-label"><i className="pfm-seq">3</i>收款账户</span>}
+            rules={[{ required: true, message: '请选择收款账户' }]}
+          >
+            <Select
+              placeholder="选择己方收款账户"
+              showSearch
+              optionFilterProp="label"
+              options={accounts.map(a => ({
+                label: a.title + (a.account_number ? ` · ${a.account_number}` : ''),
+                value: a.id,
+              }))}
+              dropdownRender={(menu) => (
+                <>
+                  {menu}
+                  <div className="pfm-account-add">
+                    <a onClick={(e) => { e.preventDefault(); setAddAccountOpen(true) }}>
+                      <PlusOutlined /> 新增其他账户
+                    </a>
+                  </div>
+                </>
+              )}
+            />
+          </Form.Item>
+        ) : (
+          <div className="pfm-counterparty">
+            <Form.Item
+              name="payee_name"
+              label={<span className="pfm-label"><i className="pfm-seq">3</i>收款方</span>}
+              rules={[{ required: true, message: '请填写收款方名称' }]}
+            >
               <Input placeholder="如：陈丽思、XX修理厂" maxLength={200} />
             </Form.Item>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <Form.Item name="bank_name" label="开户行" style={{ flex: 1 }}>
+            <div className="pfm-row-2">
+              <Form.Item name="bank_name" label="开户行">
                 <Input placeholder="如：中信银行" maxLength={100} />
               </Form.Item>
-              <Form.Item name="branch" label="网点" style={{ flex: 1 }}>
+              <Form.Item name="branch" label="网点">
                 <Input placeholder="如：深圳梅林支行" maxLength={200} />
               </Form.Item>
             </div>
-            <Form.Item name="account_name" label="户名">
-              <Input placeholder="对方账户户名" maxLength={200} />
-            </Form.Item>
-            <Form.Item name="account_number" label="卡号/账号">
-              <Input placeholder="对方银行卡号或账号" maxLength={100} />
-            </Form.Item>
-          </>
+            <div className="pfm-row-2">
+              <Form.Item name="account_name" label="户名">
+                <Input placeholder="对方账户户名" maxLength={200} />
+              </Form.Item>
+              <Form.Item name="account_number" label="卡号/账号">
+                <Input placeholder="对方银行卡号或账号" maxLength={100} />
+              </Form.Item>
+            </div>
+          </div>
         )}
 
-        {/* 凭证上传 */}
-        <Divider style={{ margin: '8px 0 16px', fontSize: 12 }} orientation="left" plain>
-          凭证 {isIncome && <span style={{ color: '#ff4d4f' }}>*必传</span>}
-        </Divider>
+        {/* 4. 金额 + 币种 */}
+        <Form.Item label={<span className="pfm-label"><i className="pfm-seq">4</i>金额</span>} required>
+          <div className="pfm-amount-row">
+            <Form.Item name="amount" noStyle rules={[{ required: true, message: '请输入金额' }]}>
+              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="0.00" className="pfm-amount-input" />
+            </Form.Item>
+            <Form.Item name="currency" noStyle rules={[{ required: true }]}>
+              <Select
+                className="pfm-currency-select"
+                options={[
+                  { label: '人民币 CNY', value: 'CNY' },
+                  { label: '港币 HKD', value: 'HKD' },
+                ]}
+              />
+            </Form.Item>
+          </div>
+        </Form.Item>
 
-        {isIncome ? (
-          <Form.Item
-            extra={
-              uploadedFileId
-                ? '✓ 已上传，提交后将自动校验凭证金额/付款方'
-                : isEdit && editing?.receipt_image_path && !receiptCleared
-                  ? '保留原凭证（如需更换请重新上传）'
-                  : '收入必须上传凭证才能提交'
-            }
-          >
-            <Upload.Dragger
-              accept="image/*,.pdf"
-              maxCount={1}
-              showUploadList={!!uploadedFileId}
-              beforeUpload={handleUpload}
-              onRemove={() => { setUploadedFileId(undefined); return true }}
-              fileList={uploadedFileId ? [{ uid: uploadedFileId, name: '凭证' } as UploadFile] : []}
-            >
-              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-              <p className="ant-upload-text">点击或拖拽上传凭证</p>
-              <p className="ant-upload-hint">支持 JPG/PNG/HEIC/PDF，单文件 ≤ 50MB</p>
-            </Upload.Dragger>
-            {isEdit && editing?.receipt_image_path && !uploadedFileId && (
-              <div style={{ marginTop: 8 }}>
-                <a style={{ color: '#ff4d4f' }} onClick={() => setReceiptCleared(true)}>
-                  {receiptCleared ? '✓ 已标记清除凭证（需重新上传才能提交）' : '清除原凭证'}
-                </a>
-              </div>
-            )}
-          </Form.Item>
-        ) : (
-          <Form.Item
-            extra={
-              uploadedFileId
-                ? '✓ 已上传凭证（支出凭证仅做校验提醒，不影响结算）'
-                : '支出凭证可选；不上传将标记为无凭证支出'
-            }
-          >
-            <Upload.Dragger
-              accept="image/*,.pdf"
-              maxCount={1}
-              showUploadList={!!uploadedFileId}
-              beforeUpload={handleUpload}
-              onRemove={() => { setUploadedFileId(undefined); return true }}
-              fileList={uploadedFileId ? [{ uid: uploadedFileId, name: '凭证' } as UploadFile] : []}
-            >
-              <p className="ant-upload-drag-icon"><InboxOutlined /></p>
-              <p className="ant-upload-text">点击或拖拽上传凭证（可选）</p>
-              <p className="ant-upload-hint">支持 JPG/PNG/HEIC/PDF</p>
-            </Upload.Dragger>
-          </Form.Item>
-        )}
-
-        <Form.Item name="notes" label="结算状态/备注" tooltip="对应模板第6项，如：车辆总价+杂费已结清">
+        {/* 5. 结算状态/备注 */}
+        <Form.Item
+          name="notes"
+          label={<span className="pfm-label"><i className="pfm-seq">5</i>结算状态 / 备注</span>}
+        >
           <Input.TextArea rows={2} placeholder="如：车辆总价+杂费已结清" maxLength={500} />
         </Form.Item>
+
+        {/* 凭证上传区（底部） */}
+        <div className={`pfm-receipt-section ${themeClass}`}>
+          <div className="pfm-receipt-header">
+            <span className="pfm-receipt-title">
+              <i className="pfm-seq">6</i>凭证
+              {isIncome
+                ? <span className="pfm-receipt-tag pfm-required">必传</span>
+                : <span className="pfm-receipt-tag pfm-optional">可选</span>}
+            </span>
+            <span className="pfm-receipt-hint">
+              {isIncome
+                ? (uploadedFileId ? '✓ 已上传，提交后自动校验' : '收入必须上传凭证')
+                : (uploadedFileId ? '✓ 已上传（仅做校验提醒）' : '不上传则标记为无凭证支出')}
+            </span>
+          </div>
+
+          {!uploadedFile ? (
+            <Upload.Dragger
+              accept="image/*,.pdf"
+              maxCount={1}
+              showUploadList={false}
+              beforeUpload={handleUpload}
+              className="pfm-uploader pfm-uploader-compact"
+            >
+              <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}><InboxOutlined style={{ fontSize: 22 }} /></p>
+              <p className="ant-upload-text" style={{ fontSize: 13, marginBottom: 2 }}>点击或拖拽上传凭证</p>
+              <p className="ant-upload-hint" style={{ fontSize: 11 }}>支持 JPG / PNG / HEIC / PDF，单文件 ≤ 50MB</p>
+            </Upload.Dragger>
+          ) : (
+            <div className="pfm-file-preview">
+              <div className="pfm-file-preview-left">
+                {uploadedFile.preview_url ? (
+                  <div className="pfm-file-thumb-wrap">
+                    <img src={uploadedFile.preview_url} alt={uploadedFile.file_name} className="pfm-file-thumb" />
+                  </div>
+                ) : uploadedFile.file_type === 'application/pdf' ? (
+                  <div className="pfm-file-icon-wrap pfm-pdf">
+                    <FilePdfOutlined style={{ fontSize: 28 }} />
+                  </div>
+                ) : (
+                  <div className="pfm-file-icon-wrap pfm-generic">
+                    <FileOutlined style={{ fontSize: 28 }} />
+                  </div>
+                )}
+                <div className="pfm-file-meta">
+                  <span className="pfm-file-name" title={uploadedFile.file_name}>{uploadedFile.file_name}</span>
+                  <span className="pfm-file-status">
+                    <span className="pfm-file-check">✓</span> 已上传
+                    {uploadedFile.preview_url && (
+                      <a
+                        className="pfm-file-preview-link"
+                        href={uploadedFile.preview_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <EyeOutlined /> 预览
+                      </a>
+                    )}
+                  </span>
+                </div>
+              </div>
+              <a className="pfm-file-remove" onClick={handleRemoveFile}>
+                <DeleteOutlined /> 删除
+              </a>
+            </div>
+          )}
+
+          {isEdit && editing?.receipt_image_path && !uploadedFileId && (
+            <div className="pfm-clear-receipt">
+              <a className="pfm-clear-link" onClick={() => setReceiptCleared(!receiptCleared)}>
+                {receiptCleared ? '✓ 已标记清除（需重新上传才能提交）' : '清除原凭证'}
+              </a>
+            </div>
+          )}
+        </div>
       </Form>
 
       {currencyMismatch && (
@@ -422,6 +507,7 @@ export default function PaymentFormModal({
                 { label: '银行账户', value: 'bank' },
                 { label: '支付宝', value: 'alipay' },
                 { label: '微信', value: 'wechat' },
+                { label: '现金', value: 'cash' },
                 { label: '其他', value: 'other' },
               ]}
             />

@@ -17,6 +17,7 @@ import { DeleteOutlined, EyeOutlined, FileImageOutlined } from '@ant-design/icon
 import type { ContractWithPayments, Payment } from '@/types'
 import { paymentApi } from '@/services/payment'
 import { formatMoney } from '@/utils/money'
+import { methodMap } from '@/utils/moneyFormat'
 import dayjs from 'dayjs'
 import './ContractLedger.css'
 
@@ -334,7 +335,11 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
                   </div>
                   <div className="lightbox-meta-item">
                     <span className="k">付款方式</span>
-                    <span className="v">{receiptPreview.payment.payment_method || '--'}</span>
+                    <span className="v">
+                      {receiptPreview.payment.payment_method
+                        ? (methodMap[receiptPreview.payment.payment_method] || receiptPreview.payment.payment_method)
+                        : '--'}
+                    </span>
                   </div>
                   <div className="lightbox-meta-item">
                     <span className="k">{receiptPreview.payment.type === 'expense' ? '收款方' : '付款方'}</span>

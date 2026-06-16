@@ -1,0 +1,244 @@
+/* ============================================================
+   收支录入表单 Modal · 双主题样式
+   收入 = 鼠尾草绿（对齐 ContractList .qa-btn-income #5b8c63）
+   支出 = 暖橙   （对齐 ContractList .qa-btn-expense #dc6b3d）
+   全部复用 index.css 的 CSS 变量，不硬编码
+   ============================================================ */
+
+/* ── 主题色 token（对齐 ContractList 设计 token）──
+   收入 = 鼠尾草绿（--action-income），支出 = 暖橙（--money-due） */
+.pfm-modal.pfm-income  { --pfm-color: var(--action-income, #5b8c63); --pfm-deep: var(--action-income-deep, #3d6644); --pfm-bg: rgba(91, 140, 99, 0.08); --pfm-border: rgba(91, 140, 99, 0.25); }
+.pfm-modal.pfm-expense { --pfm-color: var(--money-due, #dc6b3d); --pfm-deep: #b8521f; --pfm-bg: rgba(220, 107, 61, 0.08); --pfm-border: rgba(220, 107, 61, 0.22); }
+
+/* ── 标题（左竖条 + 文字，文字本身也吃主题色）── */
+.pfm-title { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--pfm-deep); }
+.pfm-title-bar { width: 4px; height: 18px; border-radius: 2px; background: var(--pfm-color); }
+
+/* ── 顶部信息区：业务描述 + 客户 ── */
+.pfm-context {
+  padding: 12px 16px;
+  margin-bottom: 18px;
+  background: var(--bg-subtle);
+  border-left: 3px solid var(--pfm-color);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.pfm-context-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+}
+.pfm-context-sub {
+  margin-top: 4px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── 表单字段：序号 + 标签 ── */
+.pfm-form .pfm-label { display: inline-flex; align-items: center; gap: 7px; font-weight: 500; }
+.pfm-seq {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--pfm-bg);
+  color: var(--pfm-deep);
+  font-size: 11px;
+  font-weight: 700;
+  font-style: normal;
+  font-family: var(--font-mono);
+  flex-shrink: 0;
+}
+
+/* ── 两列布局：一行两个字段（>576px 时生效，移动端回退单列）── */
+.pfm-row { display: flex; gap: 14px; }
+.pfm-row > .ant-form-item { flex: 1; min-width: 0; }
+
+/* ── 支出收款方：双列布局（开户行/网点、户名/卡号两行）── */
+.pfm-row-2 { display: flex; gap: 14px; }
+.pfm-row-2 > .ant-form-item { flex: 1; min-width: 0; }
+
+/* ── 金额行：金额输入 + 币种下拉并排 ── */
+.pfm-amount-row { display: flex; gap: 10px; align-items: flex-start; }
+.pfm-amount-input { flex: 1; }
+.pfm-currency-select { width: 130px !important; flex-shrink: 0; }
+.pfm-amount-input.ant-input-number-affix-wrapper,
+.pfm-amount-input.ant-input-number { font-size: 16px; font-weight: 600; font-family: var(--font-mono); }
+
+/* ── 凭证上传区（底部，主题色卡片）── */
+.pfm-receipt-section {
+  margin-top: 8px;
+  padding: 16px;
+  background: var(--pfm-bg);
+  border: 1px solid var(--pfm-border);
+  border-radius: var(--radius-md);
+}
+.pfm-receipt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.pfm-receipt-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.pfm-receipt-title .pfm-seq { background: var(--pfm-color); color: #fff; }
+.pfm-receipt-tag {
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.6;
+}
+.pfm-receipt-tag.pfm-required { background: var(--color-danger); color: #fff; }
+.pfm-receipt-tag.pfm-optional { background: var(--bg-surface); color: var(--text-tertiary); border: 1px solid var(--border-light); }
+.pfm-receipt-hint { font-size: 12px; color: var(--text-secondary); }
+
+/* 上传器在主题卡片内白底化，保持视觉清爽 */
+.pfm-uploader.ant-upload.ant-upload-drag {
+  background: var(--bg-surface);
+  border-color: var(--border-default);
+  border-radius: var(--radius-sm);
+}
+
+/* 紧凑版上传区：缩小高度，去冗余内边距 */
+.pfm-uploader-compact.ant-upload.ant-upload-drag {
+  padding: 14px 20px !important;
+}
+.pfm-uploader-compact .ant-upload-drag-icon { margin-bottom: 4px !important; }
+.pfm-uploader-compact .ant-upload-text { font-size: 13px !important; margin-bottom: 2px !important; }
+.pfm-uploader-compact .ant-upload-hint { font-size: 11px !important; }
+
+/* ── 文件预览卡片（上传后替换上传区）── */
+.pfm-file-preview {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+}
+.pfm-file-preview-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  flex: 1;
+}
+.pfm-file-thumb-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  overflow: hidden;
+  flex-shrink: 0;
+  border: 1px solid var(--border-light);
+  background: var(--bg-subtle);
+}
+.pfm-file-thumb {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.pfm-file-icon-wrap {
+  width: 48px;
+  height: 48px;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.pfm-file-icon-wrap.pfm-pdf {
+  background: rgba(220, 38, 38, 0.08);
+  color: #dc2626;
+}
+.pfm-file-icon-wrap.pfm-generic {
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+}
+.pfm-file-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1;
+}
+.pfm-file-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 280px;
+}
+.pfm-file-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--pfm-color);
+}
+.pfm-file-check {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--pfm-color);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.pfm-file-preview-link {
+  font-size: 12px;
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.pfm-file-preview-link:hover { color: var(--pfm-deep); }
+.pfm-file-remove {
+  font-size: 12px;
+  color: var(--color-danger);
+  white-space: nowrap;
+  cursor: pointer;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.pfm-file-remove:hover { color: var(--color-danger); opacity: 0.8; }
+
+/* 清除凭证链接 */
+.pfm-clear-receipt { margin-top: 10px; text-align: right; }
+.pfm-clear-link { font-size: 12px; color: var(--color-danger); }
+
+/* ── 新增账户下拉入口 ── */
+.pfm-account-add {
+  padding: 6px 12px;
+  border-top: 1px dashed var(--border-light);
+  margin-top: 4px;
+}
+.pfm-account-add a { font-size: 13px; color: var(--pfm-deep); }
+
+/* ── 移动端适配 ── */
+@media (max-width: 576px) {
+  .pfm-row,
+  .pfm-row-2 { flex-direction: column; gap: 0; }
+  .pfm-amount-row { flex-direction: column; }
+  .pfm-currency-select { width: 100% !important; }
+  .pfm-receipt-header { flex-direction: column; align-items: flex-start; }
+}

@@ -211,8 +211,10 @@ def update_payment_form(
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="付款记录不存在")
 
-    # 收入且凭证有变化 → 重新投递校验
-    if updated.type == "income" and (new_receipt_path or receipt_cleared) and updated.receipt_image_path:
+    # 收入且（换凭证/清凭证，或金额/币种/日期变化）→ 需重新投递校验。
+    # 注意：service 层已据此把 status 回退 pending + verification 重置 + 反扣旧结算，
+    # 这里必须同步投递 task，否则记录会卡死在 pending 永不结算（金额改了但凭证没换的旧 bug）。
+    if updated.type == "income" and updated.verification_status == "pending" and updated.receipt_image_path:
         from app.tasks.receipt_verification_tasks import verify_receipt
         verify_receipt.delay(updated.id)
 
