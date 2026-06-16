@@ -19,6 +19,7 @@ import {
   UpOutlined,
   MessageOutlined,
   CommentOutlined,
+  BankOutlined,
 } from '@ant-design/icons'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useAgentStore } from '@/store/useAgentStore'
@@ -133,6 +134,11 @@ export default function Layout() {
       key: '/users',
       icon: <UserOutlined />,
       label: '用户管理',
+    })
+    businessMenuItems.push({
+      key: '/payment-accounts',
+      icon: <BankOutlined />,
+      label: '收款账户',
     })
   }
 

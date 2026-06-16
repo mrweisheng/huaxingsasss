@@ -10,6 +10,7 @@ import PaymentList from './pages/PaymentList'
 import FinancialOverview from './pages/FinancialOverview'
 import AgentChat from './pages/AgentChat'
 import UserList from './pages/UserList'
+import PaymentAccounts from './pages/PaymentAccounts'
 import { useAuthStore } from './store/useAuthStore'
 
 // 登录后默认进入小星助手（核心 AI 入口）
@@ -46,6 +47,7 @@ function App() {
           <Route path="users">
             <Route index element={<ProtectedRoute allowedRoles={['admin']}><UserList /></ProtectedRoute>} />
           </Route>
+          <Route path="payment-accounts" element={<ProtectedRoute allowedRoles={['admin']}><PaymentAccounts /></ProtectedRoute>} />
           <Route path="agent" element={<AgentChat />} />
         </Route>
       </Routes>
