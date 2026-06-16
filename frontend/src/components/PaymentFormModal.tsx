@@ -447,7 +447,7 @@ export default function PaymentFormModal({
         <div className={`pfm-receipt-section ${themeClass}`}>
           <div className="pfm-receipt-header">
             <span className="pfm-receipt-title">
-              <i className="pfm-seq">6</i>凭证
+              <i className="pfm-seq">{seqNotes + 1}</i>凭证
               {isIncome
                 ? <span className="pfm-receipt-tag pfm-required">必传</span>
                 : <span className="pfm-receipt-tag pfm-optional">可选</span>}

@@ -13,6 +13,7 @@
 """
 import json
 import logging
+from datetime import date
 from typing import Optional
 
 from app.ai.tool_executor_base import ToolExecutor
