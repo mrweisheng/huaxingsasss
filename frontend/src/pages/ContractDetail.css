@@ -186,6 +186,17 @@
   flex-shrink: 0;
 }
 
+/* 应收构成说明：合同金额 + 附加项 + 名称（括号内）。
+   字号/字重/颜色与 CNY 提示统一，不抢主值视觉锚点。 */
+.cd-fn-hero-breakdown {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  font-weight: 400;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.4;
+}
+
 .cd-fn-hero-right {
   display: flex;
   align-items: center;

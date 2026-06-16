@@ -242,6 +242,11 @@ export default function ContractDetail() {
   const addlItems = contract.additional_items || []
   const addlSummary = contract.additional_total_by_currency || {}
   const addlEntries = Object.entries(addlSummary).filter(([, v]) => Number(v) > 0)
+  // 附加项名称摘要（hero 构成说明用）：超过 2 项折成「车险、过户人工 等3项」
+  const addlNames = addlItems.map(it => it.name).filter(Boolean)
+  const addlNamesText = addlNames.length > 2
+    ? `${addlNames.slice(0, 2).join('、')} 等${addlNames.length}项`
+    : addlNames.join('、')
   const bizColorMap: Record<string, string> = {
     '车辆业务': '#2d5b8a', '车辆买卖': '#2d5b8a',
     '中港牌业务': '#b8423b', '两地牌过户': '#b8423b',
@@ -473,8 +478,8 @@ export default function ContractDetail() {
               <span className="cd-fn-hero-value">{fmt(receivable, cur)}</span>
             </Tooltip>
             {hasAddl && (
-              <span style={{ fontSize: 12, color: 'var(--brand-gold)', fontWeight: 600, marginLeft: 4, whiteSpace: 'nowrap' }}>
-                含附加项 +{fmt(addlNum, cur)}
+              <span className="cd-fn-hero-breakdown">
+                （合同金额 {fmt(total, cur)} + 附加项 {fmt(addlNum, cur)}{addlNamesText ? `：${addlNamesText}` : ''}）
               </span>
             )}
             {addlUnconverted && (
