@@ -7,6 +7,7 @@ import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
 import { formatMoney } from '@/utils/money'
 import { isNoReceipt } from '@/utils/payment'
+import { methodMap } from '@/utils/moneyFormat'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import PaymentFormModal from '@/components/PaymentFormModal'
 import type { Payment } from '@/types'
@@ -98,13 +99,6 @@ const statusMap: Record<string, { color: string; text: string }> = {
   cancelled: { color: '#8c8c8c', text: '已取消' },
 }
 
-const methodMap: Record<string, string> = {
-  bank_transfer: '银行转账',
-  wechat: '微信',
-  alipay: '支付宝',
-  cash: '现金',
-  check: '支票',
-}
 
 export default function PaymentList() {
   const [payments, setPayments] = useState<Payment[]>([])

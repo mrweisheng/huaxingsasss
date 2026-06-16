@@ -217,6 +217,10 @@ def update_payment_form(
     if updated.type == "income" and updated.verification_status == "pending" and updated.receipt_image_path:
         from app.tasks.receipt_verification_tasks import verify_receipt
         verify_receipt.delay(updated.id)
+    # 支出换了新凭证 → 重新跑弱校验（仅刷新校验提醒，不阻断结算）
+    elif updated.type == "expense" and new_receipt_path:
+        from app.tasks.receipt_verification_tasks import verify_receipt
+        verify_receipt.delay(updated.id)
 
     return ResponseModel(code=200, message="更新成功", data=PaymentResponse.model_validate(updated))
 

@@ -44,7 +44,6 @@ const TOOL_LABELS: Record<string, string> = {
   get_contract_detail: '合同详情',
   get_customer_contracts: '客户合同',
   query_payments: '查询付款',
-  create_payment: '创建付款',
   get_payment_summary: '付款汇总',
   get_expiring_contracts: '到期合同',
   analyze_image: '文件分析',

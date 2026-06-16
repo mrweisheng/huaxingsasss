@@ -107,15 +107,6 @@ def extract_tool_summary(tool_name: str, result: str) -> Optional[dict[str, Any]
         if data.get("contract_id"):
             items.append({"label": "合同ID", "value": _fmt(data["contract_id"])})
 
-    elif tool_name == "create_payment_record":
-        if data.get("payment_id"):
-            items.append({"label": "付款ID", "value": _fmt(data["payment_id"])})
-
-    elif tool_name == "match_and_confirm_payment":
-        items.append({"label": "匹配结果", "value": "已匹配" if data.get("matched") else "未匹配"})
-        if data.get("payment") and data["payment"].get("amount"):
-            items.append({"label": "金额", "value": _fmt(data["payment"]["amount"])})
-
     elif tool_name == "update_payment":
         items.append({"label": "更新结果", "value": "成功" if data.get("success") else "失败"})
 
@@ -342,13 +333,6 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
     deps = _get_deps(config)
     executor = deps["executor"]
 
-    # 跨 turn 恢复：从 AgentState 恢复上轮 analyze_files 发现的凭证 file_id
-    # （每个 HTTP 请求重建 ToolExecutorV2 实例，实例属性会丢失，
-    #   但 AgentState 通过 checkpointer 跨 turn 持久化）
-    saved_file_ids = state.get("_pending_receipt_file_ids") or []
-    if saved_file_ids:
-        executor._pending_receipt_file_ids = list(saved_file_ids)
-
     last_msg = state["messages"][-1]
     if not getattr(last_msg, "tool_calls", None):
         return {}
@@ -397,11 +381,9 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
             additional_kwargs={"summary": summary} if summary else {},
         ))
 
-    # 跨 turn 同步：把 executor 上的 _pending_receipt_file_ids 写回 state
-    # （analyze_files 会追加，match_and_confirm/create_payment 会消费清空）
+    # 跨 turn 同步已移除（_pending_receipt_file_ids 不再需要，录收支改走表单）
     return {
         "messages": tool_messages,
-        "_pending_receipt_file_ids": list(executor._pending_receipt_file_ids),
     }
 
 

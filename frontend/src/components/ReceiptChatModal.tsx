@@ -35,8 +35,6 @@ interface ReceiptChatModalProps {
 const TYPE_LABELS = { income: '收入', expense: '支出' }
 const TOOL_LABELS: Record<string, string> = {
   analyze_image: '文件分析',
-  create_payment: '创建收入',
-  create_expense: '创建支出',
   update_payment: '更新记录',
   get_contract_detail: '合同详情',
   query_payments: '查询付款',

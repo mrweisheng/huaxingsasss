@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Modal, Form, Input, InputNumber, Select, DatePicker, Upload, Alert, message } from 'antd'
+const { useWatch } = Form
 import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
@@ -79,8 +80,17 @@ export default function PaymentFormModal({
   const isIncome = isEdit ? editing?.type === 'income' : paymentType === 'income'
   const contractCurrency = editing?.contract_currency || currency
 
+  // 支出付款方式联动：监听当前选的付款方式，决定对方账户字段显示哪些
+  const expenseMethod = useWatch('payment_method', form)
+  // 银行转账/支票 → 需要银行账户字段；现金 → 只留收款方名称；微信/支付宝 → 留选填账号
+  const showBankFields = !isIncome && (expenseMethod === 'bank_transfer' || expenseMethod === 'check')
+  const showAccountNoField = !isIncome && expenseMethod !== 'cash'
+
   const typeLabel = isIncome ? '收款' : '转出'
   const themeClass = isIncome ? 'pfm-income' : 'pfm-expense'
+  // 序号动态：收入 收款账户=3/金额=4/备注=5；支出 付款方式=3/收款方=4/金额=5/备注=6
+  const seqAmount = isIncome ? 4 : 5
+  const seqNotes = isIncome ? 5 : 6
 
   // 加载收款账户列表
   useEffect(() => {
@@ -108,6 +118,8 @@ export default function PaymentFormModal({
         description: editing.description,
         notes: editing.notes,
         payment_account_id: editing.payment_account_id,
+        // 支出回显付款方式；收入由收款账户推导（不回显此字段）
+        payment_method: !isIncome ? editing.payment_method : undefined,
         payee_name: editing.payee_name,
         ...editing.counterparty_account,
       })
@@ -116,6 +128,8 @@ export default function PaymentFormModal({
       form.setFieldsValue({
         currency: contractCurrency || 'CNY',
         paid_date: dayjs(),
+        // 支出默认付款方式银行转账（最常见场景）
+        payment_method: !isIncome ? 'bank_transfer' : undefined,
       })
     }
   }, [open, isEdit, editing, form, contractCurrency, isIncome])
@@ -191,18 +205,17 @@ export default function PaymentFormModal({
 
       if (!isEdit) {
         // ── 新建 ──
-        // payment_method 不再从表单取（表单无该字段，恒为 undefined）；
-        // 收入按所选收款账户的 account_type 推导（bank→bank_transfer 等），
-        // 支出留空，交后端 AI 凭证检测补全。
-        const derivedMethod = isIncome
+        // payment_method：收入按所选收款账户的 account_type 推导（bank→bank_transfer 等）；
+        // 支出由用户在表单里直接选择（银行转账/微信/支付宝/现金/支票）。
+        const paymentMethod = isIncome
           ? deriveMethodFromAccount(values.payment_account_id, accounts)
-          : undefined
+          : values.payment_method
         const payload: PaymentCreatePayload = {
           type: paymentType!,
           currency: values.currency,
           amount: Number(values.amount),
           paid_date: values.paid_date.format('YYYY-MM-DD'),
-          payment_method: derivedMethod,
+          payment_method: paymentMethod,
           installment_name: values.installment_name?.trim() || undefined,
           description: values.description?.trim() || undefined,
           notes: values.notes?.trim() || undefined,
@@ -230,15 +243,15 @@ export default function PaymentFormModal({
       } else {
         // ── 编辑 ──
         // 收入：按（可能变更后的）收款账户重新推导 payment_method，保持与账户一致；
-        // 支出：留空交后端 AI 补全。
-        const derivedMethod = isIncome
+        // 支出：用用户在表单里选的付款方式。
+        const paymentMethod = isIncome
           ? deriveMethodFromAccount(values.payment_account_id, accounts)
-          : undefined
+          : values.payment_method
         const payload: PaymentUpdatePayload = {
           amount: Number(values.amount),
           currency: values.currency,
           paid_date: values.paid_date.format('YYYY-MM-DD'),
-          payment_method: derivedMethod,
+          payment_method: paymentMethod,
           installment_name: values.installment_name?.trim() || undefined,
           description: values.description?.trim() || undefined,
           notes: values.notes?.trim() || undefined,
@@ -349,34 +362,63 @@ export default function PaymentFormModal({
           </Form.Item>
         ) : (
           <div className="pfm-counterparty">
+            {/* 3a. 付款方式（支出专属，决定下方字段联动） */}
+            <Form.Item
+              name="payment_method"
+              label={<span className="pfm-label"><i className="pfm-seq">3</i>付款方式</span>}
+              rules={[{ required: true, message: '请选择付款方式' }]}
+            >
+              <Select
+                placeholder="选择这笔支出的付款方式"
+                options={[
+                  { label: '银行转账', value: 'bank_transfer' },
+                  { label: '微信', value: 'wechat' },
+                  { label: '支付宝', value: 'alipay' },
+                  { label: '现金', value: 'cash' },
+                  { label: '支票', value: 'check' },
+                ]}
+              />
+            </Form.Item>
+            {/* 3b. 收款方名称（始终需要） */}
             <Form.Item
               name="payee_name"
-              label={<span className="pfm-label"><i className="pfm-seq">3</i>收款方</span>}
+              label={<span className="pfm-label"><i className="pfm-seq">4</i>收款方</span>}
               rules={[{ required: true, message: '请填写收款方名称' }]}
             >
               <Input placeholder="如：陈丽思、XX修理厂" maxLength={200} />
             </Form.Item>
-            <div className="pfm-row-2">
-              <Form.Item name="bank_name" label="开户行">
-                <Input placeholder="如：中信银行" maxLength={100} />
+            {/* 3c. 银行账户信息（仅银行转账/支票时显示） */}
+            {showBankFields && (
+              <>
+                <div className="pfm-row-2">
+                  <Form.Item name="bank_name" label="开户行">
+                    <Input placeholder="如：中信银行" maxLength={100} />
+                  </Form.Item>
+                  <Form.Item name="branch" label="网点">
+                    <Input placeholder="如：深圳梅林支行" maxLength={200} />
+                  </Form.Item>
+                </div>
+                <div className="pfm-row-2">
+                  <Form.Item name="account_name" label="户名">
+                    <Input placeholder="对方账户户名" maxLength={200} />
+                  </Form.Item>
+                  <Form.Item name="account_number" label="卡号/账号">
+                    <Input placeholder="对方银行卡号或账号" maxLength={100} />
+                  </Form.Item>
+                </div>
+              </>
+            )}
+            {/* 3d. 非现金方式（微信/支付宝/支票）可选填账号 */}
+            {showAccountNoField && !showBankFields && (
+              <Form.Item name="account_number" label="账号（选填）">
+                <Input placeholder="对方微信/支付宝/支票账号" maxLength={100} />
               </Form.Item>
-              <Form.Item name="branch" label="网点">
-                <Input placeholder="如：深圳梅林支行" maxLength={200} />
-              </Form.Item>
-            </div>
-            <div className="pfm-row-2">
-              <Form.Item name="account_name" label="户名">
-                <Input placeholder="对方账户户名" maxLength={200} />
-              </Form.Item>
-              <Form.Item name="account_number" label="卡号/账号">
-                <Input placeholder="对方银行卡号或账号" maxLength={100} />
-              </Form.Item>
-            </div>
+            )}
           </div>
         )}
 
-        {/* 4. 金额 + 币种 */}
-        <Form.Item label={<span className="pfm-label"><i className="pfm-seq">4</i>金额</span>} required>
+        {/* 金额 + 币种 */}
+        <Form.Item label={<span className="pfm-label"><i className="pfm-seq">{seqAmount}</i>金额</span>} required>
           <div className="pfm-amount-row">
             <Form.Item name="amount" noStyle rules={[{ required: true, message: '请输入金额' }]}>
               <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="0.00" className="pfm-amount-input" />
@@ -393,10 +435,10 @@ export default function PaymentFormModal({
           </div>
         </Form.Item>
 
-        {/* 5. 结算状态/备注 */}
+        {/* 结算状态/备注 */}
         <Form.Item
           name="notes"
-          label={<span className="pfm-label"><i className="pfm-seq">5</i>结算状态 / 备注</span>}
+          label={<span className="pfm-label"><i className="pfm-seq">{seqNotes}</i>结算状态 / 备注</span>}
         >
           <Input.TextArea rows={2} placeholder="如：车辆总价+杂费已结清" maxLength={500} />
         </Form.Item>

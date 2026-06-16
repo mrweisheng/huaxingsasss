@@ -591,6 +591,20 @@ class PaymentService:
         # 收入必须校验；支出有凭证直接结算
         require_verification = is_income
 
+        # 凭证去重：同一合同下，同一张凭证（按文件哈希）不允许重复录入。
+        # 与 AI 路径（file_analyzer / tool_executor）口径一致，scope = 合同内。
+        if receipt_path and receipt_file_hash:
+            dup = db.query(Payment).filter(
+                Payment.contract_id == contract_id,
+                Payment.receipt_file_hash == receipt_file_hash,
+                Payment.is_deleted == False,
+            ).first()
+            if dup:
+                raise ValueError(
+                    f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
+                    f" {dup.amount} {dup.currency}），请勿重复录入"
+                )
+
         # payment_method 兜底推导：收入且前端未传/为空时，按所选收款账户的 account_type 推导
         # （bank→bank_transfer 等），避免 payment_method 落 null/unknown。other 及支出留空交 AI 凭证检测。
         payment_method = payload.payment_method
@@ -611,6 +625,7 @@ class PaymentService:
             paid_date=payload.paid_date,
             payment_method=payment_method,
             receipt_image_path=receipt_path,
+            receipt_file_hash=receipt_file_hash,
             notes=payload.notes,
             created_by=created_by,
             type=payload.type,
@@ -628,6 +643,12 @@ class PaymentService:
                 payload.counterparty_account.model_dump(exclude_none=True)
                 if payload.counterparty_account else None
             )
+            # 无凭证支出：在 notes 开头打 [无凭证支出] 标记，前端据此展示「无凭证」chip。
+            # 与 AI 路径（tool_executor）口径一致，避免表单录入的无凭证支出前端无法识别。
+            if payload.no_receipt:
+                from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
+                base_note = (payment.notes or "").strip()
+                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
 
         # verification_status：收入有凭证→pending（等校验）；支出→保持 None（弱校验 task 里按需设）
         if is_income and has_receipt:
@@ -735,8 +756,34 @@ class PaymentService:
             payment.receipt_image_path = None
             payment.receipt_file_hash = None
         elif new_receipt_path:
+            # 凭证去重：换凭证时也要查重（排除自身）
+            if new_receipt_hash:
+                dup = db.query(Payment).filter(
+                    Payment.contract_id == payment.contract_id,
+                    Payment.receipt_file_hash == new_receipt_hash,
+                    Payment.id != payment.id,
+                    Payment.is_deleted == False,
+                ).first()
+                if dup:
+                    raise ValueError(
+                        f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
+                        f" {dup.amount} {dup.currency}），请勿重复录入"
+                    )
             payment.receipt_image_path = new_receipt_path
             payment.receipt_file_hash = new_receipt_hash
+
+        # ── 3.5 支出无凭证标记同步 ──
+        # 凭证被清除（变无凭证）→ notes 打 [无凭证支出] 前缀；
+        # 凭证从无到有（重新上传）→ 去掉前缀。仅支出，仅凭证确实变化时处理。
+        if (not is_income) and receipt_changed:
+            from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
+            base_note = (payment.notes or "")
+            has_prefix = base_note.startswith(NO_RECEIPT_NOTE_PREFIX)
+            now_no_receipt = not payment.receipt_image_path
+            if now_no_receipt and not has_prefix:
+                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
+            elif not now_no_receipt and has_prefix:
+                payment.notes = base_note[len(NO_RECEIPT_NOTE_PREFIX):].strip() or None
 
         # ── 4. 结算/校验状态调整 ──
         if is_income and income_need_recheck:

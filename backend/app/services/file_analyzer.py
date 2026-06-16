@@ -24,7 +24,6 @@ import logging
 import shutil
 import redis as redis_lib
 from datetime import date, datetime
-from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
@@ -476,71 +475,3 @@ class FileAnalyzer:
         target_path = target_dir / target_filename
         shutil.copy2(temp_file_path, str(target_path))
         return str(Path(year_month) / target_filename)
-
-    @staticmethod
-    def auto_create_payments_from_terms(
-        contract: Contract,
-        contract_data: dict,
-        db: Session,
-        user_id: int,
-    ) -> list:
-        """根据 payment_terms 中标记为已支付的条款，自动创建付款记录。"""
-        from app.services.payment_service import PaymentService
-
-        logger.info("自动付款创建开始: contract_id=%d", contract.id)
-        if not isinstance(contract_data, dict):
-            return []
-
-        payment_terms = contract_data.get("payment_terms", [])
-        if not payment_terms:
-            return []
-
-        auto_payments = []
-
-        for idx, term in enumerate(payment_terms, 1):
-            # 完全信任 VL/LLM 的 is_paid 判断——语义理解由模型完成，代码不做关键词匹配
-            is_paid_term = term.get("is_paid") is True
-
-            if not is_paid_term:
-                continue
-
-            try:
-                term_amount = float(term.get("amount", 0))
-            except (TypeError, ValueError):
-                continue
-            if term_amount <= 0:
-                continue
-
-            try:
-                installment_number = PaymentService.get_next_installment_number(db, contract.id, "income")
-                payment = PaymentService.create_payment_with_exchange_rate(
-                    db=db,
-                    contract_id=contract.id,
-                    installment_number=installment_number,
-                    currency=term.get("currency") or contract.currency,
-                    amount=Decimal(str(term_amount)),
-                    paid_date=contract.signed_date or date.today(),
-                    payment_method="unknown",
-                    receipt_image_path=None,
-                    notes="合同标注已付，待补充凭证",
-                    created_by=user_id,
-                    type="income",
-                    installment_name=term.get("name"),
-                )
-                auto_payments.append({
-                    "payment_id": payment.id,
-                    "installment_number": idx,
-                    "installment_name": term.get("name"),
-                    "amount": term_amount,
-                    "currency": term.get("currency") or contract.currency,
-                    "status": payment.status,
-                })
-            except Exception as e:
-                logger.warning("自动创建付款失败: term=%s, error=%s", term.get("name"), e)
-                auto_payments.append({
-                    "error": str(e),
-                    "installment_name": term.get("name"),
-                    "amount": term.get("amount"),
-                })
-
-        return auto_payments

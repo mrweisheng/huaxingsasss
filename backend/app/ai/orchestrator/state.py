@@ -30,12 +30,6 @@ class AgentState(TypedDict, total=False):
     should_end: bool
     errors: Annotated[list[str], operator.add]
 
-    # ── 跨 turn 凭证文件追踪 ──
-    # analyze_files 分析到 receipt 时记录 file_id，供后续
-    # match_and_confirm_payment / create_payment_record 消费。
-    # 不依赖 LLM 在 receipt_data 中传递 _source_file_id 或 receipt_file_ids。
-    _pending_receipt_file_ids: list[str]
-
     # ── chat_history 落库标记 ──
     chat_history_meta: dict
     _finalized: bool

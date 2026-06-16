@@ -858,7 +858,7 @@ class ToolExecutor:
             self.db.refresh(contract)
 
             # 合同录入只生成付款计划（payment_terms），不再自动创建任何 payment 记录。
-            # 付款记录的唯一来源是凭证（match_and_confirm_payment）或手动录入（create_payment_record）。
+            # 付款记录只能通过合同卡片上的表单录入。
             # auto_payments 字段保留为空数组，仅为兼容已上线响应格式。
             logger.info("create_contract完成: contract_id=%d", contract.id)
 

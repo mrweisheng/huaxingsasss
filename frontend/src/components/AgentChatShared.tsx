@@ -10,7 +10,6 @@ import {
   FileSearchOutlined,
   UserAddOutlined,
   CreditCardOutlined,
-  DollarOutlined,
   CalendarOutlined,
   BarChartOutlined,
   PictureOutlined,
@@ -29,13 +28,11 @@ const TOOL_ICONS: Record<string, JSX.Element> = {
   get_contract_detail: <FileTextOutlined style={{ color: '#1e3a5f' }} />,
   get_customer_contracts: <FileTextOutlined style={{ color: '#1e3a5f' }} />,
   query_payments: <CreditCardOutlined style={{ color: '#1e3a5f' }} />,
-  create_payment: <CreditCardOutlined style={{ color: '#0d9488' }} />,
   get_payment_summary: <BarChartOutlined style={{ color: '#1e3a5f' }} />,
   get_expiring_contracts: <CalendarOutlined style={{ color: '#d97706' }} />,
   analyze_image: <PictureOutlined style={{ color: '#1e3a5f' }} />,
   create_customer: <UserAddOutlined style={{ color: '#0d9488' }} />,
   create_contract: <FileTextOutlined style={{ color: '#0d9488' }} />,
-  create_expense: <DollarOutlined style={{ color: '#0d9488' }} />,
 }
 const DEFAULT_TOOL_ICON = <FunctionOutlined style={{ color: '#1e3a5f' }} />
 
