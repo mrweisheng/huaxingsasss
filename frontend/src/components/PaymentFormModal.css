@@ -311,6 +311,107 @@
 .pfm-clear-receipt { margin-top: 10px; text-align: right; }
 .pfm-clear-link { font-size: 12px; color: var(--color-danger); }
 
+/* ── 凭证区左右两列布局 ── */
+.pfm-receipt-columns {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+}
+.pfm-receipt-col-left {
+  flex: 1;
+  min-width: 0;
+}
+.pfm-receipt-col-right {
+  flex: 1;
+  min-width: 0;
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* 识别中状态 */
+.pfm-extracting-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 20px;
+  color: var(--text-secondary);
+}
+.pfm-extracting-text {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* 识别结果预览 */
+.pfm-extracted-preview {
+  width: 100%;
+  padding: 12px;
+  background: var(--bg-surface);
+  border: 1px solid var(--money-done, #0d9488);
+  border-radius: var(--radius-sm);
+}
+.pfm-extracted-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--money-done, #0d9488);
+}
+.pfm-confidence {
+  margin-left: auto;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(13, 148, 136, 0.1);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.pfm-extracted-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.pfm-extracted-item {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+.pfm-extracted-label {
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  width: 36px;
+}
+.pfm-extracted-value {
+  color: var(--text-primary);
+  font-weight: 500;
+  word-break: break-all;
+}
+.pfm-extracted-hint {
+  margin-top: 8px;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  text-align: center;
+}
+
+/* 未上传/不支持识别 */
+.pfm-no-extract {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 20px;
+  color: var(--text-tertiary);
+}
+.pfm-no-extract-text {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
 /* ── 新增账户下拉入口 ── */
 .pfm-account-add {
   padding: 6px 12px;
@@ -326,4 +427,6 @@
   .pfm-amount-row { flex-direction: column; }
   .pfm-currency-select { width: 100% !important; }
   .pfm-receipt-header { flex-direction: column; align-items: flex-start; }
+  .pfm-receipt-columns { flex-direction: column; }
+  .pfm-receipt-col-right { min-height: auto; }
 }

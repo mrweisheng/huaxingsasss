@@ -29,6 +29,7 @@ class CounterpartyAccount(BaseModel):
     account_number: Optional[str] = Field(None, max_length=100, description="卡号/账号")
     bank_name: Optional[str] = Field(None, max_length=100, description="开户行")
     branch: Optional[str] = Field(None, max_length=200, description="网点")
+    swift_code: Optional[str] = Field(None, max_length=50, description="SWIFT Code")
 
 
 class VerificationResult(BaseModel):

@@ -166,6 +166,112 @@ async def upload_receipt(
                          data={"file_id": fname_on_disk, "original_name": file.filename})
 
 
+@router.post("/extract-receipt", response_model=ResponseModel)
+async def extract_receipt_data(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+):
+    """从支出/收入模板截图中提取结构化数据，用于自动填充表单。
+
+    接收图片文件，调用 VL 模型识别模板内容，返回提取的字段数据。
+    """
+    import tempfile
+
+    # 校验文件类型
+    allowed_types = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+    content_type = file.content_type or ""
+    if content_type not in allowed_types:
+        # 也检查文件扩展名
+        ext = ""
+        if file.filename and "." in file.filename:
+            ext = "." + file.filename.rsplit(".", 1)[-1].lower()
+        if ext not in (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif"):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST,
+                                detail="仅支持 JPG/PNG/HEIC/WebP 格式图片")
+
+    content = await file.read()
+    if len(content) > settings.MAX_FILE_SIZE:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文件过大")
+
+    # 写入临时文件供 VL 模型读取
+    ext = ".jpg"
+    if file.filename and "." in file.filename:
+        ext = "." + file.filename.rsplit(".", 1)[-1].lower()
+
+    with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+        tmp.write(content)
+        tmp_path = tmp.name
+
+    try:
+        # HEIC 转 JPEG
+        if ext in (".heic", ".heif"):
+            from PIL import Image
+            import io as _io
+            try:
+                from pillow_heif import register_heif_opener
+                register_heif_opener()
+            except Exception:
+                pass
+            with Image.open(_io.BytesIO(content)) as img:
+                rgb = img.convert("RGB")
+                buf = _io.BytesIO()
+                rgb.save(buf, format="JPEG", quality=85)
+                jpeg_bytes = buf.getvalue()
+            with open(tmp_path, "wb") as f:
+                f.write(jpeg_bytes)
+
+        # 调用 VL 模型提取数据
+        from app.utils.file_analysis import call_vl_model
+        from app.ai.prompts import EXPENSE_TEMPLATE_EXTRACT_PROMPT
+
+        # 读取文件 bytes
+        with open(tmp_path, "rb") as f:
+            file_bytes = f.read()
+
+        # 判断 MIME 类型
+        mime = "image/jpeg"
+        if ext == ".png":
+            mime = "image/png"
+        elif ext == ".webp":
+            mime = "image/webp"
+
+        # 调用 VL 模型
+        try:
+            result = call_vl_model(file_bytes, mime, EXPENSE_TEMPLATE_EXTRACT_PROMPT)
+        except Exception as e:
+            logger.exception("extract-receipt VL 模型调用失败")
+            raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                                detail=f"图片识别失败: {e}")
+
+        # 确保返回的是 dict
+        if not isinstance(result, dict):
+            result = {"raw": str(result), "confidence": 0}
+
+        # 规范化字段
+        extracted = {
+            "installment_name": result.get("installment_name"),
+            "paid_date": result.get("paid_date"),
+            "amount": result.get("amount"),
+            "currency": result.get("currency"),
+            "payee_name": result.get("payee_name"),
+            "counterparty_account": result.get("counterparty_account"),
+            "notes": result.get("notes"),
+            "payment_method": result.get("payment_method"),
+            "wechat_group": result.get("wechat_group"),
+            "customer_name_hint": result.get("customer_name_hint"),
+            "confidence": result.get("confidence", 0.8),
+        }
+
+        return ResponseModel(code=200, message="识别成功", data=extracted)
+
+    finally:
+        # 清理临时文件
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+
+
 @router.post("/{payment_id}/manual-confirm", response_model=ResponseModel[PaymentResponse])
 def manual_confirm_payment(
     payment_id: int,

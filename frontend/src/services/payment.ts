@@ -18,6 +18,7 @@ export interface CounterpartyAccount {
   account_number?: string
   bank_name?: string
   branch?: string
+  swift_code?: string
 }
 
 /** 表单创建收支 payload */
@@ -91,4 +92,35 @@ export const paymentApi = {
     })
     return res.data
   },
+
+  /** 从模板截图提取结构化数据（用于自动填充表单） */
+  extractReceipt: async (file: File): Promise<ExtractedReceiptData> => {
+    const form = new FormData()
+    form.append('file', file)
+    const res: any = await api.post('/payments/extract-receipt', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return res.data
+  },
+}
+
+/** 从模板截图提取的结构化数据 */
+export interface ExtractedReceiptData {
+  installment_name?: string
+  paid_date?: string
+  amount?: number
+  currency?: string
+  payee_name?: string
+  counterparty_account?: {
+    account_name?: string
+    account_number?: string
+    bank_name?: string
+    branch?: string
+    swift_code?: string
+  }
+  notes?: string
+  payment_method?: string
+  wechat_group?: string
+  customer_name_hint?: string
+  confidence?: number
 }
