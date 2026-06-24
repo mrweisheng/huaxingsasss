@@ -721,7 +721,7 @@ TOOL_DEFINITIONS = [
             "description": "为客户创建合同记录。需要先通过 create_customer 或 search_customers 获取 customer_id。合同编号自动生成。如果同一文件已创建过合同会返回已有记录。**只生成合同与付款计划（payment_terms），不创建任何 payment 记录**——付款记录只能通过合同卡片上的表单录入。",
             "parameters": {
                 "type": "object",
-                "required": ["customer_id", "file_id"],
+                "required": ["customer_id", "file_id", "wechat_group"],
                 "properties": {
                     "customer_id": {"type": "integer", "description": "客户ID"},
                     "file_id": {"type": "string", "description": "上传文件的ID。系统会自动使用 analyze_files 对该文件的分析结果。"},
@@ -731,7 +731,7 @@ TOOL_DEFINITIONS = [
                     "signed_date": {"type": "string", "description": "签订日期（YYYY-MM-DD）"},
                     "business_type": {"type": "string", "enum": ["车辆买卖", "两地牌过户", "年检保险", "其他"], "description": "业务类型"},
                     "business_description": {"type": "string", "description": "极简业务描述（如：购买现牌 粤Z7N80港 深圳湾口岸）"},
-                    "wechat_group": {"type": "string", "description": "业务微信群名称"},
+                    "wechat_group": {"type": "string", "description": "业务微信群名称（必填）。每笔业务都必须关联一个业务群，群名由用户提供，不要从合同文件中提取"},
                     "contract_data": {"type": "object", "description": "合同分析数据（通常无需传递，系统自动从缓存获取）"},
                 },
             },
@@ -741,7 +741,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_contract",
-            "description": "更新合同信息。用于补充微信群名称、备注等元信息。当用户发送业务群截图时，提取群名后关联到合同。",
+            "description": "更新合同信息。用于补充或修改微信群名称、备注等元信息。群名由用户口述提供，不要从合同文件或群聊截图中提取。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id"],

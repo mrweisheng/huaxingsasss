@@ -242,6 +242,50 @@
   flex-shrink: 0;
 }
 
+/* ── 业务群名块（卡片顶部主视觉，群名优先，客户名次级紧贴）── */
+.group-name-block {
+  padding: 10px 18px 6px;
+}
+
+.group-name-hero {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.group-name-icon {
+  color: #07c160;            /* 微信绿，与"业务群"语义绑定 */
+  font-size: 17px;
+  flex-shrink: 0;
+}
+
+.group-name-text {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--brand-primary);
+  letter-spacing: 0.5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* 群名下方的客户名+日期次级行（强制绑定"群名+客户"识别单元） */
+.group-sub-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 2px;
+}
+
+.group-sub-row .customer-name-text {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
 /* ── 合同元信息行（编号 + 标题 紧凑一行）── */
 .contract-meta-row {
   padding: 0 18px 4px;

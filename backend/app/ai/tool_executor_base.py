@@ -674,6 +674,16 @@ class ToolExecutor:
         if not file_id:
             return json.dumps({"error": "缺少 file_id，无法关联原始文件"}, ensure_ascii=False)
 
+        # 业务微信群名称：每笔业务必须关联一个业务群，是必填字段。
+        # 合同文件原文里没有群名，AI 应在创建前向用户询问；
+        # 此处为兜底，防止 AI 漏问/漏传导致空群名合同入库。
+        wechat_group = kwargs.get("wechat_group")
+        if not wechat_group or not str(wechat_group).strip():
+            return json.dumps(
+                {"error": "缺少 wechat_group（业务微信群名称）。每笔业务都必须关联业务群，请先向用户询问群名再创建合同"},
+                ensure_ascii=False,
+            )
+
         # ━━━ 数据来源策略：VL 缓存优先，预提取缓存次之，Agent 兜底 ━━━
         cache_data = self._get_cached_analysis(file_id, "contract")
         data_source = "unknown"

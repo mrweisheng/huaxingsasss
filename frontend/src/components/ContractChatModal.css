@@ -252,6 +252,23 @@
   flex-shrink: 0;
 }
 
+/* 业务微信群名称常驻输入行 */
+.contract-chat-group-row {
+  margin-bottom: 8px;
+}
+
+.contract-chat-group-row .ant-input-affix-wrapper {
+  background: #f0fbf5;            /* 微信绿浅底，与群名语义绑定 */
+  border-color: #b7ebcc;
+}
+
+.contract-chat-group-row .ant-input-affix-wrapper:focus,
+.contract-chat-group-row .ant-input-affix-wrapper-focused {
+  background: #fff;
+  border-color: #07c160;
+  box-shadow: 0 0 0 2px rgba(7, 193, 96, 0.12);
+}
+
 .contract-chat-pending-files {
   background: var(--type-color-bg) !important;
   border: 1px solid var(--type-color-soft) !important;

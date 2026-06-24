@@ -116,18 +116,23 @@ class ContractService:
                 or_(Contract.business_type == normalized, Contract.business_type.is_(None))
             )
 
-        # 客户名称模糊搜索（繁简兼容）
+        # 客户名称 / 业务群名称 模糊搜索（繁简兼容）
+        # 群名是业务员查找合同的主要线索（"查这个群0605深圳湾"），与客户名同等重要，故一并匹配
         if customer_name:
             variants = search_variants(customer_name)
             escaped = [v.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") for v in variants]
-            query = query.filter(or_(*[Customer.name.ilike(f"%{v}%") for v in escaped]))
+            query = query.filter(or_(
+                *[Customer.name.ilike(f"%{v}%") for v in escaped],
+                *[Contract.wechat_group.ilike(f"%{v}%") for v in escaped],
+            ))
 
-        # 关键词全文搜索
+        # 关键词全文搜索（含业务微信群名称——业务员常按群名查合同）
         if keyword:
             query = query.filter(
                 or_(
                     Contract.contract_number.ilike(f"%{keyword}%"),
                     Contract.title.ilike(f"%{keyword}%"),
+                    Contract.wechat_group.ilike(f"%{keyword}%"),
                     Contract.contract_data.cast(String).ilike(f"%{keyword}%")
                 )
             )

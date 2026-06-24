@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Input, Select, DatePicker, Button, message, Empty, Tooltip, Popover } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined, AppstoreOutlined, UnorderedListOutlined, DownloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, FilterOutlined, DeleteOutlined, FileTextOutlined, ArrowDownOutlined, ArrowUpOutlined, AppstoreOutlined, UnorderedListOutlined, DownloadOutlined, WechatOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractChatModal from '@/components/ContractChatModal'
@@ -293,7 +293,7 @@ export default function ContractList() {
         </div>
         <div className="page-topbar-right">
           <Input
-            placeholder="搜索客户名称..."
+            placeholder="搜索客户名称 / 业务群..."
             allowClear
             onChange={handleSearch}
             style={{ width: 220 }}
@@ -529,11 +529,25 @@ export default function ContractList() {
                     </span>
                   </div>
 
-                  {/* 客户名称行 + 签订日期 */}
-                  <div className="customer-name-hero" style={{ paddingTop: '6px' }}>
-                    <span className="customer-name-text">{contract.customer_name || '未关联客户'}</span>
-                    <span className="customer-date-text">{formatDate(contract.signed_date)}</span>
-                  </div>
+                  {/* 业务群名 + 客户名（群名为业务员查找合同的主要线索，故置于最醒目位置） */}
+                  {contract.wechat_group ? (
+                    <div className="group-name-block" style={{ paddingTop: '6px' }}>
+                      <div className="group-name-hero">
+                        <WechatOutlined className="group-name-icon" />
+                        <span className="group-name-text">{contract.wechat_group}</span>
+                      </div>
+                      <div className="group-sub-row">
+                        <span className="customer-name-text">{contract.customer_name || '未关联客户'}</span>
+                        <span className="customer-date-text">{formatDate(contract.signed_date)}</span>
+                      </div>
+                    </div>
+                  ) : (
+                    /* 历史合同无群名：退回原展示，保证不崩 */
+                    <div className="customer-name-hero" style={{ paddingTop: '6px' }}>
+                      <span className="customer-name-text">{contract.customer_name || '未关联客户'}</span>
+                      <span className="customer-date-text">{formatDate(contract.signed_date)}</span>
+                    </div>
+                  )}
 
                   {/* 合同元信息：编号 */}
                   <div className="contract-meta-row">
