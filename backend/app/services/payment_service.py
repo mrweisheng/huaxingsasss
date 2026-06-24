@@ -866,6 +866,17 @@ class PaymentService:
             )
 
     @staticmethod
+    def _paid_amount_in_cny(db: Session, payment: Payment) -> Decimal:
+        """取得付款 CNY 等值；历史空值按付款币种和日期重新折算。"""
+        if payment.paid_amount_in_cny is not None:
+            return payment.paid_amount_in_cny
+        _, amount_in_cny = ExchangeRateService.convert_currency(
+            db, payment.paid_amount, payment.currency, 'CNY', payment.paid_date
+        )
+        payment.paid_amount_in_cny = amount_in_cny
+        return amount_in_cny
+
+    @staticmethod
     def manual_confirm_failed_payment(
         db: Session,
         payment_id: int,
@@ -897,7 +908,7 @@ class PaymentService:
             "currency": payment.currency,
         }
         now = datetime.now(timezone.utc)
-        amount_in_cny = payment.paid_amount_in_cny or payment.paid_amount
+        amount_in_cny = PaymentService._paid_amount_in_cny(db, payment)
         PaymentService._add_to_contract_paid(
             db, contract, payment.paid_amount, payment.currency, amount_in_cny, payment.paid_date
         )
@@ -943,16 +954,18 @@ class PaymentService:
     @staticmethod
     def settle_verified_payment(db: Session, payment_id: int) -> Optional[Payment]:
         """凭证校验通过后，把 pending 收入转为 paid 并补结算（由 Celery task 调用）。"""
-        payment = db.query(Payment).filter(Payment.id == payment_id).first()
+        payment = db.query(Payment).filter(Payment.id == payment_id).with_for_update().first()
         if not payment:
             return None
         if payment.status == "paid":
             return payment  # 幂等：已结算
         if payment.type != "income":
             return payment  # 仅收入走校验结算
+        if payment.verification_status != "passed":
+            return payment  # 记录已被编辑/重置，等待新一轮校验
 
         contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
-        amount_in_cny = payment.paid_amount_in_cny or payment.paid_amount
+        amount_in_cny = PaymentService._paid_amount_in_cny(db, payment)
         if contract:
             PaymentService._add_to_contract_paid(
                 db, contract, payment.paid_amount, payment.currency, amount_in_cny, payment.paid_date

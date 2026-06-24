@@ -44,7 +44,20 @@ def verify_receipt(self, payment_id: int):
             logger.info("verify_receipt: payment_id=%s 已人工确认，跳过迟到校验", payment_id)
             return {"status": "manual_override_skip", "payment_id": payment_id}
 
-        if not payment.receipt_image_path or not os.path.isfile(payment.receipt_image_path):
+        receipt_image_path = payment.receipt_image_path
+        receipt_file_hash = payment.receipt_file_hash
+
+        if not receipt_image_path or not os.path.isfile(receipt_image_path):
+            payment = db.query(Payment).filter(Payment.id == payment_id).populate_existing().with_for_update().first()
+            if not payment:
+                return {"status": "not_found", "payment_id": payment_id}
+            if (payment.verification_result or {}).get("manual_override"):
+                logger.info("verify_receipt: payment_id=%s 已人工确认，跳过迟到校验", payment_id)
+                return {"status": "manual_override_skip", "payment_id": payment_id}
+            current_path_exists = payment.receipt_image_path and os.path.isfile(payment.receipt_image_path)
+            if current_path_exists:
+                logger.info("verify_receipt: payment_id=%s 凭证已更新，跳过旧缺失结果", payment_id)
+                return {"status": "stale_receipt_skip", "payment_id": payment_id}
             # 凭证文件丢失：标 failed，原因记明
             # 防御：若该收入记录已 paid 结算（异常状态），先反扣避免合同金额虚高
             _settle_back_if_paid(db, payment)
@@ -55,8 +68,8 @@ def verify_receipt(self, payment_id: int):
         # 1. VL 提取凭证信息
         try:
             analysis = FileAnalyzer.analyze(
-                file_path=payment.receipt_image_path,
-                file_name=os.path.basename(payment.receipt_image_path),
+                file_path=receipt_image_path,
+                file_name=os.path.basename(receipt_image_path),
                 purpose="receipt",
                 contract_id=payment.contract_id,
                 skip_duplicate_check=True,  # 创建时已去重，校验阶段跳过
@@ -66,15 +79,29 @@ def verify_receipt(self, payment_id: int):
             raise self.retry(exc=e, countdown=60)
 
         if not analysis.get("success"):
+            payment = db.query(Payment).filter(Payment.id == payment_id).populate_existing().with_for_update().first()
+            if not payment:
+                return {"status": "not_found", "payment_id": payment_id}
+            if (payment.verification_result or {}).get("manual_override"):
+                logger.info("verify_receipt: payment_id=%s 已人工确认，跳过迟到校验", payment_id)
+                return {"status": "manual_override_skip", "payment_id": payment_id}
+            if payment.receipt_image_path != receipt_image_path or payment.receipt_file_hash != receipt_file_hash:
+                logger.info("verify_receipt: payment_id=%s 凭证已更新，跳过旧失败结果", payment_id)
+                return {"status": "stale_receipt_skip", "payment_id": payment_id}
             _settle_back_if_paid(db, payment)
             _record_failure(payment, reason=f"凭证识别失败：{analysis.get('error', '未知')}")
             db.commit()
             return {"status": "analyze_failed", "payment_id": payment_id}
 
-        db.refresh(payment)
+        payment = db.query(Payment).filter(Payment.id == payment_id).populate_existing().with_for_update().first()
+        if not payment:
+            return {"status": "not_found", "payment_id": payment_id}
         if (payment.verification_result or {}).get("manual_override"):
             logger.info("verify_receipt: payment_id=%s 已人工确认，跳过迟到校验", payment_id)
             return {"status": "manual_override_skip", "payment_id": payment_id}
+        if payment.receipt_image_path != receipt_image_path or payment.receipt_file_hash != receipt_file_hash:
+            logger.info("verify_receipt: payment_id=%s 凭证已更新，跳过旧校验结果", payment_id)
+            return {"status": "stale_receipt_skip", "payment_id": payment_id}
 
         extracted = analysis.get("data") or {}
         confidence = float(extracted.get("confidence") or 0)
