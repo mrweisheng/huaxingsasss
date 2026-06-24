@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Modal, Form, Input, InputNumber, Select, DatePicker, Upload, Alert, message } from 'antd'
 const { useWatch } = Form
-import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, EyeOutlined } from '@ant-design/icons'
+import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, EyeOutlined, WarningOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   paymentApi,
@@ -33,6 +33,66 @@ function deriveMethodFromAccount(accountId: number | undefined, accounts: Paymen
   const acc = accounts.find(a => a.id === accountId)
   if (!acc) return undefined
   return ACCOUNT_TYPE_TO_METHOD[acc.account_type]
+}
+
+function formatVerificationValue(value: unknown, currency?: string): string {
+  if (value === null || value === undefined || value === '') return '-'
+  if (typeof value === 'number') {
+    const text = value.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    return currency ? `${currency} ${text}` : text
+  }
+  return String(value)
+}
+
+function renderVerificationPanel(payment: Payment | null | undefined) {
+  const result = payment?.verification_result
+  if (payment?.verification_status !== 'failed' || !result) return null
+
+  const rows = [
+    {
+      key: 'amount',
+      label: '金额',
+      expected: formatVerificationValue(result.expected?.amount, result.expected?.currency),
+      extracted: formatVerificationValue(result.extracted?.amount, result.extracted?.currency || result.expected?.currency),
+      matched: result.match?.amount,
+    },
+    {
+      key: 'currency',
+      label: '币种',
+      expected: formatVerificationValue(result.expected?.currency),
+      extracted: formatVerificationValue(result.extracted?.currency),
+      matched: result.match?.currency,
+    },
+    {
+      key: 'payer',
+      label: '付款方',
+      expected: formatVerificationValue(result.expected?.payer),
+      extracted: formatVerificationValue(result.extracted?.payer_name),
+      matched: result.match?.payer,
+    },
+  ]
+
+  return (
+    <div className="pfm-verification-panel">
+      <div className="pfm-verification-head">
+        <span className="pfm-verification-title"><WarningOutlined /> AI 凭证核对不通过</span>
+        {typeof result.confidence === 'number' && (
+          <span className="pfm-verification-confidence">置信度 {Math.round(result.confidence * 100)}%</span>
+        )}
+      </div>
+      <div className="pfm-verification-reason">{result.reason || '凭证与表单填写不一致，请核对。'}</div>
+      <div className="pfm-verification-grid">
+        {rows.map(row => (
+          <div key={row.key} className={`pfm-verification-row ${row.matched === false ? 'is-mismatch' : ''}`}>
+            <span className="pfm-v-field">{row.label}</span>
+            <span className="pfm-v-value"><i>表单</i>{row.expected}</span>
+            <span className="pfm-v-value"><i>凭证</i>{row.extracted}</span>
+            <span className="pfm-v-result">{row.matched === false ? '不一致' : row.matched === true ? '一致' : '未判断'}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 interface Props {
@@ -305,6 +365,8 @@ export default function PaymentFormModal({
       width={760}
       className={`pfm-modal ${themeClass}`}
     >
+      {renderVerificationPanel(editing)}
+
       {/* 顶部信息区：业务描述 + 客户（去冗余，不展示合同编号） */}
       {(contractTitle || customerName) && (
         <div className={`pfm-context ${themeClass}`}>

@@ -403,7 +403,7 @@ export default function PaymentList() {
       render: (_: unknown, record: Payment) => (
         <div className="pl-action-btns">
           {record.verification_status === 'failed' && (
-            <Tooltip title="凭证不符，点击编辑核对">
+            <Tooltip title={record.verification_result?.reason || '凭证不符，点击编辑核对'}>
               <Button
                 type="text"
                 size="small"
