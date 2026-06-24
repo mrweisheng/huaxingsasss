@@ -42,17 +42,14 @@
   background: linear-gradient(to right, var(--biz-cross-bg)   0%, #ffffff 35%);
 }
 
-/* 5 列：客户 | 收入 | 支出 | 净利 | 操作 */
+/* 5 列：客户信息 28% | 收入 31% | 支出 31% | 净利 10% | 操作固定 */
 .ledger-row-inner {
   display: grid;
-  grid-template-columns: 220px 1fr 1fr 130px 48px;
+  grid-template-columns: 28% 31% 31% 10% 48px;
   min-height: 100px;
 }
-@media (max-width: 1400px) {
-  .ledger-row-inner { grid-template-columns: 200px 1fr 1fr 120px 44px; }
-}
 @media (max-width: 1200px) {
-  .ledger-row-inner { grid-template-columns: 180px 1fr 1fr 110px 40px; }
+  .ledger-row-inner { grid-template-columns: 26% 30% 30% 10% 40px; }
 }
 
 /* ============================================================
@@ -68,6 +65,56 @@
   font-family: 'Noto Serif SC', serif;
   font-size: 15px; font-weight: 700;
   color: var(--brand-primary, #1e3a5f); letter-spacing: 0.3px;
+}
+
+/* ── 微信群名块（台账版，参照卡片视图群名优先策略）── */
+.info-group-block {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.info-group-hero {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+.info-group-icon {
+  color: #07c160;
+  font-size: 15px;
+  flex-shrink: 0;
+}
+.info-group-text {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--brand-primary, #1e3a5f);
+  letter-spacing: 0.4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  cursor: default;
+}
+.info-group-sub {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.info-customer-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary, #475569);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.info-customer-date {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  color: var(--text-tertiary, #94a3b8);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 .info-meta-row {
   display: flex; align-items: center; gap: 8px;
@@ -173,7 +220,7 @@
 /* 每笔流水：✓ | 描述 | 金额 | 凭证 */
 .flow-item {
   display: grid;
-  grid-template-columns: 16px 1fr 90px 22px;
+  grid-template-columns: 16px 1fr 85px 22px;
   align-items: center; gap: 4px;
   padding: 3px 4px; border-radius: 4px;
   transition: background 0.15s;

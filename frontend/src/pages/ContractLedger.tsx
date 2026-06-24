@@ -13,7 +13,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Tooltip, Empty } from 'antd'
-import { DeleteOutlined, EyeOutlined, FileImageOutlined } from '@ant-design/icons'
+import { DeleteOutlined, EyeOutlined, FileImageOutlined, WechatOutlined } from '@ant-design/icons'
 import type { ContractWithPayments, Payment } from '@/types'
 import { paymentApi } from '@/services/payment'
 import { formatMoney } from '@/utils/money'
@@ -175,13 +175,35 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
 
               {/* ── 客户信息列 ── */}
               <div className="ledger-cell-info">
-                <div className="info-customer">
-                  <span className="name">{c.customer_name || '未关联客户'}</span>
-                </div>
-                <div className="info-meta-row">
-                  <span className="contract-no">{c.contract_number}</span>
-                  {c.signed_date && <span className="signed-date">{dayjs(c.signed_date).format('YYYY-MM-DD')}</span>}
-                </div>
+                {c.wechat_group ? (
+                  <div className="info-group-block">
+                    <div className="info-group-hero">
+                      <WechatOutlined className="info-group-icon" />
+                      <Tooltip title={c.wechat_group} placement="topLeft">
+                        <span className="info-group-text">{c.wechat_group}</span>
+                      </Tooltip>
+                    </div>
+                    <div className="info-group-sub">
+                      <span className="info-customer-name">{c.customer_name || '未关联客户'}</span>
+                      {c.signed_date && <span className="info-customer-date">{dayjs(c.signed_date).format('YYYY-MM-DD')}</span>}
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div className="info-customer">
+                      <span className="name">{c.customer_name || '未关联客户'}</span>
+                    </div>
+                    <div className="info-meta-row">
+                      <span className="contract-no">{c.contract_number}</span>
+                      {c.signed_date && <span className="signed-date">{dayjs(c.signed_date).format('YYYY-MM-DD')}</span>}
+                    </div>
+                  </>
+                )}
+                {c.wechat_group && (
+                  <div className="info-meta-row">
+                    <span className="contract-no">{c.contract_number}</span>
+                  </div>
+                )}
                 {c.business_description && (
                   <div className="info-desc" title={c.business_description}>{c.business_description}</div>
                 )}
