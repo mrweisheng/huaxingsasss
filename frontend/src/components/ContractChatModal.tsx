@@ -79,14 +79,14 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
                   <div className="welcome-step-icon"><CloudUploadOutlined /></div>
                   <div className="welcome-step-text">
                     <div className="welcome-step-label">第一步</div>
-                    <div className="welcome-step-desc">上传合同文件（图片 / PDF / Word），或拖拽到对话框</div>
+                    <div className="welcome-step-desc">在下方输入框点 📎 上传合同文件（图片 / PDF / Word）</div>
                   </div>
                 </div>
                 <div className="welcome-step">
                   <div className="welcome-step-icon welcome-step-icon-wechat"><WechatOutlined /></div>
                   <div className="welcome-step-text">
                     <div className="welcome-step-label">第二步 · 必填</div>
-                    <div className="welcome-step-desc">告诉我这笔业务的<b>微信群名称</b>，方便后续按群查找</div>
+                    <div className="welcome-step-desc">在同一输入框里打上<b>微信群名称</b>，和文件一起发送即可</div>
                   </div>
                 </div>
               </div>
