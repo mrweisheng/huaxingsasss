@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Alert, Popconfirm, message, Tabs, Tooltip } from 'antd'
+import { Button, Alert, Popconfirm, message, Tabs, Tooltip, Image } from 'antd'
 import {
   ArrowLeftOutlined,
   FileOutlined,
@@ -88,6 +88,7 @@ export default function ContractDetail() {
   const [error, setError] = useState('')
   const [completing, setCompleting] = useState(false)
   const [receiptLoading, setReceiptLoading] = useState<number | null>(null)
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null)
   const [addlModal, setAddlModal] = useState<{ open: boolean; mode: 'add' | 'edit'; editing: ContractAdditionalItem | null }>({ open: false, mode: 'add', editing: null })
   const [noticeOpen, setNoticeOpen] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -344,7 +345,7 @@ export default function ContractDetail() {
                       setReceiptLoading(payment.id)
                       try {
                         const url = await paymentApi.getReceiptUrl(payment.id)
-                        window.open(url, '_blank')
+                        setPreviewUrl(url)
                       } catch {
                         message.error('加载凭证失败')
                       } finally {
@@ -827,6 +828,21 @@ export default function ContractDetail() {
         contract={contract}
         incomePayments={incomePayments}
         onClose={() => setNoticeOpen(false)}
+      />
+
+      {/* 凭证图片预览（弹窗模式） */}
+      <Image
+        style={{ display: 'none' }}
+        preview={{
+          visible: !!previewUrl,
+          src: previewUrl || undefined,
+          onVisibleChange: (vis) => {
+            if (!vis) {
+              if (previewUrl) URL.revokeObjectURL(previewUrl)
+              setPreviewUrl(null)
+            }
+          },
+        }}
       />
 
     </div>
