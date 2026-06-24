@@ -6,6 +6,7 @@ import {
   SendOutlined, RobotOutlined, UserOutlined, PaperClipOutlined,
   StopOutlined, InboxOutlined, PictureOutlined,
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
+  WechatOutlined, CloudUploadOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
@@ -62,6 +63,38 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
   }
 
   if (msg.role === 'assistant') {
+    // 欢迎引导卡片：带图标、分步排版，替代纯文字气泡
+    if (msg.isWelcome) {
+      return (
+        <div className="contract-chat-msg contract-chat-msg-assistant">
+          <Avatar icon={<RobotOutlined />} className="contract-chat-avatar-bot" size={32} />
+          <div className="contract-chat-msg-content contract-chat-msg-bot-content">
+            <div className="welcome-card">
+              <div className="welcome-title">
+                <RobotOutlined className="welcome-title-icon" />
+                <span>我来帮你录入合同</span>
+              </div>
+              <div className="welcome-steps">
+                <div className="welcome-step">
+                  <div className="welcome-step-icon"><CloudUploadOutlined /></div>
+                  <div className="welcome-step-text">
+                    <div className="welcome-step-label">第一步</div>
+                    <div className="welcome-step-desc">上传合同文件（图片 / PDF / Word），或拖拽到对话框</div>
+                  </div>
+                </div>
+                <div className="welcome-step">
+                  <div className="welcome-step-icon welcome-step-icon-wechat"><WechatOutlined /></div>
+                  <div className="welcome-step-text">
+                    <div className="welcome-step-label">第二步 · 必填</div>
+                    <div className="welcome-step-desc">告诉我这笔业务的<b>微信群名称</b>，方便后续按群查找</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )
+    }
     const hasThoughts = msg.thoughts && msg.thoughts.length > 0
     const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
     const hasContent = !!msg.content
@@ -119,7 +152,8 @@ export default function ContractChatModal({
       id: Date.now(),
       sessionId: '',
       role: 'assistant',
-      content: '请上传合同文件（图片、PDF 或 Word），我来帮你分析并创建合同。\n\n💡 录入时请一并告诉我这笔业务的**微信群名称**（必填，方便后续按群查找合同）。',
+      content: '',
+      isWelcome: true,
       createdAt: new Date().toISOString(),
     }])
   }, [open])

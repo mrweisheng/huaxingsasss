@@ -45,6 +45,7 @@ export interface ChatMessage {
   toolCalls?: ToolCall[]
   thoughts?: ThoughtStep[]
   intentType?: string
+  isWelcome?: boolean
   createdAt: string
 }
 

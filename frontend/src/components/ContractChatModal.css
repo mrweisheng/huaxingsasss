@@ -201,6 +201,87 @@
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
 }
 
+/* ── 欢迎引导卡片 ── */
+.welcome-card {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 14px 14px 14px 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+  padding: 14px 16px;
+  max-width: 360px;
+}
+
+.welcome-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--brand-primary);
+  margin-bottom: 12px;
+}
+
+.welcome-title-icon {
+  font-size: 18px;
+}
+
+.welcome-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.welcome-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  background: var(--bg-subtle);
+  border-radius: 10px;
+  border: 1px solid var(--border-lighter);
+}
+
+.welcome-step-icon {
+  flex-shrink: 0;
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--type-color-bg);
+  color: var(--type-color);
+  font-size: 16px;
+}
+
+.welcome-step-icon-wechat {
+  background: #e8faf0;
+  color: #07c160;
+}
+
+.welcome-step-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.welcome-step-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  letter-spacing: 0.5px;
+  margin-bottom: 2px;
+}
+
+.welcome-step-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.welcome-step-desc b {
+  color: #07c160;
+}
+
 /* ── 附件 ── */
 .contract-chat-attachments {
   display: flex;
