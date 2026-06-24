@@ -3,16 +3,18 @@
 """
 import logging
 from decimal import Decimal
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session, contains_eager
 from sqlalchemy import func, or_
+from sqlalchemy.exc import IntegrityError
 
 from app.models.payment import Payment
 from app.models.contract import Contract
 from app.models.customer import Customer
 from app.models.payment_account import PaymentAccount
+from app.models.audit_log import AuditLog
 from app.schemas.payment import PaymentUpdate
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.audit_service import AuditService
@@ -862,6 +864,81 @@ class PaymentService:
             contract.total_expense_in_cny = max(
                 (contract.total_expense_in_cny or 0) - old_paid_amount_in_cny, Decimal('0')
             )
+
+    @staticmethod
+    def manual_confirm_failed_payment(
+        db: Session,
+        payment_id: int,
+        user_id: int,
+        reason: str = "操作人确认以表单录入信息为准",
+    ) -> Optional[Payment]:
+        """人工确认凭证不符的收入记录，按表单录入金额入账。"""
+        payment = db.query(Payment).filter(Payment.id == payment_id).with_for_update().first()
+        if not payment:
+            return None
+        if payment.type != "income":
+            raise ValueError("仅收入记录支持人工确认")
+        if payment.verification_status != "failed":
+            raise ValueError("仅凭证不符的记录支持人工确认")
+        if payment.status == "paid":
+            raise ValueError("该记录已确认入账，请勿重复操作")
+        if payment.status != "pending":
+            raise ValueError("仅待确认记录支持人工确认")
+
+        contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()
+        if not contract:
+            raise ValueError("合同不存在")
+
+        old_values = {
+            "status": payment.status,
+            "verification_status": payment.verification_status,
+            "verification_result": payment.verification_result,
+            "amount": float(payment.paid_amount) if payment.paid_amount is not None else None,
+            "currency": payment.currency,
+        }
+        now = datetime.now(timezone.utc)
+        amount_in_cny = payment.paid_amount_in_cny or payment.paid_amount
+        PaymentService._add_to_contract_paid(
+            db, contract, payment.paid_amount, payment.currency, amount_in_cny, payment.paid_date
+        )
+
+        result = dict(payment.verification_result or {})
+        result["manual_override"] = True
+        result["manual_confirmed_by"] = user_id
+        result["manual_confirmed_at"] = now.isoformat()
+        result["manual_reason"] = reason
+        result["original_verification_status"] = payment.verification_status
+
+        payment.status = "paid"
+        payment.verification_status = "passed"
+        payment.verification_result = result
+        payment.verified_at = now
+
+        audit_entry = AuditLog(
+            user_id=user_id,
+            action="manual_confirm",
+            entity_type="payment",
+            entity_id=payment_id,
+            old_values=AuditService._json_safe(old_values),
+            new_values=AuditService._json_safe({
+                "status": payment.status,
+                "verification_status": payment.verification_status,
+                "manual_override": True,
+                "manual_reason": reason,
+                "manual_confirmed_at": now.isoformat(),
+            }),
+        )
+        db.add(audit_entry)
+
+        try:
+            db.commit()
+        except IntegrityError as e:
+            db.rollback()
+            raise ValueError("人工确认审计写入失败，操作未生效") from e
+        db.refresh(payment)
+
+        logger.info("人工确认入账: payment_id=%d, user_id=%d, amount=%s %s", payment_id, user_id, payment.paid_amount, payment.currency)
+        return payment
 
     @staticmethod
     def settle_verified_payment(db: Session, payment_id: int) -> Optional[Payment]:

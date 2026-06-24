@@ -98,6 +98,12 @@ class PaymentUpdate(BaseModel):
     no_receipt: Optional[bool] = None
 
 
+class PaymentManualConfirm(BaseModel):
+    """人工确认凭证不符付款"""
+
+    reason: str = Field(default="操作人确认以表单录入信息为准", max_length=200)
+
+
 class PaymentResponse(PaymentBase):
     """付款响应"""
 

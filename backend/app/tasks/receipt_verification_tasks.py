@@ -40,6 +40,10 @@ def verify_receipt(self, payment_id: int):
             logger.warning("verify_receipt: payment %s 不存在", payment_id)
             return {"status": "not_found", "payment_id": payment_id}
 
+        if (payment.verification_result or {}).get("manual_override"):
+            logger.info("verify_receipt: payment_id=%s 已人工确认，跳过迟到校验", payment_id)
+            return {"status": "manual_override_skip", "payment_id": payment_id}
+
         if not payment.receipt_image_path or not os.path.isfile(payment.receipt_image_path):
             # 凭证文件丢失：标 failed，原因记明
             # 防御：若该收入记录已 paid 结算（异常状态），先反扣避免合同金额虚高
@@ -66,6 +70,11 @@ def verify_receipt(self, payment_id: int):
             _record_failure(payment, reason=f"凭证识别失败：{analysis.get('error', '未知')}")
             db.commit()
             return {"status": "analyze_failed", "payment_id": payment_id}
+
+        db.refresh(payment)
+        if (payment.verification_result or {}).get("manual_override"):
+            logger.info("verify_receipt: payment_id=%s 已人工确认，跳过迟到校验", payment_id)
+            return {"status": "manual_override_skip", "payment_id": payment_id}
 
         extracted = analysis.get("data") or {}
         confidence = float(extracted.get("confidence") or 0)
@@ -167,6 +176,8 @@ def verify_receipt(self, payment_id: int):
 def _settle_back_if_paid(db, payment: Payment):
     """若一笔收入已 paid 结算，反向扣减合同已收金额并回退 pending。
     用于校验失败/凭证丢失时的防御性处理（正常 pending→failed 不触发，主要兜底历史数据）。"""
+    if (payment.verification_result or {}).get("manual_override"):
+        return
     if payment.status != "paid" or payment.type != "income":
         return
     contract = db.query(Contract).filter(Contract.id == payment.contract_id).first()

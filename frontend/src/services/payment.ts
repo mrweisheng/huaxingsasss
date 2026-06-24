@@ -70,6 +70,10 @@ export const paymentApi = {
   update: (id: number, payload: PaymentUpdatePayload): Promise<Payment> =>
     api.put(`/payments/${id}`, payload),
 
+  /** 人工确认凭证不符记录，按表单录入信息入账 */
+  manualConfirm: (id: number, reason = '操作人确认以表单录入信息为准'): Promise<Payment> =>
+    api.post(`/payments/${id}/manual-confirm`, { reason }),
+
   delete: (id: number): Promise<void> =>
     api.delete(`/payments/${id}`),
 

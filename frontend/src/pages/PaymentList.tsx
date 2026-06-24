@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef, type Key } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Table, Button, Select, Input, DatePicker, Empty, message, Image, Tabs, Tooltip, Tag } from 'antd'
-import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined, EditOutlined, WarningOutlined } from '@ant-design/icons'
+import { FilterOutlined, DollarOutlined, DeleteOutlined, EyeOutlined, FileTextOutlined, SearchOutlined, EditOutlined, WarningOutlined, CheckOutlined } from '@ant-design/icons'
 import { paymentApi, type PaymentListParams } from '@/services/payment'
 import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
@@ -120,6 +120,9 @@ export default function PaymentList() {
   // 删除二次确认弹窗状态
   const [deleteTarget, setDeleteTarget] = useState<Payment | null>(null)
   const [deleting, setDeleting] = useState(false)
+  // 人工确认入账弹窗状态
+  const [manualConfirmTarget, setManualConfirmTarget] = useState<Payment | null>(null)
+  const [manualConfirming, setManualConfirming] = useState(false)
   // 编辑弹窗状态
   const [editTarget, setEditTarget] = useState<Payment | null>(null)
 
@@ -197,6 +200,20 @@ export default function PaymentList() {
       message.error(error.response?.data?.detail || '删除失败')
     } finally {
       setDeleting(false)
+    }
+  }
+
+  const handleManualConfirm = async (id: number) => {
+    setManualConfirming(true)
+    try {
+      await paymentApi.manualConfirm(id)
+      message.success('人工确认成功，已按表单信息入账')
+      setManualConfirmTarget(null)
+      loadPayments()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '人工确认失败')
+    } finally {
+      setManualConfirming(false)
     }
   }
 
@@ -410,6 +427,17 @@ export default function PaymentList() {
                 icon={<WarningOutlined />}
                 style={{ color: '#ff4d4f' }}
                 onClick={() => setEditTarget(record)}
+              />
+            </Tooltip>
+          )}
+          {role === 'admin' && record.verification_status === 'failed' && record.status !== 'paid' && (
+            <Tooltip title="人工确认入账">
+              <Button
+                type="text"
+                size="small"
+                icon={<CheckOutlined />}
+                style={{ color: '#0d9488' }}
+                onClick={() => setManualConfirmTarget(record)}
               />
             </Tooltip>
           )}
@@ -808,6 +836,22 @@ export default function PaymentList() {
         onConfirm={() => { if (deleteTarget) handleDelete(deleteTarget.id) }}
         onCancel={() => { if (!deleting) setDeleteTarget(null) }}
         confirming={deleting}
+      />
+
+      <DangerConfirmModal
+        open={!!manualConfirmTarget}
+        title="确认人工入账"
+        description={manualConfirmTarget && (
+          <>
+            将以表单录入信息为准，人工确认这笔 <strong>{fmt(manualConfirmTarget.paid_amount, manualConfirmTarget.currency)}</strong> 收款并入账
+            {manualConfirmTarget.contract_number ? <>（合同 <strong>{manualConfirmTarget.contract_number}</strong>）</> : null}。
+          </>
+        )}
+        warning="该操作会把付款状态改为已确认，并同步计入合同已收金额；系统会记录人工确认痕迹和操作审计。"
+        okText="确认入账"
+        onConfirm={() => { if (manualConfirmTarget) handleManualConfirm(manualConfirmTarget.id) }}
+        onCancel={() => { if (!manualConfirming) setManualConfirmTarget(null) }}
+        confirming={manualConfirming}
       />
 
       {/* 编辑收支记录（修复凭证不符 / 改字段） */}

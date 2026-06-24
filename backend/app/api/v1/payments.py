@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from datetime import date
 
 from app.db.session import get_db
-from app.schemas.payment import PaymentResponse, PaymentCreate, PaymentUpdate
+from app.schemas.payment import PaymentResponse, PaymentCreate, PaymentUpdate, PaymentManualConfirm
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user
 from app.core.permissions import Role, is_admin
@@ -164,6 +164,36 @@ async def upload_receipt(
 
     return ResponseModel(code=200, message="上传成功",
                          data={"file_id": fname_on_disk, "original_name": file.filename})
+
+
+@router.post("/{payment_id}/manual-confirm", response_model=ResponseModel[PaymentResponse])
+def manual_confirm_payment(
+    payment_id: int,
+    payload: PaymentManualConfirm = PaymentManualConfirm(),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """人工确认凭证不符的收入记录，按表单录入金额入账。"""
+    if not is_admin(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="仅管理员可人工确认凭证不符记录"
+        )
+
+    try:
+        payment = PaymentService.manual_confirm_failed_payment(
+            db=db,
+            payment_id=payment_id,
+            user_id=current_user.id,
+            reason=payload.reason,
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
+
+    if not payment:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="付款记录不存在")
+
+    return ResponseModel(code=200, message="人工确认成功", data=PaymentResponse.model_validate(payment))
 
 
 @router.put("/{payment_id}", response_model=ResponseModel[PaymentResponse])
