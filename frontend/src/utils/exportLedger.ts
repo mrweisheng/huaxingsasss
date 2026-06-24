@@ -107,12 +107,12 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
   })
 
   // ── 列宽 ──
-  //                A     B     C     D     E     F     G     H     I    J     K     L    M     N     O     P     Q
-  const widths = [12,   16,   12,   10,   24,   16,   10,    8,    8,  14,   14,    8,   12,   10,   12,   14,   16]
+  //                A     B     C     D     E     F     G     H     I     J    K     L     M    N     O     P     Q     R
+  const widths = [16,   12,   16,   12,   10,   24,   16,   10,    8,    8,  14,   14,    8,   12,   10,   12,   14,   16]
   ws.columns = widths.map(w => ({ width: w }))
 
   // ── Row 1: 标题 ──
-  ws.mergeCells('A1:Q1')
+  ws.mergeCells('A1:R1')
   const titleCell = ws.getCell('A1')
   titleCell.value = `华星合同台账 · ${options.dateFrom} ~ ${options.dateTo}`
   titleCell.font = { size: 14, bold: true, color: { argb: CLR.brand } }
@@ -138,24 +138,24 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
     `${CURRENCY_SYMBOL[cur]}${summary[cur][key].toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`
 
   // 合同总额
-  ws.mergeCells('A2:C2')
-  setSummaryBlock(ws, 'A2', '合同总额', sumCurrs.map(c => fmtSum(c, 'total')).join('  '), CLR.brand)
+  ws.mergeCells('B2:D2')
+  setSummaryBlock(ws, 'B2', '合同总额', sumCurrs.map(c => fmtSum(c, 'total')).join('  '), CLR.brand)
   // 已收
-  ws.mergeCells('D2:F2')
-  setSummaryBlock(ws, 'D2', '已收', sumCurrs.map(c => fmtSum(c, 'paid')).join('  '), CLR.gold)
+  ws.mergeCells('E2:G2')
+  setSummaryBlock(ws, 'E2', '已收', sumCurrs.map(c => fmtSum(c, 'paid')).join('  '), CLR.gold)
   // 支出
-  ws.mergeCells('G2:I2')
-  setSummaryBlock(ws, 'G2', '支出', sumCurrs.map(c => fmtSum(c, 'expense')).join('  '), CLR.orange)
+  ws.mergeCells('H2:J2')
+  setSummaryBlock(ws, 'H2', '支出', sumCurrs.map(c => fmtSum(c, 'expense')).join('  '), CLR.orange)
   // 净利润
-  ws.mergeCells('J2:M2')
+  ws.mergeCells('K2:N2')
   const profitSumText = sumCurrs.map(c => {
     const p = summary[c].paid - summary[c].expense
     return `${p < 0 ? '-' : ''}${CURRENCY_SYMBOL[c]}${Math.abs(p).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`
   }).join('  ')
-  setSummaryBlock(ws, 'J2', '净利润', profitSumText, CLR.teal)
+  setSummaryBlock(ws, 'K2', '净利润', profitSumText, CLR.teal)
   // 合同数
-  ws.mergeCells('N2:Q2')
-  const countCell = ws.getCell('N2')
+  ws.mergeCells('O2:R2')
+  const countCell = ws.getCell('O2')
   countCell.value = `共 ${contracts.length} 个合同`
   countCell.font = { size: 10, color: { argb: 'FF999999' } }
   countCell.alignment = { horizontal: 'right', vertical: 'middle' }
@@ -166,23 +166,23 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
   ws.getRow(3).height = 6
 
   // ── Row 4: 表头一级（合并组名）──
-  ws.mergeCells('A4:H4')
-  fillRange(ws, 4, 1, 4, 8, {
+  ws.mergeCells('A4:I4')
+  fillRange(ws, 4, 1, 4, 9, {
     value: '合同信息',
     font: { bold: true, size: 11, color: { argb: CLR.white } },
     alignment: { horizontal: 'center', vertical: 'middle' },
     fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: CLR.brand } },
   })
 
-  ws.mergeCells('I4:P4')
-  fillRange(ws, 4, 9, 4, 16, {
+  ws.mergeCells('J4:Q4')
+  fillRange(ws, 4, 10, 4, 17, {
     value: '收支明细',
     font: { bold: true, size: 11, color: { argb: CLR.white } },
     alignment: { horizontal: 'center', vertical: 'middle' },
     fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: CLR.brand } },
   })
 
-  fillRange(ws, 4, 17, 4, 17, {
+  fillRange(ws, 4, 18, 4, 18, {
     value: '利润',
     font: { bold: true, size: 11, color: { argb: CLR.white } },
     alignment: { horizontal: 'center', vertical: 'middle' },
@@ -192,7 +192,7 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
 
   // ── Row 5: 表头二级（列名）──
   const colNames = [
-    '客户', '合同号', '签约日', '业务类型', '业务说明',
+    '业务群', '客户', '合同号', '签约日', '业务类型', '业务说明',
     '合同金额', '回款进度', '状态',
     '收/支', '款项名称', '金额', '币种', '付款日期', '付款方式', '收款方', '凭证',
     '净利润',
@@ -243,31 +243,31 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
     for (let i = 0; i < rowCount; i++) {
       const row = ws.getRow(curRow + i)
 
-      // 收支明细（列 I~P）
+      // 收支明细（列 J~Q）
       const p = allFlows[i]
       if (p) {
-        row.getCell(9).value = p.flowLabel    // I: 收/支
-        row.getCell(9).font = { bold: true, color: { argb: p.flowLabel === '收入' ? CLR.incomeText : CLR.expenseText } }
-        row.getCell(10).value = p.installment_name || p.description || `第${p.installment_number}期`
-        row.getCell(11).value = Number(p.paid_amount || p.amount)
-        row.getCell(11).numFmt = '#,##0.00'
-        row.getCell(12).value = p.currency || c.currency
-        row.getCell(13).value = p.paid_date || ''
-        row.getCell(14).value = (p.payment_method && (methodMap[p.payment_method] || p.payment_method)) || ''
-        row.getCell(15).value = p.payee_name || ''
+        row.getCell(10).value = p.flowLabel    // J: 收/支
+        row.getCell(10).font = { bold: true, color: { argb: p.flowLabel === '收入' ? CLR.incomeText : CLR.expenseText } }
+        row.getCell(11).value = p.installment_name || p.description || `第${p.installment_number}期`
+        row.getCell(12).value = Number(p.paid_amount || p.amount)
+        row.getCell(12).numFmt = '#,##0.00'
+        row.getCell(13).value = p.currency || c.currency
+        row.getCell(14).value = p.paid_date || ''
+        row.getCell(15).value = (p.payment_method && (methodMap[p.payment_method] || p.payment_method)) || ''
+        row.getCell(16).value = p.payee_name || ''
 
         // 凭证列
         if (p.receipt_image_path && receiptMap.has(p.id)) {
-          row.getCell(16).value = '📷 有凭证'
-          row.getCell(16).font = { size: 9, color: { argb: 'FF999999' } }
+          row.getCell(17).value = '📷 有凭证'
+          row.getCell(17).font = { size: 9, color: { argb: 'FF999999' } }
           const receipt = receiptMap.get(p.id)!
-          imageQueue.push({ base64: receipt.base64, ext: receipt.ext, row0: curRow + i - 1, col0: 15 })
+          imageQueue.push({ base64: receipt.base64, ext: receipt.ext, row0: curRow + i - 1, col0: 16 })
           row.height = 56
         }
       }
 
       // 所有单元格加边框
-      for (let col = 1; col <= 17; col++) {
+      for (let col = 1; col <= 18; col++) {
         const cell = row.getCell(col)
         cell.border = thinBorder()
         if (!cell.alignment?.vertical) {
@@ -279,30 +279,31 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
 
     // 合同信息（只写第一行，多行时纵向合并）
     const r0 = ws.getRow(startRow)
-    r0.getCell(1).value = c.customer_name || '未关联客户'
-    r0.getCell(2).value = c.contract_number
-    r0.getCell(3).value = c.signed_date ? dayjs(c.signed_date).format('YYYY-MM-DD') : ''
-    r0.getCell(4).value = bizLabel(c.business_type)
-    r0.getCell(5).value = c.business_description || ''
-    r0.getCell(6).value = fmtMoney(Number(c.total_amount), c.currency)
-    r0.getCell(6).alignment = { horizontal: 'right', vertical: 'middle' }
-    r0.getCell(7).value = `${progress}%`
-    r0.getCell(7).alignment = { horizontal: 'center', vertical: 'middle' }
-    r0.getCell(8).value = statusText
+    r0.getCell(1).value = c.wechat_group || ''
+    r0.getCell(2).value = c.customer_name || '未关联客户'
+    r0.getCell(3).value = c.contract_number
+    r0.getCell(4).value = c.signed_date ? dayjs(c.signed_date).format('YYYY-MM-DD') : ''
+    r0.getCell(5).value = bizLabel(c.business_type)
+    r0.getCell(6).value = c.business_description || ''
+    r0.getCell(7).value = fmtMoney(Number(c.total_amount), c.currency)
+    r0.getCell(7).alignment = { horizontal: 'right', vertical: 'middle' }
+    r0.getCell(8).value = `${progress}%`
     r0.getCell(8).alignment = { horizontal: 'center', vertical: 'middle' }
+    r0.getCell(9).value = statusText
+    r0.getCell(9).alignment = { horizontal: 'center', vertical: 'middle' }
 
-    // 净利润（Q 列）
+    // 净利润（R 列）
     const profitText = `${profit < 0 ? '-' : ''}${fmtMoney(Math.abs(profit), c.currency)}`
     const fullProfit = profitCny !== null
       ? `${profitText}\n≈ ¥${Math.abs(profitCny).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`
       : profitText
-    r0.getCell(17).value = fullProfit
-    r0.getCell(17).font = { bold: true, color: { argb: profit >= 0 ? CLR.profitPos : CLR.profitNeg } }
-    r0.getCell(17).alignment = { vertical: 'middle', horizontal: 'right', wrapText: true }
+    r0.getCell(18).value = fullProfit
+    r0.getCell(18).font = { bold: true, color: { argb: profit >= 0 ? CLR.profitPos : CLR.profitNeg } }
+    r0.getCell(18).alignment = { vertical: 'middle', horizontal: 'right', wrapText: true }
 
     // 纵向合并（合同信息列 + 净利润列）
     if (rowCount > 1) {
-      const mergeCols = [1, 2, 3, 4, 5, 6, 7, 8, 17]
+      const mergeCols = [1, 2, 3, 4, 5, 6, 7, 8, 9, 18]
       for (const col of mergeCols) {
         ws.mergeCells(startRow, col, endRow, col)
       }
