@@ -77,7 +77,7 @@ class PaymentService:
 
         Returns:
             (付款列表, 总数)。每条 Payment 已挂上 contract_number / customer_name /
-            contract_business_description 三个临时字段供 PaymentResponse 序列化。
+            contract_business_description / contract_wechat_group 临时字段供 PaymentResponse 序列化。
         """
         query = (
             db.query(Payment)
@@ -129,11 +129,13 @@ class PaymentService:
             if ct:
                 item.contract_number = ct.contract_number
                 item.contract_business_description = ct.business_description
+                item.contract_wechat_group = ct.wechat_group
                 item.contract_currency = ct.currency
                 item.customer_name = ct.customer.name if ct.customer else None
             else:
                 item.contract_number = None
                 item.contract_business_description = None
+                item.contract_wechat_group = None
                 item.contract_currency = None
                 item.customer_name = None
 

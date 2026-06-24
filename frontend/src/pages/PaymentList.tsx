@@ -843,8 +843,14 @@ export default function PaymentList() {
         title="确认人工入账"
         description={manualConfirmTarget && (
           <>
-            将以表单录入信息为准，人工确认这笔 <strong>{fmt(manualConfirmTarget.paid_amount, manualConfirmTarget.currency)}</strong> 收款并入账
-            {manualConfirmTarget.contract_number ? <>（合同 <strong>{manualConfirmTarget.contract_number}</strong>）</> : null}。
+            将以表单录入信息为准，人工确认这笔 <strong>{fmt(manualConfirmTarget.paid_amount, manualConfirmTarget.currency)}</strong> 收款并入账。
+            <div style={{ marginTop: 8 }}>
+              {manualConfirmTarget.contract_wechat_group && <div>微信群：<strong>{manualConfirmTarget.contract_wechat_group}</strong></div>}
+              {manualConfirmTarget.customer_name && <div>客户：<strong>{manualConfirmTarget.customer_name}</strong></div>}
+              {(manualConfirmTarget.description || manualConfirmTarget.contract_business_description) && (
+                <div>业务：<strong>{manualConfirmTarget.description || manualConfirmTarget.contract_business_description}</strong></div>
+              )}
+            </div>
           </>
         )}
         warning="该操作会把付款状态改为已确认，并同步计入合同已收金额；系统会记录人工确认痕迹和操作审计。"
