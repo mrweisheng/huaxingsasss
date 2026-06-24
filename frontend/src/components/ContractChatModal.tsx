@@ -466,20 +466,25 @@ export default function ContractChatModal({
 
       {/* 输入区 */}
       <div className="contract-chat-input-area">
-        {/* 业务微信群名称（必填）—— 每笔业务都必须关联一个业务群。
-            填一次后保留，随消息发送给 AI，避免反复追问。 */}
-        <div className="contract-chat-group-row">
-          <Input
-            value={wechatGroup}
-            onChange={e => setWechatGroup(e.target.value)}
-            placeholder="业务微信群名称（必填，如：王五-深港牌）"
-            prefix={<WechatOutlined style={{ color: '#07c160' }} />}
-            size="small"
-            allowClear
-            disabled={isStreaming}
-            maxLength={200}
-          />
-        </div>
+        {/* 录入面板：群名 + 文件预览 + 消息，融为一体 */}
+        <div className="contract-chat-composer">
+          {/* 业务微信群名称（必填）—— 每笔业务都必须关联一个业务群。
+              整合在录入面板顶部，用左侧色条区分，不再孤立成行。
+              填一次后保留，随消息发送给 AI，避免反复追问。 */}
+          <div className="composer-group-field">
+            <WechatOutlined className="composer-group-icon" />
+            <Input
+              value={wechatGroup}
+              onChange={e => setWechatGroup(e.target.value)}
+              placeholder="业务微信群名称（必填）"
+              size="small"
+              variant="borderless"
+              allowClear
+              disabled={isStreaming}
+              maxLength={200}
+              className="composer-group-input"
+            />
+          </div>
         {pendingFiles.length > 0 && (
           <div className="contract-chat-pending-files">
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4 }}>待发送</span>
@@ -574,6 +579,7 @@ export default function ContractChatModal({
               {hasUploading ? '上传中…' : '发送'}
             </Button>
           )}
+        </div>
         </div>
         <div className="contract-chat-input-hint">
           拖拽文件到聊天区域 · Enter 发送，Shift+Enter 换行
