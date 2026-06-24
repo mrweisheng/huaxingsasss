@@ -106,6 +106,7 @@ export const paymentApi = {
 
 /** 从模板截图提取的结构化数据 */
 export interface ExtractedReceiptData {
+  type?: 'income' | 'expense'
   installment_name?: string
   paid_date?: string
   amount?: number

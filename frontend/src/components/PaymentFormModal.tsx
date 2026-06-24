@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Modal, Form, Input, InputNumber, Select, DatePicker, Upload, Alert, message, Spin } from 'antd'
 const { useWatch } = Form
-import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, EyeOutlined, WarningOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, CheckCircleOutlined, WechatOutlined, UserOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   paymentApi,
@@ -104,6 +104,7 @@ interface Props {
   contractNumber?: string
   customerName?: string
   contractTitle?: string
+  wechatGroup?: string
   totalAmount?: number
   currency?: string
   /** 收支方向（add 必填；edit 由 editing 推断） */
@@ -123,7 +124,7 @@ interface Props {
  * - 支出：对方账户手填（供应商不固定），凭证可选，无凭证可声明。
  */
 export default function PaymentFormModal({
-  open, mode, contractId, customerName, contractTitle,
+  open, mode, contractId, customerName, contractTitle, wechatGroup,
   currency, paymentType, editing, onClose, onSuccess,
 }: Props) {
   const [form] = Form.useForm()
@@ -137,6 +138,7 @@ export default function PaymentFormModal({
     file_id: string; file_name: string; file_type: string; preview_url?: string
   } | null>(null)
   const [receiptCleared, setReceiptCleared] = useState(false)
+  const [templateFile, setTemplateFile] = useState<{ file: File; preview_url: string } | null>(null)
   const [extracting, setExtracting] = useState(false)
   const [extractedData, setExtractedData] = useState<ExtractedReceiptData | null>(null)
   const [mismatchWarning, setMismatchWarning] = useState<string | null>(null)
@@ -171,8 +173,10 @@ export default function PaymentFormModal({
     if (!open) return
     // 清理旧的预览 URL
     if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
+    if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
     setUploadedFileId(undefined)
     setUploadedFile(null)
+    setTemplateFile(null)
     setReceiptCleared(false)
     setExtracting(false)
     setExtractedData(null)
@@ -208,17 +212,14 @@ export default function PaymentFormModal({
     !isIncome || !!uploadedFileId || (isEdit && !!editing?.receipt_image_path && !receiptCleared)
   )
 
-  const handleUpload = async (file: File) => {
+  // ── 凭证上传（左列）：只上传，不识别 ──
+  const handleReceiptUpload = async (file: File) => {
     setUploading(true)
-    setExtractedData(null)
-    setMismatchWarning(null)
     try {
       const isImage = file.type.startsWith('image/')
-      // 先创建预览 URL（用原始文件，保证预览清晰度）
       const previewUrl = isImage ? URL.createObjectURL(file) : undefined
       const compressed = await compressImage(file)
       const res = await paymentApi.uploadReceipt(compressed)
-      // 清理旧预览 URL
       if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
       setUploadedFile({
         file_id: res.file_id,
@@ -229,80 +230,107 @@ export default function PaymentFormModal({
       setUploadedFileId(res.file_id)
       setReceiptCleared(false)
       message.success('凭证已上传')
-
-      // 图片类型自动识别提取
-      if (isImage && !file.name.toLowerCase().endsWith('.pdf')) {
-        setExtracting(true)
-        try {
-          const extracted = await paymentApi.extractReceipt(compressed)
-          setExtractedData(extracted)
-
-          // 自动填充表单字段
-          const formValues: Record<string, any> = {}
-          if (extracted.installment_name) formValues.installment_name = extracted.installment_name
-          if (extracted.paid_date) {
-            const date = dayjs(extracted.paid_date)
-            if (date.isValid()) formValues.paid_date = date
-          }
-          if (extracted.amount) formValues.amount = extracted.amount
-          if (extracted.currency) formValues.currency = extracted.currency
-          if (extracted.notes) formValues.notes = extracted.notes
-          if (extracted.payment_method) formValues.payment_method = extracted.payment_method
-
-          // 支出专属字段
-          if (!isIncome) {
-            if (extracted.payee_name) formValues.payee_name = extracted.payee_name
-            if (extracted.counterparty_account) {
-              if (extracted.counterparty_account.account_name) formValues.account_name = extracted.counterparty_account.account_name
-              if (extracted.counterparty_account.account_number) formValues.account_number = extracted.counterparty_account.account_number
-              if (extracted.counterparty_account.bank_name) formValues.bank_name = extracted.counterparty_account.bank_name
-              if (extracted.counterparty_account.branch) formValues.branch = extracted.counterparty_account.branch
-            }
-          }
-
-          form.setFieldsValue(formValues)
-
-          // 保存提取的对方账户信息（含 swift_code 等表单无字段的数据）
-          if (extracted.counterparty_account) {
-            extractedCounterpartyRef.current = extracted.counterparty_account
-          }
-
-          // 检查群名/客户名是否匹配
-          const warnings: string[] = []
-          if (extracted.wechat_group && contractTitle && !contractTitle.includes(extracted.wechat_group) && !extracted.wechat_group.includes(contractTitle)) {
-            warnings.push(`图片中的业务群名「${extracted.wechat_group}」与当前合同不完全匹配`)
-          }
-          if (extracted.customer_name_hint && customerName && !customerName.includes(extracted.customer_name_hint) && !extracted.customer_name_hint.includes(customerName)) {
-            warnings.push(`图片中的客户名「${extracted.customer_name_hint}」与当前合同客户「${customerName}」不匹配`)
-          }
-          if (warnings.length > 0) {
-            setMismatchWarning(warnings.join('；'))
-          }
-
-          if (extracted.confidence && extracted.confidence < 0.7) {
-            message.warning('图片识别置信度较低，请核对填充信息')
-          } else {
-            message.success('已自动识别并填充表单')
-          }
-        } catch (e: any) {
-          console.warn('图片识别失败', e)
-          message.warning('图片识别失败，请手动填写')
-        } finally {
-          setExtracting(false)
-        }
-      }
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '凭证上传失败')
     } finally {
       setUploading(false)
     }
-    return false  // 阻止 antd 默认上传
+    return false
   }
 
-  const handleRemoveFile = () => {
+  // ── 模板图上传（右列）：只识别，不上传凭证 ──
+  const handleTemplateUpload = async (file: File) => {
+    setExtracting(true)
+    setExtractedData(null)
+    setMismatchWarning(null)
+    extractedCounterpartyRef.current = null
+    try {
+      const isImage = file.type.startsWith('image/')
+      if (!isImage) {
+        message.warning('仅支持图片格式')
+        setExtracting(false)
+        return false
+      }
+      const previewUrl = URL.createObjectURL(file)
+      if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
+      setTemplateFile({ file, preview_url: previewUrl })
+
+      const extracted = await paymentApi.extractReceipt(file)
+      setExtractedData(extracted)
+
+      // 检查类型是否匹配 — 不匹配时不填充表单
+      if (extracted.type && extracted.type !== paymentType) {
+        const expectedLabel = paymentType === 'income' ? '收入' : '支出'
+        const actualLabel = extracted.type === 'income' ? '收入' : '支出'
+        setMismatchWarning(`图片是「${actualLabel}」模板，但当前是「${expectedLabel}」录入，请确认是否选错`)
+        message.error(`图片是「${actualLabel}」，与当前「${expectedLabel}」录入方向不一致`)
+        return
+      }
+
+      // 类型匹配，自动填充表单字段
+      const formValues: Record<string, any> = {}
+      if (extracted.installment_name) formValues.installment_name = extracted.installment_name
+      if (extracted.paid_date) {
+        const date = dayjs(extracted.paid_date)
+        if (date.isValid()) formValues.paid_date = date
+      }
+      if (extracted.amount) formValues.amount = extracted.amount
+      if (extracted.currency) formValues.currency = extracted.currency
+      if (extracted.notes) formValues.notes = extracted.notes
+      if (extracted.payment_method) formValues.payment_method = extracted.payment_method
+
+      if (!isIncome) {
+        if (extracted.payee_name) formValues.payee_name = extracted.payee_name
+        if (extracted.counterparty_account) {
+          if (extracted.counterparty_account.account_name) formValues.account_name = extracted.counterparty_account.account_name
+          if (extracted.counterparty_account.account_number) formValues.account_number = extracted.counterparty_account.account_number
+          if (extracted.counterparty_account.bank_name) formValues.bank_name = extracted.counterparty_account.bank_name
+          if (extracted.counterparty_account.branch) formValues.branch = extracted.counterparty_account.branch
+        }
+      }
+      form.setFieldsValue(formValues)
+
+      if (extracted.counterparty_account) {
+        extractedCounterpartyRef.current = extracted.counterparty_account
+      }
+
+      // 检查其他不匹配
+      const warnings: string[] = []
+      const actualGroup = wechatGroup || editing?.contract_wechat_group
+      if (extracted.wechat_group && actualGroup && !actualGroup.includes(extracted.wechat_group) && !extracted.wechat_group.includes(actualGroup)) {
+        warnings.push(`图片中的业务群名「${extracted.wechat_group}」与当前合同群名「${actualGroup}」不匹配`)
+      }
+      if (extracted.customer_name_hint && customerName && !customerName.includes(extracted.customer_name_hint) && !extracted.customer_name_hint.includes(customerName)) {
+        warnings.push(`图片中的客户名「${extracted.customer_name_hint}」与当前合同客户「${customerName}」不匹配`)
+      }
+      if (warnings.length > 0) {
+        setMismatchWarning(warnings.join('；'))
+      }
+
+      if (extracted.confidence && extracted.confidence < 0.7) {
+        message.warning('图片识别置信度较低，请核对填充信息')
+      } else {
+        message.success('已自动识别并填充表单')
+      }
+    } catch (e: any) {
+      console.warn('图片识别失败', e)
+      message.warning('图片识别失败，请手动填写')
+    } finally {
+      setExtracting(false)
+    }
+    return false
+  }
+
+  const handleRemoveReceipt = () => {
     if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
     setUploadedFile(null)
     setUploadedFileId(undefined)
+    setReceiptCleared(false)
+  }
+
+  const handleRemoveTemplate = () => {
+    if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
+    setTemplateFile(null)
     setExtractedData(null)
     setMismatchWarning(null)
     extractedCounterpartyRef.current = null
@@ -447,16 +475,49 @@ export default function PaymentFormModal({
       destroyOnClose
       maskClosable={false}
       width={760}
-      className={`pfm-modal ${themeClass}`}
+      className={`pfm-modal ${themeClass} ${mismatchWarning ? 'pfm-mismatch-active' : ''}`}
     >
       {renderVerificationPanel(editing)}
 
-      {/* 顶部信息区：业务描述 + 客户（去冗余，不展示合同编号） */}
-      {(contractTitle || customerName) && (
+      {/* 顶部信息区：群名称（第一行）+ 客户·业务描述（第二行） */}
+      {(contractTitle || customerName || wechatGroup) && (
         <div className={`pfm-context ${themeClass}`}>
-          {contractTitle && <div className="pfm-context-title">{contractTitle}</div>}
-          {customerName && <div className="pfm-context-sub">客户 · {customerName}</div>}
+          {wechatGroup && (
+            <div className="pfm-context-group">
+              <WechatOutlined className="pfm-context-icon" />
+              {wechatGroup}
+            </div>
+          )}
+          <div className="pfm-context-sub">
+            {customerName && (
+              <span className="pfm-context-item">
+                <UserOutlined className="pfm-context-icon" />
+                {customerName}
+              </span>
+            )}
+            {customerName && contractTitle && <span className="pfm-context-dot">·</span>}
+            {contractTitle && (
+              <span className="pfm-context-item">
+                <FileTextOutlined className="pfm-context-icon" />
+                {contractTitle}
+              </span>
+            )}
+          </div>
         </div>
+      )}
+
+      {/* 不匹配警告（顶部醒目位置） */}
+      {mismatchWarning && (
+        <Alert
+          type="error"
+          showIcon
+          icon={<WarningOutlined />}
+          message={<strong>⚠️ 信息不匹配</strong>}
+          description={mismatchWarning}
+          closable
+          onClose={() => setMismatchWarning(null)}
+          style={{ marginBottom: 16 }}
+        />
       )}
 
       <Form form={form} layout="vertical" requiredMark="optional" className="pfm-form">
@@ -589,160 +650,128 @@ export default function PaymentFormModal({
           <Input.TextArea rows={2} placeholder="如：车辆总价+杂费已结清" maxLength={500} />
         </Form.Item>
 
-        {/* 凭证上传区（左右两列布局） */}
-        <div className={`pfm-receipt-section ${themeClass}`}>
-          <div className="pfm-receipt-header">
-            <span className="pfm-receipt-title">
-              <i className="pfm-seq">{seqNotes + 1}</i>凭证
-              {isIncome
-                ? <span className="pfm-receipt-tag pfm-required">必传</span>
-                : <span className="pfm-receipt-tag pfm-optional">可选</span>}
-            </span>
-            <span className="pfm-receipt-hint">
-              {isIncome
-                ? (uploadedFileId ? '✓ 已上传，提交后自动校验' : '收入必须上传凭证')
-                : (uploadedFileId ? '✓ 已上传（仅做校验提醒）' : '不上传则标记为无凭证支出')}
-            </span>
-          </div>
-
-          <div className="pfm-receipt-columns">
-            {/* 左列：上传区 */}
-            <div className="pfm-receipt-col-left">
-              {!uploadedFile ? (
-                <Upload.Dragger
-                  accept="image/*,.pdf,.heic,.heif"
-                  maxCount={1}
-                  showUploadList={false}
-                  beforeUpload={handleUpload}
-                  className="pfm-uploader pfm-uploader-compact"
-                >
-                  <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}><InboxOutlined style={{ fontSize: 22 }} /></p>
-                  <p className="ant-upload-text" style={{ fontSize: 13, marginBottom: 2 }}>点击或拖拽上传凭证</p>
-                  <p className="ant-upload-hint" style={{ fontSize: 11 }}>支持 JPG / PNG / HEIC / PDF</p>
-                </Upload.Dragger>
-              ) : (
-                <div className="pfm-file-preview">
-                  <div className="pfm-file-preview-left">
-                    {uploadedFile.preview_url ? (
-                      <div className="pfm-file-thumb-wrap">
-                        <img src={uploadedFile.preview_url} alt={uploadedFile.file_name} className="pfm-file-thumb" />
+        {/* ── 凭证 + 收支模板图（一行两列） ── */}
+        <div className={`pfm-upload-section ${themeClass}`}>
+          <div className="pfm-upload-columns">
+            {/* 左列：凭证 */}
+            <div className="pfm-upload-col pfm-upload-col-receipt">
+              <div className="pfm-col-header">
+                <span className="pfm-col-title">
+                  <i className="pfm-seq">{seqNotes + 1}</i>凭证
+                  {isIncome
+                    ? <span className="pfm-receipt-tag pfm-required">必传</span>
+                    : <span className="pfm-receipt-tag pfm-optional">可选</span>}
+                </span>
+              </div>
+              <div className="pfm-col-content">
+                {!uploadedFile ? (
+                  <Upload.Dragger
+                    accept="image/*,.pdf,.heic,.heif"
+                    maxCount={1}
+                    showUploadList={false}
+                    beforeUpload={handleReceiptUpload}
+                    className="pfm-uploader pfm-uploader-compact"
+                  >
+                    <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}><InboxOutlined style={{ fontSize: 22 }} /></p>
+                    <p className="ant-upload-text" style={{ fontSize: 13, marginBottom: 2 }}>点击或拖拽上传凭证</p>
+                    <p className="ant-upload-hint" style={{ fontSize: 11 }}>JPG / PNG / PDF</p>
+                  </Upload.Dragger>
+                ) : (
+                  <div className="pfm-file-preview">
+                    <div className="pfm-file-preview-left">
+                      {uploadedFile.preview_url ? (
+                        <div className="pfm-file-thumb-wrap">
+                          <img src={uploadedFile.preview_url} alt={uploadedFile.file_name} className="pfm-file-thumb" />
+                        </div>
+                      ) : uploadedFile.file_type === 'application/pdf' ? (
+                        <div className="pfm-file-icon-wrap pfm-pdf">
+                          <FilePdfOutlined style={{ fontSize: 28 }} />
+                        </div>
+                      ) : (
+                        <div className="pfm-file-icon-wrap pfm-generic">
+                          <FileOutlined style={{ fontSize: 28 }} />
+                        </div>
+                      )}
+                      <div className="pfm-file-meta">
+                        <span className="pfm-file-name" title={uploadedFile.file_name}>{uploadedFile.file_name}</span>
+                        <span className="pfm-file-status">
+                          <span className="pfm-file-check">✓</span> 已上传
+                        </span>
                       </div>
-                    ) : uploadedFile.file_type === 'application/pdf' ? (
-                      <div className="pfm-file-icon-wrap pfm-pdf">
-                        <FilePdfOutlined style={{ fontSize: 28 }} />
-                      </div>
-                    ) : (
-                      <div className="pfm-file-icon-wrap pfm-generic">
-                        <FileOutlined style={{ fontSize: 28 }} />
-                      </div>
-                    )}
-                    <div className="pfm-file-meta">
-                      <span className="pfm-file-name" title={uploadedFile.file_name}>{uploadedFile.file_name}</span>
-                      <span className="pfm-file-status">
-                        <span className="pfm-file-check">✓</span> 已上传
-                        {uploadedFile.preview_url && (
-                          <a
-                            className="pfm-file-preview-link"
-                            href={uploadedFile.preview_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                          >
-                            <EyeOutlined /> 预览
-                          </a>
-                        )}
-                      </span>
                     </div>
+                    <a className="pfm-file-remove" onClick={handleRemoveReceipt}>
+                      <DeleteOutlined />
+                    </a>
                   </div>
-                  <a className="pfm-file-remove" onClick={handleRemoveFile}>
-                    <DeleteOutlined /> 删除
-                  </a>
-                </div>
-              )}
-              {isEdit && editing?.receipt_image_path && !uploadedFileId && (
-                <div className="pfm-clear-receipt">
-                  <a className="pfm-clear-link" onClick={() => setReceiptCleared(!receiptCleared)}>
-                    {receiptCleared ? '✓ 已标记清除' : '清除原凭证'}
-                  </a>
-                </div>
-              )}
+                )}
+              </div>
+              <div className="pfm-col-hint">
+                {isIncome ? '收入必须上传凭证' : '提交后后台校验'}
+              </div>
             </div>
 
-            {/* 右列：图片预览 / 识别状态 */}
-            <div className="pfm-receipt-col-right">
-              {extracting ? (
-                <div className="pfm-extracting-state">
-                  <Spin size="small" />
-                  <span className="pfm-extracting-text">正在识别图片内容...</span>
-                </div>
-              ) : extractedData ? (
-                <div className="pfm-extracted-preview">
-                  <div className="pfm-extracted-header">
-                    <CheckCircleOutlined style={{ color: 'var(--money-done)' }} />
-                    <span>已识别并填充</span>
-                    {extractedData.confidence && (
-                      <span className="pfm-confidence">
-                        置信度 {Math.round(extractedData.confidence * 100)}%
-                      </span>
-                    )}
+            {/* 右列：收支模板图 */}
+            <div className="pfm-upload-col pfm-upload-col-template">
+              <div className="pfm-col-header">
+                <span className="pfm-col-title">
+                  <i className="pfm-seq">{seqNotes + 2}</i>收支模板图
+                  <span className="pfm-section-tag pfm-optional">智能填充</span>
+                </span>
+              </div>
+              <div className="pfm-col-content">
+                {extracting ? (
+                  <div className="pfm-extracting-state">
+                    <Spin size="small" />
+                    <span className="pfm-extracting-text">正在识别...</span>
                   </div>
-                  <div className="pfm-extracted-fields">
-                    {extractedData.installment_name && (
-                      <div className="pfm-extracted-item">
-                        <span className="pfm-extracted-label">款项</span>
-                        <span className="pfm-extracted-value">{extractedData.installment_name}</span>
+                ) : extractedData && templateFile ? (
+                  <div className="pfm-file-preview">
+                    <div className="pfm-file-preview-left">
+                      {templateFile.preview_url ? (
+                        <div className="pfm-file-thumb-wrap">
+                          <img src={templateFile.preview_url} alt="模板截图" className="pfm-file-thumb" />
+                        </div>
+                      ) : (
+                        <div className="pfm-file-icon-wrap pfm-generic">
+                          <PictureOutlined style={{ fontSize: 28 }} />
+                        </div>
+                      )}
+                      <div className="pfm-file-meta">
+                        <span className="pfm-file-name">已识别填充</span>
+                        <span className="pfm-file-status">
+                          <CheckCircleOutlined style={{ color: 'var(--money-done)' }} />
+                          {extractedData.confidence && (
+                            <span className="pfm-confidence">
+                              置信度 {Math.round(extractedData.confidence * 100)}%
+                            </span>
+                          )}
+                        </span>
                       </div>
-                    )}
-                    {extractedData.paid_date && (
-                      <div className="pfm-extracted-item">
-                        <span className="pfm-extracted-label">日期</span>
-                        <span className="pfm-extracted-value">{extractedData.paid_date}</span>
-                      </div>
-                    )}
-                    {extractedData.amount && (
-                      <div className="pfm-extracted-item">
-                        <span className="pfm-extracted-label">金额</span>
-                        <span className="pfm-extracted-value">{extractedData.currency ? `${extractedData.currency} ` : ''}{extractedData.amount.toLocaleString()}</span>
-                      </div>
-                    )}
-                    {extractedData.payee_name && (
-                      <div className="pfm-extracted-item">
-                        <span className="pfm-extracted-label">收款方</span>
-                        <span className="pfm-extracted-value">{extractedData.payee_name}</span>
-                      </div>
-                    )}
+                    </div>
+                    <a className="pfm-file-remove" onClick={handleRemoveTemplate}>
+                      <DeleteOutlined />
+                    </a>
                   </div>
-                  <div className="pfm-extracted-hint">
-                    表单已自动填充，请核对后提交
-                  </div>
-                </div>
-              ) : uploadedFile ? (
-                <div className="pfm-no-extract">
-                  <span className="pfm-no-extract-text">
-                    {uploadedFile.file_type.startsWith('image/') ? '上传图片后自动识别' : 'PDF 文件不支持自动识别'}
-                  </span>
-                </div>
-              ) : (
-                <div className="pfm-no-extract">
-                  <InboxOutlined style={{ fontSize: 32, color: 'var(--text-tertiary)' }} />
-                  <span className="pfm-no-extract-text">上传模板截图后自动识别填充</span>
-                </div>
-              )}
+                ) : (
+                  <Upload.Dragger
+                    accept="image/*,.heic,.heif"
+                    maxCount={1}
+                    showUploadList={false}
+                    beforeUpload={handleTemplateUpload}
+                    className="pfm-uploader pfm-uploader-compact"
+                  >
+                    <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}><PictureOutlined style={{ fontSize: 22 }} /></p>
+                    <p className="ant-upload-text" style={{ fontSize: 13, marginBottom: 2 }}>点击或拖拽上传模板截图</p>
+                    <p className="ant-upload-hint" style={{ fontSize: 11 }}>JPG / PNG / HEIC</p>
+                  </Upload.Dragger>
+                )}
+              </div>
+              <div className="pfm-col-hint">
+                {extractedData ? '请核对后提交' : '上传后自动识别'}
+              </div>
             </div>
           </div>
 
-          {/* 群名/客户名不匹配警告 */}
-          {mismatchWarning && (
-            <Alert
-              type="warning"
-              showIcon
-              icon={<WarningOutlined />}
-              message={mismatchWarning}
-              style={{ marginTop: 8 }}
-              closable
-              onClose={() => setMismatchWarning(null)}
-            />
-          )}
         </div>
       </Form>
 

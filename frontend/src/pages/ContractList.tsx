@@ -717,6 +717,7 @@ export default function ContractList() {
           contractId={receiptModal.contract.id}
           customerName={receiptModal.contract.customer_name || ''}
           contractTitle={receiptModal.contract.business_description}
+          wechatGroup={receiptModal.contract.wechat_group}
           currency={receiptModal.contract.currency}
           paymentType={receiptModal.type}
         />

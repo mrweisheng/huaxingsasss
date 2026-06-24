@@ -249,6 +249,7 @@ async def extract_receipt_data(
 
         # 规范化字段
         extracted = {
+            "type": result.get("type"),
             "installment_name": result.get("installment_name"),
             "paid_date": result.get("paid_date"),
             "amount": result.get("amount"),

@@ -870,6 +870,7 @@ export default function PaymentList() {
           contractNumber={editTarget.contract_number}
           customerName={editTarget.customer_name}
           contractTitle={editTarget.contract_business_description}
+          wechatGroup={editTarget.contract_wechat_group}
           currency={editTarget.contract_currency || editTarget.currency}
           onClose={() => setEditTarget(null)}
           onSuccess={() => loadPayments()}

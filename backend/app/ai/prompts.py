@@ -292,6 +292,7 @@ business_type判断：买车/卖车/底盘号→车辆买卖；车牌/中港牌/
 EXPENSE_TEMPLATE_EXTRACT_PROMPT = """你是一个支出/收入模板信息提取助手。请分析这张支出/收入模板截图，按照序号提取信息，返回严格JSON格式：
 
 {
+  "type": "收支类型（收入=income，支出=expense。判断依据：标题含'收款'或第1项含'收款'=income；标题含'转出'或第1项含'转出'=expense）",
   "installment_name": "款项说明（第1项，如：转出（马森车子尾款）→ 提取括号内的内容'马森车子尾款'）",
   "paid_date": "日期（第2项，YYYY-MM-DD格式）",
   "payee_name": "收款方/转出对象名称（第3项的公司名称或个人名称）",
