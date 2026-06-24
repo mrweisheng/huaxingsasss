@@ -34,6 +34,13 @@ dependencies = [
     "python-dateutil>=2.9.0",
     "email-validator>=2.2.0",
 
+    # 时区数据：zoneinfo 在 Windows 上没有系统时区库，必须靠 tzdata 包才能
+    # 解析 Asia/Shanghai（Linux 自带 /usr/share/zoneinfo，无需此包）。
+    # 现状是 celery/psycopg 间接拉了它，但不能依赖这种"运气"——某天它们
+    # 去掉该依赖，Windows 本地开发就会 ZoneInfoNotFoundError。
+    # 用平台 marker 保证只在 Windows 安装，Linux 生产环境零影响。
+    "tzdata ; sys_platform == 'win32'",
+
     # 文件处理
     "python-magic>=0.4.27",
     "pillow>=11.0.0",

@@ -20,8 +20,9 @@
 import asyncio
 import json
 import logging
-from datetime import date
+from datetime import datetime, timedelta
 from typing import Literal, Any, Optional
+from zoneinfo import ZoneInfo
 
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage, SystemMessage
@@ -31,10 +32,59 @@ from langchain_core.runnables import RunnableConfig
 from app.ai.orchestrator.state import AgentState
 from app.ai.tool_executor import TOOL_DEFINITIONS, ToolExecutorV2
 from app.ai.llm_client import AgentModelClient
-from app.ai.prompts import build_system_prompt
+from app.ai.prompts import build_system_prompt, TimeContext
 from app.config import settings
 
 logger = logging.getLogger(__name__)
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# now_context — 生成注入系统提示词的时间上下文
+# 固定 Asia/Shanghai，避免容器 UTC 导致"今天"漂移；
+# 同时给出本周/本月范围，省去 LLM 自行推算（月初/跨年易算错）。
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 用 tuple 而非 list：模块级常量应不可变，杜绝被意外 mutate。
+_WEEKDAYS: tuple[str, ...] = ("周一", "周二", "周三", "周四", "周五", "周六", "周日")
+
+
+def _get_shanghai_tz() -> ZoneInfo:
+    """获取 Asia/Shanghai 时区。tzdata 缺失时给出可操作的降级错误，而非裸异常。"""
+    try:
+        return ZoneInfo("Asia/Shanghai")
+    except Exception as e:  # ZoneInfoNotFoundError（Windows 无 tzdata 时）
+        raise RuntimeError(
+            "无法加载 Asia/Shanghai 时区。Windows 开发环境请确认已安装 tzdata 包"
+            "（已在 pyproject.toml 声明 'tzdata ; sys_platform == win32'，"
+            "执行 `uv sync` 或 `pip install tzdata` 后重试）。"
+        ) from e
+
+
+_SHANGHAI = _get_shanghai_tz()
+
+
+def now_context() -> TimeContext:
+    now = datetime.now(_SHANGHAI)
+    today = now.date()
+    wd = today.weekday()                                        # 周一=0
+    monday = today - timedelta(days=wd)                         # 本周一
+    sunday = monday + timedelta(days=6)                         # 本周日
+    month_start = today.replace(day=1)
+    # 下月第1天 - 1天 = 本月最后一天
+    if today.month == 12:
+        next_month_first = today.replace(year=today.year + 1, month=1, day=1)
+    else:
+        next_month_first = today.replace(month=today.month + 1, day=1)
+    month_end = next_month_first - timedelta(days=1)
+    return {
+        "datetime": now.strftime("%Y-%m-%d %H:%M"),
+        "date": today.isoformat(),
+        "weekday": _WEEKDAYS[wd],
+        "week_start": monday.isoformat(),
+        "week_end": sunday.isoformat(),
+        "month_start": month_start.isoformat(),
+        "month_end": month_end.isoformat(),
+    }
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -149,7 +199,7 @@ def _convert_messages(
     system_content = build_system_prompt(
         user_name=user.full_name or user.username,
         user_role=user.role,
-        current_date=date.today().isoformat(),
+        current_time=now_context(),
         session_context=session_context,
         contract_info=contract_info,
         session_mode=session_mode,

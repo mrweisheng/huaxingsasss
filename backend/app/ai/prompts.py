@@ -7,13 +7,24 @@
   - 新增文件分类 prompt，仅支持 contract/receipt/group_chat
 """
 
-from typing import Optional
+from typing import Optional, TypedDict
+
+
+class TimeContext(TypedDict):
+    """注入系统提示词的时间上下文结构。下游按 key 取值，拼错会被静态检查捕获。"""
+    datetime: str   # "YYYY-MM-DD HH:MM"
+    date: str       # "YYYY-MM-DD"
+    weekday: str    # 周一..周日
+    week_start: str # 本周一 YYYY-MM-DD
+    week_end: str   # 本周日 YYYY-MM-DD
+    month_start: str
+    month_end: str
 
 
 def build_system_prompt(
     user_name: str,
     user_role: str,
-    current_date: str,
+    current_time: TimeContext,
     session_context: Optional[dict] = None,
     contract_info: Optional[dict] = None,
     session_mode: str = "chat",
@@ -55,7 +66,13 @@ def build_system_prompt(
     return f"""你是华星资源开发有限公司的智能业务助手，专门为两地车牌指标过户服务提供支持。
 
 ## 当前信息
-- 当前日期: {current_date}
+- 当前时间: {current_time['datetime']}（{current_time['weekday']}）
+- 时区: Asia/Shanghai
+- 今日: {current_time['date']}
+- 本周范围: {current_time['week_start']} ~ {current_time['week_end']}
+- 本月范围: {current_time['month_start']} ~ {current_time['month_end']}
+
+**时间推理规则**：用户说"今天/昨天/本周/本月"时，**直接用上方给出的范围**去构造查询，不要自己换算。例如"今天签约的合同"→ `search_contracts(date_from={current_time['date']}, date_to={current_time['date']})`；"本月签约的"→ `date_from={current_time['month_start']}, date_to={current_time['month_end']}`。绝对不要根据训练数据里记住的日期推断今天是哪天。
 - 当前用户: {user_name}（{role_desc}）
 {context_block}
 
