@@ -12,6 +12,7 @@ import { compressImage } from '@/utils/imageCompress'
 import type { ChatMessage, FileType, UploadResult } from '@/types/agent'
 import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
 import { usePendingFiles } from '@/hooks/usePendingFiles'
+import { useDropZone } from '@/hooks/useDropZone'
 import {
   readSSEStream,
   computeEventUpdates,
@@ -385,18 +386,12 @@ export default function ReceiptChatModal({
     onClose()
   }, [onClose])
 
-  // 拖拽上传
-  const handleDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-    const files = Array.from(e.dataTransfer.files)
-    if (files.length > 0) {
-      addFiles(files)
-    }
-  }, [addFiles])
-
-  const handleDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault()
-  }, [])
+  // 拖拽上传（用通用 hook，支持悬停高亮 + 跨子元素稳定计数）
+  const { isOver, dropHandlers } = useDropZone({
+    onDrop: (files) => addFiles(files),
+    accept: ['image/*', '.heic', '.heif', '.pdf', '.doc', '.docx', '.xls', '.xlsx'],
+    disabled: isStreaming,
+  })
 
   const removePendingFile = useCallback((index: number) => {
     removeFile(index)
@@ -448,9 +443,8 @@ export default function ReceiptChatModal({
       {/* 消息区 */}
       <div
         ref={scrollRef}
-        className="receipt-chat-messages"
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
+        className={`receipt-chat-messages${isOver ? ' chat-drop-active' : ''}`}
+        {...dropHandlers}
       >
         {!hasMessages ? (
           <div className="receipt-chat-empty receipt-chat-drop-zone">

@@ -107,6 +107,15 @@
   overflow: auto;
   padding: 16px 20px;
   background: linear-gradient(180deg, var(--bg-page) 0%, var(--type-color-bg) 100%);
+  position: relative;
+  transition: background 0.15s;
+}
+
+/* 拖拽悬停高亮：文件拖入时整个消息区变色，明确提示"松手即上传" */
+.contract-chat-messages.chat-drop-active {
+  background: linear-gradient(180deg, var(--type-color-bg) 0%, var(--type-color-soft) 100%);
+  outline: 2px dashed var(--type-color);
+  outline-offset: -8px;
 }
 
 .contract-chat-empty {

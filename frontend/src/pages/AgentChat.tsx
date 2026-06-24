@@ -34,6 +34,7 @@ import { MarkdownRenderer, ToolCallBlock, WittyLoadingText } from '@/components/
 import { compressImage } from '@/utils/imageCompress'
 import { useAgentFile } from '@/hooks/useAgentFile'
 import { usePendingFiles, type PendingFile } from '@/hooks/usePendingFiles'
+import { useDropZone } from '@/hooks/useDropZone'
 
 const { Text } = Typography
 
@@ -693,6 +694,13 @@ export default function AgentChat() {
     resetChat,
   } = useAgentStore()
 
+  // 拖拽上传（通用 hook，支持悬停高亮 + 跨子元素稳定计数）
+  const { isOver: isDropOver, dropHandlers } = useDropZone({
+    onDrop: (files) => addFiles(files),
+    accept: ['image/*', '.heic', '.heif', '.pdf', '.doc', '.docx', '.xls', '.xlsx', '.txt', '.csv'],
+    disabled: isStreaming,
+  })
+
   useEffect(() => {
     if (messageListRef.current) {
       messageListRef.current.scrollTop = messageListRef.current.scrollHeight
@@ -855,7 +863,12 @@ export default function AgentChat() {
           overflow: 'auto',
           padding: isMobile ? '56px 14px 12px' : '64px 24px 20px',
           background: hasMessages ? undefined : 'linear-gradient(180deg, var(--bg-page) 0%, #f0f2f5 100%)',
+          transition: 'outline 0.15s, background 0.15s',
+          outline: isDropOver ? '2px dashed var(--type-color)' : 'none',
+          outlineOffset: isDropOver ? -8 : 0,
+          backgroundBlendMode: isDropOver ? 'soft-light' : undefined,
         }}
+        {...dropHandlers}
       >
         {(!currentSessionId || !hasMessages) ? (
           <WelcomeContent
