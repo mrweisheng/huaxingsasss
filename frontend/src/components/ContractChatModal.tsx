@@ -6,7 +6,6 @@ import {
   SendOutlined, RobotOutlined, UserOutlined, PaperClipOutlined,
   StopOutlined, InboxOutlined, PictureOutlined,
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
-  WechatOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
@@ -99,8 +98,6 @@ export default function ContractChatModal({
   const [sessionId, setSessionId] = useState<string | null>(null)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [inputText, setInputText] = useState('')
-  // 业务微信群名称：上传合同的必填字段。填一次后保留，连续录同一群的多份合同无需重复输入。
-  const [wechatGroup, setWechatGroup] = useState('')
   const { pendingFiles, addFiles, removeFile, clear: clearPending, hasUploading, toSendPayload } = usePendingFiles()
   const [isStreaming, setIsStreaming] = useState(false)
   const abortRef = useRef<AbortController | null>(null)
@@ -114,7 +111,6 @@ export default function ContractChatModal({
     contractCreatedRef.current = false
     setMessages([])
     setInputText('')
-    setWechatGroup('')   // 跨弹窗清空，避免带着旧群名录新合同；同会话内连续录入不受影响
     clearPending()
     setSessionId(null)
     sessionCreatingRef.current = false
@@ -123,7 +119,7 @@ export default function ContractChatModal({
       id: Date.now(),
       sessionId: '',
       role: 'assistant',
-      content: '请上传合同文件（图片、PDF 或 Word），我来帮你分析并创建合同。',
+      content: '请上传合同文件（图片、PDF 或 Word），我来帮你分析并创建合同。\n\n💡 录入时请一并告诉我这笔业务的**微信群名称**（必填，方便后续按群查找合同）。',
       createdAt: new Date().toISOString(),
     }])
   }, [open])
@@ -356,23 +352,11 @@ export default function ContractChatModal({
     }
     const trimmedText = inputText.trim()
     if (!trimmedText && pendingFiles.length === 0) return
-    // 上传合同文件时群名为必填：合同文件里没有群名，缺了只能靠 AI 追问，
-    // 不如前端直接拦住让用户填好再发。纯文字聊天（无文件）不受影响。
-    if (pendingFiles.length > 0 && !wechatGroup.trim()) {
-      message.warning('请先填写业务微信群名称（每笔业务必须关联一个业务群）')
-      return
-    }
-    // 业务群名是必填项：若用户已在上传区填了群名，把它拼到消息最前面，
-    // 让 AI 一眼识别并直接作为 wechat_group 使用，不必再追问。
-    const group = wechatGroup.trim()
-    const text = group
-      ? `【业务微信群：${group}】\n${trimmedText}`
-      : trimmedText
     const payload = pendingFiles.length > 0 ? toSendPayload() : undefined
     setInputText('')
     clearPending()
-    await doSend(text, payload)
-  }, [inputText, wechatGroup, pendingFiles, doSend, hasUploading, toSendPayload, clearPending])
+    await doSend(trimmedText, payload)
+  }, [inputText, pendingFiles, doSend, hasUploading, toSendPayload, clearPending])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
@@ -466,25 +450,6 @@ export default function ContractChatModal({
 
       {/* 输入区 */}
       <div className="contract-chat-input-area">
-        {/* 录入面板：群名 + 文件预览 + 消息，融为一体 */}
-        <div className="contract-chat-composer">
-          {/* 业务微信群名称（必填）—— 每笔业务都必须关联一个业务群。
-              整合在录入面板顶部，用左侧色条区分，不再孤立成行。
-              填一次后保留，随消息发送给 AI，避免反复追问。 */}
-          <div className="composer-group-field">
-            <WechatOutlined className="composer-group-icon" />
-            <Input
-              value={wechatGroup}
-              onChange={e => setWechatGroup(e.target.value)}
-              placeholder="业务微信群名称（必填）"
-              size="small"
-              variant="borderless"
-              allowClear
-              disabled={isStreaming}
-              maxLength={200}
-              className="composer-group-input"
-            />
-          </div>
         {pendingFiles.length > 0 && (
           <div className="contract-chat-pending-files">
             <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4 }}>待发送</span>
@@ -579,7 +544,6 @@ export default function ContractChatModal({
               {hasUploading ? '上传中…' : '发送'}
             </Button>
           )}
-        </div>
         </div>
         <div className="contract-chat-input-hint">
           拖拽文件到聊天区域 · Enter 发送，Shift+Enter 换行

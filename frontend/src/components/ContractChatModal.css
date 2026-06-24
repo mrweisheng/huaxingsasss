@@ -248,67 +248,15 @@
 .contract-chat-input-area {
   border-top: 1px solid var(--border-light);
   background: var(--bg-surface);
-  padding: 12px 16px 10px;
+  padding: 10px 16px 12px;
   flex-shrink: 0;
 }
 
-/* 录入面板：群名行 + 文件预览 + 消息行，统一在一个圆角容器里，消除割裂感 */
-.contract-chat-composer {
-  border: 1px solid var(--border-default);
-  border-radius: 12px;
-  background: var(--bg-surface);
-  overflow: hidden;
-  transition: border-color 0.2s, box-shadow 0.2s;
-}
-
-.contract-chat-composer:focus-within {
-  border-color: var(--type-color);
-  box-shadow: 0 0 0 3px var(--type-glow);
-}
-
-/* 群名行：用左侧色条 + 微信图标，克制的语义提示，不抢主色 */
-.composer-group-field {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  background: var(--bg-subtle);
-  border-bottom: 1px solid var(--border-light);
-  position: relative;
-}
-
-.composer-group-field::before {
-  content: '';
-  position: absolute;
-  left: 0; top: 0; bottom: 0;
-  width: 3px;
-  background: #07c160;
-  border-radius: 12px 0 0 0;
-}
-
-.composer-group-icon {
-  color: #07c160;
-  font-size: 15px;
-  flex-shrink: 0;
-}
-
-.composer-group-input.ant-input {
-  background: transparent;
-  font-size: 13px;
-  padding: 0;
-}
-
-.composer-group-input::placeholder {
-  color: var(--text-quaternary);
-  font-weight: 400;
-}
-
-/* 文件预览区接在群名下方，无独立边框 */
 .contract-chat-pending-files {
-  background: var(--bg-surface) !important;
-  border: none !important;
-  border-bottom: 1px dashed var(--border-light) !important;
-  border-radius: 0 !important;
+  background: var(--type-color-bg) !important;
+  border: 1px solid var(--type-color-soft) !important;
+  border-bottom: none;
+  border-radius: 10px 10px 0 0;
   padding: 8px 12px;
   display: flex;
   gap: 6px;
@@ -349,16 +297,15 @@
   gap: 8px;
   align-items: flex-end;
   background: var(--bg-surface);
-  border: none;
-  border-radius: 0;
+  border: 1px solid var(--border-default);
+  border-radius: 10px;
   padding: 6px 8px 6px 12px;
   transition: all 0.2s;
 }
 
-/* composer 整体聚焦态已由 .contract-chat-composer:focus-within 处理 */
 .contract-chat-input-row:focus-within {
-  border-color: transparent;
-  box-shadow: none;
+  border-color: var(--type-color) !important;
+  box-shadow: 0 0 0 2px var(--type-glow) !important;
 }
 
 .contract-chat-attach-btn {
