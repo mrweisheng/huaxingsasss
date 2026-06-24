@@ -461,22 +461,50 @@
   color: var(--text-tertiary);
 }
 
-/* ── 不匹配警告呼吸效果 ── */
-@keyframes pfm-breathing {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 77, 79, 0); }
-  50% { box-shadow: 0 0 20px 4px rgba(255, 77, 79, 0.3); }
+/* ── 不匹配警告呼吸效果（强烈版）── */
+@keyframes pfm-danger-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0),
+                inset 0 0 0 0 rgba(255, 77, 79, 0);
+    border-color: var(--color-danger, #ff4d4f);
+  }
+  50% {
+    box-shadow: 0 0 30px 8px rgba(255, 77, 79, 0.4),
+                0 0 60px 20px rgba(255, 77, 79, 0.15),
+                inset 0 0 30px 0 rgba(255, 77, 79, 0.08);
+    border-color: rgba(255, 77, 79, 0.8);
+  }
 }
+@keyframes pfm-danger-border {
+  0%, 100% { border: 2px solid var(--color-danger, #ff4d4f); }
+  50% { border: 3px solid rgba(255, 77, 79, 0.9); }
+}
+
 .pfm-mismatch-active {
-  animation: pfm-breathing 2s ease-in-out infinite;
-}
-.pfm-mismatch-alert {
-  animation: pfm-breathing 2s ease-in-out infinite;
+  animation: pfm-danger-pulse 1.5s ease-in-out infinite,
+             pfm-danger-border 1.5s ease-in-out infinite;
   border-radius: var(--radius-md);
-  overflow: hidden;
+}
+
+/* 警告条呼吸效果 */
+@keyframes pfm-alert-flash {
+  0%, 100% {
+    background: linear-gradient(90deg, rgba(255, 77, 79, 0.15), rgba(255, 77, 79, 0.08), rgba(255, 77, 79, 0.15));
+    transform: scaleY(1);
+  }
+  50% {
+    background: linear-gradient(90deg, rgba(255, 77, 79, 0.25), rgba(255, 77, 79, 0.18), rgba(255, 77, 79, 0.25));
+    transform: scaleY(1.02);
+  }
+}
+
+.pfm-mismatch-alert {
+  animation: pfm-alert-flash 1.5s ease-in-out infinite;
+  border-left: 4px solid var(--color-danger, #ff4d4f);
 }
 .pfm-mismatch-alert .ant-alert {
   border-color: var(--color-danger, #ff4d4f);
-  background: linear-gradient(135deg, rgba(255, 77, 79, 0.08), rgba(255, 77, 79, 0.03));
+  background: transparent;
 }
 
 /* ── 新增账户下拉入口 ── */
