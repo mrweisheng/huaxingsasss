@@ -114,6 +114,7 @@ export default function ContractChatModal({
     contractCreatedRef.current = false
     setMessages([])
     setInputText('')
+    setWechatGroup('')   // 跨弹窗清空，避免带着旧群名录新合同；同会话内连续录入不受影响
     clearPending()
     setSessionId(null)
     sessionCreatingRef.current = false
@@ -355,6 +356,12 @@ export default function ContractChatModal({
     }
     const trimmedText = inputText.trim()
     if (!trimmedText && pendingFiles.length === 0) return
+    // 上传合同文件时群名为必填：合同文件里没有群名，缺了只能靠 AI 追问，
+    // 不如前端直接拦住让用户填好再发。纯文字聊天（无文件）不受影响。
+    if (pendingFiles.length > 0 && !wechatGroup.trim()) {
+      message.warning('请先填写业务微信群名称（每笔业务必须关联一个业务群）')
+      return
+    }
     // 业务群名是必填项：若用户已在上传区填了群名，把它拼到消息最前面，
     // 让 AI 一眼识别并直接作为 wechat_group 使用，不必再追问。
     const group = wechatGroup.trim()

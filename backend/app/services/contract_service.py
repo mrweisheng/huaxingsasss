@@ -128,11 +128,15 @@ class ContractService:
 
         # 关键词全文搜索（含业务微信群名称——业务员常按群名查合同）
         if keyword:
+            # 群名是用户自由输入的中文，繁简都可能，走 search_variants 兼容；
+            # 编号/标题/contract_data 不做繁简转换（编号无中文，标题由 AI 规整）
+            group_variants = search_variants(keyword)
+            group_escaped = [v.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") for v in group_variants]
             query = query.filter(
                 or_(
                     Contract.contract_number.ilike(f"%{keyword}%"),
                     Contract.title.ilike(f"%{keyword}%"),
-                    Contract.wechat_group.ilike(f"%{keyword}%"),
+                    *[Contract.wechat_group.ilike(f"%{v}%") for v in group_escaped],
                     Contract.contract_data.cast(String).ilike(f"%{keyword}%")
                 )
             )

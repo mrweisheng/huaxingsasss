@@ -534,7 +534,9 @@ export default function ContractList() {
                     <div className="group-name-block" style={{ paddingTop: '6px' }}>
                       <div className="group-name-hero">
                         <WechatOutlined className="group-name-icon" />
-                        <span className="group-name-text">{contract.wechat_group}</span>
+                        <Tooltip title={contract.wechat_group} placement="topLeft">
+                          <span className="group-name-text">{contract.wechat_group}</span>
+                        </Tooltip>
                       </div>
                       <div className="group-sub-row">
                         <span className="customer-name-text">{contract.customer_name || '未关联客户'}</span>
