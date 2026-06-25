@@ -461,24 +461,265 @@
   color: var(--text-tertiary);
 }
 
-/* 警告条呼吸效果：纯 box-shadow 脉冲，不碰 transform/border 厚度，
-   避免与 antd Modal 关闭动画冲突导致弹窗反复缩小重现 */
-@keyframes pfm-alert-flash {
+/* ──────────────────────────────────────────────────────────
+   不匹配警告卡片（字段化对比 · 多层呼吸 · 图标 wobble）
+   设计：克制版面 + 强光晕；红色光环呼吸 + 边框/标志色脉冲 + 警告图标在末段轻微抖动
+   兼容：仅用 box-shadow + background-color + opacity，避免 transform 与 antd Modal 关闭动画冲突
+   ────────────────────────────────────────────────────────── */
+
+/* 主光环：外圈弥散光斑，强度由 0 → 0.35 → 0 */
+@keyframes pfm-mismatch-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0);
+    box-shadow:
+      0 0 0 0 rgba(214, 56, 56, 0),
+      0 0 0 0 rgba(214, 56, 56, 0),
+      0 1px 3px rgba(15, 23, 42, 0.04);
   }
   50% {
-    box-shadow: 0 0 12px 2px rgba(255, 77, 79, 0.35);
+    box-shadow:
+      0 0 0 4px rgba(214, 56, 56, 0.10),
+      0 0 32px 6px rgba(214, 56, 56, 0.32),
+      0 6px 18px rgba(214, 56, 56, 0.14);
   }
 }
 
-.pfm-mismatch-alert {
-  animation: pfm-alert-flash 1.5s ease-in-out infinite;
-  border-left: 4px solid var(--color-danger, #ff4d4f);
+/* 边框 + 主色脉冲：与外环同步呼吸 */
+@keyframes pfm-mismatch-border {
+  0%, 100% { border-color: rgba(214, 56, 56, 0.55); }
+  50%      { border-color: rgba(214, 56, 56, 1); }
 }
-.pfm-mismatch-alert .ant-alert {
-  border-color: var(--color-danger, #ff4d4f);
+
+/* 顶部背景红色描边: 渐变发光带 */
+@keyframes pfm-mismatch-stripe {
+  0%, 100% { opacity: 0.45; }
+  50%      { opacity: 1; }
+}
+
+/* 警告图标抖动：仅在每周期末 ~12% 时段抖一下，避免持续晃动惹人烦 */
+@keyframes pfm-mismatch-wobble {
+  0%, 86%, 100% { transform: rotate(0deg); }
+  88%  { transform: rotate(-14deg); }
+  91%  { transform: rotate(12deg); }
+  94%  { transform: rotate(-8deg); }
+  97%  { transform: rotate(4deg); }
+}
+
+/* 容器 */
+.pfm-mismatch-card {
+  position: relative;
+  margin-bottom: 16px;
+  padding: 14px 16px 14px 18px;
+  background:
+    linear-gradient(180deg, #fff8f7 0%, #ffffff 70%);
+  border: 1.5px solid rgba(214, 56, 56, 0.75);
+  border-radius: 10px;
+  overflow: hidden;
+  animation:
+    pfm-mismatch-pulse 1.6s ease-in-out infinite,
+    pfm-mismatch-border 1.6s ease-in-out infinite;
+}
+
+/* 顶部红色光带：装饰元素 */
+.pfm-mismatch-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg,
+    rgba(214, 56, 56, 0) 0%,
+    rgba(214, 56, 56, 0.85) 12%,
+    rgba(190, 40, 40, 1) 50%,
+    rgba(214, 56, 56, 0.85) 88%,
+    rgba(214, 56, 56, 0) 100%);
+  animation: pfm-mismatch-stripe 1.6s ease-in-out infinite;
+}
+
+/* 装饰光晕底纹（极淡，营造氛围） */
+.pfm-mismatch-glow {
+  position: absolute;
+  top: -40px;
+  right: -40px;
+  width: 180px;
+  height: 180px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(214, 56, 56, 0.10) 0%, rgba(214, 56, 56, 0) 70%);
+  pointer-events: none;
+}
+
+/* 头部行 */
+.pfm-mismatch-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  position: relative;
+  z-index: 1;
+}
+
+/* 圆形警告徽章 */
+.pfm-mismatch-badge {
+  flex: 0 0 36px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #e53e3e 0%, #c0392b 100%);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  box-shadow: 0 2px 8px rgba(214, 56, 56, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+}
+
+.pfm-mismatch-badge-icon {
+  animation: pfm-mismatch-wobble 1.6s ease-in-out infinite;
+  transform-origin: 50% 60%;
+}
+
+/* 标题块 */
+.pfm-mismatch-title {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.pfm-mismatch-title strong {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: #b8423b;
+}
+
+/* 差异计数 chip */
+.pfm-mismatch-count {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(214, 56, 56, 0.12);
+  color: #a8302a;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+}
+
+/* 关闭按钮 */
+.pfm-mismatch-close {
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-tertiary, #94a3b8);
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.18s ease, color 0.18s ease;
+}
+.pfm-mismatch-close:hover {
+  background: rgba(214, 56, 56, 0.1);
+  color: #b8423b;
+}
+
+/* 字段对比列表 */
+.pfm-mismatch-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  position: relative;
+  z-index: 1;
+}
+
+/* 字段行 */
+.pfm-mismatch-row {
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px solid rgba(214, 56, 56, 0.18);
+  border-radius: 8px;
+  backdrop-filter: blur(2px);
+}
+
+.pfm-mismatch-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.pfm-mismatch-row-icon {
+  color: #b8423b;
+  font-size: 14px;
+}
+.pfm-mismatch-row-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #475569);
+  letter-spacing: 0.5px;
+}
+
+/* 「合同 / 识别」对比行 */
+.pfm-mismatch-pair {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pfm-mismatch-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.5;
+  font-size: 13px;
+}
+.pfm-mismatch-tag {
+  flex: 0 0 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px 0;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 1px;
+  border-radius: 3px;
+  border: 1px solid currentColor;
+  margin-top: 2px;
+}
+.pfm-mismatch-val {
+  flex: 1;
+  word-break: break-all;
+}
+
+/* 合同值（正确基准） */
+.pfm-mismatch-line.is-actual .pfm-mismatch-tag {
+  color: #0d9488;
+  background: rgba(13, 148, 136, 0.06);
+}
+.pfm-mismatch-line.is-actual .pfm-mismatch-val {
+  color: #0f172a;
+  font-weight: 500;
+}
+
+/* 识别值（被怀疑的） */
+.pfm-mismatch-line.is-extracted .pfm-mismatch-tag {
+  color: #b8423b;
+  background: rgba(214, 56, 56, 0.08);
+}
+.pfm-mismatch-line.is-extracted .pfm-mismatch-val {
+  color: #b8423b;
+  font-weight: 600;
+}
+
+/* 移动端 */
+@media (max-width: 576px) {
+  .pfm-mismatch-card { padding: 12px 12px 12px 14px; }
+  .pfm-mismatch-badge { flex: 0 0 32px; width: 32px; height: 32px; font-size: 16px; }
+  .pfm-mismatch-title strong { font-size: 14px; }
 }
 
 /* ── 新增账户下拉入口 ── */

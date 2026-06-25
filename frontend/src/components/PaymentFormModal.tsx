@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
 import { Button, Modal, Form, Input, InputNumber, Select, Space, DatePicker, Upload, Alert, message, Spin } from 'antd'
 const { useWatch } = Form
-import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, CheckCircleOutlined, WechatOutlined, UserOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons'
+import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, CheckCircleOutlined, WechatOutlined, UserOutlined, FileTextOutlined, PictureOutlined, SwapOutlined, CloseOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   paymentApi,
@@ -96,6 +96,14 @@ function renderVerificationPanel(payment: Payment | null | undefined) {
   )
 }
 
+/** 结构化不匹配项：业务群 / 客户 / 收支类型，按字段分行展示「合同 vs 识别」对比 */
+type MismatchItem = {
+  field: 'type' | 'group' | 'customer'
+  label: string
+  extracted: string
+  actual: string
+}
+
 interface Props {
   open: boolean
   mode: 'add' | 'edit'
@@ -141,7 +149,7 @@ export default function PaymentFormModal({
   const [templateFile, setTemplateFile] = useState<{ file: File; preview_url: string } | null>(null)
   const [extracting, setExtracting] = useState(false)
   const [extractedData, setExtractedData] = useState<ExtractedReceiptData | null>(null)
-  const [mismatchWarning, setMismatchWarning] = useState<string | null>(null)
+  const [mismatchItems, setMismatchItems] = useState<MismatchItem[] | null>(null)
   const [step, setStep] = useState<'input' | 'form'>('input')
   const [inputText, setInputText] = useState('')
   const [inputImage, setInputImage] = useState<{ file: File; preview_url: string } | null>(null)
@@ -191,7 +199,7 @@ export default function PaymentFormModal({
     setReceiptCleared(false)
     setExtracting(false)
     setExtractedData(null)
-    setMismatchWarning(null)
+    setMismatchItems(null)
     extractedCounterpartyRef.current = null
     setStep(isEdit ? 'form' : 'input')
     setInputText('')
@@ -262,7 +270,12 @@ export default function PaymentFormModal({
     if (extracted.type && extracted.type !== paymentType) {
       const expectedLabel = paymentType === 'income' ? '收入' : '支出'
       const actualLabel = extracted.type === 'income' ? '收入' : '支出'
-      setMismatchWarning(`识别结果「${actualLabel}」，但当前是「${expectedLabel}」录入，请确认是否选错`)
+      setMismatchItems([{
+        field: 'type',
+        label: '收支类型',
+        extracted: actualLabel,
+        actual: expectedLabel,
+      }])
       message.error(`识别结果「${actualLabel}」，与当前「${expectedLabel}」录入方向不一致`)
       return
     }
@@ -298,20 +311,30 @@ export default function PaymentFormModal({
     }
 
     // 检查其他不匹配
-    const warnings: string[] = []
+    const mismatches: MismatchItem[] = []
     const actualGroup = wechatGroup || editing?.contract_wechat_group
     if (extracted.wechat_group && actualGroup && !actualGroup.includes(extracted.wechat_group) && !extracted.wechat_group.includes(actualGroup)) {
-      warnings.push(`识别中的业务群名「${extracted.wechat_group}」与当前合同群名「${actualGroup}」不匹配`)
+      mismatches.push({
+        field: 'group',
+        label: '业务群名',
+        extracted: extracted.wechat_group,
+        actual: actualGroup,
+      })
     }
     if (extracted.customer_name_hint && customerName && !customerName.includes(extracted.customer_name_hint) && !extracted.customer_name_hint.includes(customerName)) {
-      warnings.push(`识别中的客户名「${extracted.customer_name_hint}」与当前合同客户「${customerName}」不匹配`)
+      mismatches.push({
+        field: 'customer',
+        label: '客户姓名',
+        extracted: extracted.customer_name_hint,
+        actual: customerName,
+      })
     }
     // 收款账户简称有但后端没匹配到 ID → 提示用户手动选择
     if (isIncome && extracted.payment_account_hint && !extracted.payment_account_id) {
       message.warning(`未在系统中找到匹配的收款账户「${extracted.payment_account_hint}」，请手动选择`)
     }
-    if (warnings.length > 0) {
-      setMismatchWarning(warnings.join('；'))
+    if (mismatches.length > 0) {
+      setMismatchItems(mismatches)
     }
 
     if (extracted.confidence && extracted.confidence < 0.7) {
@@ -325,7 +348,7 @@ export default function PaymentFormModal({
   const handleTemplateUpload = async (file: File) => {
     setExtracting(true)
     setExtractedData(null)
-    setMismatchWarning(null)
+    setMismatchItems(null)
     extractedCounterpartyRef.current = null
     try {
       const isImage = file.type.startsWith('image/')
@@ -362,7 +385,7 @@ export default function PaymentFormModal({
     if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
     setTemplateFile(null)
     setExtractedData(null)
-    setMismatchWarning(null)
+    setMismatchItems(null)
     extractedCounterpartyRef.current = null
   }
 
@@ -572,19 +595,51 @@ export default function PaymentFormModal({
         </div>
       )}
 
-      {/* 不匹配警告（顶部醒目位置） */}
-      {mismatchWarning && (
-        <Alert
-          className="pfm-mismatch-alert"
-          type="error"
-          showIcon
-          icon={<WarningOutlined />}
-          message={<strong>⚠️ 信息不匹配</strong>}
-          description={mismatchWarning}
-          closable
-          onClose={() => setMismatchWarning(null)}
-          style={{ marginBottom: 16 }}
-        />
+      {/* 不匹配警告（顶部醒目位置）— 自定义卡片，字段化对比，强呼吸 */}
+      {mismatchItems && mismatchItems.length > 0 && (
+        <div className="pfm-mismatch-card" role="alert">
+          <div className="pfm-mismatch-glow" aria-hidden="true" />
+          <div className="pfm-mismatch-head">
+            <span className="pfm-mismatch-badge">
+              <WarningOutlined className="pfm-mismatch-badge-icon" />
+            </span>
+            <div className="pfm-mismatch-title">
+              <strong>信息不匹配</strong>
+              <span className="pfm-mismatch-count">差异 · {mismatchItems.length} 处</span>
+            </div>
+            <button
+              type="button"
+              className="pfm-mismatch-close"
+              aria-label="关闭"
+              onClick={() => setMismatchItems(null)}
+            >
+              <CloseOutlined />
+            </button>
+          </div>
+          <ul className="pfm-mismatch-list">
+            {mismatchItems.map((item, idx) => {
+              const Icon = item.field === 'group' ? WechatOutlined : item.field === 'customer' ? UserOutlined : SwapOutlined
+              return (
+                <li key={`${item.field}-${idx}`} className="pfm-mismatch-row">
+                  <div className="pfm-mismatch-row-head">
+                    <Icon className="pfm-mismatch-row-icon" />
+                    <span className="pfm-mismatch-row-label">{item.label}</span>
+                  </div>
+                  <div className="pfm-mismatch-pair">
+                    <div className="pfm-mismatch-line is-actual">
+                      <span className="pfm-mismatch-tag">合同</span>
+                      <span className="pfm-mismatch-val">{item.actual}</span>
+                    </div>
+                    <div className="pfm-mismatch-line is-extracted">
+                      <span className="pfm-mismatch-tag">识别</span>
+                      <span className="pfm-mismatch-val">{item.extracted}</span>
+                    </div>
+                  </div>
+                </li>
+              )
+            })}
+          </ul>
+        </div>
       )}
 
       {step === 'form' ? (<><Form form={form} layout="vertical" requiredMark="optional" className="pfm-form">
