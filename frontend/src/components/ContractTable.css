@@ -43,7 +43,7 @@
 .amount-overpaid {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: #52c41a;
+  color: #0d9488;
 }
 .amount-expense {
   font-weight: 500;
@@ -53,7 +53,7 @@
 .amount-profit {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
-  color: #52c41a;
+  color: #0d9488;
 }
 .amount-loss {
   font-weight: 600;
@@ -148,10 +148,10 @@
 
 /* 面板内按钮类型色 */
 .btn-income {
-  color: #52c41a !important;
+  color: #3d6644 !important;
 }
 .btn-income:hover {
-  background: #f6ffed !important;
+  background: #eef3ef !important;
 }
 .btn-expense {
   color: #dc6b3d !important;
@@ -296,7 +296,7 @@
   margin-left: auto;
 }
 .payment-item.income .payment-amount {
-  color: #52c41a;
+  color: #a87a18;
 }
 .payment-item.expense .payment-amount {
   color: #fa8c16;

@@ -50,7 +50,7 @@ function fmtDate(d: string | undefined): string {
 }
 
 const VERIFY_ICONS: Record<string, React.ReactNode> = {
-  passed: <CheckCircleOutlined style={{ color: '#52c41a', fontSize: 14 }} />,
+  passed: <CheckCircleOutlined style={{ color: '#0d9488', fontSize: 14 }} />,
   pending: <ClockCircleOutlined style={{ color: '#faad14', fontSize: 14 }} />,
   failed: <ExclamationCircleOutlined style={{ color: '#ff4d4f', fontSize: 14 }} />,
 }
@@ -179,7 +179,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         if (isImg) {
           return (
             <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => {
-              const url = `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/contracts/${row.id}/file?token=${localStorage.getItem('token')}`
+              const url = `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/contracts/${row.id}/file?token=${localStorage.getItem('access_token')}`
               window.open(url, '_blank')
             }}>
               预览
@@ -188,7 +188,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         }
         return (
           <Button size="small" type="text" icon={<FileTextOutlined />} onClick={() => {
-            const url = `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/contracts/${row.id}/file?token=${localStorage.getItem('token')}`
+            const url = `${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/contracts/${row.id}/file?token=${localStorage.getItem('access_token')}`
             window.open(url, '_blank')
           }}>
             下载
@@ -258,7 +258,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         const paid = Number(row.paid_amount || 0)
         const pct = calcProgress(paid, receivable)
         const capPct = Math.min(pct, 100)
-        const color = capPct >= 100 ? '#52c41a' : capPct >= 70 ? '#faad14' : '#ff4d4f'
+        const color = capPct >= 100 ? '#0d9488' : capPct >= 70 ? '#faad14' : '#ff4d4f'
         return (
           <div className="progress-cell">
             <Progress
@@ -434,7 +434,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
                         <Image
                           width={32}
                           height={32}
-                          src={`${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/payments/${p.id}/receipt`}
+                          src={`${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/payments/${p.id}/receipt?token=${localStorage.getItem('access_token')}`}
                           preview={{ mask: <EyeOutlined />, maskClosable: true }}
                           className="receipt-thumb"
                         />
@@ -485,7 +485,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
                         <Image
                           width={32}
                           height={32}
-                          src={`${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/payments/${p.id}/receipt`}
+                          src={`${import.meta.env.VITE_API_BASE_URL || '/api/v1'}/payments/${p.id}/receipt?token=${localStorage.getItem('access_token')}`}
                           preview={{ mask: <EyeOutlined />, maskClosable: true }}
                           className="receipt-thumb"
                         />
