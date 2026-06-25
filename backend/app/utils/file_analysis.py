@@ -282,11 +282,11 @@ def count_pdf_pages(file_path: str) -> int:
         doc.close()
 
 
-def render_pdf_all_pages_to_images(file_path: str, dpi: int = 200) -> list[bytes]:
+def render_pdf_all_pages_to_images(file_path: str, dpi: int = 100) -> list[bytes]:
     """渲染 PDF 所有页为 PNG bytes 列表，顺序即页码顺序（第 1 页在 [0]）。
 
-    dpi 默认 200（比单页函数的 100 更高），多页扫描件常有手写或印章信息，DPI 太低识不准。
-    单页大小经下游 compress_image 还会再压缩，DPI 高一点对最终请求体大小影响有限。
+    dpi 默认 100，与单页函数保持一致。VL 模型内部会缩放到固定分辨率，100 DPI 足够识别，
+    更高的 DPI 只会增加内存占用和压缩处理时间，对识别质量提升有限。
     """
     import fitz
     doc = fitz.open(file_path)
