@@ -24,7 +24,7 @@ from app.services.contract_additional_item_service import AdditionalItemService
 from app.services.file_analyzer import FileAnalyzer
 from app.services.payment_service import PaymentService
 from app.services.payment_account_service import PaymentAccountService
-from app.services.receipt_matcher import match_receipt, pick_payment_term
+from app.services.receipt_matcher import match_receipt, match_wechat_group, pick_payment_term
 from app.utils.file_utils import resolve_file_path
 from app.models.payment import Payment
 from app.models.contract import Contract
@@ -309,13 +309,27 @@ class ToolExecutorV2(ToolExecutor):
                     data_with_fid = dict(analysis["data"]) if isinstance(analysis["data"], dict) else analysis["data"]
                     if isinstance(data_with_fid, dict):
                         data_with_fid["_source_file_id"] = file_id
-                    results.append({
+                    result_item = {
                         "file_id": file_id, "success": True,
                         "type": analysis["type"],
                         "data": data_with_fid,
                         "confidence": analysis.get("confidence"),
                         "file_type": analysis.get("file_type"),
-                    })
+                    }
+                    # payment_info：带合同上下文时做确定性群名称校验（替代 LLM 心证）
+                    # 简繁归一 + 日期前缀剥离由 match_wechat_group 处理，比 LLM 自行判断更准
+                    if (
+                        analysis["type"] == "payment_info"
+                        and session_contract_id
+                        and isinstance(data_with_fid, dict)
+                    ):
+                        contract_obj = self.db.query(Contract).filter(
+                            Contract.id == session_contract_id
+                        ).first()
+                        ext_group = (data_with_fid.get("wechat_group") or "").strip()
+                        contract_group = (getattr(contract_obj, "wechat_group", None) or "") if contract_obj else ""
+                        result_item["group_match"] = match_wechat_group(ext_group, contract_group)
+                    results.append(result_item)
                     # 缓存结果
                     self._cache_analysis(file_id, analysis["type"], analysis["data"])
                 else:

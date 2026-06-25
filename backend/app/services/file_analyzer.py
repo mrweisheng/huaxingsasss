@@ -36,7 +36,7 @@ from app.ai.prompts import (
     RECEIPT_ANALYSIS_PROMPT,
     GROUP_CHAT_ANALYSIS_PROMPT,
     FILE_CLASSIFY_PROMPT,
-    EXPENSE_TEMPLATE_EXTRACT_PROMPT,
+    PAYMENT_TEXT_EXTRACT_PROMPT,
 )
 from app.utils.file_utils import calculate_file_hash, resolve_file_path
 from app.ai.tool_executor_base import _get_redis_pool
@@ -128,7 +128,7 @@ _PURPOSE_PROMPTS = {
     "contract": CONTRACT_ANALYSIS_PROMPT,
     "receipt": RECEIPT_ANALYSIS_PROMPT,
     "group_chat": GROUP_CHAT_ANALYSIS_PROMPT,
-    "payment_info": EXPENSE_TEMPLATE_EXTRACT_PROMPT,   # 付款信息文字截图（聊天记录手敲的转账描述）
+    "payment_info": PAYMENT_TEXT_EXTRACT_PROMPT,   # 付款信息文字截图（聊天记录手敲的转账描述）
 }
 
 # auto 分类返回值 → 内部分析 purpose 映射
