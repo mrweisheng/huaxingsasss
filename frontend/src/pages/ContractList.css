@@ -896,3 +896,46 @@
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+
+/* ============================================================
+   汇总条（顶部按币种聚合：合同总额 / 已收 / 支出 / 净利润）
+   ============================================================ */
+.ledger-summary-strip {
+  margin-bottom: 12px;
+  background: var(--bg-surface, #ffffff);
+  border: 1px solid var(--border-light, #e2e8f0);
+  border-radius: 8px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  display: flex; align-items: stretch; overflow: hidden;
+}
+.summary-block {
+  flex: 1; padding: 14px 18px;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.summary-block + .summary-block { border-left: 1px solid var(--border-light, #e2e8f0); }
+.summary-block-title {
+  font-size: 11px; font-weight: 600; color: var(--text-tertiary, #94a3b8);
+  letter-spacing: 0.5px; text-transform: uppercase;
+  display: flex; align-items: center; gap: 5px;
+}
+.summary-block-title .dot { width: 5px; height: 5px; border-radius: 50%; }
+.summary-block-title .dot.primary { background: var(--brand-primary, #1e3a5f); }
+.summary-block-title .dot.gold { background: var(--money-paid); }
+.summary-block-title .dot.orange { background: var(--money-due); }
+.summary-block-title .dot.teal { background: var(--money-done); }
+.summary-currency-rows { display: flex; flex-direction: column; gap: 1px; }
+.summary-currency-row { display: flex; align-items: baseline; gap: 6px; }
+.summary-sym {
+  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
+  color: var(--text-tertiary, #94a3b8); min-width: 28px;
+}
+.summary-val {
+  font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 800;
+  font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
+  color: var(--text-primary, #0f172a);
+}
+.summary-val.gold { color: var(--money-paid-deep, #a87a18); }
+.summary-val.teal { color: var(--money-done); }
+.summary-val.orange { color: var(--money-due); }
+.summary-val.primary { color: var(--brand-primary, #1e3a5f); }
+.summary-val.muted { color: var(--text-tertiary, #94a3b8); font-size: 13px; font-weight: 600; }
