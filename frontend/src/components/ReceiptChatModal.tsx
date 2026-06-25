@@ -260,7 +260,7 @@ export default function ReceiptChatModal({
 
     if (
       result.textAppend || result.toolCallAppend || result.toolResultLast ||
-      result.thoughtAppend || result.thoughtFinalizeLast
+      result.thoughtAppend || result.thoughtFinalizeLast || result.quickReplies
     ) {
       setMessages(prev => applyMessageUpdates(prev, result, assistantId))
     }

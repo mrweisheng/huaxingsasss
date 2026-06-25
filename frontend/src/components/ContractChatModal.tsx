@@ -395,6 +395,12 @@ export default function ContractChatModal({
                 thoughts.push({ id: stepId, message: msgText, status: 'running' })
                 return { ...m, thoughts }
               }))
+            } else if (event.event === 'ui_actions') {
+              setMessages(prev => prev.map(m =>
+                m.id === assistantId
+                  ? { ...m, quickReplies: eventData.actions || [] }
+                  : m
+              ))
             }
           } catch { /* skip */ }
         }

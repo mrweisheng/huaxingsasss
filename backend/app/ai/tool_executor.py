@@ -1567,6 +1567,7 @@ _RECEIPT_COMMON_TOOLS = frozenset({
     "search_contract_text",
     "list_additional_items",
     "override_receipt_mismatch",
+    "present_quick_replies",
 })
 
 # 模式 → 允许的工具集

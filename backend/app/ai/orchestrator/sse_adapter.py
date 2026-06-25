@@ -201,6 +201,14 @@ async def adapt_langgraph_stream_v2(
                         "data": payload,
                     })
 
+            elif kind == "on_custom_event" and event.get("name") == "ui_actions":
+                data = event.get("data", {})
+                if data.get("actions"):
+                    yield _sse_encode({
+                        "event": "ui_actions",
+                        "data": data,
+                    })
+
         logger.info(
             "SSE adapter: astream_events 正常结束, session_id=%s, events=%d, last=%s, heartbeats=%d",
             session_id, event_count, last_event_name, heartbeat_idx,

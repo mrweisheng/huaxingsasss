@@ -79,7 +79,7 @@ export interface ContractInfo {
 }
 
 export interface SSEEvent {
-  event: 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'done' | 'error'
+  event: 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'done' | 'error' | 'ui_actions'
   data: Record<string, any>
 }
 
