@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react'
-import { Modal, Form, Input, InputNumber, Select, DatePicker, Upload, Alert, message, Spin } from 'antd'
+import { Button, Modal, Form, Input, InputNumber, Select, Space, DatePicker, Upload, Alert, message, Spin } from 'antd'
 const { useWatch } = Form
 import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, CheckCircleOutlined, WechatOutlined, UserOutlined, FileTextOutlined, PictureOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
@@ -142,6 +142,10 @@ export default function PaymentFormModal({
   const [extracting, setExtracting] = useState(false)
   const [extractedData, setExtractedData] = useState<ExtractedReceiptData | null>(null)
   const [mismatchWarning, setMismatchWarning] = useState<string | null>(null)
+  const [step, setStep] = useState<'input' | 'form'>('input')
+  const [inputText, setInputText] = useState('')
+  const [inputImage, setInputImage] = useState<{ file: File; preview_url: string } | null>(null)
+  const [parsing, setParsing] = useState(false)
   const extractedCounterpartyRef = useRef<Partial<CounterpartyAccount> | null>(null)
   const isMountedRef = useRef(true)
   const isEdit = mode === 'edit'
@@ -189,6 +193,11 @@ export default function PaymentFormModal({
     setExtractedData(null)
     setMismatchWarning(null)
     extractedCounterpartyRef.current = null
+    setStep(isEdit ? 'form' : 'input')
+    setInputText('')
+    if (inputImage?.preview_url) URL.revokeObjectURL(inputImage.preview_url)
+    setInputImage(null)
+    setParsing(false)
     if (isEdit && editing) {
       form.setFieldsValue({
         amount: editing.paid_amount,
@@ -245,6 +254,66 @@ export default function PaymentFormModal({
     return false
   }
 
+  // 共享填充逻辑：校验类型 + 填表 + 不匹配警告（无 file/preview 处理）
+  const applyExtractedData = (extracted: ExtractedReceiptData) => {
+    setExtractedData(extracted)
+
+    // 检查类型是否匹配
+    if (extracted.type && extracted.type !== paymentType) {
+      const expectedLabel = paymentType === 'income' ? '收入' : '支出'
+      const actualLabel = extracted.type === 'income' ? '收入' : '支出'
+      setMismatchWarning(`识别结果「${actualLabel}」，但当前是「${expectedLabel}」录入，请确认是否选错`)
+      message.error(`识别结果「${actualLabel}」，与当前「${expectedLabel}」录入方向不一致`)
+      return
+    }
+
+    // 自动填充表单字段
+    const formValues: Record<string, any> = {}
+    if (extracted.installment_name) formValues.installment_name = extracted.installment_name
+    if (extracted.paid_date) {
+      const date = dayjs(extracted.paid_date)
+      if (date.isValid()) formValues.paid_date = date
+    }
+    if (extracted.amount) formValues.amount = extracted.amount
+    if (extracted.currency) formValues.currency = extracted.currency
+    if (extracted.notes) formValues.notes = extracted.notes
+    if (extracted.payment_method) formValues.payment_method = extracted.payment_method
+
+    if (!isIncome) {
+      if (extracted.payee_name) formValues.payee_name = extracted.payee_name
+      if (extracted.counterparty_account) {
+        if (extracted.counterparty_account.account_name) formValues.account_name = extracted.counterparty_account.account_name
+        if (extracted.counterparty_account.account_number) formValues.account_number = extracted.counterparty_account.account_number
+        if (extracted.counterparty_account.bank_name) formValues.bank_name = extracted.counterparty_account.bank_name
+        if (extracted.counterparty_account.branch) formValues.branch = extracted.counterparty_account.branch
+      }
+    }
+    form.setFieldsValue(formValues)
+
+    if (extracted.counterparty_account) {
+      extractedCounterpartyRef.current = extracted.counterparty_account
+    }
+
+    // 检查其他不匹配
+    const warnings: string[] = []
+    const actualGroup = wechatGroup || editing?.contract_wechat_group
+    if (extracted.wechat_group && actualGroup && !actualGroup.includes(extracted.wechat_group) && !extracted.wechat_group.includes(actualGroup)) {
+      warnings.push(`识别中的业务群名「${extracted.wechat_group}」与当前合同群名「${actualGroup}」不匹配`)
+    }
+    if (extracted.customer_name_hint && customerName && !customerName.includes(extracted.customer_name_hint) && !extracted.customer_name_hint.includes(customerName)) {
+      warnings.push(`识别中的客户名「${extracted.customer_name_hint}」与当前合同客户「${customerName}」不匹配`)
+    }
+    if (warnings.length > 0) {
+      setMismatchWarning(warnings.join('；'))
+    }
+
+    if (extracted.confidence && extracted.confidence < 0.7) {
+      message.warning('识别置信度较低，请核对填充信息')
+    } else {
+      message.success('已自动识别并填充表单')
+    }
+  }
+
   // ── 模板图上传（右列）：只识别，不上传凭证 ──
   const handleTemplateUpload = async (file: File) => {
     setExtracting(true)
@@ -264,63 +333,8 @@ export default function PaymentFormModal({
 
       const extracted = await paymentApi.extractReceipt(file)
       if (!isMountedRef.current) return false
-      setExtractedData(extracted)
 
-      // 检查类型是否匹配 — 不匹配时不填充表单
-      if (extracted.type && extracted.type !== paymentType) {
-        const expectedLabel = paymentType === 'income' ? '收入' : '支出'
-        const actualLabel = extracted.type === 'income' ? '收入' : '支出'
-        setMismatchWarning(`图片是「${actualLabel}」模板，但当前是「${expectedLabel}」录入，请确认是否选错`)
-        message.error(`图片是「${actualLabel}」，与当前「${expectedLabel}」录入方向不一致`)
-        return
-      }
-
-      // 类型匹配，自动填充表单字段
-      const formValues: Record<string, any> = {}
-      if (extracted.installment_name) formValues.installment_name = extracted.installment_name
-      if (extracted.paid_date) {
-        const date = dayjs(extracted.paid_date)
-        if (date.isValid()) formValues.paid_date = date
-      }
-      if (extracted.amount) formValues.amount = extracted.amount
-      if (extracted.currency) formValues.currency = extracted.currency
-      if (extracted.notes) formValues.notes = extracted.notes
-      if (extracted.payment_method) formValues.payment_method = extracted.payment_method
-
-      if (!isIncome) {
-        if (extracted.payee_name) formValues.payee_name = extracted.payee_name
-        if (extracted.counterparty_account) {
-          if (extracted.counterparty_account.account_name) formValues.account_name = extracted.counterparty_account.account_name
-          if (extracted.counterparty_account.account_number) formValues.account_number = extracted.counterparty_account.account_number
-          if (extracted.counterparty_account.bank_name) formValues.bank_name = extracted.counterparty_account.bank_name
-          if (extracted.counterparty_account.branch) formValues.branch = extracted.counterparty_account.branch
-        }
-      }
-      if (!isMountedRef.current) return false
-      form.setFieldsValue(formValues)
-
-      if (extracted.counterparty_account) {
-        extractedCounterpartyRef.current = extracted.counterparty_account
-      }
-
-      // 检查其他不匹配
-      const warnings: string[] = []
-      const actualGroup = wechatGroup || editing?.contract_wechat_group
-      if (extracted.wechat_group && actualGroup && !actualGroup.includes(extracted.wechat_group) && !extracted.wechat_group.includes(actualGroup)) {
-        warnings.push(`图片中的业务群名「${extracted.wechat_group}」与当前合同群名「${actualGroup}」不匹配`)
-      }
-      if (extracted.customer_name_hint && customerName && !customerName.includes(extracted.customer_name_hint) && !extracted.customer_name_hint.includes(customerName)) {
-        warnings.push(`图片中的客户名「${extracted.customer_name_hint}」与当前合同客户「${customerName}」不匹配`)
-      }
-      if (warnings.length > 0) {
-        setMismatchWarning(warnings.join('；'))
-      }
-
-      if (extracted.confidence && extracted.confidence < 0.7) {
-        message.warning('图片识别置信度较低，请核对填充信息')
-      } else {
-        message.success('已自动识别并填充表单')
-      }
+      applyExtractedData(extracted)
     } catch (e: any) {
       console.warn('图片识别失败', e)
       message.warning('图片识别失败，请手动填写')
@@ -343,6 +357,36 @@ export default function PaymentFormModal({
     setExtractedData(null)
     setMismatchWarning(null)
     extractedCounterpartyRef.current = null
+  }
+
+  // ── 两步式：下一步（文本/图片解析 → 填充表单） ──
+  const handleNextStep = async () => {
+    if (!inputText.trim() && !inputImage) {
+      message.warning('请输入文本或拖入图片')
+      return
+    }
+    setParsing(true)
+    try {
+      let extracted!: ExtractedReceiptData
+      if (inputText.trim()) {
+        extracted = await paymentApi.extractText(inputText.trim())
+      } else if (inputImage) {
+        extracted = await paymentApi.extractReceipt(inputImage.file)
+        // 设置 templateFile 以在 form 步骤显示已识别缩略图
+        if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
+        setTemplateFile({ file: inputImage.file, preview_url: inputImage.preview_url })
+      }
+      if (!isMountedRef.current) return
+      applyExtractedData(extracted)
+      setStep('form')
+    } catch (e: any) {
+      console.warn('识别失败', e)
+      message.warning('识别失败，请手动填写')
+      // 失败也进表单，不锁死在第一步
+      setStep('form')
+    } finally {
+      setParsing(false)
+    }
   }
 
   const handleAddAccount = async () => {
@@ -475,16 +519,22 @@ export default function PaymentFormModal({
         </span>
       }
       open={open}
-      onOk={handleOk}
       onCancel={onClose}
-      confirmLoading={submitting}
-      okButtonProps={{ disabled: !canSubmit }}
-      okText={isEdit ? '保存' : '提交'}
-      cancelText="取消"
       destroyOnClose
       maskClosable={false}
       width={760}
       className={`pfm-modal ${themeClass}`}
+      footer={step === 'input' ? (
+        <Space>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" onClick={handleNextStep} loading={parsing} disabled={!inputText.trim() && !inputImage}>下一步</Button>
+        </Space>
+      ) : (
+        <Space>
+          <Button onClick={onClose}>取消</Button>
+          <Button type="primary" onClick={handleOk} loading={submitting} disabled={!canSubmit}>{isEdit ? '保存' : '提交'}</Button>
+        </Space>
+      )}
     >
       {renderVerificationPanel(editing)}
 
@@ -530,7 +580,7 @@ export default function PaymentFormModal({
         />
       )}
 
-      <Form form={form} layout="vertical" requiredMark="optional" className="pfm-form">
+      {step === 'form' ? (<><Form form={form} layout="vertical" requiredMark="optional" className="pfm-form">
         {/* 1. 款项说明 + 2. 日期（一行两列） */}
         <div className="pfm-row">
           <Form.Item
@@ -792,6 +842,49 @@ export default function PaymentFormModal({
           style={{ marginTop: 4 }}
           message={`所选币种与合同币种（${contractCurrency}）不一致，系统将按所选币种记账并折算。`}
         />
+      )}</>
+      ) : (
+        <div className="pfm-input-step" style={{ minHeight: 320, display: 'flex', flexDirection: 'column', gap: 16 }}>
+          <Input.TextArea
+            value={inputText}
+            onChange={e => {
+              setInputText(e.target.value)
+              if (inputImage?.preview_url) URL.revokeObjectURL(inputImage.preview_url)
+              setInputImage(null)
+            }}
+            placeholder="粘贴转账记录文本…"
+            rows={8}
+            maxLength={8000}
+            showCount
+          />
+          <div style={{ textAlign: 'center', color: '#bbb' }}><span>或</span></div>
+          {inputImage ? (
+            <div style={{ textAlign: 'center' }}>
+              <img src={inputImage.preview_url} alt="预览" style={{ maxHeight: 200, maxWidth: '100%', objectFit: 'contain' }} />
+              <br />
+              <a onClick={() => { URL.revokeObjectURL(inputImage.preview_url!); setInputImage(null) }}>
+                <DeleteOutlined /> 移除
+              </a>
+            </div>
+          ) : (
+            <Upload.Dragger
+              accept="image/*,.heic,.heif"
+              maxCount={1}
+              showUploadList={false}
+              beforeUpload={(file) => {
+                const isImage = file.type.startsWith('image/')
+                if (!isImage) { message.warning('仅支持图片格式'); return false }
+                setInputText('')
+                setInputImage({ file, preview_url: URL.createObjectURL(file) })
+                return false
+              }}
+            >
+              <p className="ant-upload-drag-icon"><PictureOutlined /></p>
+              <p className="ant-upload-text">点击或拖拽上传转账截图</p>
+              <p className="ant-upload-hint">JPG / PNG / HEIC</p>
+            </Upload.Dragger>
+          )}
+        </div>
       )}
 
       {/* 新增收款账户子弹窗 */}

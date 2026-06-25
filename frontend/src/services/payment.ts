@@ -102,6 +102,12 @@ export const paymentApi = {
     })
     return res.data
   },
+
+  /** 从纯文本消息提取结构化数据（用于自动填充表单） */
+  extractText: async (text: string): Promise<ExtractedReceiptData> => {
+    const res: any = await api.post('/payments/extract-text', { text })
+    return res.data
+  },
 }
 
 /** 从模板截图提取的结构化数据 */

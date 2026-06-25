@@ -4,6 +4,7 @@
 import logging
 import os
 from typing import Optional
+from pydantic import BaseModel
 from pathlib import Path
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File
 from fastapi.responses import FileResponse
@@ -271,6 +272,59 @@ async def extract_receipt_data(
             os.remove(tmp_path)
         except OSError:
             pass
+
+
+class TextExtractRequest(BaseModel):
+    """纯文本解析请求体"""
+    text: str
+
+
+@router.post("/extract-text", response_model=ResponseModel)
+async def extract_text_data(
+    payload: TextExtractRequest,
+    current_user: User = Depends(get_current_user),
+):
+    """从纯文本消息中提取结构化数据，用于自动填充表单。
+
+    接收用户粘贴的文本内容，调用文本大模型识别，返回与 extract-receipt 一致的字段结构。
+    """
+    if not payload.text.strip():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文本内容不能为空")
+    if len(payload.text) > 8000:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="文本内容过长")
+
+    from app.utils.file_analysis import call_text_model
+    from app.ai.prompts import PAYMENT_TEXT_EXTRACT_PROMPT
+
+    try:
+        result = call_text_model(payload.text.strip(), PAYMENT_TEXT_EXTRACT_PROMPT)
+    except Exception as e:
+        logger.exception("extract-text 文本模型调用失败")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"文本识别失败: {e}",
+        )
+
+    if not isinstance(result, dict):
+        result = {"raw": str(result), "confidence": 0}
+
+    # 规范化字段（与 extract-receipt 完全一致）
+    extracted = {
+        "type": result.get("type"),
+        "installment_name": result.get("installment_name"),
+        "paid_date": result.get("paid_date"),
+        "amount": result.get("amount"),
+        "currency": result.get("currency"),
+        "payee_name": result.get("payee_name"),
+        "counterparty_account": result.get("counterparty_account"),
+        "notes": result.get("notes"),
+        "payment_method": result.get("payment_method"),
+        "wechat_group": result.get("wechat_group"),
+        "customer_name_hint": result.get("customer_name_hint"),
+        "confidence": result.get("confidence", 0.8),
+    }
+
+    return ResponseModel(code=200, message="识别成功", data=extracted)
 
 
 @router.post("/{payment_id}/manual-confirm", response_model=ResponseModel[PaymentResponse])
