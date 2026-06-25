@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, memo } from 'react'
+import { useState, useRef, useEffect, useCallback, memo, type ReactNode } from 'react'
 import {
   Modal, Input, Button, Avatar, Upload, Tag, Spin, message,
 } from 'antd'
@@ -6,6 +6,7 @@ import {
   SendOutlined, RobotOutlined, UserOutlined, PaperClipOutlined,
   StopOutlined, InboxOutlined, PlusOutlined, PictureOutlined,
   FilePdfOutlined, FileWordOutlined, FileExcelOutlined, FileTextOutlined,
+  CloseOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
@@ -123,6 +124,22 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
 })
 
 const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
+
+/** 文件类型 → antd 图标组件（文档类凭证用，图片走缩略图） */
+function pickFileIcon(fileType: FileType) {
+  if (fileType === 'pdf') return FilePdfOutlined
+  if (fileType === 'word') return FileWordOutlined
+  if (fileType === 'excel') return FileExcelOutlined
+  return FileTextOutlined
+}
+
+/** 文件大小人性化显示 */
+function formatSize(bytes: number) {
+  if (!bytes) return ''
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
 
 export default function ReceiptChatModal({
   open, contractId, contractNumber, customerName,
@@ -428,48 +445,54 @@ export default function ReceiptChatModal({
       className={`receipt-chat-modal receipt-chat-modal--${paymentType}`}
       styles={{ body: { padding: 0, height: '70vh', display: 'flex', flexDirection: 'column' } }}
     >
-      {/* 头部：群名称(最高优先级) → 客户·合同描述 → 操作类型+金额+合同号 */}
+      {/* 头部 · 凭证小票风：业务行 → 客户合同次行 → 金额小票条（视觉锚点） */}
       <div className="receipt-chat-header">
-        <Avatar icon={<RobotOutlined />} className="receipt-chat-header-avatar" size={28} />
-        <div className="receipt-chat-header-info">
-          {/* 第1行：业务微信群名称（最高优先级，大字）+ 业务色徽章 + 状态 */}
-          <div className="receipt-chat-header-row">
-            {businessType && BIZ_BADGE_STYLE[businessType] && (
-              <span className={`receipt-chat-header-biz-chip ${BIZ_BADGE_STYLE[businessType].className}`}>
-                {BIZ_BADGE_STYLE[businessType].label}
-              </span>
-            )}
-            <span className="receipt-chat-header-groupname" title={wechatGroup}>
-              {wechatGroup || '未设置业务群'}
-            </span>
-            {status && (
-              <span className={`receipt-chat-header-status ${status}`}>
-                {status === 'active' ? '执行中' : status === 'completed' ? '已完成' : status}
-              </span>
-            )}
-          </div>
-          {/* 第2行：客户名 · 合同描述 */}
-          <div className="receipt-chat-header-meta receipt-chat-header-secondline">
-            <span className="receipt-chat-header-customer">{customerName}</span>
-            {contractTitle && (
-              <>
-                <span className="receipt-chat-header-dot">·</span>
-                <span className="receipt-chat-header-contract-title" title={contractTitle}>
-                  {contractTitle}
+        <div className="receipt-chat-header-top">
+          <Avatar icon={<RobotOutlined />} className="receipt-chat-header-avatar" size={38} />
+          <div className="receipt-chat-header-info">
+            {/* 主行：业务色徽章 + 群名称（主标题）+ 状态 */}
+            <div className="receipt-chat-header-main">
+              {businessType && BIZ_BADGE_STYLE[businessType] && (
+                <span className={`receipt-chat-header-biz-chip ${BIZ_BADGE_STYLE[businessType].className}`}>
+                  {BIZ_BADGE_STYLE[businessType].label}
                 </span>
-              </>
-            )}
-          </div>
-          {/* 第3行：操作类型 + 金额 + 合同号（弱化小字） */}
-          <div className="receipt-chat-header-meta">
-            <span className="receipt-chat-header-type">录入{typeLabel}</span>
-            {totalAmount != null && (
-              <span className="receipt-chat-header-amount">
-                {currencySymbol[currency] || '¥'}{totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              )}
+              <span className="receipt-chat-header-groupname" title={wechatGroup}>
+                {wechatGroup || '未设置业务群'}
               </span>
-            )}
-            <span className="receipt-chat-header-number">{contractNumber}</span>
+              {status && (
+                <span className={`receipt-chat-header-status ${status}`}>
+                  {status === 'active' ? '执行中' : status === 'completed' ? '已完成' : status}
+                </span>
+              )}
+            </div>
+            {/* 次行：客户名 · 合同描述 */}
+            <div className="receipt-chat-header-sub">
+              <span className="receipt-chat-header-customer">{customerName}</span>
+              {contractTitle && (
+                <>
+                  <span className="receipt-chat-header-dot">·</span>
+                  <span className="receipt-chat-header-contract-title" title={contractTitle}>
+                    {contractTitle}
+                  </span>
+                </>
+              )}
+            </div>
           </div>
+        </div>
+        {/* 金额小票条：类型标签 | 金额（视觉锚点，类型色大字）| 合同号 */}
+        <div className="receipt-chat-receipt-bar">
+          <span className="receipt-chat-receipt-type">录入{typeLabel}</span>
+          <span className="receipt-chat-receipt-sep" />
+          {totalAmount != null && (
+            <span className="receipt-chat-receipt-amount">
+              <span className="receipt-chat-receipt-amount-cur">{currencySymbol[currency] || '¥'}</span>
+              <span className="receipt-chat-receipt-amount-num">
+                {totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </span>
+          )}
+          <span className="receipt-chat-receipt-number">{contractNumber}</span>
         </div>
       </div>
 
@@ -483,9 +506,7 @@ export default function ReceiptChatModal({
           <div className="receipt-chat-empty receipt-chat-drop-zone">
             <InboxOutlined className="receipt-chat-drop-icon" />
             <div className="receipt-chat-drop-text">拖拽凭证文件到此</div>
-            <div style={{ color: 'var(--text-tertiary)', fontSize: 12, marginTop: 4 }}>
-              或点击下方 📎 按钮选择文件
-            </div>
+            <div className="receipt-chat-drop-sub">或点击下方 📎 按钮选择文件</div>
           </div>
         ) : (
           <>
@@ -500,54 +521,62 @@ export default function ReceiptChatModal({
               ))}
           </>
         )}
+        {/* 拖拽悬停浮层：玻璃态 + 类型色光晕，有消息时也能醒目提示 */}
+        {isOver && (
+          <div className="receipt-chat-drop-overlay">
+            <InboxOutlined className="receipt-chat-drop-overlay-icon" />
+            <div className="receipt-chat-drop-overlay-title">松开即可上传凭证</div>
+            <div className="receipt-chat-drop-overlay-hint">支持 图片 / PDF / Word / Excel</div>
+          </div>
+        )}
       </div>
 
       {/* 输入区 */}
       {(
         <div className="receipt-chat-input-area">
           {pendingFiles.length > 0 && (
-            <div className="receipt-chat-pending-files">
-              <span style={{ fontSize: 11, color: 'var(--text-tertiary)', marginRight: 4 }}>待发送</span>
+            <div className="receipt-chat-tray">
+              <div className="receipt-chat-tray-label">
+                <PaperClipOutlined />
+                <span>待发送凭证</span>
+                <span className="receipt-chat-tray-count">{pendingFiles.length}</span>
+              </div>
+              <div className="receipt-chat-tray-items">
               {pendingFiles.map((pf, i) => {
                 const f = pf.file
                 const isHeic = f.name.toLowerCase().endsWith('.heic') || f.name.toLowerCase().endsWith('.heif')
-                // HEIC 文件：根据上传状态显示不同占位（uploading 转圈 / done 缩略图 / error 错误）
-                if (isHeic) {
-                  const inner = pf.status === 'uploading' ? (
-                    <Spin size="small" style={{ color: 'var(--brand-gold)' }} />
+                const isImage = f.type.startsWith('image/')
+                const Icon = pickFileIcon(getFileType(f))
+                // 缩略图内容：图片走缩略图，HEIC 按上传状态切换，文档走类型图标
+                let thumb: ReactNode
+                if (isImage && !isHeic) {
+                  thumb = <img src={URL.createObjectURL(f)} alt={f.name} className="receipt-chat-filecard-img" />
+                } else if (isHeic) {
+                  thumb = pf.status === 'uploading' ? (
+                    <Spin size="small" />
                   ) : pf.status === 'error' ? (
                     <PictureOutlined style={{ fontSize: 18, color: 'var(--color-danger)' }} />
                   ) : pf.uploaded?.thumbnailUrl ? (
-                    <img src={pf.uploaded.thumbnailUrl} alt={f.name} className="receipt-chat-pending-thumb" />
+                    <img src={pf.uploaded.thumbnailUrl} alt={f.name} className="receipt-chat-filecard-img" />
                   ) : (
                     <PictureOutlined style={{ fontSize: 18, color: 'var(--brand-gold)' }} />
                   )
-                  return (
-                    <span key={pf.id} className="receipt-chat-pending-preview" onClick={() => removePendingFile(i)}>
-                      <span style={{
-                        height: 40, width: 40, borderRadius: 8,
-                        background: 'var(--bg-subtle)',
-                        border: '1px solid var(--border-default)',
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      }}>
-                        {inner}
-                      </span>
-                      <span className="receipt-chat-pending-remove">×</span>
-                    </span>
-                  )
-                }
-                if (f.type.startsWith('image/')) {
-                  return (
-                    <span key={pf.id} className="receipt-chat-pending-preview" onClick={() => removePendingFile(i)}>
-                      <img src={URL.createObjectURL(f)} alt={f.name} className="receipt-chat-pending-thumb" />
-                      <span className="receipt-chat-pending-remove">×</span>
-                    </span>
-                  )
+                } else {
+                  thumb = <Icon style={{ fontSize: 18, color: 'var(--type-color)' }} />
                 }
                 return (
-                  <Tag key={pf.id} closable onClose={() => removePendingFile(i)} style={{ margin: 0, fontSize: 12 }}>
-                    {f.name.length > 16 ? f.name.slice(0, 14) + '…' : f.name}
-                  </Tag>
+                  <div key={pf.id} className="receipt-chat-filecard" title={f.name}>
+                    <span className="receipt-chat-filecard-thumb">{thumb}</span>
+                    <span className="receipt-chat-filecard-meta">
+                      <span className="receipt-chat-filecard-name">{f.name}</span>
+                      <span className="receipt-chat-filecard-size">
+                        {pf.status === 'uploading' ? '上传中…' : formatSize(f.size)}
+                      </span>
+                    </span>
+                    <span className="receipt-chat-filecard-remove" onClick={() => removePendingFile(i)}>
+                      <CloseOutlined />
+                    </span>
+                  </div>
                 )
               })}
               {/* 图片未满 2 张时显示「+」按钮，点击再选一张 */}
@@ -568,30 +597,15 @@ export default function ReceiptChatModal({
                       showUploadList={false}
                       accept="image/*,.heic,.heif"
                     >
-                      <span style={{
-                        height: 40, width: 40, borderRadius: 8,
-                        border: '1.5px dashed var(--border-default)',
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        cursor: 'pointer', color: 'var(--text-tertiary)',
-                        transition: 'border-color 0.2s, color 0.2s',
-                        flexShrink: 0,
-                      }}
-                      onMouseEnter={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--brand-primary)'
-                        e.currentTarget.style.color = 'var(--brand-primary)'
-                      }}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.borderColor = 'var(--border-default)'
-                        e.currentTarget.style.color = 'var(--text-tertiary)'
-                      }}
-                      >
-                        <PlusOutlined style={{ fontSize: 16 }} />
+                      <span className="receipt-chat-filecard-add" title="再加一张凭证">
+                        <PlusOutlined />
                       </span>
                     </Upload>
                   )
                 }
                 return null
               })()}
+              </div>
             </div>
           )}
           <div className="receipt-chat-input-row">

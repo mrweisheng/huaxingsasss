@@ -68,14 +68,17 @@
     var(--type-color) 100%);
 }
 
-/* ── 头部 ── */
+/* ═══════════════════════════════════════════════
+   头部 · 凭证小票风
+   业务行(avatar+徽章+群名+状态) → 客户合同次行 → 金额小票条
+   ═══════════════════════════════════════════════ */
 .receipt-chat-header {
   display: flex;
-  align-items: flex-start;
+  flex-direction: column;
   gap: 10px;
-  padding: 14px 20px;
+  padding: 14px 20px 12px;
   border-bottom: 1px solid var(--border-light);
-  background: var(--bg-surface);
+  background: linear-gradient(180deg, var(--bg-surface) 0%, var(--type-color-bg) 160%);
   position: relative;
 }
 
@@ -88,15 +91,20 @@
   bottom: 0;
   width: 3px;
   background: var(--type-color);
-  opacity: 0.6;
+  opacity: 0.55;
+}
+
+.receipt-chat-header-top {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
 }
 
 .receipt-chat-header-avatar {
   background: linear-gradient(135deg, var(--type-color) 0%, var(--type-color-light) 100%) !important;
   color: #fff !important;
   flex-shrink: 0;
-  margin-top: 2px;
-  box-shadow: 0 2px 8px var(--type-shadow);
+  box-shadow: 0 3px 10px var(--type-shadow);
 }
 
 .receipt-chat-header-info {
@@ -104,10 +112,20 @@
   min-width: 0;
 }
 
-.receipt-chat-header-row {
+/* 主行：徽章 + 群名 + 状态 */
+.receipt-chat-header-main {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 次行：客户 · 合同 */
+.receipt-chat-header-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 3px;
   flex-wrap: wrap;
 }
 
@@ -142,9 +160,9 @@
   border-color: var(--border-light);
 }
 
-/* 业务微信群名称 — 最高优先级，大字加粗 */
+/* 业务微信群名称 — 主标题 */
 .receipt-chat-header-groupname {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 600;
   color: var(--text-primary);
   overflow: hidden;
@@ -152,34 +170,29 @@
   white-space: nowrap;
   min-width: 0;
   flex: 1;
+  letter-spacing: 0.2px;
 }
 
-.receipt-chat-header-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-primary);
-}
-
-/* 第2行：客户名 · 合同描述 */
-.receipt-chat-header-secondline {
-  margin-top: 4px;
-  gap: 6px;
-}
 .receipt-chat-header-customer {
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
   color: var(--text-secondary);
   flex-shrink: 0;
 }
+
 .receipt-chat-header-dot {
   color: var(--text-tertiary);
-  font-size: 12px;
+  font-size: 11px;
 }
 
-.receipt-chat-header-number {
+.receipt-chat-header-contract-title {
   font-size: 12px;
-  color: var(--text-tertiary);
-  font-family: monospace;
+  font-weight: 500;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
 }
 
 .receipt-chat-header-status {
@@ -187,6 +200,7 @@
   padding: 1px 6px;
   border-radius: 4px;
   font-weight: 500;
+  flex-shrink: 0;
 }
 
 .receipt-chat-header-status.active {
@@ -199,48 +213,67 @@
   color: #52c41a;
 }
 
-.receipt-chat-header-meta {
+/* ── 金额小票条（视觉锚点：类型标签 | 金额 | 合同号）── */
+.receipt-chat-receipt-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-top: 4px;
-  flex-wrap: wrap;
+  gap: 12px;
+  padding: 8px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--type-color-soft);
+  border-left: 3px solid var(--type-color);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px var(--type-shadow-soft);
 }
 
-/* 类型标签：跟随类型色（核心区分点之一） */
-.receipt-chat-header-type {
+.receipt-chat-receipt-type {
   font-size: 11px;
-  color: var(--type-color) !important;
-  background: var(--type-color-soft) !important;
-  padding: 2px 8px;
-  border-radius: 4px;
   font-weight: 600;
+  color: var(--type-color);
+  background: var(--type-color-soft);
+  padding: 3px 9px;
+  border-radius: 4px;
   letter-spacing: 0.3px;
-  border: 1px solid transparent;
+  flex-shrink: 0;
 }
 
-.receipt-chat-header-amount {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--type-color) !important;
+.receipt-chat-receipt-sep {
+  width: 1px;
+  height: 18px;
+  background: var(--border-light);
+  flex-shrink: 0;
+}
+
+/* 金额：mono 大字 + 类型色，凭证核对一眼锁定 */
+.receipt-chat-receipt-amount {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
+  color: var(--type-color);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-right: auto;
 }
 
-.receipt-chat-header-contract-title {
+.receipt-chat-receipt-amount-cur {
   font-size: 12px;
-  font-weight: 500;
-  color: var(--text-secondary);
-  background: var(--bg-subtle);
-  border: 1px solid var(--border-light);
-  padding: 2px 8px;
-  border-radius: 4px;
-  display: inline-flex;
-  align-items: center;
-  max-width: 320px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-weight: 600;
+  opacity: 0.8;
+}
+
+.receipt-chat-receipt-amount-num {
+  font-size: 18px;
+  letter-spacing: 0.3px;
+  line-height: 1;
+}
+
+.receipt-chat-receipt-number {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  letter-spacing: 0.2px;
 }
 
 /* ── 消息区域 ── */
@@ -253,11 +286,9 @@
   transition: background 0.15s;
 }
 
-/* 拖拽悬停高亮 */
+/* 拖拽悬停高亮（底层背景，与浮层叠加） */
 .receipt-chat-messages.chat-drop-active {
   background: linear-gradient(180deg, var(--type-color-bg) 0%, var(--type-color-soft) 100%);
-  outline: 2px dashed var(--type-color);
-  outline-offset: -8px;
 }
 
 .receipt-chat-empty {
@@ -283,6 +314,54 @@
   font-size: 14px;
   color: var(--text-secondary);
   font-weight: 500;
+}
+
+.receipt-chat-drop-sub {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+/* 拖拽悬停浮层：玻璃态 + 类型色光晕，有消息时也能醒目提示 */
+.receipt-chat-drop-overlay {
+  position: absolute;
+  inset: 10px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 2px dashed var(--type-color);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  z-index: 10;
+  animation: receiptDropIn 0.18s ease-out;
+  box-shadow: inset 0 0 50px var(--type-color-soft);
+}
+
+@keyframes receiptDropIn {
+  from { opacity: 0; transform: scale(0.97); }
+  to   { opacity: 1; transform: scale(1); }
+}
+
+.receipt-chat-drop-overlay-icon {
+  font-size: 46px !important;
+  color: var(--type-color) !important;
+  animation: wittyBounce 1.6s ease-in-out infinite;
+}
+
+.receipt-chat-drop-overlay-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--type-color);
+  letter-spacing: 0.3px;
+}
+
+.receipt-chat-drop-overlay-hint {
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 
 /* ── 消息 ── */
@@ -404,44 +483,164 @@
   flex-shrink: 0;
 }
 
-.receipt-chat-pending-files {
-  background: var(--type-color-bg) !important;
-  border: 1px solid var(--type-color-soft) !important;
-  border-bottom: none;
-  border-radius: 10px 10px 0 0;
-  padding: 8px 12px;
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  align-items: center;
-}
-
-.receipt-chat-pending-preview {
-  position: relative;
-  display: inline-block;
-  cursor: pointer;
-}
-
-.receipt-chat-pending-thumb {
-  height: 36px;
-  width: 36px;
-  border-radius: 6px;
-  object-fit: cover;
+/* ── 待发送凭证托盘 ── */
+.receipt-chat-tray {
+  margin-bottom: 8px;
+  padding: 8px 10px 10px;
+  background: var(--type-color-bg);
   border: 1px solid var(--type-color-soft);
+  border-radius: 10px;
 }
 
-.receipt-chat-pending-remove {
+.receipt-chat-tray-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--type-color);
+  letter-spacing: 0.3px;
+  margin-bottom: 8px;
+}
+
+.receipt-chat-tray-count {
+  background: var(--type-color);
+  color: #fff;
+  border-radius: 8px;
+  padding: 0 6px;
+  font-size: 10px;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  font-family: var(--font-mono);
+}
+
+.receipt-chat-tray-items {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* 单个文件卡片：缩略图/类型图标 + 文件名 + 大小 + hover 删除 */
+.receipt-chat-filecard {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 4px 4px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  max-width: 210px;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+  animation: receiptCardIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes receiptCardIn {
+  from { opacity: 0; transform: translateY(-4px) scale(0.96); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.receipt-chat-filecard:hover {
+  border-color: var(--type-color-soft);
+  box-shadow: 0 2px 8px var(--type-shadow-soft);
+  transform: translateY(-1px);
+}
+
+.receipt-chat-filecard-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 6px;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border-light);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.receipt-chat-filecard-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.receipt-chat-filecard-meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  gap: 1px;
+  padding-right: 14px;
+}
+
+.receipt-chat-filecard-name {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 140px;
+  line-height: 1.3;
+}
+
+.receipt-chat-filecard-size {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  font-family: var(--font-mono);
+  line-height: 1.2;
+}
+
+.receipt-chat-filecard-remove {
   position: absolute;
-  top: -5px;
-  right: -5px;
+  top: 4px;
+  right: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  font-size: 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.15s;
+  opacity: 0;
+}
+
+.receipt-chat-filecard:hover .receipt-chat-filecard-remove {
+  opacity: 1;
+}
+
+.receipt-chat-filecard-remove:hover {
   background: var(--color-danger);
   color: #fff;
-  border-radius: 50%;
-  width: 14px;
-  height: 14px;
-  font-size: 10px;
-  line-height: 14px;
-  text-align: center;
+}
+
+/* 「+」再加一张按钮 */
+.receipt-chat-filecard-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 46px;
+  border-radius: 8px;
+  border: 1.5px dashed var(--border-default);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all 0.2s;
+}
+
+.receipt-chat-filecard-add:hover {
+  border-color: var(--type-color);
+  border-style: solid;
+  color: var(--type-color);
+  background: var(--type-color-soft);
 }
 
 .receipt-chat-input-row {
@@ -558,10 +757,19 @@
    响应式微调
    ═══════════════════════════════════════════════ */
 @media (max-width: 768px) {
-  .receipt-chat-header-amount {
-    font-size: 12px;
+  .receipt-chat-receipt-amount-num {
+    font-size: 16px;
   }
-  .receipt-chat-header-type {
+  .receipt-chat-receipt-type {
     font-size: 10px;
+  }
+  .receipt-chat-header {
+    padding: 12px 14px 10px;
+  }
+  .receipt-chat-filecard {
+    max-width: 160px;
+  }
+  .receipt-chat-filecard-name {
+    max-width: 96px;
   }
 }
