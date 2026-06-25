@@ -36,6 +36,7 @@ from app.ai.prompts import (
     RECEIPT_ANALYSIS_PROMPT,
     GROUP_CHAT_ANALYSIS_PROMPT,
     FILE_CLASSIFY_PROMPT,
+    EXPENSE_TEMPLATE_EXTRACT_PROMPT,
 )
 from app.utils.file_utils import calculate_file_hash, resolve_file_path
 from app.ai.tool_executor_base import _get_redis_pool
@@ -127,10 +128,11 @@ _PURPOSE_PROMPTS = {
     "contract": CONTRACT_ANALYSIS_PROMPT,
     "receipt": RECEIPT_ANALYSIS_PROMPT,
     "group_chat": GROUP_CHAT_ANALYSIS_PROMPT,
+    "payment_info": EXPENSE_TEMPLATE_EXTRACT_PROMPT,   # 付款信息文字截图（聊天记录手敲的转账描述）
 }
 
 # auto 分类返回值 → 内部分析 purpose 映射
-# 只接受三种业务类型，其余全部拒绝
+# 接受四种业务类型，其余全部拒绝
 _CLASSIFY_TYPE_MAP = {
     "contract": "contract",
     "receipt": "receipt",
@@ -138,6 +140,10 @@ _CLASSIFY_TYPE_MAP = {
     "银行转账": "receipt",
     "group_chat": "group_chat",
     "微信群聊": "group_chat",
+    "payment_info": "payment_info",
+    "付款信息": "payment_info",
+    "转账记录": "payment_info",
+    "转账描述": "payment_info",
 }
 
 # 拒绝时的提示文案
@@ -151,7 +157,7 @@ _UNSUPPORTED_HINT = {
 
 def _map_classified_type(raw_type: str) -> str:
     """将 VL 分类返回的类型字符串映射为内部 purpose。
-    只接受 contract/receipt/group_chat，其余返回 "unsupported"。
+    只接受 contract/receipt/group_chat/payment_info，其余返回 "unsupported"。
     """
     if not raw_type:
         return "unsupported"

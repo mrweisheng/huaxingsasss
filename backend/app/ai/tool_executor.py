@@ -926,8 +926,13 @@ class ToolExecutorV2(ToolExecutor):
         expected_snapshot: Optional[dict] = None,
         diff_fields: Optional[list] = None,
         no_receipt: bool = False,
+        source: str = "bank_receipt",
     ) -> str:
-        """内部：放行创建（soft_mismatch 或 manual）。"""
+        """内部：放行创建（soft_mismatch / manual）。
+
+        source 取值：bank_receipt / payment_info_screenshot / manual_no_receipt。
+        no_receipt=True 时会自动覆盖 source 为 manual_no_receipt（防 LLM 传错）。
+        """
         err = self._check_payment_role(payment_type)
         if err:
             return err
@@ -948,6 +953,12 @@ class ToolExecutorV2(ToolExecutor):
         receipt_path, receipt_hash, receipt_data = self._resolve_receipt_artifact(
             file_id, _receipt_path, _receipt_file_hash, _receipt_data,
         )
+
+        # source 兜底：no_receipt 必走 manual_no_receipt，防 LLM 传错
+        if no_receipt:
+            source = "manual_no_receipt"
+        elif source not in ("bank_receipt", "payment_info_screenshot", "manual_no_receipt"):
+            source = "bank_receipt"
 
         if not description and isinstance(receipt_data, dict):
             contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
@@ -992,6 +1003,7 @@ class ToolExecutorV2(ToolExecutor):
                 expected_snapshot=expected_snapshot,
                 diff_fields=diff_fields,
                 no_receipt=no_receipt,
+                source=source,
             )
         except ValueError as e:
             self.db.rollback()
@@ -1009,9 +1021,15 @@ class ToolExecutorV2(ToolExecutor):
         }, ensure_ascii=False, default=str)
 
     def override_receipt_mismatch(self, **kwargs) -> str:
-        """凭证轻微不符（soft_mismatch）状态下，用户提供理由后手动放行创建付款。
+        """凭证轻微不符（soft_mismatch）/ 付款信息文字（manual + payment_info_screenshot）状态下手动放行创建付款。
 
         hard_conflict 状态下此工具会拒绝执行（match_status 校验放在 Service 层）。
+
+        Args:
+            source: 审计来源，默认 "bank_receipt"。可选值：
+              - bank_receipt：银行凭证/转账截图等正式凭证
+              - payment_info_screenshot：付款信息文字截图（聊天里手敲的转账描述）
+              - manual_no_receipt：纯文字无凭证录入
         """
         match_status = kwargs.get("match_status", "soft_mismatch")
         if match_status == "hard_conflict":
@@ -1039,7 +1057,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "analyze_files",
-            "description": "分析上传的文件。自动识别文件类型（合同/付款凭证/群聊截图），并提取结构化信息。仅支持这三种类型，车辆照片、证件等会被拒绝并提示原因。用户上传文件后应首先调用此工具。支持批量分析多个文件。纯分析工具，不写数据库。",
+            "description": "分析上传的文件。自动识别文件类型并提取结构化信息。支持四种类型：合同（contract）/银行凭证（receipt）/付款信息文字截图（payment_info，如聊天里手敲的'1、收款/转出...对应业务（群名称）'格式）/群聊截图（group_chat）。车辆照片、证件等会被拒绝。批量分析多个文件。纯分析工具，不写数据库。",
             "parameters": {
                 "type": "object",
                 "required": ["file_ids"],
@@ -1051,8 +1069,8 @@ TOOL_DEFINITIONS = [
                     },
                     "purpose": {
                         "type": "string",
-                        "enum": ["auto", "contract", "receipt", "group_chat"],
-                        "description": "分析目的。auto=自动判断（默认），其余为强制指定类型",
+                        "enum": ["auto", "contract", "receipt", "payment_info", "group_chat"],
+                        "description": "分析目的。auto=自动判断（默认），其余为强制指定类型。payment_info=付款信息文字截图。",
                     },
                 },
             },
@@ -1406,31 +1424,32 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "override_receipt_mismatch",
-            "description": "凭证识别后 match_status=soft_mismatch 时，用户提供放行理由后调本工具强行创建付款。**禁止用于 hard_conflict**（工具入口硬挡）。所有字段从 analyze_receipt 透传，外加 override_reason、extracted_snapshot、expected_snapshot、diff_fields 用于审计追溯。写入前必须先在对话里清楚列出差异和理由，请用户明确同意放行后再调用。",
+            "description": "用于三种场景的放行创建付款：(1) 银行凭证 soft_mismatch 用户给放行理由 (2) 付款信息文字截图（manual + source=payment_info_screenshot）(3) 纯文字描述录入（manual + source=manual_no_receipt）。**禁止用于 hard_conflict**（工具入口硬挡）。写入前必须先在对话里清楚列出关键字段和理由，请用户明确同意后再调用。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "amount", "currency", "paid_date", "override_reason", "match_status"],
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "payment_type": {"type": "string", "enum": ["income", "expense"], "description": "付款类型，默认 income"},
-                    "match_status": {"type": "string", "enum": ["soft_mismatch"], "description": "放行的匹配状态（仅 soft_mismatch 允许）"},
+                    "match_status": {"type": "string", "enum": ["soft_mismatch", "manual"], "description": "soft_mismatch=银行凭证轻微不符放行；manual=付款信息截图或纯文字录入"},
+                    "source": {"type": "string", "enum": ["bank_receipt", "payment_info_screenshot", "manual_no_receipt"], "description": "审计来源。bank_receipt=正式银行凭证（默认）；payment_info_screenshot=付款信息文字截图；manual_no_receipt=纯文字无凭证。**付款信息截图场景必须传 payment_info_screenshot**"},
                     "amount": {"type": "number", "description": "实际录入金额（一般取用户输入或凭证值）"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD"]},
                     "paid_date": {"type": "string", "description": "YYYY-MM-DD"},
                     "payment_method": {"type": "string"},
                     "installment_name": {"type": "string"},
                     "description": {"type": "string"},
-                    "notes": {"type": "string"},
+                    "notes": {"type": "string", "description": "付款备注。付款信息截图场景应保存结算状态原文（如「已结清:599800+7498-50000=557498」整段不解析）"},
                     "payee_name": {"type": "string", "description": "收款方（仅支出）"},
                     "counterparty_account": {"type": "object"},
                     "payment_account_id": {"type": "integer", "description": "收款账户ID（仅收入）"},
-                    "override_reason": {"type": "string", "description": "用户提供的放行理由（必填，要落审计）"},
+                    "override_reason": {"type": "string", "description": "放行理由（必填，要落审计）。付款信息截图：'基于付款信息截图录入；[款项摘要]'；纯文字：'用户口述录入，无凭证。[款项说明]'"},
                     "file_id": {"type": "string"},
                     "_receipt_path": {"type": "string"},
                     "_receipt_file_hash": {"type": "string"},
                     "_receipt_data": {"type": "object"},
-                    "extracted_snapshot": {"type": "object", "description": "analyze_receipt 返回的 extracted 快照"},
-                    "expected_snapshot": {"type": "object", "description": "analyze_receipt 返回的 expected 快照"},
+                    "extracted_snapshot": {"type": "object", "description": "analyze_receipt/analyze_files 返回的 extracted 快照"},
+                    "expected_snapshot": {"type": "object", "description": "合同期望字段快照"},
                     "diff_fields": {"type": "array", "description": "差异字段清单", "items": {"type": "object"}},
                 },
             },

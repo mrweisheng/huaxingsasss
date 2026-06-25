@@ -159,6 +159,201 @@ def _build_diff(
     }
 
 
+def _strip_date_prefix(s: str) -> str:
+    """去掉群名开头的日期前缀，如"6月20日"/"2025年6月13日"/"6/20"等。
+
+    日期是群名的辅助标识，业务主体在日期后面。比较时去掉日期能更精确地
+    匹配业务主体（人名+车型）。
+    """
+    if not s:
+        return ""
+    # 匹配开头的：YYYY年? + M月D日? / M月D日 / M/D / YYYY/M/D 等
+    pattern = r"^[\s\d年月日/.\-]+"
+    return re.sub(pattern, "", s).strip()
+
+
+def match_wechat_group(extracted_group: str, contract_group: str) -> dict:
+    """微信群名称三态模糊匹配。
+
+    用于「付款信息文字截图」与合同的群名称一致性校验。规则（从严到宽）：
+      strict   ：完全相等（去首尾空格）/ 去标点空格后归一化等值
+      loose    ：去日期前缀后等值 / 双向包含（业务主体部分）
+      missing  ：任一方缺失
+      conflict ：以上都不命中
+
+    设计要点：群名一般形如"6月20日陈世勇40系白外黑内埃尔法"，前缀是日期，
+    业务主体在后。比较时优先剥离日期前缀，再做主体匹配。
+
+    Args:
+        extracted_group: 从付款信息提取的群名称
+        contract_group: 合同关联的群名称
+
+    Returns:
+        {"status": "strict|loose|missing|conflict", "reason": "..."}
+    """
+    a_raw = (extracted_group or "").strip()
+    b_raw = (contract_group or "").strip()
+    if not a_raw or not b_raw:
+        return {"status": "missing", "reason": "群名称缺失，无法校验"}
+
+    # strict 1：完全相等
+    if a_raw == b_raw:
+        return {"status": "strict", "reason": "群名称完全一致"}
+
+    # strict 2：去空格标点后等值
+    a_norm = _normalize_name(a_raw)
+    b_norm = _normalize_name(b_raw)
+    if a_norm == b_norm:
+        return {"status": "strict", "reason": "群名称去空格标点后一致"}
+
+    # strict 3：简繁归一后等值
+    a_s = _normalize_name(_to_simplified(a_raw))
+    b_s = _normalize_name(_to_simplified(b_raw))
+    if a_s == b_s:
+        return {"status": "strict", "reason": "群名称简繁归一后一致"}
+
+    # 去日期前缀后再比较（业务主体匹配）
+    a_body = _normalize_name(_to_simplified(_strip_date_prefix(a_raw)))
+    b_body = _normalize_name(_to_simplified(_strip_date_prefix(b_raw)))
+
+    # strict 4：业务主体完全相等（仅日期差异）
+    if a_body and b_body and a_body == b_body:
+        return {"status": "strict", "reason": "群名称业务主体一致（仅日期差异）"}
+
+    # loose 1：双向包含（原始）
+    if a_norm in b_norm or b_norm in a_norm:
+        return {"status": "loose", "reason": "群名称包含匹配"}
+    if a_s in b_s or b_s in a_s:
+        return {"status": "loose", "reason": "群名称简繁归一后包含匹配"}
+
+    # loose 2：业务主体双向包含（只要主体明显重叠）
+    if a_body and b_body and (a_body in b_body or b_body in a_body):
+        return {"status": "loose", "reason": "群名称业务主体包含匹配"}
+
+    return {"status": "conflict", "reason": "群名称完全不同"}
+
+
+def match_payment_info(
+    *,
+    extracted: dict,
+    contract: Contract,
+    customer: Customer,
+    payment_type: str,
+) -> dict:
+    """付款信息文字截图与合同的三态一致性校验。
+
+    与 match_receipt 的区别：
+      - 不做付款方/收款方姓名匹配（付款信息截图里没有银行凭证那种"付款方"概念）
+      - 核心校验：方向类型一致 + 群名称匹配 + （income 时）客户名匹配
+
+    Args:
+        extracted: VL 提取结果，含 {type, customer_name_hint, wechat_group, amount, currency, ...}
+        contract: 合同 ORM 对象
+        customer: 合同关联客户 ORM 对象
+        payment_type: 当前会话操作类型 income / expense（由 session_mode 决定）
+
+    Returns:
+        {
+            "match_status": "ok" | "soft_mismatch" | "hard_conflict",
+            "diff_fields": [...],
+            "expected": {...},
+            "extracted_norm": {...},
+            "reason": str,
+        }
+    """
+    ext_type = (extracted.get("type") or "").lower().strip()
+    ext_customer_hint = (extracted.get("customer_name_hint") or "").strip()
+    ext_wechat_group = (extracted.get("wechat_group") or "").strip()
+    ext_amount = _to_decimal(extracted.get("amount"))
+    ext_currency = (extracted.get("currency") or "").upper() or None
+    confidence = float(extracted.get("confidence") or 0.0)
+
+    exp_customer = customer.name if customer else ""
+    exp_wechat_group = contract.wechat_group or ""
+
+    diffs: list[dict] = []
+    hard = False
+
+    # ── 1. 收支方向一致性：付款信息文字里的 type 必须与当前 mode 一致 ──
+    if ext_type and ext_type not in ("income", "expense"):
+        # 异常 type 值，按 soft 处理
+        diffs.append(_build_diff("type", payment_type, ext_type, "soft"))
+    elif ext_type and ext_type != payment_type:
+        # 收款图传到了支出弹窗 / 转出图传到了收入弹窗 → hard
+        hard = True
+        diffs.append(_build_diff(
+            "type",
+            f"当前为录入{'收入' if payment_type == 'income' else '支出'}",
+            f"截图为{'收款' if ext_type == 'income' else '转出'}",
+            "hard",
+        ))
+
+    # ── 2. 群名称匹配（核心校验） ──
+    group_match = match_wechat_group(ext_wechat_group, exp_wechat_group)
+    if group_match["status"] == "conflict":
+        hard = True
+        diffs.append(_build_diff(
+            "wechat_group", exp_wechat_group, ext_wechat_group, "hard",
+        ))
+    elif group_match["status"] == "loose":
+        diffs.append(_build_diff(
+            "wechat_group", exp_wechat_group, ext_wechat_group, "soft",
+        ))
+    # strict / missing 不报 diff
+
+    # ── 3. 客户名匹配（仅 income 走，且非 hard 时才检查） ──
+    if not hard and payment_type == "income" and ext_customer_hint and exp_customer:
+        if not _name_contains(ext_customer_hint, exp_customer):
+            diffs.append(_build_diff(
+                "customer_name", exp_customer, ext_customer_hint, "soft",
+            ))
+
+    # ── 4. 置信度低 → soft ──
+    if confidence and confidence < 0.6:
+        diffs.append(_build_diff("confidence", ">=0.6", confidence, "soft"))
+
+    # 三态判定
+    if hard:
+        match_status = "hard_conflict"
+        reason = "、".join(d["field"] for d in diffs if d["severity"] == "hard") + " 完全不一致，禁止录入"
+    elif not diffs:
+        match_status = "ok"
+        reason = "付款信息与合同关键字段全部匹配"
+    else:
+        match_status = "soft_mismatch"
+        reason = "、".join(d["field"] for d in diffs) + " 不一致或需复核"
+
+    expected_snapshot = {
+        "customer_name": exp_customer,
+        "wechat_group": exp_wechat_group,
+        "payment_type": payment_type,
+        "contract_currency": contract.currency,
+    }
+    extracted_norm = {
+        "type": ext_type or None,
+        "customer_name_hint": ext_customer_hint or None,
+        "wechat_group": ext_wechat_group or None,
+        "amount": float(ext_amount) if ext_amount is not None else None,
+        "currency": ext_currency,
+        "confidence": confidence,
+    }
+
+    logger.info(
+        "PaymentInfoMatcher: contract_id=%s, type=%s, status=%s, group_match=%s, diffs=%d",
+        getattr(contract, "id", None), payment_type, match_status,
+        group_match["status"], len(diffs),
+    )
+
+    return {
+        "match_status": match_status,
+        "diff_fields": diffs,
+        "expected": expected_snapshot,
+        "extracted_norm": extracted_norm,
+        "reason": reason,
+        "wechat_group_match": group_match,
+    }
+
+
 def match_receipt(
     *,
     extracted: dict,

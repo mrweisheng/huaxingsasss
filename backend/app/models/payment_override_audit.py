@@ -34,6 +34,12 @@ class PaymentOverrideAudit(Base):
     user_input_snapshot = Column(JSON, comment="用户对话中提供的信息快照 JSON")
     expected_snapshot = Column(JSON, comment="合同/付款计划中应当匹配的字段快照 JSON")
     diff_fields = Column(JSON, comment="差异字段清单 JSON 数组")
+    source = Column(
+        String(32),
+        nullable=False,
+        server_default="bank_receipt",
+        comment="审计来源：bank_receipt=银行凭证 / payment_info_screenshot=付款信息截图 / manual_no_receipt=纯文字无凭证",
+    )
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, comment="放行时间")
 
     __table_args__ = (
@@ -43,5 +49,9 @@ class PaymentOverrideAudit(Base):
         CheckConstraint(
             "match_status IN ('soft_mismatch','hard_conflict','manual')",
             name="payment_override_audit_match_status_chk",
+        ),
+        CheckConstraint(
+            "source IN ('bank_receipt','payment_info_screenshot','manual_no_receipt')",
+            name="payment_override_audit_source_chk",
         ),
     )

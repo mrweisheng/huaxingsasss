@@ -1130,6 +1130,7 @@ class PaymentService:
         expected_snapshot: Optional[dict],
         diff_fields: Optional[list],
         no_receipt: bool = False,
+        source: str = "bank_receipt",
     ) -> Payment:
         """对话流：凭证轻微不符（soft_mismatch）或无凭证（manual）手动放行创建付款。
 
@@ -1137,6 +1138,11 @@ class PaymentService:
         - 支出：直接 paid + verification_result 记录原因
         - 同事务写一条 payment_override_audit（业务级审计），失败回滚
         - 同事务写一条 audit_logs（中间件口径，统一 manual_confirm 动作语义）
+
+        source 取值（审计来源）：
+          - bank_receipt（默认）：银行凭证/转账截图等正式凭证
+          - payment_info_screenshot：付款信息文字截图（聊天记录手敲的转账描述）
+          - manual_no_receipt：纯文字无凭证录入（用户口述无凭证支出）
         """
         if not override_reason or not override_reason.strip():
             raise ValueError("放行理由不能为空")
@@ -1145,6 +1151,8 @@ class PaymentService:
         if match_status == "hard_conflict":
             # 双保险：工具层应在硬冲突时拒绝调用此方法
             raise ValueError("硬冲突禁止放行")
+        if source not in ("bank_receipt", "payment_info_screenshot", "manual_no_receipt"):
+            raise ValueError(f"非法的审计来源 source: {source}")
 
         is_income = payment_type == "income"
         contract = db.query(Contract).filter(Contract.id == contract_id).first()
@@ -1237,6 +1245,7 @@ class PaymentService:
             user_input_snapshot=AuditService._json_safe(user_input_snapshot or {}),
             expected_snapshot=AuditService._json_safe(expected_snapshot or {}),
             diff_fields=AuditService._json_safe({"items": diff_fields or []}).get("items"),
+            source=source,
         )
         db.add(audit_row)
 

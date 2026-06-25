@@ -25,6 +25,8 @@ interface ReceiptChatModalProps {
   contractId: number
   contractNumber: string
   customerName: string
+  wechatGroup?: string
+  businessType?: string   // 车辆买卖 / 两地牌过户 / 年检保险 / 其他
   contractTitle?: string
   totalAmount?: number
   currency?: string
@@ -45,7 +47,15 @@ const TOOL_LABELS: Record<string, string> = {
   search_customers: '搜索客户',
   create_income_payment: '录入收入',
   create_expense_payment: '录入支出',
-  override_receipt_mismatch: '凭证放行',
+  override_receipt_mismatch: '放行入账',
+}
+
+// 业务色徽章映射：与设计系统业务色保持一致
+const BIZ_BADGE_STYLE: Record<string, { className: string; label: string }> = {
+  '两地牌过户': { className: 'biz-license-chip', label: '两地牌' },
+  '车辆买卖': { className: 'biz-vehicle-chip', label: '车辆' },
+  '年检保险': { className: 'biz-insurance-chip', label: '年检保险' },
+  '其他': { className: 'biz-other-chip', label: '其他业务' },
 }
 
 const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: ChatMessage; streaming?: boolean }) {
@@ -116,7 +126,7 @@ const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
 export default function ReceiptChatModal({
   open, contractId, contractNumber, customerName,
-  contractTitle, totalAmount, currency = 'CNY', status,
+  wechatGroup, businessType, contractTitle, totalAmount, currency = 'CNY', status,
   paymentType, onClose,
 }: ReceiptChatModalProps) {
   const [sessionId, setSessionId] = useState<string | null>(null)
@@ -418,19 +428,39 @@ export default function ReceiptChatModal({
       className={`receipt-chat-modal receipt-chat-modal--${paymentType}`}
       styles={{ body: { padding: 0, height: '70vh', display: 'flex', flexDirection: 'column' } }}
     >
-      {/* 头部：合同信息 + 操作描述 */}
+      {/* 头部：群名称(最高优先级) → 客户·合同描述 → 操作类型+金额+合同号 */}
       <div className="receipt-chat-header">
         <Avatar icon={<RobotOutlined />} className="receipt-chat-header-avatar" size={28} />
         <div className="receipt-chat-header-info">
+          {/* 第1行：业务微信群名称（最高优先级，大字）+ 业务色徽章 + 状态 */}
           <div className="receipt-chat-header-row">
-            <span className="receipt-chat-header-title">{customerName}</span>
-            <span className="receipt-chat-header-number">{contractNumber}</span>
+            {businessType && BIZ_BADGE_STYLE[businessType] && (
+              <span className={`receipt-chat-header-biz-chip ${BIZ_BADGE_STYLE[businessType].className}`}>
+                {BIZ_BADGE_STYLE[businessType].label}
+              </span>
+            )}
+            <span className="receipt-chat-header-groupname" title={wechatGroup}>
+              {wechatGroup || '未设置业务群'}
+            </span>
             {status && (
               <span className={`receipt-chat-header-status ${status}`}>
                 {status === 'active' ? '执行中' : status === 'completed' ? '已完成' : status}
               </span>
             )}
           </div>
+          {/* 第2行：客户名 · 合同描述 */}
+          <div className="receipt-chat-header-meta receipt-chat-header-secondline">
+            <span className="receipt-chat-header-customer">{customerName}</span>
+            {contractTitle && (
+              <>
+                <span className="receipt-chat-header-dot">·</span>
+                <span className="receipt-chat-header-contract-title" title={contractTitle}>
+                  {contractTitle}
+                </span>
+              </>
+            )}
+          </div>
+          {/* 第3行：操作类型 + 金额 + 合同号（弱化小字） */}
           <div className="receipt-chat-header-meta">
             <span className="receipt-chat-header-type">录入{typeLabel}</span>
             {totalAmount != null && (
@@ -438,11 +468,7 @@ export default function ReceiptChatModal({
                 {currencySymbol[currency] || '¥'}{totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
               </span>
             )}
-            {contractTitle && (
-              <span className="receipt-chat-header-contract-title" title={contractTitle}>
-                {contractTitle}
-              </span>
-            )}
+            <span className="receipt-chat-header-number">{contractNumber}</span>
           </div>
         </div>
       </div>

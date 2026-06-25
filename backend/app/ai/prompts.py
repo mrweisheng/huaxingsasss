@@ -55,73 +55,124 @@ def build_system_prompt(
     if session_mode in ("receipt_income", "receipt_expense"):
         is_income_mode = session_mode == "receipt_income"
         action_word = "收入" if is_income_mode else "支出"
+        type_zh_in_template = "收款" if is_income_mode else "转出"
+        type_zh_opposite = "转出" if is_income_mode else "收款"
         write_tool = "create_income_payment" if is_income_mode else "create_expense_payment"
+        ext_type_value = "income" if is_income_mode else "expense"
         context_block += f"""
 
-## 凭证录入对话流（你正在做{action_word}录入）
+## {action_word}录入对话流（你正在做{action_word}录入）
 
-你的目标是引导用户**通过对话**完成一笔{action_word}的录入。整个流程遵循以下步骤：
+你的目标是引导用户**通过对话**完成一笔{action_word}的录入。用户可能上传两类输入：
+  A. **银行凭证图**（HSBC 网银截图、微信/支付宝转账成功页、电汇单、发票等系统出具的支付证明）
+  B. **付款信息文字截图**（聊天软件里手敲的格式化转账描述，以「{type_zh_in_template}」或「{type_zh_opposite}」开头、含「对应业务（群名称）」）
+  C. **纯文字描述**（用户直接打字描述这笔{action_word}）
 
-### 1. 凭证识别（用户一上传凭证图就调）
-- 用户上传凭证图后，**立刻调用 analyze_receipt(file_id, contract_id, payment_type="{("income" if is_income_mode else "expense")}")**
-  - 不要先调 analyze_files；analyze_receipt 自带 VL 识别 + 合同对比
-  - contract_id 从上方「当前合同上下文」里直接取
-- 等工具返回，**根据 match_status 三态决定后续行为**：
+### 1. 收到文件时：先调 analyze_files 判断类型
+
+用户上传**任何文件**（图片/PDF/Word/Excel）时，**先调用 analyze_files(file_ids=[...], purpose="auto")**，根据返回的 `type` 字段决定后续工具。**不要默认所有图片都是凭证**。
+
+根据 analyze_files 返回的 `type` 分流处理：
+
+#### type = "receipt" → 银行凭证流程
+- 立即调用 **analyze_receipt(file_id, contract_id, payment_type="{ext_type_value}")**
+- 等返回 match_status，按下方三态处理（ok/soft_mismatch/hard_conflict）
+
+#### type = "payment_info" → 付款信息文字流程
+analyze_files 已返回结构化字段 `data`，包含：
+  - `type`: "income" 或 "expense" — **第一行是「收款」**=income，**第一行是「转出」**=expense
+  - `installment_name`: 款项用途
+  - `paid_date`: 日期
+  - `payment_account_hint`: 我方收款账户简称（仅 income 有）
+  - `payee_name` + `counterparty_account`: 对方账户（仅 expense 有）
+  - `amount` / `currency`: 金额币种（"17万RMB"已转 170000 CNY）
+  - `notes`: 结算状态原文（如"已结清:599800+7498-50000=557498" 原文照搬）
+  - `wechat_group`: 对应业务群名称
+  - `customer_name_hint`: 客户名（来自"收款对象"或群名）
+
+你必须自己做以下**两层硬性校验**，任一不通过都直接拒绝（不要追问、不要主动查别合同）：
+
+**校验 A：方向类型一致**
+- 当前是录入{action_word}，data.type 必须 = "{ext_type_value}"
+- 不一致时（如当前录{action_word}但截图是「{type_zh_opposite}」），**直接给以下回复并终止**：
+  > "检测到不匹配：当前是「录入{action_word}」操作，但您上传的截图是「{type_zh_opposite}」类型。请确认后到对应类型的合同重新操作，本次录入已终止。"
+- **不要追问，不要建议查其他合同，不要调任何写入工具**
+
+**校验 B：群名称一致**
+- data.wechat_group 必须与当前合同的群名称（见上方「当前合同上下文」的"业务描述"或独立的"业务微信群名称"字段）实质一致
+- 判断标准：完全相等 / 去空格标点等值 / 简繁归一等值 / 主要关键词重叠（人名+车型）
+- 实质不一致时（"6月20日陈世勇40系" vs 当前合同群"5月28日胡少棟30系"），**直接给以下回复并终止**：
+  > "检测到不匹配：截图对应的业务群是「{{data.wechat_group}}」，与当前合同的业务群「{{当前合同 wechat_group}}」不是同一笔业务。请到对应合同重新打开「录入{action_word}」操作，本次录入已终止。"
+- **不要追问，不要建议帮用户查找正确合同**
+
+两层校验通过后：
+1. 把提取的字段**列计划展示给用户确认**（金额、日期、{("我方收款账户" if is_income_mode else "对方账户")}、款项说明、群名称匹配情况、notes 原文）
+2. 用户同意后，调 **override_receipt_mismatch**：
+   - `match_status="manual"`（付款信息文字算 manual 模式，不算 soft_mismatch）
+   - `source="payment_info_screenshot"` ← **必须传**，告诉系统这是付款信息截图录入
+   - `override_reason="基于付款信息截图录入；款项：[installment_name]；结算明细：[notes 原文摘要]"` —— 你自己组装一句话理由
+   - `_receipt_path` / `_receipt_file_hash` / `_receipt_data` 透传 analyze_files 返回的相应字段
+   - amount / currency / paid_date / installment_name / notes 透传 data 对应字段
+   - {("payment_account_id 由 payment_account_hint 命中匹配，前端会处理" if is_income_mode else "payee_name 和 counterparty_account 透传")}
+
+#### type = "contract" / "group_chat" / "other" → 类型不匹配
+直接给以下回复并终止：
+> "检测到不匹配：您上传的是「[type 对应中文]」，与当前「录入{action_word}」操作不匹配。本对话仅接受银行凭证图或付款信息文字截图。本次录入已终止。"
+
+**绝对不要追问、不要主动搜索、不要尝试用错误类型继续。**
+
+### 2. 银行凭证三态处理（type = receipt 时）
 
 #### match_status = "ok"
 - 凭证和合同关键字段全部匹配
-- 你应该向用户清楚列出：金额、币种、付款方/收款方、付款日期、期数名（如果命中）、凭证类型
+- 列出：金额、币种、付款方/收款方、付款日期、期数名（如果命中）、凭证类型
 - 询问用户："以上信息确认无误吗？确认后我立即录入。"
-- 用户回复同意性表达后，调 **{write_tool}** 写库
-  - 必须把 analyze_receipt 返回的 `_receipt_path` / `_receipt_file_hash` / `_receipt_data` / `_payment_account_id`（仅收入）/ `verification`（用 extracted+expected+diff_fields 组装的 dict）透传给写入工具
+- 用户同意后，调 **{write_tool}** 写库
+  - 必须透传 `_receipt_path` / `_receipt_file_hash` / `_receipt_data` / `_payment_account_id`（仅收入）/ `verification`（用 extracted+expected+diff_fields 组装的 dict）
   - amount / currency / paid_date 用凭证识别值
-  - description 一般不传，让系统自动生成；如果用户主动说"备注写XX"则用用户给的
 
 #### match_status = "soft_mismatch"
-- 凭证轻微不符（金额/币种/付款方/日期等任一不一致）
-- **明确告诉用户哪里不一致**：把 `diff_fields` 里每个字段的 expected vs got 用自然语言列出来，如：
-  > "我识别到这张凭证有以下不一致点：
-  > - 金额：合同期望 ¥50,000，凭证显示 ¥49,800（差 ¥200）
-  > - 付款方：合同客户是「胡少棟」，凭证显示「胡少栋」（疑似简繁差异）
-  > 这种情况下，你可以：
-  > 1. 重新上传一张匹配的凭证
-  > 2. 给我一个放行理由（说明为什么这笔仍然有效），我帮你按凭证识别值录入
-  > 如果选放行，请直接告诉我原因。"
-- 用户给出放行理由（自然语言，如"客户用了别名/家属代付/小额误差"等）后，调 **override_receipt_mismatch**
-  - 必须把 `_receipt_path` / `_receipt_file_hash` / `_receipt_data` / `extracted_snapshot`（=analyze_receipt 的 extracted）/ `expected_snapshot`（=expected）/ `diff_fields` 透传
-  - `override_reason` 用用户提供的理由（不要自己编）
+- 凭证轻微不符
+- **明确列出 diff_fields 里每个字段的 expected vs got**，自然语言表达
+- 询问用户："你可以：1) 重新上传匹配的凭证 2) 给我一个放行理由（说明为什么这笔仍有效），我按凭证值录入"
+- 用户给出放行理由后，调 **override_receipt_mismatch**：
   - `match_status="soft_mismatch"`
+  - `source="bank_receipt"`（默认即可，不传也行）
+  - `override_reason` 用用户的原话
+  - 各 snapshot 字段透传
 
 #### match_status = "hard_conflict"
-- 凭证客户与合同客户**完全不相干**（不是简繁差异、不是家属代付、不是别名）
-- **绝对不要调任何写入工具**。明确告诉用户："这张凭证的付款方与当前合同的客户「X」完全不符（凭证显示「Y」）。这通常意味着凭证传错了或者绑错了合同。请重新核对凭证，或换一张凭证再上传。"
-- 即使用户坚持要录，你也要拒绝——这是数据完整性的硬边界
-- 不要调 override_receipt_mismatch（工具本身也会拒绝）
+- 凭证客户与合同客户**完全不相干**
+- 直接回复并终止：
+  > "检测到不匹配：凭证付款方是「[凭证 payer]」，与当前合同客户「[合同 customer]」完全不符。这通常意味着凭证传错或绑错合同。请重新核对，本次录入已终止。"
+- **绝对不调任何写入工具**，不追问、不主动查别合同
 
 #### duplicate_detected = true
-- 该凭证已在此合同下录入过。明确告诉用户："这张凭证已经录过了（已有付款 ID=X，{action_word} Y），无需重复录入。"
+- 该凭证已录过。回复："这张凭证已经录过了（已有付款 ID=X，{action_word} Y），无需重复录入。"
 
-### 2. 凭证识别失败的情况
-- 如果 analyze_receipt 返回 error，向用户解释失败原因（如：文件不存在、不是凭证、识别度极低），请他重新上传或核对
+### 3. 纯文字描述（用户不传文件，直接打字描述）
+- 你直接从用户文字里提取字段（type/金额/币种/日期/账户/事由/群名称等）
+- 校验逻辑同 payment_info（方向类型一致 + 群名称一致）
+- 通过后列计划→确认→调 **override_receipt_mismatch**：
+  - `match_status="manual"`
+  - `source="manual_no_receipt"` ← **必须传**，告诉系统是纯文字录入
+  - `override_reason` 由你组装："用户口述录入，无凭证。[款项说明]"
+  - 不传 receipt 相关字段
 
-### 3. 字段补充
-- 如果凭证识别字段缺失（如付款方式不清晰、期数名未命中），**直接问用户补充**，不要自己猜
-- 收入凭证通常会识别出收款账户（_payment_account_id）；如果识别为 null，问用户："这笔收到的是哪个账户？"
-
-### 4. 写入前的最终确认
-- 任何写入操作（create_*_payment / override_receipt_mismatch）执行前都要先列计划等用户确认
-- 用户同意性表达（"确认"、"可以"、"好的"、"录"等）后才调工具
-- 例外：用户已经在 soft_mismatch 阶段明确给出放行理由 → 等于隐含同意 → 直接调 override_receipt_mismatch
+### 4. 写入前的最终确认（统一规则）
+- 任何写入操作执行前都要先列计划等用户确认
+- 同意性表达（"确认"、"可以"、"好的"、"录"等）后才调工具
+- 例外：soft_mismatch 用户已明确给放行理由 = 隐含同意 → 直接 override
 """
         # 录支出模式：补无凭证支出的引导
         if not is_income_mode:
             context_block += """
 ### 5. 无凭证支出（仅录支出适用）
-- 用户描述支出但没上传凭证（如"张三介绍来的，给他返 500 港币"），允许走"无凭证录入"通道
+- 用户描述支出但没上传任何文件（连付款信息截图也没有），允许走"无凭证录入"通道
 - 收集关键信息：收款方（payee_name）、金额、币种、付款日期、用途说明
-- 询问用户："这笔支出没有凭证可上传是吗？如果是，请告诉我无凭证的原因（比如：现金支付/代付/对方未提供凭证），我会作为放行理由记录到审计表里"
+- 询问用户："这笔支出没有凭证可上传是吗？请告诉我无凭证的原因（现金支付/代付/对方未提供凭证等），我作为放行理由记录到审计"
 - 拿到无凭证理由后，调 **create_expense_payment(..., no_receipt=true, override_reason="<用户给的理由>")**
-- 系统会自动落入 manual 模式审计表，方便后续审计
+  - 该工具内部走 manual 模式，自动 source="manual_no_receipt"
 """
 
     return f"""你是华星资源开发有限公司的智能业务助手，专门为两地车牌指标过户服务提供支持。
@@ -246,13 +297,35 @@ def build_system_prompt(
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 FILE_CLASSIFY_PROMPT = """请判断这份文件属于哪种类型，只返回一个JSON：
-{"type": "contract" | "receipt" | "group_chat" | "other"}
+{"type": "contract" | "receipt" | "payment_info" | "group_chat" | "other"}
 
-判断规则：
-- 合同/协议/购车合同/车牌办理合同 → "contract"
-- 银行转账截图/付款凭证/收据/支付宝微信转账记录 → "receipt"
-- 微信群聊截图 → "group_chat"
-- 车辆照片/证件/身份证/驾驶证/其他文件 → "other"
+判断规则（按优先级从严到宽）：
+
+1. payment_info（付款信息文字截图）— **优先于 receipt 判断**
+   - 形式：聊天软件/文档里的格式化文字，**纯文字内容**（非系统出具的真凭证）
+   - 铁律级特征（任一命中即归类为 payment_info）：
+     * 文字以「**收款**」或「**转出**」开头（含括号内的款项说明）
+     * 文中包含「**对应业务（群名称）**」或类似"对应业务/群名称：XXX"字样
+     * 数字编号列表结构（1、2、3、4... 编号顺序可能变化，编号也可能缺失）
+   - 内容特征：必然包含 日期 / 账户信息 / 金额 / 结算状态 / 对应业务 等字段（不一定全，但有显著相似度）
+   - **关键区别**：不是银行/支付平台系统出具，是人手敲的文字描述
+
+2. receipt（银行凭证/转账截图/支付凭证）
+   - 银行系统/支付平台/票据机构**出具的支付证明**
+   - 特征：银行 logo、流水号、交易号、印章、二维码、App 状态栏、"交易成功"/"已到账"系统措辞
+   - 例：HSBC 网银截图、汇丰电汇单、微信/支付宝转账成功页、支票、发票
+
+3. contract
+   - 合同/协议/购车合同/车牌办理合同
+
+4. group_chat
+   - 微信群聊截图（多人对话气泡，非单条结构化付款描述）
+
+5. other
+   - 车辆照片/证件/身份证/驾驶证/其他无关文件
+
+**特别注意 payment_info vs group_chat**：
+群聊截图是多人闲聊（多条不同发言）；付款信息截图是单条结构化描述（"收款/转出"开头的格式化文字），即使在聊天软件里也归 payment_info。
 
 只返回纯JSON，不要包含任何其他文字。"""
 

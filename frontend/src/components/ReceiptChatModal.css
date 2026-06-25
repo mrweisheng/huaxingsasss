@@ -111,10 +111,69 @@
   flex-wrap: wrap;
 }
 
+/* 业务色徽章（与设计系统业务色对应，只在此标识业务类型） */
+.receipt-chat-header-biz-chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+.receipt-chat-header-biz-chip.biz-vehicle-chip {
+  color: var(--biz-vehicle-deep, #1e3f63);
+  background: var(--biz-vehicle-soft, #e5edf6);
+  border-color: rgba(45, 91, 138, 0.15);
+}
+.receipt-chat-header-biz-chip.biz-license-chip {
+  color: var(--biz-license-deep, #8f2d28);
+  background: var(--biz-license-soft, #fbe9e7);
+  border-color: rgba(184, 66, 59, 0.15);
+}
+.receipt-chat-header-biz-chip.biz-insurance-chip {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-color: var(--border-light);
+}
+.receipt-chat-header-biz-chip.biz-other-chip {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-color: var(--border-light);
+}
+
+/* 业务微信群名称 — 最高优先级，大字加粗 */
+.receipt-chat-header-groupname {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+
 .receipt-chat-header-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
+}
+
+/* 第2行：客户名 · 合同描述 */
+.receipt-chat-header-secondline {
+  margin-top: 4px;
+  gap: 6px;
+}
+.receipt-chat-header-customer {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+.receipt-chat-header-dot {
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 
 .receipt-chat-header-number {
