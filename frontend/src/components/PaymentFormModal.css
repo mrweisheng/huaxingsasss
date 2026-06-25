@@ -461,40 +461,14 @@
   color: var(--text-tertiary);
 }
 
-/* ── 不匹配警告呼吸效果（强烈版）── */
-@keyframes pfm-danger-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0),
-                inset 0 0 0 0 rgba(255, 77, 79, 0);
-    border-color: var(--color-danger, #ff4d4f);
-  }
-  50% {
-    box-shadow: 0 0 30px 8px rgba(255, 77, 79, 0.4),
-                0 0 60px 20px rgba(255, 77, 79, 0.15),
-                inset 0 0 30px 0 rgba(255, 77, 79, 0.08);
-    border-color: rgba(255, 77, 79, 0.8);
-  }
-}
-@keyframes pfm-danger-border {
-  0%, 100% { border: 2px solid var(--color-danger, #ff4d4f); }
-  50% { border: 3px solid rgba(255, 77, 79, 0.9); }
-}
-
-.pfm-mismatch-active {
-  animation: pfm-danger-pulse 1.5s ease-in-out infinite,
-             pfm-danger-border 1.5s ease-in-out infinite;
-  border-radius: var(--radius-md);
-}
-
-/* 警告条呼吸效果 */
+/* 警告条呼吸效果：纯 box-shadow 脉冲，不碰 transform/border 厚度，
+   避免与 antd Modal 关闭动画冲突导致弹窗反复缩小重现 */
 @keyframes pfm-alert-flash {
   0%, 100% {
-    background: linear-gradient(90deg, rgba(255, 77, 79, 0.15), rgba(255, 77, 79, 0.08), rgba(255, 77, 79, 0.15));
-    transform: scaleY(1);
+    box-shadow: 0 0 0 0 rgba(255, 77, 79, 0);
   }
   50% {
-    background: linear-gradient(90deg, rgba(255, 77, 79, 0.25), rgba(255, 77, 79, 0.18), rgba(255, 77, 79, 0.25));
-    transform: scaleY(1.02);
+    box-shadow: 0 0 12px 2px rgba(255, 77, 79, 0.35);
   }
 }
 

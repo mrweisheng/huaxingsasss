@@ -143,6 +143,7 @@ export default function PaymentFormModal({
   const [extractedData, setExtractedData] = useState<ExtractedReceiptData | null>(null)
   const [mismatchWarning, setMismatchWarning] = useState<string | null>(null)
   const extractedCounterpartyRef = useRef<Partial<CounterpartyAccount> | null>(null)
+  const isMountedRef = useRef(true)
   const isEdit = mode === 'edit'
   const isIncome = isEdit ? editing?.type === 'income' : paymentType === 'income'
   const contractCurrency = editing?.contract_currency || currency
@@ -167,6 +168,12 @@ export default function PaymentFormModal({
       setAccounts(arr)
     }).catch(() => setAccounts([]))
   }, [open, isIncome])
+
+  // 组件卸载标记，防止 async 回调在关闭后触发状态更新
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => { isMountedRef.current = false }
+  }, [])
 
   // 打开时初始化表单
   useEffect(() => {
@@ -256,6 +263,7 @@ export default function PaymentFormModal({
       setTemplateFile({ file, preview_url: previewUrl })
 
       const extracted = await paymentApi.extractReceipt(file)
+      if (!isMountedRef.current) return false
       setExtractedData(extracted)
 
       // 检查类型是否匹配 — 不匹配时不填充表单
@@ -288,6 +296,7 @@ export default function PaymentFormModal({
           if (extracted.counterparty_account.branch) formValues.branch = extracted.counterparty_account.branch
         }
       }
+      if (!isMountedRef.current) return false
       form.setFieldsValue(formValues)
 
       if (extracted.counterparty_account) {
@@ -316,7 +325,7 @@ export default function PaymentFormModal({
       console.warn('图片识别失败', e)
       message.warning('图片识别失败，请手动填写')
     } finally {
-      setExtracting(false)
+      if (isMountedRef.current) setExtracting(false)
     }
     return false
   }
@@ -475,7 +484,7 @@ export default function PaymentFormModal({
       destroyOnClose
       maskClosable={false}
       width={760}
-      className={`pfm-modal ${themeClass} ${mismatchWarning ? 'pfm-mismatch-active' : ''}`}
+      className={`pfm-modal ${themeClass}`}
     >
       {renderVerificationPanel(editing)}
 
@@ -509,6 +518,7 @@ export default function PaymentFormModal({
       {/* 不匹配警告（顶部醒目位置） */}
       {mismatchWarning && (
         <Alert
+          className="pfm-mismatch-alert"
           type="error"
           showIcon
           icon={<WarningOutlined />}
