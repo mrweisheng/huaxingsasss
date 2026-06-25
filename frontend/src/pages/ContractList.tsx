@@ -134,8 +134,6 @@ export default function ContractList() {
     }
   }
 
-  const totalPages = Math.ceil(total / 20)
-
   // 汇总条：按当前页累加，按币种分组
   const summary = (() => {
     const agg: Record<string, { total: number; paid: number; expense: number }> = {}
@@ -303,7 +301,7 @@ export default function ContractList() {
             onContractUpdated={loadContracts}
           />
 
-          {totalPages > 1 && (
+          {total > 0 && (
             <div className="table-pagination-wrapper">
               <Pagination
                 current={page}

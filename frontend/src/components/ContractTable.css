@@ -4,24 +4,68 @@
   color: #1e3f63 !important;
   border: none;
   font-size: 11px;
-  padding: 2px 7px;
+  padding: 2px 8px;
   line-height: 1.5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .biz-cross-tag {
   background: #fbe9e7 !important;
   color: #8f2d28 !important;
   border: none;
   font-size: 11px;
-  padding: 2px 7px;
+  padding: 2px 8px;
   line-height: 1.5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 .biz-insurance-tag {
   background: #e8f4e8 !important;
   color: #2e7d32 !important;
   border: none;
   font-size: 11px;
-  padding: 2px 7px;
+  padding: 2px 8px;
   line-height: 1.5;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+/* antd Tag 自身内置 icon 容器留白调整 */
+.biz-vehicle-tag .anticon,
+.biz-cross-tag .anticon,
+.biz-insurance-tag .anticon {
+  font-size: 11px;
+  margin-inline-end: 0 !important;
+}
+
+/* 业务群单元格：完整展示，长名称允许换行 */
+.wechat-group-cell {
+  display: inline-block;
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.45;
+}
+
+/* 自定义展开三角：点击旋转 90° 归位 */
+.contract-expand-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  cursor: pointer;
+  color: #6b7280;
+  font-size: 12px;
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1), color 0.18s;
+}
+.contract-expand-icon:hover {
+  color: #1e3a5f;
+}
+.contract-expand-icon.expanded {
+  transform: rotate(90deg);
+  color: #1e3a5f;
 }
 
 /* 金额颜色语义 */

@@ -3,6 +3,7 @@ import { Table, Button, Tag, Progress, Image, Badge, Empty, message, Popconfirm,
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
   EyeOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined,
+  CaretRightOutlined, CarOutlined, SwapOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { ContractWithPayments, ContractAdditionalItem } from '@/types'
@@ -21,13 +22,13 @@ interface Props {
   onContractUpdated?: () => void
 }
 
-// 业务色徽章
-const BIZ_VISUAL: Record<string, { className: string; label: string }> = {
-  '车辆买卖': { className: 'biz-vehicle-tag', label: '车辆' },
-  '车辆业务': { className: 'biz-vehicle-tag', label: '车辆' },
-  '两地牌过户': { className: 'biz-cross-tag', label: '两地牌' },
-  '中港牌业务': { className: 'biz-cross-tag', label: '两地牌' },
-  '年检保险': { className: 'biz-insurance-tag', label: '年检保险' },
+// 业务色徽章 + 图标
+const BIZ_VISUAL: Record<string, { className: string; label: string; icon: React.ReactNode }> = {
+  '车辆买卖': { className: 'biz-vehicle-tag', label: '车辆', icon: <CarOutlined /> },
+  '车辆业务': { className: 'biz-vehicle-tag', label: '车辆', icon: <CarOutlined /> },
+  '两地牌过户': { className: 'biz-cross-tag', label: '两地牌', icon: <SwapOutlined /> },
+  '中港牌业务': { className: 'biz-cross-tag', label: '两地牌', icon: <SwapOutlined /> },
+  '年检保险': { className: 'biz-insurance-tag', label: '年检保险', icon: <SafetyCertificateOutlined /> },
 }
 
 // 货币符号
@@ -138,10 +139,10 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '业务',
       dataIndex: 'business_type',
       key: 'business_type',
-      width: 90,
+      width: 110,
       render: (t) => {
         const v = BIZ_VISUAL[t]
-        if (v) return <Tag className={v.className}>{v.label}</Tag>
+        if (v) return <Tag className={v.className} icon={v.icon}>{v.label}</Tag>
         return t ? <Tag>{t}</Tag> : <span className="text-muted">—</span>
       },
     },
@@ -149,9 +150,8 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '业务群',
       dataIndex: 'wechat_group',
       key: 'wechat_group',
-      width: 110,
-      ellipsis: true,
-      render: (v) => v ? <span title={v}>{v}</span> : <span className="text-muted">—</span>,
+      width: 220,
+      render: (v) => v ? <span className="wechat-group-cell" title={v}>{v}</span> : <span className="text-muted">—</span>,
     },
     {
       title: '客户',
@@ -518,6 +518,14 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           onExpand: (expanded, record) => {
             setExpandedRowKey(expanded ? record.id : null)
           },
+          expandIcon: ({ expanded, onExpand, record }) => (
+            <span
+              className={`contract-expand-icon${expanded ? ' expanded' : ''}`}
+              onClick={(e) => { e.stopPropagation(); onExpand(record, e) }}
+            >
+              <CaretRightOutlined />
+            </span>
+          ),
           expandIconColumnIndex: 0,
           columnWidth: 36,
         }}
@@ -529,7 +537,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           if (paid >= receivable) return 'row-cleared'
           return ''
         }}
-        scroll={{ x: 1500 }}
+        scroll={{ x: 1630 }}
       />
 
       {/* 附加项弹窗 */}
