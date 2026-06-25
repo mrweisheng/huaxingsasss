@@ -47,8 +47,9 @@ from app.utils.file_analysis import (
     normalize_payment_terms,
     make_text_extraction_prompt,
     call_vl_model,
+    call_vl_model_multi_image,
     call_text_model,
-    render_pdf_page_to_image,
+    render_pdf_all_pages_to_images,
     extract_pdf_text,
     extract_word_text,
     extract_excel_text,
@@ -407,10 +408,19 @@ class FileAnalyzer:
                 if isinstance(structured, dict):
                     structured["full_text"] = full_text
             else:
-                logger.info("PDF 无文本（扫描件），渲染为图片走 VL")
-                img_bytes = render_pdf_page_to_image(file_path)
-                img_bytes, _ = compress_image(img_bytes, "image/png")
-                structured = call_vl_model(img_bytes, "image/png", prompt)
+                # 扫描件 → 渲染所有页一次性喂视觉模型（保留跨页上下文，签字栏/印章/附件页不丢）
+                page_imgs = render_pdf_all_pages_to_images(file_path, dpi=200)
+                page_count = len(page_imgs)
+                logger.info("PDF 无文本（扫描件），渲染 %d 页走 VL", page_count)
+                compressed_pages: list[tuple[bytes, str]] = []
+                for idx, raw in enumerate(page_imgs):
+                    img_bytes, img_mime = compress_image(raw, "image/png")
+                    compressed_pages.append((img_bytes, img_mime))
+                    logger.debug("  第%d页: 原始 %dKB → 压缩 %dKB %s",
+                                 idx + 1, len(raw)//1024, len(img_bytes)//1024, img_mime)
+                structured = call_vl_model_multi_image(compressed_pages, prompt)
+                if isinstance(structured, dict):
+                    structured["_page_count"] = page_count
             return {"success": True, "data": structured, "file_type": "pdf"}
 
         # 尝试 Word / Excel / 纯文本

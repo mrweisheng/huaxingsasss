@@ -88,9 +88,9 @@ function applyEventToStore(
  *  - 否则调后端 /agent/upload
  */
 async function uploadPendingFiles(
-  localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: { fileId: string; fileName?: string; fileSize?: number; thumbnailUrl?: string | null } }[],
-): Promise<{ file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string }[]> {
-  const uploaded: { file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string }[] = []
+  localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: { fileId: string; fileName?: string; fileSize?: number; thumbnailUrl?: string | null; pageCount?: number | null } }[],
+): Promise<{ file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string; pageCount?: number }[]> {
+  const uploaded: { file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string; pageCount?: number }[] = []
   for (const local of localAttachments) {
     if (local.uploaded) {
       // HEIC 已在选文件时上传完成：直接复用 fileId/thumbnailUrl
@@ -100,6 +100,7 @@ async function uploadPendingFiles(
         fileName: local.file.name,
         preview: local.uploaded.thumbnailUrl ?? local.preview,
         thumbnailUrl: local.uploaded.thumbnailUrl ?? undefined,
+        pageCount: local.uploaded.pageCount ?? undefined,
       })
     } else {
       const res = await agentApi.uploadFile(local.file)
@@ -109,6 +110,7 @@ async function uploadPendingFiles(
         fileName: local.file.name,
         preview: local.preview,
         thumbnailUrl: res.data.thumbnailUrl ?? undefined,
+        pageCount: res.data.pageCount ?? undefined,
       })
     }
   }
@@ -254,7 +256,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }))
 
     // 上传附件 → 拿 file_id
-    let uploadedAttachments: { file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string }[] = []
+    let uploadedAttachments: { file_id: string; file_type: FileType; fileName?: string; preview?: string; thumbnailUrl?: string; pageCount?: number }[] = []
     if (localAttachments.length > 0) {
       try {
         uploadedAttachments = await uploadPendingFiles(localAttachments)
@@ -262,6 +264,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         set({ error: e?.response?.data?.detail || e.message || '文件上传失败' })
         set({ isStreaming: false })
         return
+      }
+      // PDF 上传成功后 page_count 才回来 —— 回写到用户消息的 attachments 让"共 N 页"立刻显示
+      const hasPageInfo = uploadedAttachments.some(u => u.pageCount && u.pageCount > 0)
+      if (hasPageInfo) {
+        set((state) => ({
+          messages: state.messages.map(m => {
+            if (m.id !== userMsgId || !m.attachments) return m
+            const next = m.attachments.map((att, i) => {
+              const pc = uploadedAttachments[i]?.pageCount
+              return pc && pc > 0 ? { ...att, pageCount: pc } : att
+            })
+            return { ...m, attachments: next }
+          }),
+        }))
       }
     }
 

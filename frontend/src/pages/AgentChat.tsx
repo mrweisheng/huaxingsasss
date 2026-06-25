@@ -143,7 +143,13 @@ const AttachmentFile = memo(function AttachmentFile({ att }: { att: AttachmentIt
         }}>
           {error === 'gone' ? '附件已被清理'
             : error ? '附件已失效'
-            : (att.fileName || '').toLowerCase().split('.').pop()?.toUpperCase() || '文件'}
+            : (() => {
+                const ext = (att.fileName || '').toLowerCase().split('.').pop()?.toUpperCase() || '文件'
+                if (att.fileType === 'pdf' && att.pageCount && att.pageCount > 0) {
+                  return `${ext} · ${att.pageCount} 页`
+                }
+                return ext
+              })()}
         </span>
       </div>
     </div>

@@ -148,7 +148,10 @@ def make_text_extraction_prompt(base_prompt: str) -> str:
 
 
 def call_vl_model(file_bytes: bytes, mime: str, prompt: str) -> dict:
-    """调用 DashScope VL 模型分析图片，返回结构化 JSON dict。"""
+    """调用 DashScope VL 模型分析单张图片，返回结构化 JSON dict。
+
+    多页 PDF 请用 call_vl_model_multi_image —— 单页调用丢失第 2 页及以后的信息。
+    """
     image_base64 = base64.b64encode(file_bytes).decode()
     payload = {
         "model": settings.DASHSCOPE_VISION_MODEL,
@@ -179,6 +182,49 @@ def call_vl_model(file_bytes: bytes, mime: str, prompt: str) -> dict:
         return json.loads(content)
     except json.JSONDecodeError:
         return {"raw": content}
+
+
+def call_vl_model_multi_image(images: list[tuple[bytes, str]], prompt: str) -> dict:
+    """调用 DashScope VL 模型一次性分析多张图片（按顺序作为同一文档的连续页）。
+
+    用于多页 PDF：把每页渲染成图后一起喂模型，让模型在跨页上下文里做整体识别 ——
+    实验验证：跨页字段（如签字栏签订日期、付款条款条件文字）只在多图模式下能识别准。
+
+    images 顺序即页码顺序（第 1 页在前）；空列表会抛 ValueError。
+    超时延长到 180 秒（多页推理本身更慢）。
+    """
+    if not images:
+        raise ValueError("images 不能为空")
+
+    content_parts: list[dict] = []
+    for img_bytes, mime in images:
+        b64 = base64.b64encode(img_bytes).decode()
+        content_parts.append({"type": "image_url", "image_url": {"url": f"data:{mime};base64,{b64}"}})
+    content_parts.append({"type": "text", "text": prompt})
+
+    payload = {
+        "model": settings.DASHSCOPE_VISION_MODEL,
+        "messages": [{"role": "user", "content": content_parts}],
+        "temperature": 0.1,
+        "max_tokens": 4096,
+    }
+    headers = {
+        "Authorization": f"Bearer {settings.DASHSCOPE_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    with httpx.Client(timeout=180.0) as client:
+        response = client.post(
+            f"{settings.DASHSCOPE_BASE_URL}/chat/completions",
+            json=payload, headers=headers,
+        )
+    if response.status_code != 200:
+        raise RuntimeError(f"VL API 错误: {response.text}")
+
+    text = response.json()["choices"][0]["message"]["content"]
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return {"raw": text}
 
 
 def call_text_model(text: str, prompt: str) -> dict:
@@ -219,6 +265,33 @@ def render_pdf_page_to_image(file_path: str, page_num: int = 0, dpi: int = 100) 
     try:
         pix = doc[page_num].get_pixmap(dpi=dpi)
         return pix.tobytes("png")
+    finally:
+        doc.close()
+
+
+def count_pdf_pages(file_path: str) -> int:
+    """返回 PDF 总页数。无法打开返回 0。"""
+    import fitz
+    try:
+        doc = fitz.open(file_path)
+    except Exception:
+        return 0
+    try:
+        return doc.page_count
+    finally:
+        doc.close()
+
+
+def render_pdf_all_pages_to_images(file_path: str, dpi: int = 200) -> list[bytes]:
+    """渲染 PDF 所有页为 PNG bytes 列表，顺序即页码顺序（第 1 页在 [0]）。
+
+    dpi 默认 200（比单页函数的 100 更高），多页扫描件常有手写或印章信息，DPI 太低识不准。
+    单页大小经下游 compress_image 还会再压缩，DPI 高一点对最终请求体大小影响有限。
+    """
+    import fitz
+    doc = fitz.open(file_path)
+    try:
+        return [doc[i].get_pixmap(dpi=dpi).tobytes("png") for i in range(doc.page_count)]
     finally:
         doc.close()
 

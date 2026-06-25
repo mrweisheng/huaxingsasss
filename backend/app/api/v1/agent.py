@@ -375,6 +375,17 @@ async def upload_file(
     if ext in ("jpg", "jpeg"):
         mime_type = "image/jpeg"
 
+    # PDF 计算页数 —— 前端文件卡片要展示"共 N 页"，让用户对识别耗时有预期
+    # 仅 PDF 算（其他类型恒为 None），不入库，仅 response 透传
+    page_count: Optional[int] = None
+    if file_type == "pdf":
+        try:
+            import fitz
+            with fitz.open(stream=content, filetype="pdf") as _doc:
+                page_count = _doc.page_count
+        except Exception:
+            page_count = None  # 损坏的 PDF 容错，不阻断上传
+
     # 落表（相对路径只存 user_id/filename，避免绝对路径硬编码）
     relative_path = f"{current_user.id}/{fname_on_disk}"
     record = AgentFile(
@@ -397,6 +408,7 @@ async def upload_file(
             "file_name": file.filename,
             "file_size": len(content),
             "thumbnail_url": thumbnail_url,
+            "page_count": page_count,
         },
     }
 

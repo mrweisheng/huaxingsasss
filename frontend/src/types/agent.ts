@@ -9,6 +9,7 @@ export interface AttachmentItem {
   fileType: FileType
   fileName?: string
   preview?: string // 图片 base64 预览
+  pageCount?: number // PDF 才有，其他类型 undefined
 }
 
 export interface ThoughtStep {
@@ -80,4 +81,5 @@ export interface UploadResult {
   fileName: string
   fileSize: number
   thumbnailUrl?: string | null
+  pageCount?: number | null // 仅 PDF 返回页数，其他类型为 null
 }

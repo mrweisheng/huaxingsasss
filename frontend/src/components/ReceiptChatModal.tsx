@@ -79,7 +79,10 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
                   : att.fileType === 'word' ? <FileWordOutlined />
                   : att.fileType === 'excel' ? <FileExcelOutlined />
                   : <FileTextOutlined />
-                return <Tag key={i} color="blue">{fileIcon} {att.fileName || '文件'}</Tag>
+                const pageHint = att.fileType === 'pdf' && att.pageCount && att.pageCount > 0
+                  ? ` · ${att.pageCount} 页`
+                  : ''
+                return <Tag key={i} color="blue">{fileIcon} {att.fileName || '文件'}{pageHint}</Tag>
               })}
             </div>
           )}
@@ -283,7 +286,7 @@ export default function ReceiptChatModal({
     setIsStreaming(true)
 
     // 本地附件预览
-    const localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: UploadResult }[] = []
+    const localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: UploadResult; pageCount?: number }[] = []
     if (files && files.length > 0) {
       for (const item of files) {
         const file = item.file
@@ -302,7 +305,7 @@ export default function ReceiptChatModal({
             })
           }
         }
-        localAttachments.push({ file, fileType, preview, uploaded: item.uploaded })
+        localAttachments.push({ file, fileType, preview, uploaded: item.uploaded, pageCount: item.uploaded?.pageCount ?? undefined })
       }
     }
 
@@ -318,6 +321,7 @@ export default function ReceiptChatModal({
         fileType: a.fileType,
         fileName: a.file.name,
         preview: a.preview,
+        pageCount: a.pageCount,
       })),
       createdAt: new Date().toISOString(),
     }
@@ -338,7 +342,8 @@ export default function ReceiptChatModal({
 
     // 上传文件（已上传的 HEIC 跳过）
     const uploaded: { file_id: string; file_type: FileType; fileName?: string; preview?: string }[] = []
-    for (const local of localAttachments) {
+    for (let i = 0; i < localAttachments.length; i++) {
+      const local = localAttachments[i]
       try {
         if (local.uploaded) {
           // HEIC 已在选文件时上传完成，直接复用 fileId
@@ -356,6 +361,16 @@ export default function ReceiptChatModal({
             fileName: local.file.name,
             preview: local.preview,
           })
+          // PDF 上传成功后页数才回来 —— 把"共 N 页"回写到用户消息气泡里展示
+          const pageCount = res.data.pageCount
+          if (pageCount && pageCount > 0) {
+            setMessages(prev => prev.map(m => {
+              if (m.id !== userMsgId || !m.attachments) return m
+              const next = [...m.attachments]
+              if (next[i]) next[i] = { ...next[i], pageCount }
+              return { ...m, attachments: next }
+            }))
+          }
         }
       } catch {
         setMessages(prev => prev.map(m =>
