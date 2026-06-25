@@ -11,7 +11,7 @@ import {
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
 import type { ChatMessage, FileType, UploadResult } from '@/types/agent'
-import { MarkdownRenderer, ThoughtStepIndicator, ToolCallBlock } from '@/components/AgentChatShared'
+import { MarkdownRenderer, WittyLoadingText, ToolCallBlock } from '@/components/AgentChatShared'
 import { usePendingFiles } from '@/hooks/usePendingFiles'
 import { useDropZone } from '@/hooks/useDropZone'
 import './ContractChatModal.css'
@@ -108,18 +108,17 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
       <div className="contract-chat-msg contract-chat-msg-assistant">
         <Avatar icon={<RobotOutlined />} className="contract-chat-avatar-bot" size={32} />
         <div className="contract-chat-msg-content contract-chat-msg-bot-content">
-          {hasThoughts && <ThoughtStepIndicator thoughts={msg.thoughts!} />}
+          {isThinking && (
+            <div style={{ marginBottom: 8 }}>
+              <WittyLoadingText message={msg.thoughts![msg.thoughts!.length - 1].message} />
+            </div>
+          )}
           {hasToolCalls && <ToolCallBlock toolCalls={msg.toolCalls!} toolLabels={TOOL_LABELS} />}
           {hasContent ? (
             <div className="contract-chat-bubble contract-chat-bubble-bot">
               <MarkdownRenderer content={msg.content} streaming={streaming} className="contract-chat-markdown" />
             </div>
-          ) : isThinking ? (
-            <div className="contract-chat-thinking">
-              <Spin size="small" />
-              <span>{msg.thoughts![msg.thoughts!.length - 1].message}</span>
-            </div>
-          ) : (
+          ) : !isThinking && (
             <Spin size="small" style={{ marginTop: 8 }} />
           )}
         </div>
