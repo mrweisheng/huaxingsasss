@@ -102,6 +102,8 @@ type MismatchItem = {
   label: string
   extracted: string
   actual: string
+  /** 可选副标题；type 不匹配时解释"为什么不能用对方向" */
+  hint?: string
 }
 
 interface Props {
@@ -264,6 +266,8 @@ export default function PaymentFormModal({
 
   // 共享填充逻辑：校验类型 + 填表 + 不匹配警告（无 file/preview 处理）
   const applyExtractedData = (extracted: ExtractedReceiptData) => {
+    // 函数自身负责清自己写的状态：每次重新识别都先抹掉上一次的红卡
+    setMismatchItems(null)
     setExtractedData(extracted)
 
     // 检查类型是否匹配
@@ -275,6 +279,7 @@ export default function PaymentFormModal({
         label: '收支类型',
         extracted: actualLabel,
         actual: expectedLabel,
+        hint: `当前入口只能录入${expectedLabel}，请改用「录入${actualLabel}」入口`,
       }])
       message.error(`识别结果「${actualLabel}」，与当前「${expectedLabel}」录入方向不一致`)
       return
@@ -617,14 +622,15 @@ export default function PaymentFormModal({
             </button>
           </div>
           <ul className="pfm-mismatch-list">
-            {mismatchItems.map((item, idx) => {
+            {mismatchItems.map((item) => {
               const Icon = item.field === 'group' ? WechatOutlined : item.field === 'customer' ? UserOutlined : SwapOutlined
               return (
-                <li key={`${item.field}-${idx}`} className="pfm-mismatch-row">
+                <li key={item.field} className="pfm-mismatch-row">
                   <div className="pfm-mismatch-row-head">
                     <Icon className="pfm-mismatch-row-icon" />
                     <span className="pfm-mismatch-row-label">{item.label}</span>
                   </div>
+                  {item.hint && <div className="pfm-mismatch-row-hint">{item.hint}</div>}
                   <div className="pfm-mismatch-pair">
                     <div className="pfm-mismatch-line is-actual">
                       <span className="pfm-mismatch-tag">合同</span>

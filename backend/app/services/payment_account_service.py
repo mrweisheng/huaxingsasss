@@ -97,13 +97,29 @@ class PaymentAccountService:
             return None
 
         # 优先级 0：extra_info.aliases 精确等值（管理员显式登记的别名，最高优先级）
+        # 收集所有命中而非首条 return，便于在 admin 把同一个 alias 登记到多个账户时
+        # 记录 warning —— silent 错配是高代价场景，宁可日志吵也别让它悄悄过
+        alias_matches: List[PaymentAccount] = []
         for acc in accounts:
             aliases = (acc.extra_info or {}).get("aliases") or []
             if not isinstance(aliases, list):
                 continue
             for alias in aliases:
                 if isinstance(alias, str) and alias.strip() == hint:
-                    return acc
+                    alias_matches.append(acc)
+                    break  # 单账户内一次匹配足够，跳到下个账户
+        if alias_matches:
+            if len(alias_matches) > 1:
+                logger.warning(
+                    "find_by_hint: alias '%s' matches %d accounts %s; "
+                    "returning first by id. 请管理员检查 aliases 登记是否重复",
+                    hint,
+                    len(alias_matches),
+                    [a.id for a in alias_matches],
+                )
+            # 按 id 升序取最小 id（确定性，与优先级 3 的 id 兜底语义对齐）
+            alias_matches.sort(key=lambda a: a.id)
+            return alias_matches[0]
 
         # 优先级 1：title 全包含
         for acc in accounts:

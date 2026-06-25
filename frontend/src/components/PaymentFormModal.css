@@ -664,6 +664,14 @@
   letter-spacing: 0.5px;
 }
 
+/* 副标题（type 不匹配时解释一句） */
+.pfm-mismatch-row-hint {
+  font-size: 12px;
+  line-height: 1.5;
+  color: #8f2d28;
+  margin: -2px 0 6px 20px;
+}
+
 /* 「合同 / 识别」对比行 */
 .pfm-mismatch-pair {
   display: flex;
@@ -720,6 +728,18 @@
   .pfm-mismatch-card { padding: 12px 12px 12px 14px; }
   .pfm-mismatch-badge { flex: 0 0 32px; width: 32px; height: 32px; font-size: 16px; }
   .pfm-mismatch-title strong { font-size: 14px; }
+  /* 触控区放大到 WCAG 2.5.5 接近推荐 */
+  .pfm-mismatch-close { flex: 0 0 32px; width: 32px; height: 32px; font-size: 14px; }
+  .pfm-mismatch-tag { flex: 0 0 36px; letter-spacing: 0.5px; }
+}
+
+/* 用户偏好减弱动效：尊重系统设置，参照同仓库 src/index.css 先例 */
+@media (prefers-reduced-motion: reduce) {
+  .pfm-mismatch-card,
+  .pfm-mismatch-card::before,
+  .pfm-mismatch-badge-icon {
+    animation: none !important;
+  }
 }
 
 /* ── 新增账户下拉入口 ── */
