@@ -289,70 +289,173 @@ business_type判断：买车/卖车/底盘号→车辆买卖；车牌/中港牌/
 群名和消息原文保留繁体。只返回纯JSON。"""
 
 
-EXPENSE_TEMPLATE_EXTRACT_PROMPT = """你是一个支出/收入模板信息提取助手。请分析这张支出/收入模板截图，按照序号提取信息，返回严格JSON格式：
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 凭证信息提取共享 SPEC（图片 / 文本两条路径共用）
+# 设计原则：基于语义角色识别字段，不依赖位置；Few-shot 校准；显式反例
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+_PAYMENT_EXTRACT_SPEC = """你是付款记录信息提取助手。请按下面定义的 schema 输出严格 JSON。
+
+# 字段定义（按语义角色识别，与输入位置无关）
+
+- type: 交易方向。我方付出钱 = "expense"；我方收到钱 = "income"。
+  关键词不限位置：转出/支出/付款/打款 → expense；收款/到账/收入 → income。
+
+- installment_name: 这笔款的用途/标签，如"定金""尾款""保险费""牌费"等。
+  若原文是"转出（XXX）"或"收款（XXX）"，括号内即为用途。
+
+- paid_date: 交易日期，YYYY-MM-DD 格式。"2026年6月23日" / "2026/6/23" / "6月23日" 都转 ISO；
+  仅写"6月23日"等无年份的，按当前年度补齐。
+
+- payee_name: 收款方名称。
+  定义：钱最终到达的那个账户的户主名（公司名或个人名）。
+  【来源约束】必须来自"账户信息块"——含账号、银行名、可能含 SWIFT 的那一段。
+  【禁止】不要从"事由/款项说明里的括号人名"提取——那只是业务对象（车主/客户标识）。
+
+- counterparty_account 子字段：
+  - account_name: 户名（公司名/个人名，通常与 payee_name 一致或更完整）
+  - account_number: 账号/卡号（数字串，可含空格、连字符）
+  - bank_name: 开户银行（如 "HSBC""中国银行""招商银行"）
+  - branch: 网点/分行/银行地址（如 "梅林支行""1 QUEEN'S ROAD,CENTRAL"）
+  - swift_code: SWIFT CODE（8-11 位字母数字，仅国际转账才有；无则 null）
+  【位置自由】账户块在原文里可能位于任意位置——开头、中间、结尾都可能。
+  【识别特征】连续出现"户名/公司名 + 账号 + 银行名"即构成账户块。
+  【标题陷阱】即使原文标题写"转出账户/我方账户/付款账户"，只要该块描述本笔交易的
+    另一端账户，就填入此字段——表单的"对方账户"语义指交易对手方，与文本标题措辞无关。
+
+- payment_method: bank_transfer / wechat / alipay / cash。默认 bank_transfer，
+  除非明显出现微信/支付宝/现金的标识。
+
+- amount: 数字。去除货币符号、千分位逗号。如 "557,498港币" → 557498。
+
+- currency: 仅 HKD 或 CNY。港币/HK$/$ → HKD；人民币/RMB/¥/元 → CNY。
+
+- notes: 结算状态 + 金额计算明细，保留原文计算式
+  （如"已结清 599800+7498-50000=557498"）。
+
+- wechat_group: 对应业务的微信群名（若文本里有"对应业务/群名称"等提及）。
+
+- customer_name_hint: 客户人名（从群名或事由的括号人名提取，用于校验合同对应关系）。
+
+- confidence: 0~1 之间小数，对整体识别的信心。
+
+# 容错原则
+
+1. 顺序无关：所有字段按语义识别，不假设固定顺序。账号写在最后一行也要识别。
+2. 错别字容错：常见错写要兼容，如 "swift cod" / "SWIFT码" / "swfit code" 都视作 SWIFT CODE。
+3. 缺失留 null：找不到就输出 null，不要瞎猜或编造。
+4. 冲突取最完整：同一字段有多个候选时，取信息最完整、最规范的那个。
+5. 标点保留：账户号里的空格、连字符可保留原样（如 "125 - 311308 - 838"）。
+
+# Few-shot 示例
+
+## 示例 1：编号格式 + 关键反例（事由人名 ≠ payee_name）
+
+输入：
+```
+1. 转账事由
+转出（马森车子尾款）
+2. 交易日期
+2026年6月23日
+3. 转出账户信息
+公司名称：SHANGYU AUTOMOBILE WHOLESALE CO.,LIMITED
+公司账户：125 - 311308 - 838
+SWIFT CODE：HSBCHKHHHKH
+银行名称：HONGKONG AND SHANGHAI
+银行地址：1 QUEEN'S ROAD,CENTRAL,HONGKONG
+4. 转账金额
+557498港币
+5. 结算状态
+已结清：车款（599800）+ 牌费（7498）- 定金（50000）= 557498
+6. 对应业务（群名称）
+6月20日 陈世勇40系白外黑内埃尔法
+```
+
+输出：
+```json
 {
-  "type": "收支类型（收入=income，支出=expense。判断依据：标题含'收款'或第1项含'收款'=income；标题含'转出'或第1项含'转出'=expense）",
-  "installment_name": "款项说明（第1项，如：转出（马森车子尾款）→ 提取括号内的内容'马森车子尾款'）",
-  "paid_date": "日期（第2项，YYYY-MM-DD格式）",
-  "payee_name": "收款方/转出对象名称（第3项的公司名称或个人名称）",
+  "type": "expense",
+  "installment_name": "马森车子尾款",
+  "paid_date": "2026-06-23",
+  "payee_name": "SHANGYU AUTOMOBILE WHOLESALE CO.,LIMITED",
   "counterparty_account": {
-    "account_name": "户名（公司名称或个人名称）",
-    "account_number": "账号/卡号",
-    "bank_name": "银行名称",
-    "branch": "银行地址或网点",
-    "swift_code": "SWIFT CODE（如有）"
+    "account_name": "SHANGYU AUTOMOBILE WHOLESALE CO.,LIMITED",
+    "account_number": "125 - 311308 - 838",
+    "bank_name": "HONGKONG AND SHANGHAI",
+    "branch": "1 QUEEN'S ROAD,CENTRAL,HONGKONG",
+    "swift_code": "HSBCHKHHHKH"
   },
-  "payment_method": "付款方式（银行转账=bank_transfer，微信=wechat，支付宝=alipay，现金=cash）",
-  "amount": 金额（数字，第4项，如'557498港币'→557498）,
-  "currency": "币种（HKD或CNY，从第4项提取。港币→HKD，人民币→CNY）",
-  "notes": "结算状态说明（第5项完整内容，如：已结清 599800(车款)+7498(牌费)）",
-  "wechat_group": "对应业务群名称（第6项，群名称部分）",
-  "customer_name_hint": "客户名提示（从群名称或上下文中提取的人名）",
-  "confidence": 置信度（0-1）
+  "payment_method": "bank_transfer",
+  "amount": 557498,
+  "currency": "HKD",
+  "notes": "已结清：车款（599800）+ 牌费（7498）- 定金（50000）= 557498",
+  "wechat_group": "6月20日 陈世勇40系白外黑内埃尔法",
+  "customer_name_hint": "陈世勇",
+  "confidence": 0.92
 }
+```
 
-严格要求：
-1. 只返回纯JSON，不含markdown
-2. 无法识别的字段设为null
-3. 金额必须是数字类型，去除千分位逗号和货币符号
-4. 日期必须是YYYY-MM-DD格式
-5. 第1项：提取括号内的内容作为installment_name，如'转出（马森车子尾款）'→'马森车子尾款'
-6. 第3项：完整提取收款方账户信息，包括公司名称、账号、SWIFT CODE、银行名称、银行地址
-7. 第5项：保留完整原文，包含计算明细
-8. 第6项：提取群名称，格式如'6月20日 陈世勇40系白外黑内埃尔法'"""
+【关键要点】
+- 事由里的"马森"是业务对象（车主），不是 payee_name；
+  payee_name 来自第3段"账户信息块"的"公司名称"字段。
+- customer_name_hint 取自群名里的人名"陈世勇"，不是事由里的"马森"。
+- 即使标题写"转出账户信息"（字面像是己方账户），仍然填入 counterparty_account——
+  因为表单的"对方账户"指本笔交易的另一端账户，不按文本措辞分类。
 
-PAYMENT_TEXT_EXTRACT_PROMPT = """你是一个支出/收入文本信息提取助手。请从以下文本消息中提取转账/付款信息，返回严格JSON格式：
+## 示例 2：无编号 + 散文格式 + 字段位置打乱
+
+输入：
+```
+今天 6/23 转出 557498 港币用于马森车款尾款，群是 6月20日 陈世勇40系。
+打到 HSBC，户名 SHANGYU AUTOMOBILE，账户 125-311308-838，SWIFT HSBCHKHHHKH。
+```
+
+输出：
+```json
 {
-  "type": "收支类型（收入=income，支出=expense。判断依据：含'收款'=income；含'转出'=expense）",
-  "installment_name": "款项说明（如：转出（马森车子尾款）→ 提取括号内的内容'马森车子尾款'）",
-  "paid_date": "日期（YYYY-MM-DD格式）",
-  "payee_name": "收款方/转出对象名称（公司名称或个人名称）",
+  "type": "expense",
+  "installment_name": "马森车款尾款",
+  "paid_date": "2026-06-23",
+  "payee_name": "SHANGYU AUTOMOBILE",
   "counterparty_account": {
-    "account_name": "户名（公司名称或个人名称）",
-    "account_number": "账号/卡号",
-    "bank_name": "银行名称",
-    "branch": "银行地址或网点",
-    "swift_code": "SWIFT CODE（如有）"
+    "account_name": "SHANGYU AUTOMOBILE",
+    "account_number": "125-311308-838",
+    "bank_name": "HSBC",
+    "branch": null,
+    "swift_code": "HSBCHKHHHKH"
   },
-  "payment_method": "付款方式（银行转账=bank_transfer，微信=wechat，支付宝=alipay，现金=cash）",
-  "amount": 金额（数字，去除千分位逗号和货币符号，如'557498港币'→557498）,
-  "currency": "币种（HKD或CNY，港币→HKD，人民币→CNY）",
-  "notes": "结算状态说明（完整内容，包含计算明细，如：已结清 599800(车款)+7498(牌费)+...)",
-  "wechat_group": "对应业务群名称（如：6月20日 陈世勇40系白外黑内埃尔法）",
-  "customer_name_hint": "客户名提示（从群名称或上下文中提取的人名）",
-  "confidence": 置信度（0-1）
+  "payment_method": "bank_transfer",
+  "amount": 557498,
+  "currency": "HKD",
+  "notes": null,
+  "wechat_group": "6月20日 陈世勇40系",
+  "customer_name_hint": "陈世勇",
+  "confidence": 0.85
 }
-严格要求：
-1. 只返回纯JSON，不含markdown
-2. 无法识别的字段设为null
-3. 金额必须是数字类型，去除千分位逗号和货币符号
-4. 日期必须是YYYY-MM-DD格式
-5. 款项说明：提取括号内的内容，如'转出（马森车子尾款）'→'马森车子尾款'
-6. 账户信息：完整提取公司名称、账号、SWIFT CODE、银行名称、银行地址
-7. 结算状态：保留完整原文，包含计算明细
-8. 群名称：提取群名称部分
-9. 本业务只有人民币（CNY）和港币（HKD）两种货币，$符号代表港币（HKD）"""
+```
+
+【关键要点】
+- 散文格式无编号，账户字段穿插在句子中——依然要全部识别。
+- 缺失的 branch、notes 留 null，不要硬填空字符串。
+- 日期 "6/23" 按当前年度补齐为 ISO 格式。
+
+# 输出要求
+
+只输出纯 JSON，不要 markdown 代码块包裹。无法识别的字段设为 null。"""
+
+
+EXPENSE_TEMPLATE_EXTRACT_PROMPT = _PAYMENT_EXTRACT_SPEC + """
+
+# 本次输入
+
+请识别下方付款凭证图片中的所有字段（OCR + 语义理解），按上述 schema 输出 JSON。"""
+
+
+PAYMENT_TEXT_EXTRACT_PROMPT = _PAYMENT_EXTRACT_SPEC + """
+
+# 本次输入
+
+下方是付款记录文本，按上述 schema 输出 JSON。"""
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
