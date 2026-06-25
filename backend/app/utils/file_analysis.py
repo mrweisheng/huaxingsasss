@@ -212,7 +212,7 @@ def call_text_model(text: str, prompt: str) -> dict:
         return {"raw": content}
 
 
-def render_pdf_page_to_image(file_path: str, page_num: int = 0, dpi: int = 150) -> bytes:
+def render_pdf_page_to_image(file_path: str, page_num: int = 0, dpi: int = 100) -> bytes:
     """将 PDF 指定页渲染为 PNG bytes"""
     import fitz
     doc = fitz.open(file_path)
