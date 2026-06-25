@@ -1,0 +1,362 @@
+/* 合同表格业务色（与全局设计系统一致） */
+.biz-vehicle-tag {
+  background: #e5edf6 !important;
+  color: #1e3f63 !important;
+  border: none;
+  font-size: 11px;
+  padding: 2px 7px;
+  line-height: 1.5;
+}
+.biz-cross-tag {
+  background: #fbe9e7 !important;
+  color: #8f2d28 !important;
+  border: none;
+  font-size: 11px;
+  padding: 2px 7px;
+  line-height: 1.5;
+}
+.biz-insurance-tag {
+  background: #e8f4e8 !important;
+  color: #2e7d32 !important;
+  border: none;
+  font-size: 11px;
+  padding: 2px 7px;
+  line-height: 1.5;
+}
+
+/* 金额颜色语义 */
+.amount-text {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #1f2937;
+}
+.amount-paid {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #a87a18;
+}
+.amount-unpaid {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #dc6b3d;
+}
+.amount-overpaid {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #52c41a;
+}
+.amount-expense {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: #9ca3af;
+}
+.amount-profit {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #52c41a;
+}
+.amount-loss {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #ff4d4f;
+}
+.text-muted {
+  color: #9ca3af;
+}
+
+/* 进度条单元格 */
+.progress-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.progress-text {
+  font-weight: 600;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  min-width: 36px;
+}
+
+/* 操作列按钮 */
+.table-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* 已结清行的视觉减弱（灰色淡出） */
+.row-cleared td {
+  color: #9ca3af;
+}
+.row-cleared .amount-paid {
+  color: #737373;
+}
+.row-cleared .ant-progress-bg {
+  background: #9ca3af !important;
+}
+
+/* 展开行内容容器 */
+.contract-expanded-content {
+  padding: 4px 0 12px 46px;
+  background: #fafbfc;
+  border-top: 1px solid #e5e7eb;
+}
+
+/* 展开行网格布局 */
+.expanded-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 16px;
+}
+
+/* 每块面板 */
+.expanded-panel {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+.expanded-panel.span-3 {
+  grid-column: 1 / -1;
+}
+
+.expanded-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #f0f1f3;
+}
+.expanded-panel-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #1f2937;
+}
+.expanded-panel-empty-hint {
+  font-size: 11px;
+  color: #9ca3af;
+  margin-left: auto;
+}
+
+.expanded-loading {
+  text-align: center;
+  padding: 24px 0;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+/* 面板内按钮类型色 */
+.btn-income {
+  color: #52c41a !important;
+}
+.btn-income:hover {
+  background: #f6ffed !important;
+}
+.btn-expense {
+  color: #dc6b3d !important;
+}
+.btn-expense:hover {
+  background: #fff7e6 !important;
+}
+
+/* ─── 付款条款列表 ─── */
+.payment-terms-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.term-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #f0f1f3;
+}
+.term-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: #1f2937;
+}
+.term-amount {
+  font-weight: 600;
+  color: #a87a18;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.term-meta {
+  display: flex;
+  gap: 8px;
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+.term-date,
+.term-condition {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+/* ─── 附加项列表 ─── */
+.additional-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.additional-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: #f8fafc;
+  border-radius: 6px;
+  border: 1px solid #f0f1f3;
+}
+.addl-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.addl-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: #1f2937;
+}
+.addl-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: #6b7280;
+  margin-left: auto;
+}
+.addl-meta {
+  display: flex;
+  gap: 10px;
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+.addl-paid-to,
+.addl-date {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.addl-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+.additional-item:hover .addl-actions {
+  opacity: 1;
+}
+
+/* ─── 收支流水列表 ─── */
+.payment-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.payment-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  border: 1px solid #f0f1f3;
+}
+.payment-item.income {
+  background: #f6ffed;
+  border-color: #d9f7be;
+}
+.payment-item.expense {
+  background: #fff7e6;
+  border-color: #ffd591;
+}
+.payment-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.payment-name {
+  font-weight: 500;
+  font-size: 13px;
+  color: #1f2937;
+}
+.payment-amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+}
+.payment-item.income .payment-amount {
+  color: #52c41a;
+}
+.payment-item.expense .payment-amount {
+  color: #fa8c16;
+}
+.payment-meta {
+  display: flex;
+  gap: 10px;
+  flex-basis: 100%;
+  margin-top: 2px;
+}
+.payment-date,
+.payment-method,
+.payment-payee {
+  font-size: 11px;
+  color: #9ca3af;
+}
+.payment-verify {
+  display: inline-flex;
+  align-items: center;
+  margin-left: 2px;
+}
+.payment-proof {
+  margin-left: 4px;
+}
+.receipt-thumb {
+  border-radius: 4px;
+  border: 1px solid #e5e7eb;
+  cursor: pointer;
+}
+
+/* antd table 覆盖 */
+.contract-main-table .ant-table-thead > tr > th {
+  background: #1e3a5f;
+  color: #fff;
+  font-weight: 600;
+  font-size: 12.5px;
+}
+.contract-main-table .ant-table-thead > tr > th::before {
+  display: none;
+}
+.contract-main-table .ant-table-tbody > tr > td {
+  font-size: 13px;
+  padding: 10px 12px;
+}
+.contract-main-table .ant-table-expanded-row > td {
+  padding: 0;
+  background: transparent;
+}
+.contract-main-table .ant-table-row-expand-icon-cell {
+  padding-left: 12px !important;
+}
+
+/* Empty 组件更小 */
+.contract-expanded-content .ant-empty {
+  margin: 8px 0;
+}
+.contract-expanded-content .ant-empty-img-simple {
+  transform: scale(0.7);
+}
+.contract-expanded-content .ant-empty-description {
+  font-size: 12px;
+  color: #9ca3af;
+}
