@@ -437,13 +437,16 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
         if tool_name == "present_quick_replies":
             try:
                 qr_data = json.loads(result) if isinstance(result, str) else result
+                logger.info("present_quick_replies 结果: success=%s, actions=%s", qr_data.get("success"), qr_data.get("actions"))
                 if qr_data.get("success"):
+                    logger.info("发送 ui_actions 事件: kind=%s, actions_count=%d", qr_data.get("kind"), len(qr_data.get("actions", [])))
                     await adispatch_custom_event("ui_actions", {
                         "kind": qr_data.get("kind", "confirmation"),
                         "actions": qr_data.get("actions", []),
                     })
-            except Exception:
-                logger.warning("present_quick_replies 结果解析失败，跳过 ui_actions 事件")
+                    logger.info("ui_actions 事件发送完成")
+            except Exception as e:
+                logger.warning("present_quick_replies 结果解析失败，跳过 ui_actions 事件: %s", e)
 
         tool_messages.append(ToolMessage(
             content=result,

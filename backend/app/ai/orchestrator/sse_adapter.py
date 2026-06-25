@@ -204,7 +204,9 @@ async def adapt_langgraph_stream_v2(
 
             elif kind == "on_custom_event" and event.get("name") == "ui_actions":
                 data = event.get("data", {})
+                logger.info("SSE adapter: 收到 ui_actions 事件, actions=%s", data.get("actions"))
                 if data.get("actions"):
+                    logger.info("SSE adapter: 转发 ui_actions 到前端, actions_count=%d", len(data.get("actions", [])))
                     yield _sse_encode({
                         "event": "ui_actions",
                         "data": data,
