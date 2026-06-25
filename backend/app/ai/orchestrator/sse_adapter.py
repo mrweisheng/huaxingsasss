@@ -7,6 +7,7 @@ SSE 事件输出：
   - text        — LLM 流式输出 / text_chunk 自定义事件
   - tool_call   — 工具调用开始（tool_start 自定义事件）
   - tool_result — 工具调用结束（tool_end 自定义事件，含 summary）
+  - ui_actions  — 快捷回复按钮（present_quick_replies 工具触发）
   - done        — 流结束
   - error       — 异常
 
