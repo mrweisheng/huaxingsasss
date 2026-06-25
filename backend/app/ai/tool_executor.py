@@ -210,6 +210,39 @@ class ToolExecutorV2(ToolExecutor):
             return json.dumps({"error": f"工具执行失败: {str(e)}"}, ensure_ascii=False)
 
     # ═══════════════════════════════════════════════════════════
+    # 🆕 present_quick_replies — 快捷回复按钮（纯 UI，无业务写入）
+    # ═══════════════════════════════════════════════════════════
+
+    def present_quick_replies(self, kind: str, actions: list[dict]) -> str:
+        """向前端展示快捷回复按钮。仅用于 UI 展示，不执行任何业务写入。
+
+        Args:
+            kind: 按钮类型 confirmation/choice/edit_prompt
+            actions: 按钮列表 [{label, send_text, style?}]
+
+        Returns:
+            JSON: {success, kind, actions}
+        """
+        if not actions or len(actions) < 2 or len(actions) > 4:
+            return json.dumps({"error": "actions 数量必须 2-4 个"}, ensure_ascii=False)
+
+        cleaned = []
+        for a in actions:
+            if not a.get("label") or not a.get("send_text"):
+                return json.dumps({"error": "label 和 send_text 必填"}, ensure_ascii=False)
+            cleaned.append({
+                "label": str(a["label"])[:12],
+                "send_text": str(a["send_text"]),
+                "style": a.get("style", "default"),
+            })
+
+        return json.dumps({
+            "success": True,
+            "kind": kind,
+            "actions": cleaned,
+        }, ensure_ascii=False)
+
+    # ═══════════════════════════════════════════════════════════
     # 🆕 analyze_files — LLM 可主动调度的文件分析工具
     # ═══════════════════════════════════════════════════════════
 
@@ -1465,6 +1498,39 @@ TOOL_DEFINITIONS = [
                     "extracted_snapshot": {"type": "object", "description": "analyze_receipt/analyze_files 返回的 extracted 快照"},
                     "expected_snapshot": {"type": "object", "description": "合同期望字段快照"},
                     "diff_fields": {"type": "array", "description": "差异字段清单", "items": {"type": "object"}},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "present_quick_replies",
+            "description": "向前端展示快捷回复按钮。仅用于 UI 展示，不执行任何业务写入。当你需要用户确认、选择、修改时，调用此工具展示按钮。",
+            "parameters": {
+                "type": "object",
+                "required": ["kind", "actions"],
+                "properties": {
+                    "kind": {
+                        "type": "string",
+                        "enum": ["confirmation", "choice", "edit_prompt"],
+                        "description": "按钮类型：confirmation=确认/取消，choice=多选一，edit_prompt=引导用户补充信息",
+                    },
+                    "actions": {
+                        "type": "array",
+                        "minItems": 2,
+                        "maxItems": 4,
+                        "items": {
+                            "type": "object",
+                            "required": ["label", "send_text"],
+                            "properties": {
+                                "label": {"type": "string", "maxLength": 12, "description": "按钮显示文案，最多 12 个中文字符"},
+                                "send_text": {"type": "string", "description": "点击后发送的文本，必须是自然语言"},
+                                "style": {"type": "string", "enum": ["primary", "default", "danger"], "description": "按钮样式：primary=主按钮，default=次按钮，danger=危险按钮"},
+                            },
+                        },
+                        "description": "按钮列表，2-4 个",
+                    },
                 },
             },
         },

@@ -433,6 +433,18 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
             "summary": summary,
         })
 
+        # SSE: 快捷回复按钮事件（present_quick_replies 工具专用）
+        if tool_name == "present_quick_replies":
+            try:
+                qr_data = json.loads(result) if isinstance(result, str) else result
+                if qr_data.get("success"):
+                    await adispatch_custom_event("ui_actions", {
+                        "kind": qr_data.get("kind", "confirmation"),
+                        "actions": qr_data.get("actions", []),
+                    })
+            except Exception:
+                logger.warning("present_quick_replies 结果解析失败，跳过 ui_actions 事件")
+
         tool_messages.append(ToolMessage(
             content=result,
             tool_call_id=tc["id"],

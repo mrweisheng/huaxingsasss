@@ -89,6 +89,9 @@ export interface DispatchResult {
 
   /** error 事件：错误消息*/
   errorMessage?: string
+
+  /** ui_actions 事件：快捷回复按钮*/
+  quickReplies?: Array<{ label: string; send_text: string; style?: string }>
 }
 
 /** 把 SSE 事件转换为「状态更新描述」 — 调用方按需应用到自己的 state。*/
@@ -157,6 +160,14 @@ export function computeEventUpdates(
     }
   }
 
+  if (event.event === 'ui_actions') {
+    return {
+      action: 'continue',
+      nextThoughtId: ctx.thoughtStepId,
+      quickReplies: data.actions || [],
+    }
+  }
+
   return { action: 'continue', nextThoughtId: ctx.thoughtStepId }
 }
 
@@ -178,7 +189,8 @@ export function applyMessageUpdates(
     !result.toolCallAppend &&
     !result.toolResultLast &&
     !result.thoughtAppend &&
-    !result.thoughtFinalizeLast
+    !result.thoughtFinalizeLast &&
+    !result.quickReplies
   ) {
     return messages
   }
@@ -245,6 +257,13 @@ export function applyMessageUpdates(
     }
     const next = messages.slice()
     next[idx] = { ...m, thoughts }
+    return next
+  }
+
+  // ui_actions: 附加快捷回复按钮
+  if (result.quickReplies) {
+    const next = messages.slice()
+    next[idx] = { ...m, quickReplies: result.quickReplies as ChatMessage['quickReplies'] }
     return next
   }
 

@@ -30,7 +30,7 @@ import {
 import StarLogoWelcome from '@/components/StarLogoWelcome'
 import { useAgentStore } from '@/store/useAgentStore'
 import type { ChatMessage, AttachmentItem } from '@/types/agent'
-import { MarkdownRenderer, ToolCallBlock, WittyLoadingText } from '@/components/AgentChatShared'
+import { MarkdownRenderer, ToolCallBlock, WittyLoadingText, QuickReplyButtons } from '@/components/AgentChatShared'
 import { compressImage } from '@/utils/imageCompress'
 import { useAgentFile } from '@/hooks/useAgentFile'
 import { usePendingFiles, type PendingFile } from '@/hooks/usePendingFiles'
@@ -171,9 +171,11 @@ const AttachmentFile = memo(function AttachmentFile({ att }: { att: AttachmentIt
   return inner
 })
 
-const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
+const MessageBubble = memo(function MessageBubble({ msg, streaming, onSendMessage, onClearQuickReplies }: {
   msg: ChatMessage
   streaming?: boolean
+  onSendMessage?: (text: string) => void
+  onClearQuickReplies?: (msgId: number) => void
 }) {
   if (msg.role === 'user') {
     const attachments = msg.attachments || []
@@ -312,6 +314,17 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: {
             </div>
           ) : !isThinking && !isToolRunning && (
             <Spin size="small" style={{ marginTop: 8 }} />
+          )}
+
+          {msg.quickReplies && msg.quickReplies.length > 0 && !streaming && (
+            <QuickReplyButtons
+              actions={msg.quickReplies}
+              disabled={streaming}
+              onClick={(action) => {
+                onClearQuickReplies?.(msg.id)
+                onSendMessage?.(action.send_text)
+              }}
+            />
           )}
         </div>
       </div>
@@ -697,6 +710,7 @@ export default function AgentChat() {
     clearError,
     selectedTool,
     setSelectedTool,
+    clearQuickReplies,
     resetChat,
   } = useAgentStore()
 
@@ -899,6 +913,8 @@ export default function AgentChat() {
                   key={msg.id}
                   msg={msg}
                   streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
+                  onSendMessage={sendMessage}
+                  onClearQuickReplies={clearQuickReplies}
                 />
               ))}
           </div>

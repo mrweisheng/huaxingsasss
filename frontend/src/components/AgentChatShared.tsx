@@ -1,5 +1,5 @@
 import { useState, useEffect, memo, useRef } from 'react'
-import { Spin } from 'antd'
+import { Spin, Button } from 'antd'
 import {
   CheckCircleOutlined,
   LoadingOutlined,
@@ -17,7 +17,7 @@ import {
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ThoughtStep, ToolCall } from '@/types/agent'
+import type { ThoughtStep, ToolCall, QuickReplyAction } from '@/types/agent'
 
 /* ═══════════════════════════════════════════════════════════
    工具 → 业务图标 映射（让 ToolCallBlock 更可读）
@@ -208,6 +208,40 @@ export function MarkdownRenderer({ content, streaming, className }: {
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={MARKDOWN_COMPONENTS}>
         {content}
       </ReactMarkdown>
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════
+   快捷回复按钮（present_quick_replies 工具触发）
+   行为：点击后发送 send_text，按钮立即消失。
+   ═══════════════════════════════════════════════════════════ */
+export function QuickReplyButtons({ actions, disabled, onClick }: {
+  actions: QuickReplyAction[]
+  disabled?: boolean
+  onClick: (action: QuickReplyAction) => void
+}) {
+  if (!actions?.length) return null
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+      {actions.map((action, i) => (
+        <Button
+          key={i}
+          type={action.style === 'primary' ? 'primary' : 'default'}
+          danger={action.style === 'danger'}
+          disabled={disabled}
+          onClick={() => onClick(action)}
+          size="small"
+          style={{
+            borderRadius: 6,
+            animation: 'wittyPhraseIn 0.25s ease-out',
+            animationDelay: `${i * 0.05}s`,
+            animationFillMode: 'both',
+          }}
+        >
+          {action.label}
+        </Button>
+      ))}
     </div>
   )
 }

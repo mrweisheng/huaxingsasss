@@ -37,6 +37,12 @@ export interface ToolCall {
   summary?: DataReferenceSummary | null
 }
 
+export interface QuickReplyAction {
+  label: string
+  send_text: string
+  style?: 'primary' | 'default' | 'danger'
+}
+
 export interface ChatMessage {
   id: number
   sessionId: string
@@ -45,6 +51,7 @@ export interface ChatMessage {
   attachments?: AttachmentItem[]
   toolCalls?: ToolCall[]
   thoughts?: ThoughtStep[]
+  quickReplies?: QuickReplyAction[]
   intentType?: string
   isWelcome?: boolean
   createdAt: string

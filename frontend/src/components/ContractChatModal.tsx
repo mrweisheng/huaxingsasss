@@ -11,7 +11,7 @@ import {
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
 import type { ChatMessage, FileType, UploadResult } from '@/types/agent'
-import { MarkdownRenderer, WittyLoadingText, ToolCallBlock } from '@/components/AgentChatShared'
+import { MarkdownRenderer, WittyLoadingText, ToolCallBlock, QuickReplyButtons } from '@/components/AgentChatShared'
 import { usePendingFiles } from '@/hooks/usePendingFiles'
 import { useDropZone } from '@/hooks/useDropZone'
 import './ContractChatModal.css'
@@ -30,7 +30,11 @@ const TOOL_LABELS: Record<string, string> = {
   get_contract_detail: '合同详情',
 }
 
-const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: ChatMessage; streaming?: boolean }) {
+const MessageBubble = memo(function MessageBubble({ msg, streaming, onSendMessage, onClearQuickReplies }: {
+  msg: ChatMessage; streaming?: boolean;
+  onSendMessage?: (text: string) => void;
+  onClearQuickReplies?: (msgId: number) => void;
+}) {
   if (msg.role === 'user') {
     return (
       <div className="contract-chat-msg contract-chat-msg-user">
@@ -120,6 +124,17 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: Cha
             </div>
           ) : !isThinking && (
             <Spin size="small" style={{ marginTop: 8 }} />
+          )}
+
+          {msg.quickReplies && msg.quickReplies.length > 0 && !streaming && (
+            <QuickReplyButtons
+              actions={msg.quickReplies}
+              disabled={streaming}
+              onClick={(action) => {
+                onClearQuickReplies?.(msg.id)
+                onSendMessage?.(action.send_text)
+              }}
+            />
           )}
         </div>
       </div>
@@ -411,6 +426,16 @@ export default function ContractChatModal({
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() }
   }, [handleSend])
 
+  const clearQuickReplies = useCallback((msgId: number) => {
+    setMessages(prev => prev.map(m =>
+      m.id === msgId ? { ...m, quickReplies: undefined } : m
+    ))
+  }, [])
+
+  const sendMessage = useCallback(async (text: string) => {
+    await doSend(text)
+  }, [doSend])
+
   const stopGeneration = useCallback(() => {
     abortRef.current?.abort()
     setIsStreaming(false)
@@ -484,6 +509,8 @@ export default function ContractChatModal({
                   key={msg.id}
                   msg={msg}
                   streaming={isStreaming && msg.role === 'assistant' && idx === arr.length - 1}
+                  onSendMessage={sendMessage}
+                  onClearQuickReplies={clearQuickReplies}
                 />
               ))}
           </>

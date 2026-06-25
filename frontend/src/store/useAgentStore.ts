@@ -1,4 +1,4 @@
-﻿import { create } from 'zustand'
+import { create } from 'zustand'
 import { agentApi } from '../services/agent'
 import type { ChatSession, ChatMessage, FileType } from '../types/agent'
 import {
@@ -32,6 +32,7 @@ interface AgentState {
   ) => Promise<void>
   stopGeneration: () => void
   clearError: () => void
+  clearQuickReplies: (msgId: number) => void
   setSelectedTool: (tool: AgentState['selectedTool']) => void
   resetChat: () => void
 }
@@ -66,7 +67,7 @@ function applyEventToStore(
   }
 
   if (result.toolCallAppend || result.toolResultLast ||
-      result.thoughtAppend || result.thoughtFinalizeLast) {
+      result.thoughtAppend || result.thoughtFinalizeLast || result.quickReplies) {
     set((state) => ({
       messages: applyMessageUpdates(state.messages, result, assistantId),
     }))
@@ -357,6 +358,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   clearError: () => set({ error: null }),
+
+  clearQuickReplies: (msgId: number) => set((state) => ({
+    messages: state.messages.map(m =>
+      m.id === msgId ? { ...m, quickReplies: undefined } : m
+    ),
+  })),
 
   resetChat: () => set({ currentSessionId: null, messages: [], selectedTool: null }),
 }))
