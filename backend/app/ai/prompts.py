@@ -49,19 +49,80 @@ def build_system_prompt(
             ctx_lines.append(f"- 合同总额: {contract_info['currency'] or 'CNY'} {contract_info['total_amount']:,.2f}")
         if contract_info.get("payment_type"):
             ctx_lines.append(f"- 操作类型: {'录入收入' if contract_info['payment_type'] == 'income' else '录入支出'}")
-        context_block = "\n## 当前合同上下文\n" + "\n".join(ctx_lines) + "\n\n你正在为此合同处理收支录入。合同ID和收支类型已被用户从合同页面锁定，无需确认——所有操作必须关联此合同（使用上方的合同ID和合同编号），绝对不要询问用户\"关联到哪个合同\"或\"是收入还是支出\"。如果凭证识别度低（金额/币种/付款方/日期不清晰），要问的是这些业务字段，而不是合同归属。\n\n例外：如果凭证识别出的付款方/收款方/备注中出现的人名与上方合同的客户名完全不一致（注意：简繁差异如\"胡少棟/胡少栋\"、个人名与其名下公司、家属代付等合理变体不算不一致），录入前先告知用户这个不一致并请其确认，例如：\"凭证备注提到'王五'，但当前合同客户是'李四'，是否确认这笔仍录到李四的合同？\"——这是防止用户误传其他合同凭证的安全检查，不是要切换合同。"
+        context_block = "\n## 当前合同上下文\n" + "\n".join(ctx_lines) + "\n\n你正在为此合同处理收支录入。合同ID和收支类型已被用户从合同页面锁定，无需确认——所有操作必须关联此合同（使用上方的合同ID和合同编号），绝对不要询问用户\"关联到哪个合同\"或\"是收入还是支出\"。"
 
-    # 无凭证支出规则：只要会话模式是录支出就注入，不依赖 contract_info。
-    # 两个入口（合同卡片「支」按钮 / 主页「录支出」标签）创建 session 时
-    # 都设 mode='receipt_expense'，所以两边都能命中同一套规则。
-    if session_mode == "receipt_expense":
-        context_block += """
+    # 凭证录入对话流规则（仅 receipt_income / receipt_expense 模式注入）
+    if session_mode in ("receipt_income", "receipt_expense"):
+        is_income_mode = session_mode == "receipt_income"
+        action_word = "收入" if is_income_mode else "支出"
+        write_tool = "create_income_payment" if is_income_mode else "create_expense_payment"
+        context_block += f"""
 
-### 无凭证支出场景（仅录入支出时适用）
-本系统**不通过对话录入支出**。如果用户描述了一笔无凭证支出（如"张三介绍来的，给他返 500 港币"），你的职责是：
-1. 帮用户理清关键信息：收款方、金额、币种、日期、用途
-2. 提示用户：「请到【合同卡片】上点击"录入支出"，选择付款方式（现金/银行转账等），填写收款方和金额完成录入。」
-3. **不要调用任何写入工具创建支出记录**"""
+## 凭证录入对话流（你正在做{action_word}录入）
+
+你的目标是引导用户**通过对话**完成一笔{action_word}的录入。整个流程遵循以下步骤：
+
+### 1. 凭证识别（用户一上传凭证图就调）
+- 用户上传凭证图后，**立刻调用 analyze_receipt(file_id, contract_id, payment_type="{("income" if is_income_mode else "expense")}")**
+  - 不要先调 analyze_files；analyze_receipt 自带 VL 识别 + 合同对比
+  - contract_id 从上方「当前合同上下文」里直接取
+- 等工具返回，**根据 match_status 三态决定后续行为**：
+
+#### match_status = "ok"
+- 凭证和合同关键字段全部匹配
+- 你应该向用户清楚列出：金额、币种、付款方/收款方、付款日期、期数名（如果命中）、凭证类型
+- 询问用户："以上信息确认无误吗？确认后我立即录入。"
+- 用户回复同意性表达后，调 **{write_tool}** 写库
+  - 必须把 analyze_receipt 返回的 `_receipt_path` / `_receipt_file_hash` / `_receipt_data` / `_payment_account_id`（仅收入）/ `verification`（用 extracted+expected+diff_fields 组装的 dict）透传给写入工具
+  - amount / currency / paid_date 用凭证识别值
+  - description 一般不传，让系统自动生成；如果用户主动说"备注写XX"则用用户给的
+
+#### match_status = "soft_mismatch"
+- 凭证轻微不符（金额/币种/付款方/日期等任一不一致）
+- **明确告诉用户哪里不一致**：把 `diff_fields` 里每个字段的 expected vs got 用自然语言列出来，如：
+  > "我识别到这张凭证有以下不一致点：
+  > - 金额：合同期望 ¥50,000，凭证显示 ¥49,800（差 ¥200）
+  > - 付款方：合同客户是「胡少棟」，凭证显示「胡少栋」（疑似简繁差异）
+  > 这种情况下，你可以：
+  > 1. 重新上传一张匹配的凭证
+  > 2. 给我一个放行理由（说明为什么这笔仍然有效），我帮你按凭证识别值录入
+  > 如果选放行，请直接告诉我原因。"
+- 用户给出放行理由（自然语言，如"客户用了别名/家属代付/小额误差"等）后，调 **override_receipt_mismatch**
+  - 必须把 `_receipt_path` / `_receipt_file_hash` / `_receipt_data` / `extracted_snapshot`（=analyze_receipt 的 extracted）/ `expected_snapshot`（=expected）/ `diff_fields` 透传
+  - `override_reason` 用用户提供的理由（不要自己编）
+  - `match_status="soft_mismatch"`
+
+#### match_status = "hard_conflict"
+- 凭证客户与合同客户**完全不相干**（不是简繁差异、不是家属代付、不是别名）
+- **绝对不要调任何写入工具**。明确告诉用户："这张凭证的付款方与当前合同的客户「X」完全不符（凭证显示「Y」）。这通常意味着凭证传错了或者绑错了合同。请重新核对凭证，或换一张凭证再上传。"
+- 即使用户坚持要录，你也要拒绝——这是数据完整性的硬边界
+- 不要调 override_receipt_mismatch（工具本身也会拒绝）
+
+#### duplicate_detected = true
+- 该凭证已在此合同下录入过。明确告诉用户："这张凭证已经录过了（已有付款 ID=X，{action_word} Y），无需重复录入。"
+
+### 2. 凭证识别失败的情况
+- 如果 analyze_receipt 返回 error，向用户解释失败原因（如：文件不存在、不是凭证、识别度极低），请他重新上传或核对
+
+### 3. 字段补充
+- 如果凭证识别字段缺失（如付款方式不清晰、期数名未命中），**直接问用户补充**，不要自己猜
+- 收入凭证通常会识别出收款账户（_payment_account_id）；如果识别为 null，问用户："这笔收到的是哪个账户？"
+
+### 4. 写入前的最终确认
+- 任何写入操作（create_*_payment / override_receipt_mismatch）执行前都要先列计划等用户确认
+- 用户同意性表达（"确认"、"可以"、"好的"、"录"等）后才调工具
+- 例外：用户已经在 soft_mismatch 阶段明确给出放行理由 → 等于隐含同意 → 直接调 override_receipt_mismatch
+"""
+        # 录支出模式：补无凭证支出的引导
+        if not is_income_mode:
+            context_block += """
+### 5. 无凭证支出（仅录支出适用）
+- 用户描述支出但没上传凭证（如"张三介绍来的，给他返 500 港币"），允许走"无凭证录入"通道
+- 收集关键信息：收款方（payee_name）、金额、币种、付款日期、用途说明
+- 询问用户："这笔支出没有凭证可上传是吗？如果是，请告诉我无凭证的原因（比如：现金支付/代付/对方未提供凭证），我会作为放行理由记录到审计表里"
+- 拿到无凭证理由后，调 **create_expense_payment(..., no_receipt=true, override_reason="<用户给的理由>")**
+- 系统会自动落入 manual 模式审计表，方便后续审计
+"""
 
     return f"""你是华星资源开发有限公司的智能业务助手，专门为两地车牌指标过户服务提供支持。
 
@@ -79,23 +140,14 @@ def build_system_prompt(
 ## 核心工作流
 
 ### 文件处理
-用户上传文件时，你必须先调用 analyze_files 工具分析文件内容，再根据分析结果决定下一步操作。
-- 合同文件 → 创建客户 + 创建合同（**合同创建必须先拿到业务微信群名称**，群名由用户口述提供，不在合同文件里）
-- 付款凭证 / 支出凭证 → 识别后向用户展示金额/币种/日期/付款方等关键信息，并**提示用户到合同卡片上录入收入或支出**（见下方"凭证录入引导"）
-- 群聊截图 → 不再用于识别群名。业务群名称直接向用户询问获取
+用户上传文件时，要先识别文件性质：
+- **凭证文件 + 凭证录入对话流（receipt_income / receipt_expense 模式）** → 直接调 **analyze_receipt**（不要先调 analyze_files），遵循上方「凭证录入对话流」段落
+- **合同文件 / 群聊截图 / chat 模式下的任意文件** → 调 **analyze_files** 分析；合同识别后走"创建客户+创建合同"流程（合同创建必须先拿到业务微信群名称，群名由用户口述提供，不在合同文件里）
 - analyze_files 仅支持合同/凭证/群聊三种类型，其他文件会被拒绝
 - 你可以多次调用 analyze_files（例如用户说"这是凭证不是合同"时重调）
 
-### 凭证录入引导（重要）
-本系统**不通过对话录入收付款记录**。当 analyze_files 识别出凭证（type=receipt）时，你的职责是：
-1. 把识别结果清晰展示给用户（金额、币种、交易日期、付款方/收款方、凭证类型）
-2. 提示用户：「请到【合同卡片】上点击"录入收入"或"录入支出"，上传这张凭证完成录入。系统会自动校验凭证与表单是否一致。」
-3. 如果识别到多张凭证，逐一展示，分别提示
-4. **不要调用任何写入工具创建付款记录**（create_payment_record / match_and_confirm_payment 已下线）
-5. 如果 analyze_files 返回 `duplicate_detected: true`，告知用户该凭证已在当前合同下录入过，无需重复录入
-
 ### 确认规则（重要）
-所有写入操作（create_customer / create_contract / update_payment / add_additional_item / update_additional_item / delete_additional_item）必须遵循"先列计划、再等同意、后执行"的两步流程：
+所有写入操作（create_customer / create_contract / update_payment / create_income_payment / create_expense_payment / override_receipt_mismatch / add_additional_item / update_additional_item / delete_additional_item）必须遵循"先列计划、再等同意、后执行"的两步流程：
 
 1. **第一步：列计划，问确认**
    - 用户首次发起录入指令时（如"录入合同"、"录这张凭证"、"创建客户XX"），**不要直接调用写入工具**

@@ -35,10 +35,17 @@ interface ReceiptChatModalProps {
 
 const TYPE_LABELS = { income: '收入', expense: '支出' }
 const TOOL_LABELS: Record<string, string> = {
-  analyze_image: '文件分析',
+  analyze_files: '文件识别',
+  analyze_image: '图片识别',
+  analyze_receipt: '凭证识别+对比',
   update_payment: '更新记录',
   get_contract_detail: '合同详情',
   query_payments: '查询付款',
+  search_contracts: '搜索合同',
+  search_customers: '搜索客户',
+  create_income_payment: '录入收入',
+  create_expense_payment: '录入支出',
+  override_receipt_mismatch: '凭证放行',
 }
 
 const MessageBubble = memo(function MessageBubble({ msg, streaming }: { msg: ChatMessage; streaming?: boolean }) {

@@ -30,7 +30,7 @@ from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.runnables import RunnableConfig
 
 from app.ai.orchestrator.state import AgentState
-from app.ai.tool_executor import TOOL_DEFINITIONS, ToolExecutorV2
+from app.ai.tool_executor import TOOL_DEFINITIONS, ToolExecutorV2, filter_tool_definitions
 from app.ai.llm_client import AgentModelClient
 from app.ai.prompts import build_system_prompt, TimeContext
 from app.config import settings
@@ -324,13 +324,18 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
         session_mode=state.get("session_mode", "chat"),
     )
 
+    # 按 session_mode 过滤工具集（轻量 mode guard）：
+    #   chat → 全集；receipt_income/expense → 凭证录入对话流相关工具
+    session_mode = state.get("session_mode", "chat")
+    tools_for_llm = filter_tool_definitions(session_mode)
+
     full_text = ""
     tool_calls = []
 
     try:
         async for event in llm_client.chat_completion_stream(
             messages=openai_messages,
-            tools=TOOL_DEFINITIONS,
+            tools=tools_for_llm,
         ):
             if event["type"] == "text":
                 full_text += event["content"]
@@ -382,6 +387,10 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
     """
     deps = _get_deps(config)
     executor = deps["executor"]
+
+    # 同步会话模式 / 上下文到 executor，启用 mode guard 兜底（避免 LLM 不听话）
+    executor.mode = state.get("session_mode", "chat")
+    executor.session_context = state.get("session_context")
 
     last_msg = state["messages"][-1]
     if not getattr(last_msg, "tool_calls", None):

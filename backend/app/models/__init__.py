@@ -11,6 +11,7 @@ from app.models.payment_account import PaymentAccount
 from app.models.exchange_rate import ExchangeRate
 from app.models.file import File
 from app.models.audit_log import AuditLog
+from app.models.payment_override_audit import PaymentOverrideAudit
 from app.models.chat_history import ChatHistory
 from app.models.chat_session import ChatSession
 from app.models.agent_file import AgentFile
@@ -26,6 +27,7 @@ __all__ = [
     "ExchangeRate",
     "File",
     "AuditLog",
+    "PaymentOverrideAudit",
     "ChatHistory",
     "ChatSession",
     "AgentFile",

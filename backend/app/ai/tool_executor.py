@@ -4,25 +4,32 @@
   - 继承原 ToolExecutor，复用所有业务逻辑
   - 删除 mode guard / document guard / set_pending_plan
   - 新增 analyze_files
-  - 已下线 create_payment_record / match_and_confirm_payment（录收支改走合同卡片表单）
-  - 工具集 20→16
+  - 凭证录入对话流（v3）：analyze_receipt / create_income_payment / create_expense_payment / override_receipt_mismatch
+  - 工具集 20→16→20
 
 设计原则：
   - 轻量确认：写入工具执行前检查 LLM 上文是否展示确认请求
-  - 无模式锁定：所有工具在所有场景下可用（权限由角色控制）
+  - 凭证录入对话流：analyze_receipt 同步前置 + 三态判定，写库直接 paid（不走异步 verify_receipt）
+  - 写入工具按 session_mode 在 unified_agent 层做工具集过滤
 """
 import json
 import logging
-from datetime import date
+from datetime import date, datetime
+from decimal import Decimal
 from typing import Optional
 
 from app.ai.tool_executor_base import ToolExecutor
 from app.schemas.contract_additional_item import AdditionalItemCreate, AdditionalItemUpdate
 from app.services.contract_additional_item_service import AdditionalItemService
 from app.services.file_analyzer import FileAnalyzer
+from app.services.payment_service import PaymentService
+from app.services.payment_account_service import PaymentAccountService
+from app.services.receipt_matcher import match_receipt, pick_payment_term
 from app.utils.file_utils import resolve_file_path
 from app.models.payment import Payment
 from app.models.contract import Contract
+from app.models.customer import Customer
+from app.models.payment_account import PaymentAccount
 
 logger = logging.getLogger(__name__)
 
@@ -165,14 +172,25 @@ class ToolExecutorV2(ToolExecutor):
     # ═══════════════════════════════════════════════════════════
 
     def execute(self, tool_name: str, arguments: dict) -> str:
-        """统一执行入口 — 无模式守卫，仅角色权限控制"""
-        # 白名单校验：阻止 LLM 误传/恶意传非 TOOL_DEFINITIONS 中的方法名
-        # 防止 getattr(self, tool_name) 命中父类继承的 dunder 或私有方法
+        """统一执行入口 — 白名单 + 轻量 mode guard。
+
+        - 白名单校验：阻止 LLM 误传/恶意传非 TOOL_DEFINITIONS 中的方法名
+        - mode guard：当 self.mode 是 receipt_income/receipt_expense 时，
+          只允许调用 MODE_TOOL_WHITELIST[mode] 内的工具
+        """
         if tool_name not in _ALLOWED_TOOLS:
             logger.warning("非白名单工具调用拒绝: %s", tool_name)
             return json.dumps({
                 "error": f"未知工具: {tool_name}",
                 "hint": "仅允许调用 TOOL_DEFINITIONS 中声明的工具。",
+            }, ensure_ascii=False)
+
+        # ── mode guard：录收入会话只允许调收入工具集，录支出反之 ──
+        if self.mode and not is_tool_allowed_in_mode(tool_name, self.mode):
+            logger.warning("工具不在当前模式允许列表: tool=%s mode=%s", tool_name, self.mode)
+            return json.dumps({
+                "error": f"当前会话模式（{self.mode}）不允许调用工具：{tool_name}",
+                "hint": "凭证录入会话仅暴露与当前收支类型相关的工具",
             }, ensure_ascii=False)
 
         handler = getattr(self, tool_name, None)
@@ -582,9 +600,437 @@ class ToolExecutorV2(ToolExecutor):
             "message": "附加项已删除（引用此附加项的付款标签已自动置空）",
         }, ensure_ascii=False)
 
+    # ═══════════════════════════════════════════════════════════
+    # 🆕 凭证录入对话流（v3）
+    # analyze_receipt   — 同步 VL 提取 + 三态判定
+    # create_income_payment / create_expense_payment — ok 状态直接落库
+    # override_receipt_mismatch — soft_mismatch / 无凭证 手动放行
+    # ═══════════════════════════════════════════════════════════
+
+    def _load_contract_bundle(self, contract_id: int):
+        """加载合同 + 客户 + 角色权限校验。返回 (contract, customer)。"""
+        contract = self.db.query(Contract).filter(
+            Contract.id == contract_id, Contract.is_deleted == False
+        ).first()
+        if not contract:
+            return None, None
+        customer = None
+        if contract.customer_id:
+            customer = self.db.query(Customer).filter(
+                Customer.id == contract.customer_id
+            ).first()
+        return contract, customer
+
+    def _check_payment_role(self, payment_type: str) -> Optional[str]:
+        """收入/支出权限校验。返回错误 JSON 字符串或 None。"""
+        if payment_type == "income" and self.user.role == "expense":
+            return json.dumps({"error": "当前角色无权录入收入"}, ensure_ascii=False)
+        if payment_type == "expense" and self.user.role == "income":
+            return json.dumps({"error": "当前角色无权录入支出"}, ensure_ascii=False)
+        return None
+
+    def analyze_receipt(
+        self,
+        file_id: str,
+        contract_id: int,
+        payment_type: str = "income",
+        payment_account_hint: Optional[str] = None,
+    ) -> str:
+        """凭证识别 + 三态对比：ok / soft_mismatch / hard_conflict。
+
+        Args:
+            file_id: 凭证文件 ID（用户已上传到 agent_upload）
+            contract_id: 当前合同 ID
+            payment_type: income / expense（影响匹配规则）
+            payment_account_hint: 凭证 hint（如收款方简称），用于 aliases 匹配收款账户
+
+        Returns:
+            JSON: {
+                "match_status": "ok"|"soft_mismatch"|"hard_conflict",
+                "extracted": {...},
+                "expected": {...},
+                "diff_fields": [...],
+                "confidence": float,
+                "reason": str,
+                "_receipt_path": "...",        # 内部传递给 create_* 工具
+                "_receipt_file_hash": "...",   # 内部传递给 create_* 工具
+                "_payment_account_id": int|None,
+                "_payment_term": {...}|None,
+                "duplicate_detected": bool,
+            }
+        """
+        if not file_id:
+            return json.dumps({"error": "缺少 file_id"}, ensure_ascii=False)
+        if not contract_id:
+            return json.dumps({"error": "缺少 contract_id"}, ensure_ascii=False)
+
+        err = self._check_payment_role(payment_type)
+        if err:
+            return err
+
+        contract, customer = self._load_contract_bundle(contract_id)
+        if not contract:
+            return json.dumps({"error": f"合同不存在: {contract_id}"}, ensure_ascii=False)
+
+        # 解析文件
+        file_path = resolve_file_path(file_id, self.user.id)
+        if not file_path:
+            return json.dumps({"error": f"凭证文件不存在: {file_id}"}, ensure_ascii=False)
+
+        # VL 分析（凭证去重检测顺带做了）
+        analysis = FileAnalyzer.analyze(
+            file_path, file_id,
+            purpose="receipt",
+            db=self.db,
+            user_id=self.user.id,
+            contract_id=contract_id,
+        )
+        if analysis.get("duplicate_detected"):
+            return json.dumps({
+                "duplicate_detected": True,
+                "existing_payment": analysis.get("existing_payment"),
+                "message": "该凭证已在此合同下录入过，请勿重复录入",
+            }, ensure_ascii=False, default=str)
+
+        if not analysis.get("success") or analysis.get("type") != "receipt":
+            return json.dumps({
+                "error": analysis.get("error") or "凭证识别失败",
+                "type": analysis.get("type"),
+            }, ensure_ascii=False)
+
+        extracted = analysis.get("data") or {}
+
+        # 把文件搬到 receipt 目录（落库要存稳定路径）
+        receipt_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+        receipt_hash = getattr(self, "_last_receipt_file_hash", None) or analysis.get("file_hash")
+
+        # 收款账户匹配（aliases 优先），仅 income 走
+        payment_account = None
+        if payment_type == "income":
+            hint = (
+                payment_account_hint
+                or extracted.get("payment_account_hint")
+                or extracted.get("payee_name")
+                or ""
+            )
+            if hint:
+                payment_account = PaymentAccountService.find_by_hint(self.db, hint)
+
+        # 选定付款计划项（按金额命中）
+        from decimal import Decimal as _Dec
+        amount_dec = None
+        try:
+            amount_dec = _Dec(str(extracted.get("amount"))) if extracted.get("amount") else None
+        except Exception:
+            amount_dec = None
+        currency_str = (extracted.get("currency") or contract.currency or "CNY").upper()
+        payment_term = pick_payment_term(contract, amount_dec, currency_str) if payment_type == "income" else None
+
+        # 三态判定
+        result = match_receipt(
+            extracted=extracted,
+            contract=contract,
+            customer=customer,
+            payment_account=payment_account,
+            expected_payment_term=payment_term,
+            payment_type=payment_type,
+        )
+
+        return json.dumps({
+            "match_status": result["match_status"],
+            "extracted": result["extracted_norm"],
+            "expected": result["expected"],
+            "diff_fields": result["diff_fields"],
+            "confidence": result["confidence"],
+            "reason": result["reason"],
+            "_receipt_path": receipt_path,
+            "_receipt_file_hash": receipt_hash,
+            "_receipt_data": extracted,
+            "_payment_account_id": payment_account.id if payment_account else None,
+            "_payment_account_title": payment_account.title if payment_account else None,
+            "_payment_term": payment_term,
+            "_source_file_id": file_id,
+        }, ensure_ascii=False, default=str)
+
+    def _build_user_input_snapshot(self, **fields) -> dict:
+        """统一序列化用户输入快照（金额/币种/日期/描述等）。"""
+        snapshot = {}
+        for k, v in fields.items():
+            if v is None:
+                continue
+            if isinstance(v, Decimal):
+                snapshot[k] = float(v)
+            elif isinstance(v, date):
+                snapshot[k] = v.isoformat()
+            else:
+                snapshot[k] = v
+        return snapshot
+
+    def _resolve_receipt_artifact(
+        self,
+        file_id: Optional[str],
+        receipt_path_hint: Optional[str],
+        receipt_hash_hint: Optional[str],
+        receipt_data_hint: Optional[dict],
+    ) -> tuple[Optional[str], Optional[str], Optional[dict]]:
+        """凭证三件套解析：path / hash / data。
+
+        优先级：
+        1. LLM 直接传 _receipt_path / _receipt_file_hash / _receipt_data（从 analyze_receipt 透传）
+        2. LLM 只传 file_id → 现场 resolve + 搬目录 + 算 hash
+        3. 无 file_id → (None, None, None)（支出 no_receipt 场景）
+        """
+        if receipt_path_hint or receipt_hash_hint:
+            return receipt_path_hint, receipt_hash_hint, receipt_data_hint
+        if not file_id:
+            return None, None, None
+        receipt_path = self._ensure_file_in_receipt_dir(f"agent_upload/{file_id}")
+        receipt_hash = getattr(self, "_last_receipt_file_hash", None)
+        return receipt_path, receipt_hash, receipt_data_hint
+
+    def _create_payment_dialog(
+        self,
+        *,
+        payment_type: str,
+        contract_id: int,
+        amount: float,
+        currency: str,
+        paid_date: str,
+        payment_method: Optional[str] = None,
+        installment_name: Optional[str] = None,
+        description: Optional[str] = None,
+        notes: Optional[str] = None,
+        payee_name: Optional[str] = None,
+        payment_account_id: Optional[int] = None,
+        counterparty_account: Optional[dict] = None,
+        file_id: Optional[str] = None,
+        _receipt_path: Optional[str] = None,
+        _receipt_file_hash: Optional[str] = None,
+        _receipt_data: Optional[dict] = None,
+        verification: Optional[dict] = None,
+    ) -> str:
+        """内部公共实现：ok 状态对话流创建付款。"""
+        err = self._check_payment_role(payment_type)
+        if err:
+            return err
+
+        try:
+            paid_date_obj = date.fromisoformat(paid_date)
+        except (ValueError, TypeError):
+            return json.dumps({"error": "paid_date 格式应为 YYYY-MM-DD"}, ensure_ascii=False)
+
+        try:
+            amount_dec = Decimal(str(amount))
+        except Exception:
+            return json.dumps({"error": "amount 必须为数字"}, ensure_ascii=False)
+        if amount_dec <= 0:
+            return json.dumps({"error": "amount 必须大于 0"}, ensure_ascii=False)
+
+        receipt_path, receipt_hash, receipt_data = self._resolve_receipt_artifact(
+            file_id, _receipt_path, _receipt_file_hash, _receipt_data,
+        )
+
+        # description 自动生成
+        if not description and isinstance(receipt_data, dict):
+            contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
+            description = self._resolve_payment_description(
+                receipt_data, contract,
+                float(amount_dec), currency, payment_type,
+            )
+
+        try:
+            payment = PaymentService.create_payment_for_dialog(
+                db=self.db,
+                contract_id=contract_id,
+                payment_type=payment_type,
+                amount=amount_dec,
+                currency=currency,
+                paid_date=paid_date_obj,
+                payment_method=payment_method,
+                receipt_path=receipt_path,
+                receipt_file_hash=receipt_hash,
+                receipt_data=receipt_data,
+                verification_snapshot=verification,
+                description=description,
+                installment_name=installment_name,
+                notes=notes,
+                payee_name=payee_name,
+                payment_account_id=payment_account_id,
+                counterparty_account=counterparty_account,
+                created_by=self.user.id,
+                no_receipt=False,
+            )
+        except ValueError as e:
+            self.db.rollback()
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        except Exception as e:
+            self.db.rollback()
+            logger.exception("create_payment_for_dialog 失败")
+            return json.dumps({"error": f"创建付款失败: {e}"}, ensure_ascii=False)
+
+        return json.dumps({
+            "success": True,
+            "payment": self._payment_to_dict(payment),
+            "message": f"{('收入' if payment_type == 'income' else '支出')}已成功录入：{currency} {amount_dec}",
+        }, ensure_ascii=False, default=str)
+
+    def create_income_payment(self, **kwargs) -> str:
+        """对话流创建收入付款（凭证已同步预校验通过=ok 时才能调用）。"""
+        # 防御：要求凭证字段
+        if not (kwargs.get("file_id") or kwargs.get("_receipt_path")):
+            return json.dumps({"error": "收入必须先调 analyze_receipt 提取凭证"}, ensure_ascii=False)
+        return self._create_payment_dialog(payment_type="income", **kwargs)
+
+    def create_expense_payment(self, **kwargs) -> str:
+        """对话流创建支出付款（可无凭证，支出允许 no_receipt）。"""
+        no_receipt = bool(kwargs.pop("no_receipt", False))
+        has_receipt = bool(kwargs.get("file_id") or kwargs.get("_receipt_path"))
+        if not has_receipt and not no_receipt:
+            return json.dumps({
+                "error": "支出录入需明确：传 file_id（有凭证）或 no_receipt=true（无凭证）",
+            }, ensure_ascii=False)
+        if has_receipt and no_receipt:
+            return json.dumps({"error": "不能同时传 file_id 和 no_receipt=true"}, ensure_ascii=False)
+        if no_receipt:
+            # 走放行通道（无凭证 = manual 模式审计）
+            return self._override_payment(
+                payment_type="expense",
+                match_status="manual",
+                no_receipt=True,
+                **kwargs,
+            )
+        return self._create_payment_dialog(payment_type="expense", **kwargs)
+
+    def _override_payment(
+        self,
+        *,
+        payment_type: str,
+        match_status: str,
+        contract_id: int,
+        amount: float,
+        currency: str,
+        paid_date: str,
+        override_reason: str,
+        payment_method: Optional[str] = None,
+        installment_name: Optional[str] = None,
+        description: Optional[str] = None,
+        notes: Optional[str] = None,
+        payee_name: Optional[str] = None,
+        payment_account_id: Optional[int] = None,
+        counterparty_account: Optional[dict] = None,
+        file_id: Optional[str] = None,
+        _receipt_path: Optional[str] = None,
+        _receipt_file_hash: Optional[str] = None,
+        _receipt_data: Optional[dict] = None,
+        extracted_snapshot: Optional[dict] = None,
+        expected_snapshot: Optional[dict] = None,
+        diff_fields: Optional[list] = None,
+        no_receipt: bool = False,
+    ) -> str:
+        """内部：放行创建（soft_mismatch 或 manual）。"""
+        err = self._check_payment_role(payment_type)
+        if err:
+            return err
+        if not override_reason or not override_reason.strip():
+            return json.dumps({"error": "放行理由（override_reason）不能为空"}, ensure_ascii=False)
+
+        try:
+            paid_date_obj = date.fromisoformat(paid_date)
+        except (ValueError, TypeError):
+            return json.dumps({"error": "paid_date 格式应为 YYYY-MM-DD"}, ensure_ascii=False)
+        try:
+            amount_dec = Decimal(str(amount))
+        except Exception:
+            return json.dumps({"error": "amount 必须为数字"}, ensure_ascii=False)
+        if amount_dec <= 0:
+            return json.dumps({"error": "amount 必须大于 0"}, ensure_ascii=False)
+
+        receipt_path, receipt_hash, receipt_data = self._resolve_receipt_artifact(
+            file_id, _receipt_path, _receipt_file_hash, _receipt_data,
+        )
+
+        if not description and isinstance(receipt_data, dict):
+            contract = self.db.query(Contract).filter(Contract.id == contract_id).first()
+            description = self._resolve_payment_description(
+                receipt_data, contract,
+                float(amount_dec), currency, payment_type,
+            )
+
+        user_input_snapshot = self._build_user_input_snapshot(
+            amount=amount_dec, currency=currency, paid_date=paid_date_obj,
+            payment_method=payment_method, installment_name=installment_name,
+            description=description, payee_name=payee_name,
+            payment_account_id=payment_account_id,
+        )
+
+        try:
+            payment = PaymentService.create_payment_with_override(
+                db=self.db,
+                contract_id=contract_id,
+                payment_type=payment_type,
+                amount=amount_dec,
+                currency=currency,
+                paid_date=paid_date_obj,
+                payment_method=payment_method,
+                receipt_path=receipt_path,
+                receipt_file_hash=receipt_hash,
+                receipt_data=receipt_data,
+                description=description,
+                installment_name=installment_name,
+                notes=notes,
+                payee_name=payee_name,
+                payment_account_id=payment_account_id,
+                counterparty_account=counterparty_account,
+                created_by=self.user.id,
+                operator_name=self.user.full_name or self.user.username,
+                operator_role=self.user.role,
+                session_id=self.session_id,
+                override_reason=override_reason.strip(),
+                match_status=match_status,
+                extracted_snapshot=extracted_snapshot,
+                user_input_snapshot=user_input_snapshot,
+                expected_snapshot=expected_snapshot,
+                diff_fields=diff_fields,
+                no_receipt=no_receipt,
+            )
+        except ValueError as e:
+            self.db.rollback()
+            return json.dumps({"error": str(e)}, ensure_ascii=False)
+        except Exception as e:
+            self.db.rollback()
+            logger.exception("create_payment_with_override 失败")
+            return json.dumps({"error": f"放行创建失败: {e}"}, ensure_ascii=False)
+
+        return json.dumps({
+            "success": True,
+            "payment": self._payment_to_dict(payment),
+            "match_status": match_status,
+            "message": "已凭借放行理由完成录入，本次操作已写入放行审计表。",
+        }, ensure_ascii=False, default=str)
+
+    def override_receipt_mismatch(self, **kwargs) -> str:
+        """凭证轻微不符（soft_mismatch）状态下，用户提供理由后手动放行创建付款。
+
+        hard_conflict 状态下此工具会拒绝执行（match_status 校验放在 Service 层）。
+        """
+        match_status = kwargs.get("match_status", "soft_mismatch")
+        if match_status == "hard_conflict":
+            return json.dumps({
+                "error": "硬冲突（凭证客户与合同客户完全不符）禁止放行。请重新核对凭证或合同。",
+            }, ensure_ascii=False)
+        payment_type = kwargs.pop("payment_type", "income")
+        return self._override_payment(
+            payment_type=payment_type,
+            match_status=match_status,
+            no_receipt=False,
+            **kwargs,
+        )
+
 
 # ═══════════════════════════════════════════════════════════════
-# TOOL_DEFINITIONS v2 — 16 个工具（已下线 create_payment_record / match_and_confirm_payment，录收支改走表单）
+# TOOL_DEFINITIONS v3 — 20 个工具
+#   16 个基础 + 4 个凭证录入对话流（analyze_receipt / create_income_payment /
+#   create_expense_payment / override_receipt_mismatch）
 # ═══════════════════════════════════════════════════════════════
 
 TOOL_DEFINITIONS = [
@@ -881,6 +1327,115 @@ TOOL_DEFINITIONS = [
             },
         },
     },
+    # ── 凭证录入对话流（4 个） ──
+    {
+        "type": "function",
+        "function": {
+            "name": "analyze_receipt",
+            "description": "识别凭证并对照合同/付款计划做三态判定（ok/soft_mismatch/hard_conflict）。这是凭证录入对话流的第一步：用户上传凭证图后立刻调它，根据返回的 match_status 决定下一步：ok→展示计划等用户确认→create_income_payment/create_expense_payment；soft_mismatch→把差异展示给用户，请用户给放行理由→override_receipt_mismatch；hard_conflict→明确拒绝录入并提醒用户核对。**必须在调 create_*_payment / override_receipt_mismatch 之前先调本工具**，把返回结果中的 _receipt_path / _receipt_file_hash / _receipt_data / _payment_account_id / extracted / expected / diff_fields 透传到后续写入工具。",
+            "parameters": {
+                "type": "object",
+                "required": ["file_id", "contract_id"],
+                "properties": {
+                    "file_id": {"type": "string", "description": "凭证文件ID（从附件信息获取）"},
+                    "contract_id": {"type": "integer", "description": "当前合同ID（从会话上下文获取）"},
+                    "payment_type": {"type": "string", "enum": ["income", "expense"], "description": "付款类型，默认 income"},
+                    "payment_account_hint": {"type": "string", "description": "收款账户提示词（如收款方简称），可选；用于命中收款账户别名"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_income_payment",
+            "description": "对话流创建一笔收入。**必须先调 analyze_receipt 且 match_status=ok 时才能调本工具**。把 analyze_receipt 返回的 _receipt_path / _receipt_file_hash / _receipt_data / _payment_account_id / verification 透传进来。写入前必须先用自然语言列出关键信息（金额/币种/付款方/付款日期/期数名）并等用户确认。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id", "amount", "currency", "paid_date"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "amount": {"type": "number", "description": "金额（凭证识别值）"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "币种"},
+                    "paid_date": {"type": "string", "description": "付款日期 YYYY-MM-DD"},
+                    "payment_method": {"type": "string", "description": "付款方式 bank_transfer/wechat/alipay/cash/check"},
+                    "installment_name": {"type": "string", "description": "期数名（如\"定金\"、\"尾款\"）"},
+                    "description": {"type": "string", "description": "业务描述（不传则自动生成）"},
+                    "notes": {"type": "string", "description": "备注"},
+                    "payment_account_id": {"type": "integer", "description": "收款账户ID（从 analyze_receipt._payment_account_id 透传）"},
+                    "file_id": {"type": "string", "description": "凭证文件ID"},
+                    "_receipt_path": {"type": "string", "description": "凭证落库路径（从 analyze_receipt 透传）"},
+                    "_receipt_file_hash": {"type": "string", "description": "凭证哈希（从 analyze_receipt 透传）"},
+                    "_receipt_data": {"type": "object", "description": "凭证识别结构化数据（从 analyze_receipt 透传）"},
+                    "verification": {"type": "object", "description": "ReceiptMatcher 返回的判定快照（含 expected/extracted/diff_fields），落到 verification_result"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "create_expense_payment",
+            "description": "对话流创建一笔支出。支出允许无凭证：有凭证时必须先调 analyze_receipt（同收入路径）；无凭证时传 no_receipt=true + override_reason（视为 manual 模式审计放行）。写入前必须先列出关键信息（金额/币种/收款方/付款日期/用途）并等用户确认。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id", "amount", "currency", "paid_date"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "amount": {"type": "number", "description": "金额"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "币种"},
+                    "paid_date": {"type": "string", "description": "付款日期 YYYY-MM-DD"},
+                    "payment_method": {"type": "string", "description": "付款方式"},
+                    "installment_name": {"type": "string", "description": "期数名"},
+                    "description": {"type": "string", "description": "业务描述"},
+                    "notes": {"type": "string", "description": "备注"},
+                    "payee_name": {"type": "string", "description": "收款方名称（支出必填）"},
+                    "counterparty_account": {"type": "object", "description": "对方账户详情 {account_name, account_number, bank_name, branch}"},
+                    "file_id": {"type": "string", "description": "凭证文件ID（可选）"},
+                    "_receipt_path": {"type": "string", "description": "凭证落库路径（从 analyze_receipt 透传）"},
+                    "_receipt_file_hash": {"type": "string", "description": "凭证哈希（从 analyze_receipt 透传）"},
+                    "_receipt_data": {"type": "object", "description": "凭证识别结构化数据"},
+                    "verification": {"type": "object", "description": "判定快照"},
+                    "no_receipt": {"type": "boolean", "description": "无凭证声明（与 file_id 互斥）。true 时必须同时传 override_reason"},
+                    "override_reason": {"type": "string", "description": "no_receipt=true 时必填：说明为何无凭证（用户口述的业务理由）"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "override_receipt_mismatch",
+            "description": "凭证识别后 match_status=soft_mismatch 时，用户提供放行理由后调本工具强行创建付款。**禁止用于 hard_conflict**（工具入口硬挡）。所有字段从 analyze_receipt 透传，外加 override_reason、extracted_snapshot、expected_snapshot、diff_fields 用于审计追溯。写入前必须先在对话里清楚列出差异和理由，请用户明确同意放行后再调用。",
+            "parameters": {
+                "type": "object",
+                "required": ["contract_id", "amount", "currency", "paid_date", "override_reason", "match_status"],
+                "properties": {
+                    "contract_id": {"type": "integer", "description": "合同ID"},
+                    "payment_type": {"type": "string", "enum": ["income", "expense"], "description": "付款类型，默认 income"},
+                    "match_status": {"type": "string", "enum": ["soft_mismatch"], "description": "放行的匹配状态（仅 soft_mismatch 允许）"},
+                    "amount": {"type": "number", "description": "实际录入金额（一般取用户输入或凭证值）"},
+                    "currency": {"type": "string", "enum": ["CNY", "HKD"]},
+                    "paid_date": {"type": "string", "description": "YYYY-MM-DD"},
+                    "payment_method": {"type": "string"},
+                    "installment_name": {"type": "string"},
+                    "description": {"type": "string"},
+                    "notes": {"type": "string"},
+                    "payee_name": {"type": "string", "description": "收款方（仅支出）"},
+                    "counterparty_account": {"type": "object"},
+                    "payment_account_id": {"type": "integer", "description": "收款账户ID（仅收入）"},
+                    "override_reason": {"type": "string", "description": "用户提供的放行理由（必填，要落审计）"},
+                    "file_id": {"type": "string"},
+                    "_receipt_path": {"type": "string"},
+                    "_receipt_file_hash": {"type": "string"},
+                    "_receipt_data": {"type": "object"},
+                    "extracted_snapshot": {"type": "object", "description": "analyze_receipt 返回的 extracted 快照"},
+                    "expected_snapshot": {"type": "object", "description": "analyze_receipt 返回的 expected 快照"},
+                    "diff_fields": {"type": "array", "description": "差异字段清单", "items": {"type": "object"}},
+                },
+            },
+        },
+    },
 ]
 
 
@@ -892,3 +1447,54 @@ TOOL_DEFINITIONS = [
 _ALLOWED_TOOLS = frozenset(
     t["function"]["name"] for t in TOOL_DEFINITIONS if "function" in t and "name" in t["function"]
 )
+
+
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+# 会话模式工具集（mode guard）
+# - chat 模式：全部工具
+# - receipt_income / receipt_expense：限定在凭证录入对话流相关工具
+#   避免 LLM 在录支出会话里误调 create_income_payment 等不相关写入工具
+# ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+# 凭证录入会话共用的工具（搜索/查询/分析 + 同步凭证识别 + 放行）
+_RECEIPT_COMMON_TOOLS = frozenset({
+    "analyze_files",
+    "analyze_receipt",
+    "get_overview",
+    "search_contracts",
+    "search_customers",
+    "get_contract_detail",
+    "query_payments",
+    "search_contract_text",
+    "list_additional_items",
+    "override_receipt_mismatch",
+})
+
+# 模式 → 允许的工具集
+MODE_TOOL_WHITELIST: dict[str, frozenset[str]] = {
+    "chat": _ALLOWED_TOOLS,
+    "receipt_income": _RECEIPT_COMMON_TOOLS | {"create_income_payment"},
+    "receipt_expense": _RECEIPT_COMMON_TOOLS | {"create_expense_payment"},
+}
+
+
+def filter_tool_definitions(session_mode: str) -> list:
+    """按 session_mode 过滤 TOOL_DEFINITIONS，给 LLM 暴露受限工具集。
+
+    未知 mode 返回全集（兜底）。
+    """
+    allowed = MODE_TOOL_WHITELIST.get(session_mode)
+    if not allowed:
+        return TOOL_DEFINITIONS
+    return [
+        t for t in TOOL_DEFINITIONS
+        if t.get("function", {}).get("name") in allowed
+    ]
+
+
+def is_tool_allowed_in_mode(tool_name: str, session_mode: str) -> bool:
+    """工具执行入口兜底：防止 LLM 不听话调用 mode 外的工具。"""
+    allowed = MODE_TOOL_WHITELIST.get(session_mode)
+    if not allowed:
+        return True   # 未知 mode 不拦截
+    return tool_name in allowed

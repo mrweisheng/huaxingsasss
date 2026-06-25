@@ -115,7 +115,7 @@ START → call_model_node（LLM 决策）
 | 层 | 文件 | 职责 | 决策方 |
 |---|---|---|---|
 | Agent 图 | `orchestrator/unified_agent.py` | 单层循环：call_model ↔ execute_tool → finalize 落库 | LLM 决策 + 代码执行 |
-| 工具执行 | `ai/tool_executor.py` `ToolExecutorV2`（继承 `ai/tool_executor_base.py` `ToolExecutor`） | 调 Service 层，返回纯 JSON 事实；execute() 已重写，**不再有 mode guard / document guard**（v1 父类的白名单与文档守卫在 v2 入口被绕过） | 代码（确定性） |
+| 工具执行 | `ai/tool_executor.py` `ToolExecutorV2`（继承 `ai/tool_executor_base.py` `ToolExecutor`） | 调 Service 层，返回纯 JSON 事实；execute() 已重写，**不再有 mode guard / document guard**（v1 父类的白名单与文档守卫在 v2 入口被绕过），仅保留 `_ALLOWED_TOOLS` 白名单兜底防 LLM 调未知工具 | 代码（确定性） |
 | Service | `services/*.py` | 业务规则、权限校验、事务边界 | 代码（确定性） |
 | 模型 / DB | `models/*.py` | ORM 映射、表结构 | 代码 |
 | 提示词 | `ai/prompts.py` | 业务偏好、追问策略、字段解释、确认规则 | LLM 软规则 |
@@ -156,10 +156,11 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `iteration_count` | `int` | 迭代计数 |
 | `should_end` | `bool` | 强制结束标记 |
 | `errors` | `Annotated[list[str], operator.add]` | 错误累积 |
-| `_pending_receipt_file_ids` | `list[str]` | 跨 turn 凭证文件追踪（analyze_files 发现 receipt 时记录，供后续 match_and_confirm/create_payment 消费） |
 | `chat_history_meta` | `dict` | chat_history 落库元数据 |
 | `_finalized` | `bool` | 落库幂等标记 |
 | `_persisted_count` | `int` | 已落库的 messages 数量游标（跨轮持久化在 checkpointer 里，新会话默认 0） |
+
+> 历史字段 `_pending_receipt_file_ids` 已移除——凭证录入改走表单路径，不再需要跨 turn 同步 receipt 文件 ID。
 
 ## 技术锚点
 
@@ -169,11 +170,15 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 - 前端：Vite · React · TypeScript · Zustand
 - Agent 编排：LangGraph 1.2.x · `StateGraph` / `astream_events(version="v2")`
 - Checkpoint：`AsyncPostgresSaver` + `psycopg3` `AsyncConnectionPool`（`autocommit=True`、`prepare_threshold=0`），复用现有 PG，`main.py:on_startup` 调 `init_checkpointer()` 自动建表
-- LLM 客户端：`backend/app/ai/llm_client.py` — `AgentModelClient`（统一 LLM 客户端，封装百炼 + SiliconFlow）。**不引入** `langchain-openai` / `ChatOpenAI`（ADR #2：百炼兼容模式 `tools` 与 `stream=True` 互斥）
-- 工具执行：`backend/app/ai/tool_executor.py` — 18 个工具（`TOOL_DEFINITIONS`，OpenAI function calling 格式）+ `ToolExecutorV2`（含 `mode guard` 拦截越权工具、`document guard` 按文件类型封锁高危工具）
+- LLM 客户端：`backend/app/ai/llm_client.py` — `DeepSeekAgentClient`（`DEEPSEEK_AGENT_MODEL = "deepseek-v4-flash"`，`DEEPSEEK_BASE_URL` 默认 `https://api.deepseek.com`）。统一走 DeepSeek 兼容的 OpenAI function calling 协议，支持流式 + 工具调用增量 + 指数退避重试（429/5xx/Timeout）。**不引入** `langchain-openai` / `ChatOpenAI`（避免引入 OpenAI SDK 间接依赖）。视觉模型走独立的 `DASHSCOPE_*` 配置（百炼 qwen3-vl-flash），由 `call_vl_model` 工具函数直调
+- 工具执行：`backend/app/ai/tool_executor.py` — 20 个工具（`TOOL_DEFINITIONS`，OpenAI function calling 格式）+ `ToolExecutorV2`（execute 走 `_ALLOWED_TOOLS` 白名单 + 轻量 `MODE_TOOL_WHITELIST` mode guard：receipt_income/receipt_expense 会话裁剪到对应工具子集）
 - 编排层：`backend/app/ai/orchestrator/` — `unified_agent.py`（Agent 图 + 节点） / `state.py`（AgentState） / `checkpointer.py` / `sse_adapter.py`
-- 业务封装：`backend/app/services/` — 工具层不直接 ORM，统一走 Service
+- 业务封装：`backend/app/services/` — 工具层不直接 ORM，统一走 Service。`receipt_matcher.py` 提供凭证三态对比器（ok / soft_mismatch / hard_conflict），对话流前置校验用
 - 可观测性：`.env` 设 `LANGCHAIN_TRACING_V2=true` 后 LangGraph 节点自动埋点到 LangSmith（`main.py:on_startup` 同步 env）
+- 凭证校验：**两条路径并存**——
+  - **对话流路径（默认）**：合同卡片"录入收入/支出"按钮 → `ReceiptChatModal` 对话流 → LLM 调 `analyze_receipt` 同步前置识别+三态对比 → ok 走 `create_*_payment`，soft_mismatch 走 `override_receipt_mismatch`（带放行理由+审计），hard_conflict 工具层硬挡禁止录入
+  - **表单路径（保留兜底）**：`POST /api/v1/payments` 表单 API → 异步 `verify_receipt(payment_id)` task 回写 `verification_status`（pending/passed/failed），admin 可经 `POST /api/v1/payments/{id}/manual-confirm` 强制入账
+  - 放行审计：对话流放行时同时写 `payment_override_audit` 表（业务级审计）+ `audit_logs`（通用 CRUD 审计），合同详情页"放行历史"折叠区块直接从 `payment.verification_result.manual_override` 读取展示
 
 ## SSE 事件协议（前后端约定）
 
@@ -188,9 +193,9 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `done` | 流正常结束 | 收尾 thought 步骤，关闭流 |
 | `error` | 异常 | 展示错误提示 |
 
-心跳机制：事件间隔超过 `_HEARTBEAT_INTERVAL` 秒时自动发 `thinking` 心跳事件，防止前端长时间无事件。
+心跳机制：事件间隔超过 `_HEARTBEAT_INTERVAL = 3.0` 秒时自动发 `thinking` 心跳事件，防止前端长时间无事件。v2.3 起改用 `asyncio.wait + Task` 实现心跳（v2.2 的 `wait_for` 会取消 async generator，已弃）。
 
-确认机制：纯聊天交互。LLM 先展示操作计划（列客户名、金额、币种等），用户自然语言回复确认，LLM 再调写入工具。**确认逻辑完全由 LLM 根据 system prompt 的「确认规则」自主判断，代码层不做关键词拦截**（symbol `_WRITABLE_TOOLS` / `_CONFIRM_KEYWORDS` 已在重构中删除）。
+确认机制：纯聊天交互。LLM 先展示操作计划（列客户名、金额、币种等），用户自然语言回复确认，LLM 再调写入工具。**确认逻辑完全由 LLM 根据 system prompt 的「确认规则」自主判断，代码层不做关键词拦截**（v2 重构中已删除 `_WRITABLE_TOOLS` / `_CONFIRM_KEYWORDS` / `_document_context` 拦截）。
 
 ## 扩展指引（新增功能时如何不破坏现有架构）
 
@@ -211,68 +216,86 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 2. 在 `ToolExecutorV2.execute_analyze_files` 中调用
 3. `prompts.py` 加对应的分析 prompt
 
-## 工具清单（tool_executor.py, 18 个）
+## 工具清单（tool_executor.py, 16 个）
 
 | 工具名 | 类型 | 写入防护 | 说明 |
 |---|---|---|---|
-| `analyze_files` | 分析 | - | 统一文件分析（合同/凭证/群聊），自动识别类型 |
-| `get_overview` | 查询 | - | 系统全局统计概览 |
-| `search_customers` | 查询 | - | 搜索客户（模糊匹配，兼容繁简） |
-| `create_customer` | 写入 | ✅ | 创建客户（同名去重） |
-| `update_customer` | 写入 | - | 更新客户信息 |
-| `search_contracts` | 查询 | - | 搜索合同 |
-| `get_contract_detail` | 查询 | - | 合同详情 + 付款记录 |
-| `create_contract` | 写入 | ✅ | 创建合同（自动关联文件分析结果，付款计划每期独立币种）。**只生成合同与付款计划，不创建任何 payment 记录**——付款记录的唯一来源是凭证录入（`match_and_confirm_payment`）或手动录入（`create_payment_record`） |
-| `update_contract` | 写入 | - | 更新合同元信息（微信群/备注） |
-| `query_payments` | 查询 | - | 付款记录查询（支持 group_by=contract） |
-| `create_payment_record` | 写入 | ✅ | 统一收入/支出创建（type 字段区分） |
-| `match_and_confirm_payment` | 写入 | ✅ | 凭证录入收款记录。无匹配 pending → 创建新 paid 记录（主路径，合同录入不再产生 pending）；有匹配 pending（历史数据）→ 转 paid。description 自动从付款计划反查"定金/尾款"标签丰富 |
-| `update_payment` | 写入 | ✅ | 更新付款记录（补充凭证等） |
-| `search_contract_text` | 查询 | - | 合同全文搜索 |
-| `list_additional_items` | 查询 | - | 列出合同附加项 + 分币种汇总 |
-| `add_additional_item` | 写入 | ✅ | 新增附加项（车险/保养/人工费等应收项） |
-| `update_additional_item` | 写入 | - | 更新附加项字段 |
-| `delete_additional_item` | 写入 | ✅ | 软删附加项（引用付款标签自动置空） |
+| `analyze_files` | 分析 | - | LLM 主动调度的文件分析。自动识别类型（合同/凭证/群聊/证件/车辆照片/其他），按 purpose 返回结构化数据；非合同/凭证类型会被拒绝并提示。批量支持，缓存于 Redis（30 分钟 TTL） |
+| `get_overview` | 查询 | - | 系统全局统计概览（客户/合同/即将到期/收支汇总） |
+| `search_customers` | 查询 | - | 搜索客户（按姓名/电话/微信群模糊匹配，自动兼容繁简） |
+| `create_customer` | 写入 | ✅ | 创建客户（同名+同电话/邮箱去重） |
+| `update_customer` | 写入 | - | 更新已有客户信息 |
+| `search_contracts` | 查询 | - | 搜索合同（按编号/客户/状态/关键词/日期） |
+| `get_contract_detail` | 查询 | - | 合同详情 + 付款记录（按角色过滤 income/expense） |
+| `create_contract` | 写入 | ✅ | 创建合同（自动关联 `analyze_files` 缓存结果）。**只生成合同 + 付款计划（payment_terms），不创建任何 payment 记录**。合同编号自动生成；wechat_group 必填且必须用户口述提供，不从文件提取；business_type 限定 `车辆买卖` / `两地牌过户` / `年检保险` / `其他` |
+| `update_contract` | 写入 | - | 更新合同元信息（微信群/备注/标题/业务描述） |
+| `query_payments` | 查询 | - | 付款记录查询，支持 `group_by=contract` 按合同分组聚合（替代旧 get_payment_summary/get_expense_summary） |
+| `update_payment` | 写入 | ✅ | 更新已有付款记录（备注/凭证/付款方式/期数名/付款日期）。传入 receipt_data 时自动反查付款计划生成 description；notes 若原含 `[无凭证支出]` 审计标记会自动补回 |
+| `search_contract_text` | 查询 | - | 合同全文关键词搜索（限定某合同：传 `contract_id`） |
+| `list_additional_items` | 查询 | - | 列出合同附加项（车险/保养/人工费等应收清单项）+ 按币种汇总 |
+| `add_additional_item` | 写入 | ✅ | 新增附加项（应收清单上的额外项目，非独立财务实体） |
+| `update_additional_item` | 写入 | - | 更新已有附加项字段 |
+| `delete_additional_item` | 写入 | ✅ | 软删附加项，引用此附加项的付款标签自动置空 |
+| `analyze_receipt` | 分析 | - | 凭证录入对话流第一步：同步 VL 提取 + ReceiptMatcher 三态判定（ok/soft_mismatch/hard_conflict）。返回 extracted/expected/diff_fields + `_receipt_path`/`_receipt_file_hash`/`_receipt_data` 等内部字段供后续写入工具透传 |
+| `create_income_payment` | 写入 | ✅ | 对话流创建收入（必须先调 analyze_receipt 且 match_status=ok）。直落 paid + verification_status=passed，不走异步校验 |
+| `create_expense_payment` | 写入 | ✅ | 对话流创建支出。有凭证走 analyze_receipt 路径；无凭证传 `no_receipt=true + override_reason`，走 manual 模式审计 |
+| `override_receipt_mismatch` | 写入 | ✅ | soft_mismatch 状态下用户提供放行理由后创建付款。同事务写 `payment_override_audit`（who/when/reason+识别快照+用户输入快照+差异） + `audit_logs`。hard_conflict 工具入口硬挡 |
 
-### Mode Guard（模式白名单）
+> **凭证录入双轨**：
+> - 对话流（默认）：合同卡片"录入收入/支出"按钮 → `ReceiptChatModal` → `POST /api/v1/agent/chat` SSE → 四工具组合（analyze_receipt → create_*_payment 或 override_receipt_mismatch）
+> - 表单（保留兜底/编辑）：`POST /api/v1/payments` + `POST /api/v1/payments/extract-receipt`（VL）+ 异步 `verify_receipt` task，`PaymentList.tsx` 的编辑入口仍走表单（凭证不符修复 / 改字段）
+> - **不要再说"支付录入改走表单路径"** — v3 起对话流是主路径
 
-`ToolExecutorV2` 的 `_MODE_ALLOWED_TOOLS` 按 mode 限制可用工具：
-- `receipt_income` → 只能查合同/客户 + `create_payment_record`/`match_and_confirm_payment`（type=income）
-- `receipt_expense` → 同上（type=expense，需 admin/expense 角色）
-- 其他 mode → 全量工具
+### Mode Guard（轻量恢复）
 
-### Document Guard（文档上下文封锁）
+`MODE_TOOL_WHITELIST` 按 `session_mode` 限定可见/可调工具集：
+- `chat` → 20 个工具全集
+- `receipt_income` → 11 个工具：基础查询/分析 + `analyze_receipt` + `create_income_payment` + `override_receipt_mismatch`
+- `receipt_expense` → 11 个工具：基础查询/分析 + `analyze_receipt` + `create_expense_payment` + `override_receipt_mismatch`
 
-文件分析后设置 `document_context`（receipt/general/group_chat），封锁不兼容工具：
-- receipt 文件 → 不能 `create_customer`/`create_contract`（引导到合同卡片按钮）
-- general/group_chat 文件 → 只能 `update_contract` 关联元信息
+两层防护：
+1. `unified_agent.call_model_node` 用 `filter_tool_definitions(mode)` 给 LLM 暴露的 tools 列表过滤
+2. `ToolExecutorV2.execute()` 入口用 `is_tool_allowed_in_mode()` 兜底拒绝（防 LLM 不听话）
+
+> 不再恢复 v1 的 document guard（"文件分析后封锁不兼容工具"），凭证录入由对话流 + Matcher 同步前置保证一致性。
 
 ## 关键模块对照表（按职责找文件）
 
 | 找什么 | 在哪 |
 |---|---|
-| 入口路由 | `app/api/v1/agent.py` — `POST /chat`(SSE) / `POST /upload` / `GET/POST/DELETE /sessions` / `GET /history/{id}` |
-| Agent 图 + 节点 | `app/ai/orchestrator/unified_agent.py` — `_build_graph` / `get_compiled_graph` / `call_model_node` / `execute_tool_node` / `finalize_node` / `should_continue` |
-| Agent 状态 | `app/ai/orchestrator/state.py` — `AgentState` |
-| Checkpoint | `app/ai/orchestrator/checkpointer.py` — `get_checkpointer()` / `init_checkpointer()` |
-| SSE 适配 | `app/ai/orchestrator/sse_adapter.py` — `adapt_langgraph_stream_v2()` |
-| 工具定义 + 执行 | `app/ai/tool_executor.py` — `TOOL_DEFINITIONS`（18 个）+ `ToolExecutorV2` |
-| 旧工具文件（保留兼容） | `app/ai/tool_executor_base.py` — `ToolExecutor`（v1 父类） |
-| 提示词 | `app/ai/prompts.py` — `build_system_prompt` + 分析 prompt（`FILE_CLASSIFY_PROMPT` / `CONTRACT_ANALYSIS_PROMPT` / `RECEIPT_ANALYSIS_PROMPT` / `GROUP_CHAT_ANALYSIS_PROMPT`） |
-| LLM 客户端 | `app/ai/llm_client.py` — `AgentModelClient`（统一入口） |
-| 业务 Service | `app/services/{contract,payment,customer,file_analyzer,...}_service.py` |
+| Agent 入口路由 | `app/api/v1/agent.py` — `POST /chat`(SSE) / `POST /upload` / `GET/POST/DELETE /sessions` / `GET /files/{file_id}` / `GET /files/{file_id}/thumbnail` / `GET /history/{session_id}` |
+| 付款路由（表单录入兜底） | `app/api/v1/payments.py` — `POST /payments` / `PUT /payments/{id}` / `POST /payments/upload` / `POST /payments/extract-receipt` / `POST /payments/{id}/manual-confirm`（admin 强制入账） / `GET /payments`（对话流不走此路径，但保留作为编辑/旧入口/兜底） |
+| 合同/客户/附加项/汇率/用户/账户/统计 | `app/api/v1/{contracts,customers,contract_additional_items,exchange_rates,users,payment_accounts,stats,auth,files}.py` |
+| Agent 图 + 节点 | `app/ai/orchestrator/unified_agent.py` — `_build_graph` / `get_compiled_graph` / `call_model_node` / `execute_tool_node` / `finalize_node` / `should_continue` / `now_context()`（结构化时间上下文） |
+| Agent 状态 | `app/ai/orchestrator/state.py` — `AgentState`（13 个字段，详见上文"状态结构"表） |
+| Checkpoint | `app/ai/orchestrator/checkpointer.py` — `init_checkpointer()` / `get_checkpointer()` / `close_checkpointer()` |
+| SSE 适配 | `app/ai/orchestrator/sse_adapter.py` — `adapt_langgraph_stream_v2()` + `_HEARTBEAT_INTERVAL = 3.0` 秒 |
+| 工具定义 + 执行 | `app/ai/tool_executor.py` — `TOOL_DEFINITIONS`（20 个工具）+ `ToolExecutorV2`（execute 走白名单+轻量 mode guard）+ `MODE_TOOL_WHITELIST` / `filter_tool_definitions()` / `is_tool_allowed_in_mode()` |
+| 旧工具文件（保留兼容） | `app/ai/tool_executor_base.py` — `ToolExecutor`（v1 父类，凭证目录复制/Redis 缓存等基础能力 v2 仍复用，但 v1 的 mode/document guard 不再走） |
+| 凭证-合同三态对比器 | `app/services/receipt_matcher.py` — `match_receipt()` 返回 ok/soft_mismatch/hard_conflict + diff_fields + expected/extracted 快照；`pick_payment_term()` 按金额命中付款计划项 |
+| 凭证放行审计模型 | `app/models/payment_override_audit.py` — 对话流软放行/manual 模式落审计行（who/when/reason+三份快照+差异） |
+| 提示词 | `app/ai/prompts.py` — `build_system_prompt(user, current_time, ...)` + 分析 prompt（`FILE_CLASSIFY_PROMPT` / `CONTRACT_ANALYSIS_PROMPT` / `RECEIPT_ANALYSIS_PROMPT` / `GROUP_CHAT_ANALYSIS_PROMPT` / `EXPENSE_TEMPLATE_EXTRACT_PROMPT`） |
+| LLM 客户端 | `app/ai/llm_client.py` — `DeepSeekAgentClient`（OpenAI 兼容协议 + 流式 + 工具调用 + 重试） |
+| VL 模型（视觉） | `app/utils/file_analysis.py` — `call_vl_model(bytes, mime, prompt)`，直调百炼 qwen3-vl-flash |
+| 业务 Service | `app/services/{contract,payment,customer,file_analyzer,contract_additional_item,exchange_rate,exchange_rate_fetcher,payment_account,user,stats,audit}_service.py` |
+| 凭证异步校验 | `app/tasks/receipt_verification_tasks.py` — `verify_receipt(payment_id)` 异步任务 |
 | 权限 | `app/core/permissions.py` — `Role` / `is_admin` / `can_view_income` / `can_view_expense` |
-| 配置 | `app/config.py` `Settings`（pydantic_settings，从 `.env` 读取） |
-| 启动/关闭 | `app/main.py` — `on_startup` 调 `init_checkpointer()` + LangSmith env 同步；`on_shutdown` 关闭连接池 |
+| 配置 | `app/config.py` `Settings`（pydantic_settings，从 `.env` 读取；`validate_required` 启动校验 SECRET_KEY + DB + LLM 必填） |
+| 启动/关闭 | `app/main.py` — `on_startup` 调 `init_checkpointer()` + 注册 heif 解码器 + 同步 LangSmith env；`on_shutdown` 关闭连接池 |
+| 中间件 | `app/core/middleware.py` — `RequestLoggingMiddleware`（注入 X-Request-ID）+ `AuditLogMiddleware`（POST/PUT/PATCH/DELETE 自动写 audit_log） |
 | SQL 脚本 | `backend/sql/` + 根目录 `public.sql`（不通过 alembic 维护） |
 
 ## 命令
 
 ```bash
+# 后端
 cd backend && uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 cd backend && PYTHONIOENCODING=utf-8 uv run pytest
-cd frontend && npm run dev
-cd frontend && npx tsc --noEmit
+
+# 前端
+cd frontend && npm run dev          # 本地开发
+cd frontend && npx tsc --noEmit     # 类型检查
+cd frontend && npm run build        # 生产构建（提交前必跑，产物入 frontend/dist/）
 ```
 
 ⚠️ **Windows 编码问题**：本机 bash 下 Python 默认用 GBK，中文源码会报 `UnicodeDecodeError: 'gbk' codec can't decode byte ...`。所有 `uv run python` 命令前面必须加 `PYTHONIOENCODING=utf-8`，包括 `pytest`。

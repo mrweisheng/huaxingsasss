@@ -15,6 +15,7 @@ from app.models.contract import Contract
 from app.models.customer import Customer
 from app.models.payment_account import PaymentAccount
 from app.models.audit_log import AuditLog
+from app.models.payment_override_audit import PaymentOverrideAudit
 from app.schemas.payment import PaymentUpdate
 from app.services.exchange_rate_service import ExchangeRateService
 from app.services.audit_service import AuditService
@@ -977,5 +978,295 @@ class PaymentService:
         db.refresh(payment)
         logger.info("校验通过补结算: payment_id=%d, contract_id=%d, amount=%s → paid",
                     payment_id, payment.contract_id, payment.paid_amount)
+        return payment
+
+    # ──────────────────────────────────────────────────────────────
+    # 对话流（Agent v3）专用方法
+    # 跟表单路径区别：
+    #   1. 凭证识别 + 匹配判定在工具层同步完成（ReceiptMatcher），不投递异步校验
+    #   2. ok 状态直接落 paid + verification_status=passed
+    #   3. soft_mismatch 用 create_payment_with_override 走放行通道
+    # ──────────────────────────────────────────────────────────────
+
+    @staticmethod
+    def create_payment_for_dialog(
+        db: Session,
+        contract_id: int,
+        payment_type: str,
+        amount: Decimal,
+        currency: str,
+        paid_date: date,
+        payment_method: Optional[str],
+        receipt_path: Optional[str],
+        receipt_file_hash: Optional[str],
+        receipt_data: Optional[dict],
+        verification_snapshot: Optional[dict],
+        description: Optional[str],
+        installment_name: Optional[str],
+        notes: Optional[str],
+        payee_name: Optional[str],
+        payment_account_id: Optional[int],
+        counterparty_account: Optional[dict],
+        created_by: int,
+        no_receipt: bool = False,
+    ) -> Payment:
+        """对话流创建付款（凭证已同步预校验通过，直落 paid）。
+
+        与 create_payment_from_form 的差别：
+          - 收入：跳过 require_verification（直接 paid 结算 + verification_status=passed）
+          - 不依赖 Celery 异步校验
+          - verification_result 写入 ReceiptMatcher 的对比快照（含 expected/extracted_norm）
+
+        其它（凭证去重、payment_method 兜底、source 标记）保持一致。
+        """
+        if payment_type not in ("income", "expense"):
+            raise ValueError(f"无效的付款类型: {payment_type}")
+
+        contract = db.query(Contract).filter(Contract.id == contract_id).first()
+        if not contract:
+            raise ValueError(f"合同不存在：{contract_id}")
+
+        is_income = payment_type == "income"
+        if is_income and not receipt_path:
+            raise ValueError("收入必须有凭证")
+
+        # 凭证去重：同合同同 hash 拦截
+        if receipt_path and receipt_file_hash:
+            dup = db.query(Payment).filter(
+                Payment.contract_id == contract_id,
+                Payment.receipt_file_hash == receipt_file_hash,
+                Payment.is_deleted == False,
+            ).first()
+            if dup:
+                raise ValueError(
+                    f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
+                    f" {dup.amount} {dup.currency}），请勿重复录入"
+                )
+
+        # payment_method 兜底（收入用账户类型推导，支出留空）
+        eff_method = payment_method
+        if not eff_method and is_income and payment_account_id:
+            account = db.query(PaymentAccount).filter(
+                PaymentAccount.id == payment_account_id
+            ).first()
+            eff_method = PaymentService._method_from_account_type(
+                account.account_type if account else None
+            )
+
+        installment_number = PaymentService.get_next_installment_number(db, contract_id, payment_type)
+
+        payment = PaymentService.create_payment_with_exchange_rate(
+            db=db,
+            contract_id=contract_id,
+            installment_number=installment_number,
+            currency=currency,
+            amount=amount,
+            paid_date=paid_date,
+            payment_method=eff_method,
+            receipt_image_path=receipt_path,
+            receipt_file_hash=receipt_file_hash,
+            receipt_data=receipt_data,
+            notes=notes,
+            created_by=created_by,
+            type=payment_type,
+            payee_name=payee_name if not is_income else None,
+            installment_name=installment_name,
+            description=description,
+            require_verification=False,   # ★ 对话流核心：跳过异步校验
+        )
+
+        # 表单专属字段补写
+        if is_income:
+            payment.payment_account_id = payment_account_id
+            payment.verification_status = "passed"
+            payment.verification_result = verification_snapshot
+            payment.verified_at = datetime.now(timezone.utc)
+        else:
+            if counterparty_account:
+                payment.counterparty_account = counterparty_account
+            if no_receipt:
+                from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
+                base_note = (payment.notes or "").strip()
+                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
+            if verification_snapshot is not None:
+                payment.verification_result = verification_snapshot
+        payment.source = "screenshot" if receipt_path else "manual"
+
+        db.commit()
+        db.refresh(payment)
+
+        logger.info(
+            "对话流创建付款: id=%d, contract_id=%d, type=%s, amount=%s, has_receipt=%s, verification=%s",
+            payment.id, contract_id, payment_type, amount, bool(receipt_path), payment.verification_status,
+        )
+        return payment
+
+    @staticmethod
+    def create_payment_with_override(
+        db: Session,
+        contract_id: int,
+        payment_type: str,
+        amount: Decimal,
+        currency: str,
+        paid_date: date,
+        payment_method: Optional[str],
+        receipt_path: Optional[str],
+        receipt_file_hash: Optional[str],
+        receipt_data: Optional[dict],
+        description: Optional[str],
+        installment_name: Optional[str],
+        notes: Optional[str],
+        payee_name: Optional[str],
+        payment_account_id: Optional[int],
+        counterparty_account: Optional[dict],
+        created_by: int,
+        operator_name: str,
+        operator_role: Optional[str],
+        session_id: Optional[str],
+        override_reason: str,
+        match_status: str,
+        extracted_snapshot: Optional[dict],
+        user_input_snapshot: Optional[dict],
+        expected_snapshot: Optional[dict],
+        diff_fields: Optional[list],
+        no_receipt: bool = False,
+    ) -> Payment:
+        """对话流：凭证轻微不符（soft_mismatch）或无凭证（manual）手动放行创建付款。
+
+        - 收入：直接 paid + verification_status=failed + manual_override 标记
+        - 支出：直接 paid + verification_result 记录原因
+        - 同事务写一条 payment_override_audit（业务级审计），失败回滚
+        - 同事务写一条 audit_logs（中间件口径，统一 manual_confirm 动作语义）
+        """
+        if not override_reason or not override_reason.strip():
+            raise ValueError("放行理由不能为空")
+        if match_status not in ("soft_mismatch", "hard_conflict", "manual"):
+            raise ValueError(f"非法的放行 match_status: {match_status}")
+        if match_status == "hard_conflict":
+            # 双保险：工具层应在硬冲突时拒绝调用此方法
+            raise ValueError("硬冲突禁止放行")
+
+        is_income = payment_type == "income"
+        contract = db.query(Contract).filter(Contract.id == contract_id).first()
+        if not contract:
+            raise ValueError(f"合同不存在：{contract_id}")
+
+        # 凭证去重
+        if receipt_path and receipt_file_hash:
+            dup = db.query(Payment).filter(
+                Payment.contract_id == contract_id,
+                Payment.receipt_file_hash == receipt_file_hash,
+                Payment.is_deleted == False,
+            ).first()
+            if dup:
+                raise ValueError(
+                    f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
+                    f" {dup.amount} {dup.currency}），请勿重复录入"
+                )
+
+        eff_method = payment_method
+        if not eff_method and is_income and payment_account_id:
+            account = db.query(PaymentAccount).filter(
+                PaymentAccount.id == payment_account_id
+            ).first()
+            eff_method = PaymentService._method_from_account_type(
+                account.account_type if account else None
+            )
+
+        installment_number = PaymentService.get_next_installment_number(db, contract_id, payment_type)
+        now = datetime.now(timezone.utc)
+
+        payment = PaymentService.create_payment_with_exchange_rate(
+            db=db,
+            contract_id=contract_id,
+            installment_number=installment_number,
+            currency=currency,
+            amount=amount,
+            paid_date=paid_date,
+            payment_method=eff_method,
+            receipt_image_path=receipt_path,
+            receipt_file_hash=receipt_file_hash,
+            receipt_data=receipt_data,
+            notes=notes,
+            created_by=created_by,
+            type=payment_type,
+            payee_name=payee_name if not is_income else None,
+            installment_name=installment_name,
+            description=description,
+            require_verification=False,
+        )
+
+        if is_income:
+            payment.payment_account_id = payment_account_id
+            payment.verification_status = "failed"
+            payment.verified_at = now
+        else:
+            if counterparty_account:
+                payment.counterparty_account = counterparty_account
+            if no_receipt:
+                from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
+                base_note = (payment.notes or "").strip()
+                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
+
+        # 把"放行印记"写入 verification_result（前端可直接显示"已放行 by X"）
+        result = {
+            "manual_override": True,
+            "manual_override_by": created_by,
+            "manual_override_by_name": operator_name,
+            "manual_override_at": now.isoformat(),
+            "manual_override_reason": override_reason.strip(),
+            "match_status": match_status,
+            "extracted": extracted_snapshot,
+            "user_input": user_input_snapshot,
+            "expected": expected_snapshot,
+            "diff_fields": diff_fields or [],
+        }
+        payment.verification_result = result
+        payment.source = "screenshot" if receipt_path else "manual"
+
+        # 写业务级审计表
+        audit_row = PaymentOverrideAudit(
+            payment_id=payment.id,
+            operator_id=created_by,
+            operator_name=operator_name,
+            operator_role=operator_role,
+            session_id=session_id,
+            match_status=match_status,
+            override_reason=override_reason.strip(),
+            extracted_snapshot=AuditService._json_safe(extracted_snapshot or {}),
+            user_input_snapshot=AuditService._json_safe(user_input_snapshot or {}),
+            expected_snapshot=AuditService._json_safe(expected_snapshot or {}),
+            diff_fields=AuditService._json_safe({"items": diff_fields or []}).get("items"),
+        )
+        db.add(audit_row)
+
+        # 同时写 audit_logs，与既有 manual_confirm 流程口径一致
+        audit_log_row = AuditLog(
+            user_id=created_by,
+            action="manual_override_create",
+            entity_type="payment",
+            entity_id=payment.id,
+            old_values=None,
+            new_values=AuditService._json_safe({
+                "match_status": match_status,
+                "manual_override_reason": override_reason.strip(),
+                "amount": float(amount),
+                "currency": currency,
+                "type": payment_type,
+            }),
+        )
+        db.add(audit_log_row)
+
+        try:
+            db.commit()
+        except IntegrityError as e:
+            db.rollback()
+            raise ValueError("放行审计写入失败，操作未生效") from e
+        db.refresh(payment)
+
+        logger.info(
+            "对话流放行创建付款: id=%d, status=%s, operator=%s, reason=%s",
+            payment.id, match_status, operator_name, override_reason[:50],
+        )
         return payment
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { Button, Alert, Popconfirm, message, Tabs, Tooltip, Image } from 'antd'
+import { Button, Alert, Popconfirm, message, Tabs, Tooltip, Image, Collapse } from 'antd'
 import {
   ArrowLeftOutlined,
   FileOutlined,
@@ -17,6 +17,7 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
+  WarningOutlined,
 } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { additionalItemApi } from '@/services/contractAdditionalItem'
@@ -810,6 +811,94 @@ export default function ContractDetail() {
           </div>
         )}
       </div>
+
+      {/* ⑪ 放行历史（仅当存在凭证不符手动放行时展示；默认折叠） */}
+      {(() => {
+        const overrides = [...incomePayments, ...expensePayments].filter(
+          (p: any) => p?.verification_result?.manual_override === true,
+        )
+        if (overrides.length === 0) return null
+        return (
+          <div className="cd-section" style={{ marginTop: 18 }}>
+            <Collapse
+              items={[{
+                key: 'override',
+                label: (
+                  <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, fontWeight: 600 }}>
+                    <WarningOutlined style={{ color: '#dc6b3d' }} />
+                    放行历史
+                    <span style={{
+                      background: '#fbe9e7', color: '#8f2d28',
+                      padding: '0 8px', borderRadius: 10, fontSize: 12, fontWeight: 500,
+                    }}>
+                      {overrides.length} 条
+                    </span>
+                  </span>
+                ),
+                children: (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                    {overrides.map((p: any) => {
+                      const vr = p.verification_result || {}
+                      const diffs: any[] = Array.isArray(vr.diff_fields) ? vr.diff_fields : []
+                      const isIncome = p.type === 'income'
+                      return (
+                        <div
+                          key={p.id}
+                          style={{
+                            border: '1px solid #f0d2cd',
+                            background: '#fdf4f3',
+                            borderRadius: 10,
+                            padding: '12px 14px',
+                          }}
+                        >
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+                            <span style={{ fontSize: 13, color: '#666' }}>
+                              <span style={{
+                                color: '#fff',
+                                background: isIncome ? '#c9952b' : '#5b8c63',
+                                padding: '1px 8px', borderRadius: 8, fontSize: 12, marginRight: 8,
+                              }}>{isIncome ? '收' : '支'}</span>
+                              第 {p.installment_number} 期 · {p.installment_name || p.description || '-'}
+                            </span>
+                            <span style={{ color: '#999', fontSize: 12 }}>
+                              {vr.manual_override_at ? new Date(vr.manual_override_at).toLocaleString('zh-CN') : '-'}
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 13, color: '#333', marginBottom: 6 }}>
+                            <strong>{fmt(p.paid_amount || p.amount, p.currency)}</strong>
+                            <span style={{ marginLeft: 12, color: '#666' }}>
+                              操作人：{vr.manual_override_by_name || `#${vr.manual_override_by || '-'}`}
+                            </span>
+                            <span style={{ marginLeft: 12, color: '#666' }}>
+                              匹配状态：<code style={{ background: '#fff', padding: '0 4px', borderRadius: 3 }}>{vr.match_status || '-'}</code>
+                            </span>
+                          </div>
+                          <div style={{ fontSize: 13, color: '#444', marginBottom: 6 }}>
+                            <span style={{ color: '#8f2d28', fontWeight: 500 }}>放行理由：</span>
+                            {vr.manual_override_reason || vr.manual_reason || '-'}
+                          </div>
+                          {diffs.length > 0 && (
+                            <div style={{ fontSize: 12, color: '#666', background: '#fff', padding: '6px 10px', borderRadius: 6 }}>
+                              <span style={{ color: '#999', marginRight: 6 }}>差异字段：</span>
+                              {diffs.map((d: any, i: number) => (
+                                <span key={i} style={{ marginRight: 10 }}>
+                                  <strong>{d.field}</strong>: 期望 <code>{String(d.expected)}</code> → 实际 <code>{String(d.got)}</code>
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                ),
+              }]}
+              defaultActiveKey={[]}
+              ghost
+            />
+          </div>
+        )
+      })()}
 
       {/* 附加项 新增/编辑 表单 Modal */}
       <AdditionalItemFormModal
