@@ -74,6 +74,8 @@ class PaymentAccountService:
         """根据简称模糊匹配收款账户（供凭证识别后自动关联 payment_account_id）。
 
         匹配策略按优先级降级：
+        0. extra_info.aliases 精确等值：管理员显式登记的别名（如"高山香港账户"），
+           最高优先级，零拆词零误判
         1. 全包含：title 包含 hint 或 hint 包含 title（如 hint="高山香港账户"，title="高山-HSBC"）
         2. 副字段全包含：account_name + bank_name 拼接串包含 hint
         3. 2-gram 拆词命中数：hint 拆 2 字 token，统计 token 在 title/account_name/bank_name
@@ -93,6 +95,15 @@ class PaymentAccountService:
         )
         if not accounts:
             return None
+
+        # 优先级 0：extra_info.aliases 精确等值（管理员显式登记的别名，最高优先级）
+        for acc in accounts:
+            aliases = (acc.extra_info or {}).get("aliases") or []
+            if not isinstance(aliases, list):
+                continue
+            for alias in aliases:
+                if isinstance(alias, str) and alias.strip() == hint:
+                    return acc
 
         # 优先级 1：title 全包含
         for acc in accounts:
