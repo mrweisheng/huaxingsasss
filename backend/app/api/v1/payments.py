@@ -167,10 +167,28 @@ async def upload_receipt(
                          data={"file_id": fname_on_disk, "original_name": file.filename})
 
 
+def _attach_payment_account_id(db: Session, extracted: dict) -> None:
+    """如果是 income 且提取出 payment_account_hint，去 PaymentAccountService 模糊匹配账户 ID。
+
+    匹配成功 → 在 extracted 字典里补 payment_account_id；
+    匹配失败 → 不补字段，由前端拿 hint 提示用户手选。
+    """
+    if extracted.get("type") != "income":
+        return
+    hint = extracted.get("payment_account_hint")
+    if not hint:
+        return
+    from app.services.payment_account_service import PaymentAccountService
+    account = PaymentAccountService.find_by_hint(db, hint)
+    if account:
+        extracted["payment_account_id"] = account.id
+
+
 @router.post("/extract-receipt", response_model=ResponseModel)
 async def extract_receipt_data(
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """从支出/收入模板截图中提取结构化数据，用于自动填充表单。
 
@@ -261,8 +279,10 @@ async def extract_receipt_data(
             "payment_method": result.get("payment_method"),
             "wechat_group": result.get("wechat_group"),
             "customer_name_hint": result.get("customer_name_hint"),
+            "payment_account_hint": result.get("payment_account_hint"),
             "confidence": result.get("confidence", 0.8),
         }
+        _attach_payment_account_id(db, extracted)
 
         return ResponseModel(code=200, message="识别成功", data=extracted)
 
@@ -283,6 +303,7 @@ class TextExtractRequest(BaseModel):
 async def extract_text_data(
     payload: TextExtractRequest,
     current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ):
     """从纯文本消息中提取结构化数据，用于自动填充表单。
 
@@ -321,8 +342,10 @@ async def extract_text_data(
         "payment_method": result.get("payment_method"),
         "wechat_group": result.get("wechat_group"),
         "customer_name_hint": result.get("customer_name_hint"),
+        "payment_account_hint": result.get("payment_account_hint"),
         "confidence": result.get("confidence", 0.8),
     }
+    _attach_payment_account_id(db, extracted)
 
     return ResponseModel(code=200, message="识别成功", data=extracted)
 

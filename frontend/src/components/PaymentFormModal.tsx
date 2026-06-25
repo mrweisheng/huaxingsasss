@@ -279,7 +279,10 @@ export default function PaymentFormModal({
     if (extracted.notes) formValues.notes = extracted.notes
     if (extracted.payment_method) formValues.payment_method = extracted.payment_method
 
-    if (!isIncome) {
+    if (isIncome) {
+      // 收款账户简称匹配：后端 _attach_payment_account_id 已模糊匹配出 ID，这里直接填表单下拉
+      if (extracted.payment_account_id) formValues.payment_account_id = extracted.payment_account_id
+    } else {
       if (extracted.payee_name) formValues.payee_name = extracted.payee_name
       if (extracted.counterparty_account) {
         if (extracted.counterparty_account.account_name) formValues.account_name = extracted.counterparty_account.account_name
@@ -302,6 +305,10 @@ export default function PaymentFormModal({
     }
     if (extracted.customer_name_hint && customerName && !customerName.includes(extracted.customer_name_hint) && !extracted.customer_name_hint.includes(customerName)) {
       warnings.push(`识别中的客户名「${extracted.customer_name_hint}」与当前合同客户「${customerName}」不匹配`)
+    }
+    // 收款账户简称有但后端没匹配到 ID → 提示用户手动选择
+    if (isIncome && extracted.payment_account_hint && !extracted.payment_account_id) {
+      message.warning(`未在系统中找到匹配的收款账户「${extracted.payment_account_hint}」，请手动选择`)
     }
     if (warnings.length > 0) {
       setMismatchWarning(warnings.join('；'))

@@ -129,5 +129,9 @@ export interface ExtractedReceiptData {
   payment_method?: string
   wechat_group?: string
   customer_name_hint?: string
+  /** income 场景下的我方收款账户简称（如"高山香港账户"），用于后端模糊匹配 */
+  payment_account_hint?: string
+  /** 后端根据 payment_account_hint 在 payment_accounts 表里匹配到的账户 ID（找不到则缺省） */
+  payment_account_id?: number
   confidence?: number
 }
