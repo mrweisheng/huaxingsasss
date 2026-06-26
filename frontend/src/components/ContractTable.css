@@ -48,6 +48,14 @@
   line-height: 1.45;
 }
 
+/* 合同描述单元格：完整展示，允许换行 */
+.description-cell {
+  display: inline-block;
+  white-space: normal;
+  word-break: break-all;
+  line-height: 1.45;
+}
+
 /* 自定义展开三角：点击旋转 90° 归位 */
 .contract-expand-icon {
   display: inline-flex;

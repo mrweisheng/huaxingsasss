@@ -172,8 +172,11 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '合同描述',
       dataIndex: 'business_description',
       key: 'business_description',
-      ellipsis: true,
-      render: (v, row) => v || row.title || <span className="text-muted">—</span>,
+      render: (v, row) => (
+        <span className="description-cell" title={v || row.title}>
+          {v || row.title || <span className="text-muted">—</span>}
+        </span>
+      ),
     },
     {
       title: '源文件',
