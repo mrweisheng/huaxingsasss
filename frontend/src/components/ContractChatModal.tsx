@@ -217,6 +217,9 @@ export default function ContractChatModal({
       }
     }
     setIsStreaming(true)
+    setMessages(prev => prev.map(m =>
+      m.quickReplies ? { ...m, quickReplies: undefined } : m,
+    ))
 
     // 本地附件预览
     const localAttachments: { file: File; fileType: FileType; preview?: string; uploaded?: UploadResult; pageCount?: number }[] = []

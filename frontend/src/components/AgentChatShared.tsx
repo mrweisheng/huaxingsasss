@@ -222,8 +222,42 @@ export function QuickReplyButtons({ actions, disabled, onClick }: {
   onClick: (action: QuickReplyAction) => void
 }) {
   if (!actions?.length) return null
+
+  const confirmAction = actions.find(action => action.style === 'primary')
+  const cancelAction = actions.find(action => action.style === 'danger')
+  const isConfirmation = actions.length === 2 && !!confirmAction && !!cancelAction
+
+  if (isConfirmation) {
+    return (
+      <div className="quick-reply-panel">
+        <div className="quick-reply-panel-head">
+          <span className="quick-reply-panel-kicker">需要您确认</span>
+          <span className="quick-reply-panel-title">请选择下一步</span>
+          <span className="quick-reply-panel-hint">要修改或补充？直接在下方输入框说明后发送。</span>
+        </div>
+        <div className="quick-reply-panel-actions">
+          <Button
+            type="primary"
+            disabled={disabled}
+            onClick={() => onClick(confirmAction)}
+            className="quick-reply-confirm-btn"
+          >
+            {confirmAction.label}
+          </Button>
+          <Button
+            disabled={disabled}
+            onClick={() => onClick(cancelAction)}
+            className="quick-reply-cancel-btn"
+          >
+            {cancelAction.label}
+          </Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
-    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginTop: 8 }}>
+    <div className="quick-reply-chip-row">
       {actions.map((action, i) => (
         <Button
           key={i}
@@ -231,13 +265,8 @@ export function QuickReplyButtons({ actions, disabled, onClick }: {
           danger={action.style === 'danger'}
           disabled={disabled}
           onClick={() => onClick(action)}
-          size="small"
-          style={{
-            borderRadius: 6,
-            animation: 'wittyPhraseIn 0.25s ease-out',
-            animationDelay: `${i * 0.05}s`,
-            animationFillMode: 'both',
-          }}
+          className="quick-reply-chip"
+          style={{ animationDelay: `${i * 0.05}s` }}
         >
           {action.label}
         </Button>

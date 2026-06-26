@@ -1218,6 +1218,132 @@ body {
   color: #fff !important;
 }
 
+/* ── 后端 ui_actions 快捷回复：确认面板 + 建议胶囊 ── */
+.quick-reply-panel {
+  position: relative;
+  margin-top: 10px;
+  padding: 12px;
+  width: min(100%, 420px);
+  background: linear-gradient(180deg, #ffffff 0%, #fbfcfe 100%);
+  border: 1px solid var(--border-light);
+  border-left: 3px solid var(--brand-gold);
+  border-radius: 14px;
+  box-shadow: 0 8px 24px rgba(30, 58, 95, 0.08);
+  animation: wittyPhraseIn 0.25s ease-out both;
+}
+
+.quick-reply-panel-head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 10px;
+}
+
+.quick-reply-panel-kicker {
+  width: fit-content;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--brand-gold-bg);
+  color: var(--brand-gold);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+}
+
+.quick-reply-panel-title {
+  color: var(--text-primary);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+}
+
+.quick-reply-panel-hint {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.quick-reply-panel-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.quick-reply-confirm-btn.ant-btn {
+  min-width: 96px;
+  height: 38px;
+  border-radius: 9px !important;
+  font-weight: 600;
+}
+
+.quick-reply-cancel-btn.ant-btn {
+  min-width: 88px;
+  height: 38px;
+  border-radius: 9px !important;
+  color: var(--text-secondary);
+  border-color: var(--border-default);
+  background: var(--bg-surface);
+  font-weight: 600;
+}
+
+.quick-reply-cancel-btn.ant-btn:hover,
+.quick-reply-cancel-btn.ant-btn:focus {
+  color: var(--color-danger) !important;
+  border-color: rgba(220, 38, 38, 0.35) !important;
+  background: var(--color-danger-bg) !important;
+}
+
+.quick-reply-chip-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 8px;
+}
+
+.quick-reply-chip.ant-btn {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 999px !important;
+  font-weight: 500;
+  animation: wittyPhraseIn 0.25s ease-out both;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+}
+
+.quick-reply-chip.ant-btn:not(.ant-btn-primary):not(.ant-btn-dangerous) {
+  background: var(--bg-surface);
+  border-color: var(--border-light);
+  color: var(--text-secondary);
+}
+
+.quick-reply-chip.ant-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(30, 58, 95, 0.08);
+}
+
+@media (max-width: 576px) {
+  .quick-reply-panel {
+    width: 100%;
+    padding: 11px;
+  }
+
+  .quick-reply-panel-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .quick-reply-confirm-btn.ant-btn,
+  .quick-reply-cancel-btn.ant-btn {
+    width: 100%;
+    min-height: 44px;
+  }
+
+  .quick-reply-chip.ant-btn {
+    min-height: 40px;
+    padding-inline: 14px;
+  }
+}
+
 /* ── 网格底纹（聊天背景）── */
 .chat-grid-bg {
   background-color: #fafbfc;

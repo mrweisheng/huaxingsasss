@@ -179,6 +179,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     let sessionId = currentSessionId
 
     set({ isStreaming: true, error: null, selectedTool: null })
+    set((state) => ({
+      messages: state.messages.map(m =>
+        m.quickReplies ? { ...m, quickReplies: undefined } : m,
+      ),
+    }))
 
     if (!sessionId) {
       // 第一次发消息：用消息内容前 50 字作标题
