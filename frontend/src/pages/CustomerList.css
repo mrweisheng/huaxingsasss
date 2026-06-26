@@ -1,15 +1,14 @@
 /* ============================================================
-   客户管理 · v4 港式账册表格
-   - rowSpan 合并：每客户一行档案 + N 行合同
-   - 米黄账纸底 + 金边封口 + 朱砂印章
-   - 合同行：业务徽章 + mono 编号 + 衬线 tabular 金额 + 进度条
+   客户管理 · v5 紧凑账册（真表格密度）
+   - 单元格只放文字，不堆装饰；行高跟内容走
+   - 客户列：姓名 + 份数 / TEL / ID 紧凑三行
+   - 合同行：业务徽章 / 编号 / 描述 / 金额 / 进度，单行密排
    ============================================================ */
 
 .cl-wrap {
   padding: 20px 24px 40px;
   min-height: calc(100vh - 112px);
 
-  /* —— 颜色变量（页面作用域） —— */
   --money-due: #dc6b3d;
   --money-done: #0d9488;
   --money-done-deep: #0a7068;
@@ -62,7 +61,7 @@
   margin-top: 16px;
   background: var(--cl-paper);
   background-image:
-    repeating-linear-gradient(0deg, transparent 0 38px, rgba(184, 66, 59, 0.025) 38px 39px),
+    repeating-linear-gradient(0deg, transparent 0 28px, rgba(184, 66, 59, 0.022) 28px 29px),
     radial-gradient(1200px 200px at 50% -10%, rgba(201, 149, 43, 0.07), transparent 70%);
   border: 1px solid var(--cl-hair-strong);
   border-radius: 3px;
@@ -86,7 +85,7 @@
 /* —— 顶部封条 —— */
 .cl-ledger-head {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 9px 22px 8px;
+  padding: 7px 16px 6px;
   border-bottom: 1px dashed var(--cl-hair-strong);
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent);
   font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
@@ -124,44 +123,47 @@
   border-collapse: collapse;
   table-layout: fixed;
 }
-.cl-table col.col-customer { width: 280px; }
-.cl-table col.col-biz { width: 108px; }
-.cl-table col.col-no { width: 142px; }
+.cl-table col.col-customer { width: 220px; }
+.cl-table col.col-biz { width: 92px; }
+.cl-table col.col-no { width: 130px; }
 .cl-table col.col-desc { width: auto; }
-.cl-table col.col-amount { width: 130px; }
-.cl-table col.col-paid { width: 130px; }
-.cl-table col.col-progress { width: 160px; }
+.cl-table col.col-amount { width: 118px; }
+.cl-table col.col-paid { width: 118px; }
+.cl-table col.col-progress { width: 144px; }
 
-/* 表头 */
+/* 表头：紧凑 */
 .cl-table thead th {
   position: sticky; top: 0; z-index: 1;
   background: linear-gradient(180deg, #f3ecd9, #ebe2c6);
   border-bottom: 1px solid var(--cl-hair-strong);
-  padding: 11px 18px;
+  padding: 6px 12px 5px;
   text-align: left;
   font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
   font-size: 12px; font-weight: 600;
   color: var(--brand-primary-deep, #13294a);
   letter-spacing: 0.06em;
+  line-height: 1.2;
 }
 .cl-table thead th.th-right { text-align: right; }
 .cl-table thead th .th-sub {
-  display: block;
+  display: inline-block;
   font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
   font-size: 9px; letter-spacing: 0.18em; font-weight: 500;
-  color: var(--cl-ink-3); text-transform: uppercase; margin-top: 1px;
+  color: var(--cl-ink-3); text-transform: uppercase;
+  margin-left: 6px;
+  opacity: 0.85;
 }
 
-/* —— 客户合并单元格 —— */
+/* ============================================================
+   客户合并单元格（紧凑文字版）
+   ============================================================ */
 .cl-table td.cell-customer {
-  vertical-align: top;
+  vertical-align: middle;
   background: var(--cl-customer-bg);
-  background-image:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 30%),
-    repeating-linear-gradient(0deg, transparent 0 34px, rgba(201, 149, 43, 0.06) 34px 35px);
+  background-image: repeating-linear-gradient(0deg, transparent 0 28px, rgba(201, 149, 43, 0.05) 28px 29px);
   border-right: 2px solid var(--brand-gold, #c9952b);
   border-bottom: 1px solid var(--cl-hair-strong);
-  padding: 16px 18px 14px;
+  padding: 5px 12px 5px 16px;
   position: relative;
 }
 .cl-table td.cell-customer::before {
@@ -170,136 +172,86 @@
     var(--brand-primary, #1e3a5f) 0%,
     var(--brand-primary-deep, #13294a) 100%);
 }
-/* sticky 让客户档案区在合并多行时跟随滚动 */
-.cl-customer-inner {
-  position: sticky; top: 54px;
-  display: flex; flex-direction: column; gap: 10px;
-}
 
-.cl-customer-head {
-  display: flex; align-items: center; gap: 11px;
-}
-
-/* —— 客户首字头像（金边） —— */
-.cl-avatar {
-  width: 38px; height: 38px;
-  border-radius: 3px;
-  background: linear-gradient(135deg, var(--brand-primary, #1e3a5f), var(--brand-primary-deep, #13294a));
-  color: #fff7e4;
-  display: grid; place-items: center;
-  font-family: 'Cormorant Garamond', 'Source Han Serif SC', Georgia, serif;
-  font-size: 20px; font-weight: 600; letter-spacing: 0.02em;
-  box-shadow:
-    0 0 0 1px var(--brand-gold, #c9952b) inset,
-    0 0 0 2px rgba(255, 255, 255, 0.5) inset,
-    0 4px 10px -4px rgba(30, 58, 95, 0.4);
-  flex-shrink: 0;
-}
-.cl-avatar.is-empty {
-  background: linear-gradient(135deg, var(--cl-ink-3), var(--cl-ink-2));
-  box-shadow:
-    0 0 0 1px var(--cl-hair-strong) inset,
-    0 0 0 2px rgba(255, 255, 255, 0.5) inset;
-}
-
-.cl-customer-name-wrap {
-  display: flex; flex-direction: column; gap: 4px;
-  min-width: 0; flex: 1;
+.cl-customer-name-row {
+  display: flex; align-items: baseline; gap: 6px;
+  min-width: 0;
 }
 .cl-customer-name {
   font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
-  font-size: 16px; font-weight: 600;
+  font-size: 14px; font-weight: 600;
   color: var(--cl-ink);
   letter-spacing: 0.01em;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  min-width: 0; flex: 1;
 }
-
-.cl-contracts-pill {
-  display: inline-flex; align-items: center; gap: 5px;
-  align-self: flex-start;
-  padding: 2px 8px;
-  background: #fff;
-  border: 1px solid var(--brand-gold, #c9952b);
-  color: var(--brand-gold-deep);
+.cl-customer-count {
   font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10px; letter-spacing: 0.12em;
-  border-radius: 999px;
-  text-transform: uppercase;
-}
-.cl-contracts-pill b {
-  font-family: 'IBM Plex Serif', Georgia, serif;
-  font-size: 12px; font-weight: 600; letter-spacing: 0;
-  color: var(--brand-primary-deep, #13294a);
+  font-size: 10.5px;
+  color: var(--brand-gold-deep);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
   font-feature-settings: "tnum" 1;
+  flex-shrink: 0;
 }
-.cl-contracts-pill .anticon { font-size: 10px; }
-.cl-contracts-pill.is-empty {
-  border-color: var(--cl-hair-strong);
-  color: var(--cl-ink-3);
-  background: #fafafa;
-}
-.cl-contracts-pill.is-empty b { color: var(--cl-ink-3); }
+.cl-customer-count.is-empty { color: var(--cl-ink-3); }
 
-/* —— 客户联系信息（mono 标签 + 值） —— */
-.cl-customer-meta {
-  display: flex; flex-direction: column; gap: 5px;
-  padding-top: 8px;
-  border-top: 1px dashed var(--cl-hair-strong);
+/* TEL / ID 紧凑行 */
+.cl-customer-lines {
+  margin-top: 2px;
+  display: flex; flex-direction: column;
 }
-.cl-meta-row {
-  display: flex; align-items: center; gap: 8px;
-  font-size: 12.5px; color: var(--cl-ink-2);
+.cl-customer-line {
+  display: flex; align-items: baseline; gap: 6px;
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--cl-ink-2);
+  min-width: 0;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+}
+.cl-line-label {
+  font-size: 8.5px;
+  color: var(--cl-ink-3);
+  letter-spacing: 0.16em;
+  width: 16px; flex-shrink: 0;
+  text-transform: uppercase;
+  text-align: left;
+}
+.cl-line-val {
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   min-width: 0;
 }
-.cl-meta-label {
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+
+/* 删除按钮：极小、hover 显形 */
+.cl-btn-del-icon {
+  margin-left: auto;
+  width: 18px; height: 18px;
+  display: grid; place-items: center;
+  background: transparent;
+  border: 1px solid transparent;
   color: var(--cl-ink-3);
-  min-width: 30px;
-}
-.cl-meta-val {
-  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 12px;
-  color: var(--cl-ink);
-  letter-spacing: 0.02em;
-  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.cl-meta-row.is-empty .cl-meta-val {
-  color: var(--cl-ink-3); font-style: italic;
-  font-family: inherit; font-size: 12px;
-}
-
-/* —— 客户操作（hover 显形） —— */
-.cl-customer-actions {
-  margin-top: 6px;
-  display: flex; justify-content: flex-end;
-  opacity: 0; transition: opacity 0.2s;
-}
-.cl-row.is-first-of-customer:hover .cl-customer-actions {
-  opacity: 1;
-}
-.cl-btn-del {
-  display: inline-flex; align-items: center; gap: 4px;
-  padding: 3px 9px;
-  font-size: 11px;
-  color: var(--biz-cross-deep);
-  background: rgba(184, 66, 59, 0.08);
-  border: 1px solid rgba(184, 66, 59, 0.3);
-  border-radius: 2px;
   cursor: pointer;
-  font-family: inherit;
-  transition: all 0.15s;
+  border-radius: 2px;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s, background 0.15s, border-color 0.15s;
+  padding: 0;
+  flex-shrink: 0;
 }
-.cl-btn-del:hover {
-  background: var(--biz-cross);
-  color: #fff;
-  border-color: var(--biz-cross);
+.cl-row.is-first-of-customer:hover .cl-btn-del-icon { opacity: 0.7; }
+.cl-btn-del-icon:hover {
+  opacity: 1;
+  color: var(--biz-cross-deep);
+  background: rgba(184, 66, 59, 0.12);
+  border-color: rgba(184, 66, 59, 0.3);
 }
-.cl-btn-del .anticon { font-size: 11px; }
+.cl-btn-del-icon .anticon { font-size: 11px; }
 
-/* —— 合同行单元格 —— */
+/* ============================================================
+   合同行（紧凑单行）
+   ============================================================ */
 .cl-table td.cell-contract {
-  padding: 14px 18px;
+  padding: 6px 12px;
   vertical-align: middle;
   border-bottom: 1px solid #ece4cf;
   background: #fff;
@@ -313,17 +265,18 @@
   border-bottom: 1px solid var(--cl-hair-strong);
 }
 
-/* —— 业务徽章 —— */
+/* —— 业务徽章（紧凑） —— */
 .cl-biz-tag {
-  display: inline-flex; align-items: center; gap: 5px;
-  padding: 3px 9px;
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 1px 7px;
   border-radius: 2px;
-  font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em;
+  font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
   font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
   white-space: nowrap;
+  line-height: 1.5;
 }
 .cl-biz-tag-icon { display: inline-flex; align-items: center; }
-.cl-biz-tag-icon .anticon { font-size: 12px; }
+.cl-biz-tag-icon .anticon { font-size: 11px; }
 .cl-biz-tag--vehicle {
   background: var(--biz-vehicle-soft);
   color: var(--biz-vehicle-deep);
@@ -345,7 +298,7 @@
   border: 1px solid var(--cl-hair);
 }
 
-/* —— 合同编号（mono 蓝） —— */
+/* —— 合同编号 —— */
 .cl-contract-no {
   font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
   font-size: 12px; letter-spacing: 0.04em;
@@ -361,20 +314,22 @@
   text-underline-offset: 3px;
 }
 
-/* —— 合同描述 —— */
+/* —— 合同描述（单行省略） —— */
 .cl-contract-desc {
   font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
-  font-size: 13.5px; color: var(--cl-ink); line-height: 1.4;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  font-size: 13px; color: var(--cl-ink); line-height: 1.35;
+  white-space: nowrap;
   overflow: hidden;
+  text-overflow: ellipsis;
 }
 .cl-contract-sub {
-  display: block; margin-top: 3px;
-  font-family: 'Noto Serif SC', serif;
-  font-size: 10.5px; color: var(--cl-ink-3);
+  display: block; margin-top: 1px;
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px; color: var(--cl-ink-3);
   letter-spacing: 0.04em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* —— 金额（衬线 tabular） —— */
@@ -382,23 +337,23 @@
   font-family: 'IBM Plex Serif', 'Source Han Serif SC', Georgia, serif;
   font-feature-settings: "tnum" 1, "lnum" 1;
   font-variant-numeric: tabular-nums lining-nums;
-  font-size: 16px; font-weight: 600; letter-spacing: 0.01em;
+  font-size: 14px; font-weight: 600; letter-spacing: 0.01em;
   color: var(--cl-ink);
   line-height: 1.1;
   white-space: nowrap;
 }
 .cl-amount-cur {
   font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
-  font-size: 10.5px; font-weight: 500;
+  font-size: 10px; font-weight: 500;
   color: var(--cl-ink-3);
-  margin-right: 4px;
+  margin-right: 3px;
   letter-spacing: 0.04em;
 }
 .cl-amount-unit {
   font-family: 'Noto Serif SC', serif;
-  font-size: 10px; font-weight: 500;
+  font-size: 9.5px; font-weight: 500;
   color: var(--cl-ink-2);
-  margin-left: 2px;
+  margin-left: 1px;
   letter-spacing: 0.04em;
 }
 .cl-amount--total { color: var(--brand-primary-deep, #13294a); }
@@ -410,16 +365,16 @@
 
 /* —— 进度 —— */
 .cl-progress-cell {
-  display: flex; align-items: center; gap: 9px;
+  display: flex; align-items: center; gap: 8px;
 }
 .cl-progress-track {
-  flex: 1; height: 5px; border-radius: 3px;
+  flex: 1; height: 4px; border-radius: 2px;
   background: #ede5d2;
   overflow: hidden;
   position: relative;
 }
 .cl-progress-fill {
-  height: 100%; border-radius: 3px;
+  height: 100%; border-radius: 2px;
   transition: width 0.5s ease;
 }
 .cl-progress-fill--partial {
@@ -432,38 +387,38 @@
 .cl-progress-pct {
   font-family: 'IBM Plex Serif', Georgia, serif;
   font-feature-settings: "tnum" 1;
-  font-size: 12px; font-weight: 600;
+  font-size: 11px; font-weight: 600;
   color: var(--cl-ink-2);
-  min-width: 38px; text-align: right;
+  min-width: 34px; text-align: right;
   letter-spacing: 0.02em;
 }
 .cl-progress-pct--full { color: var(--money-done-deep); }
 .cl-progress-pct--empty { color: var(--cl-ink-3); font-weight: 500; }
 
-/* —— 空档案合同区（colSpan 占满） —— */
+/* —— 空档案合同区 —— */
 .cl-table td.cell-empty-contracts {
-  padding: 18px;
+  padding: 8px 12px;
   background:
-    repeating-linear-gradient(-45deg, transparent 0 8px, rgba(139, 148, 166, 0.05) 8px 9px),
+    repeating-linear-gradient(-45deg, transparent 0 8px, rgba(139, 148, 166, 0.045) 8px 9px),
     #faf9f5;
   border-bottom: 1px solid var(--cl-hair-strong);
   text-align: center;
 }
 .cl-empty-msg {
-  display: inline-flex; align-items: center; gap: 10px;
+  display: inline-flex; align-items: center; gap: 8px;
   color: var(--cl-ink-3);
-  font-size: 13px;
+  font-size: 12px;
   font-style: italic;
   font-family: 'Noto Serif SC', serif;
 }
-.cl-empty-msg .anticon { font-size: 14px; }
+.cl-empty-msg .anticon { font-size: 12px; }
 
 /* ============================================================
    底部脚标 + 分页
    ============================================================ */
 .cl-ledger-foot {
   display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 22px;
+  padding: 8px 18px;
   border-top: 1px dashed var(--cl-hair-strong);
   background: linear-gradient(180deg, transparent, rgba(201, 149, 43, 0.05));
   font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
@@ -511,20 +466,20 @@
    骨架屏 / 空状态
    ============================================================ */
 .cl-skeleton-wrap {
-  padding: 20px;
-  display: flex; flex-direction: column; gap: 14px;
+  padding: 14px;
+  display: flex; flex-direction: column; gap: 8px;
 }
 .cl-skel-row {
-  display: flex; gap: 16px; align-items: center;
+  display: flex; gap: 12px; align-items: center;
 }
 .cl-skel-block {
   background: linear-gradient(90deg, #f0e9d5 0%, #f6f0dd 50%, #f0e9d5 100%);
   background-size: 200% 100%;
   animation: cl-skel-shimmer 1.6s ease-in-out infinite;
-  border-radius: 3px;
+  border-radius: 2px;
 }
-.cl-skel-customer { width: 280px; height: 72px; flex-shrink: 0; }
-.cl-skel-line { flex: 1; height: 48px; }
+.cl-skel-customer { width: 220px; height: 34px; flex-shrink: 0; }
+.cl-skel-line { flex: 1; height: 24px; }
 
 @keyframes cl-skel-shimmer {
   0% { background-position: 200% 0; }
@@ -532,7 +487,7 @@
 }
 
 .cl-empty-state {
-  padding: 60px 20px;
+  padding: 50px 20px;
   display: grid; place-items: center;
 }
 
@@ -540,12 +495,12 @@
    响应式：窄屏（< 1280px）
    ============================================================ */
 @media (max-width: 1280px) {
-  .cl-table col.col-customer { width: 240px; }
-  .cl-table col.col-biz { width: 96px; }
-  .cl-table col.col-no { width: 130px; }
-  .cl-table col.col-amount { width: 110px; }
-  .cl-table col.col-paid { width: 110px; }
-  .cl-table col.col-progress { width: 140px; }
-  .cl-amount { font-size: 14px; }
-  .cl-customer-name { font-size: 15px; }
+  .cl-table col.col-customer { width: 192px; }
+  .cl-table col.col-biz { width: 84px; }
+  .cl-table col.col-no { width: 116px; }
+  .cl-table col.col-amount { width: 104px; }
+  .cl-table col.col-paid { width: 104px; }
+  .cl-table col.col-progress { width: 128px; }
+  .cl-amount { font-size: 13px; }
+  .cl-customer-name { font-size: 13px; }
 }

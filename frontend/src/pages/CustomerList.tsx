@@ -52,13 +52,6 @@ function getBizVisual(type?: string) {
   return BIZ_VISUAL[type] || { tone: 'other' as BizTone, label: type, icon: <FileTextOutlined /> }
 }
 
-// 取客户名首字（中文首字 / 英文首字母大写）
-function getAvatarChar(name: string): string {
-  if (!name) return '?'
-  const trimmed = name.trim()
-  return /^[A-Za-z]/.test(trimmed) ? trimmed[0].toUpperCase() : trimmed[0]
-}
-
 function calcProgress(paid: number, total: number): number {
   if (!total || total <= 0) return 0
   return Math.min(100, Math.round((Number(paid) / Number(total)) * 100))
@@ -313,50 +306,41 @@ export default function CustomerList() {
                     {/* 客户列：只在该客户的第一行渲染，rowSpan 撑满 */}
                     {row.isFirstOfCustomer && (
                       <td className="cell-customer" rowSpan={row.rowSpan}>
-                        <div className="cl-customer-inner">
-                          <div className="cl-customer-head">
-                            <div className={`cl-avatar${row.contractCount === 0 ? ' is-empty' : ''}`}>
-                              {getAvatarChar(c.name)}
-                            </div>
-                            <div className="cl-customer-name-wrap">
-                              <div className="cl-customer-name" title={c.name}>{c.name}</div>
-                              <span className={`cl-contracts-pill${row.contractCount === 0 ? ' is-empty' : ''}`}>
-                                <FileTextOutlined />
-                                <b>{row.contractCount}</b> 份合同
-                              </span>
-                            </div>
-                          </div>
-                          <div className="cl-customer-meta">
-                            <div className={`cl-meta-row${c.phone ? '' : ' is-empty'}`}>
-                              <span className="cl-meta-label">TEL</span>
-                              <span className="cl-meta-val" title={c.phone || ''}>
-                                {c.phone || '未登记'}
-                              </span>
-                            </div>
-                            <div className={`cl-meta-row${c.id_card_number ? '' : ' is-empty'}`}>
-                              <span className="cl-meta-label">ID</span>
-                              <span className="cl-meta-val" title={c.id_card_number || ''}>
-                                {c.id_card_number || '未登记'}
-                              </span>
-                            </div>
-                          </div>
+                        <div className="cl-customer-name-row">
+                          <span className="cl-customer-name" title={c.name}>{c.name}</span>
+                          <span className={`cl-customer-count${row.contractCount === 0 ? ' is-empty' : ''}`}>
+                            · {row.contractCount} 份
+                          </span>
                           {isAdmin && (
-                            <div className="cl-customer-actions">
-                              <button
-                                className="cl-btn-del"
-                                title="删除客户"
-                                onClick={() => setDeleteTarget({
-                                  id: c.id,
-                                  name: c.name,
-                                  contractCount: row.contractCount,
-                                })}
-                              >
-                                <DeleteOutlined />
-                                删除
-                              </button>
-                            </div>
+                            <button
+                              className="cl-btn-del-icon"
+                              title="删除客户"
+                              onClick={() => setDeleteTarget({
+                                id: c.id,
+                                name: c.name,
+                                contractCount: row.contractCount,
+                              })}
+                            >
+                              <DeleteOutlined />
+                            </button>
                           )}
                         </div>
+                        {(c.phone || c.id_card_number) && (
+                          <div className="cl-customer-lines">
+                            {c.phone && (
+                              <div className="cl-customer-line">
+                                <span className="cl-line-label">TEL</span>
+                                <span className="cl-line-val" title={c.phone}>{c.phone}</span>
+                              </div>
+                            )}
+                            {c.id_card_number && (
+                              <div className="cl-customer-line">
+                                <span className="cl-line-label">ID</span>
+                                <span className="cl-line-val" title={c.id_card_number}>{c.id_card_number}</span>
+                              </div>
+                            )}
+                          </div>
+                        )}
                       </td>
                     )}
 
