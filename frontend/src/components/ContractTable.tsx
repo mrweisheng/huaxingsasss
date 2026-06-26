@@ -31,6 +31,13 @@ const BIZ_VISUAL: Record<string, { className: string; label: string; icon: React
   '年检保险': { className: 'biz-insurance-tag', label: '年检保险', icon: <SafetyCertificateOutlined /> },
 }
 
+function getBizToneClass(type?: string): 'vehicle' | 'cross' | 'insurance' | 'default' {
+  if (type === '车辆买卖' || type === '车辆业务') return 'vehicle'
+  if (type === '两地牌过户' || type === '中港牌业务') return 'cross'
+  if (type === '年检保险') return 'insurance'
+  return 'default'
+}
+
 // 货币符号
 const SYMBOL: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
@@ -316,7 +323,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
     const expensePayments = (row.payments || []).filter(p => p.type === 'expense')
 
     return (
-      <div className="contract-expanded-content">
+      <div className={`contract-expanded-content ${getBizToneClass(row.business_type)}`}>
         <div className="expanded-grid">
 
           {/* ─── 左侧：付款条款 ─── */}
@@ -530,12 +537,16 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           columnWidth: 36,
         }}
         rowClassName={(row) => {
+          const classes: string[] = []
           const total = Number(row.total_amount || 0)
           const addl = Number(row.additional_total_in_contract_currency ?? 0)
           const receivable = total + addl
           const paid = Number(row.paid_amount || 0)
-          if (paid >= receivable) return 'row-cleared'
-          return ''
+          if (paid >= receivable) classes.push('row-cleared')
+          if (expandedRowKey === row.id) {
+            classes.push('row-expanded-active', `row-biz-${getBizToneClass(row.business_type)}`)
+          }
+          return classes.join(' ')
         }}
         scroll={{ x: 1630 }}
       />

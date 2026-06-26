@@ -1,7 +1,7 @@
 /* 合同表格业务色（与全局设计系统一致） */
 .biz-vehicle-tag {
-  background: #e5edf6 !important;
-  color: #1e3f63 !important;
+  background: var(--biz-vehicle-soft, #e5edf6) !important;
+  color: var(--biz-vehicle-deep, #1e3f63) !important;
   border: none;
   font-size: 11px;
   padding: 2px 8px;
@@ -11,8 +11,8 @@
   gap: 4px;
 }
 .biz-cross-tag {
-  background: #fbe9e7 !important;
-  color: #8f2d28 !important;
+  background: var(--biz-cross-soft, #fbe9e7) !important;
+  color: var(--biz-cross-deep, #8f2d28) !important;
   border: none;
   font-size: 11px;
   padding: 2px 8px;
@@ -66,6 +66,13 @@
 .contract-expand-icon.expanded {
   transform: rotate(90deg);
   color: #1e3a5f;
+}
+.contract-main-table .ant-table-tbody > tr.row-expanded-active .contract-expand-icon.expanded {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--active-deep, #1e3a5f);
 }
 
 /* 金额颜色语义 */
@@ -139,11 +146,67 @@
   background: #9ca3af !important;
 }
 
-/* 展开行内容容器 */
+/* 展开行激活组块：父行 + 详情共用业务色轨 */
+.contract-main-table .ant-table-tbody > tr.row-expanded-active > td {
+  background: var(--active-bg, #f6f8fb);
+  border-top: 1px solid var(--active-border, rgba(30, 58, 95, 0.12));
+  border-bottom: 0;
+}
+.contract-main-table .ant-table-tbody > tr.row-expanded-active > td:first-child {
+  box-shadow: inset 4px 0 0 var(--active-color, var(--brand-primary));
+  border-top-left-radius: 14px;
+}
+.contract-main-table .ant-table-tbody > tr.row-expanded-active > td:last-child {
+  border-top-right-radius: 14px;
+}
+.contract-main-table .ant-table-tbody > tr.row-expanded-active + tr.ant-table-expanded-row > td {
+  border-bottom: 1px solid var(--active-border, rgba(30, 58, 95, 0.12));
+  border-bottom-left-radius: 14px;
+  border-bottom-right-radius: 14px;
+  box-shadow: 0 12px 28px rgba(30, 58, 95, 0.08);
+}
+.contract-main-table .ant-table-tbody > tr.row-biz-vehicle,
+.contract-expanded-content.vehicle {
+  --active-color: var(--biz-vehicle, #2d5b8a);
+  --active-deep: var(--biz-vehicle-deep, #1e3f63);
+  --active-soft: var(--biz-vehicle-soft, #e5edf6);
+  --active-bg: var(--biz-vehicle-bg, #f4f7fb);
+  --active-border: rgba(45, 91, 138, 0.22);
+}
+.contract-main-table .ant-table-tbody > tr.row-biz-cross,
+.contract-expanded-content.cross {
+  --active-color: var(--biz-cross, #b8423b);
+  --active-deep: var(--biz-cross-deep, #8f2d28);
+  --active-soft: var(--biz-cross-soft, #fbe9e7);
+  --active-bg: var(--biz-cross-bg, #fdf4f3);
+  --active-border: rgba(184, 66, 59, 0.22);
+}
+.contract-main-table .ant-table-tbody > tr.row-biz-insurance,
+.contract-main-table .ant-table-tbody > tr.row-biz-default,
+.contract-expanded-content.insurance,
+.contract-expanded-content.default {
+  --active-color: var(--brand-primary);
+  --active-deep: var(--brand-primary);
+  --active-soft: #eef3f8;
+  --active-bg: #f7f9fc;
+  --active-border: rgba(30, 58, 95, 0.16);
+}
 .contract-expanded-content {
-  padding: 4px 0 12px 46px;
-  background: #fafbfc;
-  border-top: 1px solid #e5e7eb;
+  position: relative;
+  padding: 12px 16px 16px 48px;
+  background:
+    linear-gradient(90deg, var(--active-soft, #eef3f8), transparent 40%),
+    var(--active-bg, #f6f8fb);
+  border-top: 1px dashed var(--active-border, #e5e7eb);
+}
+.contract-expanded-content::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  background: var(--active-color, var(--brand-primary));
 }
 
 /* 展开行网格布局 */
@@ -155,10 +218,11 @@
 
 /* 每块面板 */
 .expanded-panel {
-  background: #fff;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.86);
+  border: 1px solid var(--active-border, #e5e7eb);
+  border-radius: 10px;
   padding: 14px 16px;
+  box-shadow: 0 8px 18px rgba(30, 58, 95, 0.045);
 }
 .expanded-panel.span-3 {
   grid-column: 1 / -1;
