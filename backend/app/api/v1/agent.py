@@ -211,6 +211,7 @@ async def chat(
                 "session_mode": session_mode,
                 "_finalized": False,
                 "should_end": False,
+                "ui_handoff_pending": False,
                 "iteration_count": 0,
             }
             if request.attachments:

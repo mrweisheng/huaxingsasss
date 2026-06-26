@@ -37,6 +37,10 @@ logger = logging.getLogger(__name__)
 # 重新赋值（Python 同一模块内语句按顺序执行；这里先用占位避免导入期未定义）。
 _ALLOWED_TOOLS: frozenset = frozenset()  # type: ignore[assignment]
 
+# UI handoff 工具：工具语义是把控制权交还用户，等待下一条用户输入。
+# 这不是业务确认关键词拦截，只是工具能力协议。
+UI_HANDOFF_TOOLS: frozenset[str] = frozenset({"present_quick_replies"})
+
 
 class ToolExecutorV2(ToolExecutor):
     """精简版工具执行器。
@@ -240,6 +244,10 @@ class ToolExecutorV2(ToolExecutor):
             "success": True,
             "kind": kind,
             "actions": cleaned,
+            "ui_handoff": {
+                "type": "quick_replies",
+                "await_user": True,
+            },
         }, ensure_ascii=False)
 
     # ═══════════════════════════════════════════════════════════

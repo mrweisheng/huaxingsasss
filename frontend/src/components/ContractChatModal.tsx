@@ -126,7 +126,7 @@ const MessageBubble = memo(function MessageBubble({ msg, streaming, onSendMessag
             <Spin size="small" style={{ marginTop: 8 }} />
           )}
 
-          {msg.quickReplies && msg.quickReplies.length > 0 && !streaming && (
+          {msg.quickReplies && msg.quickReplies.length > 0 && (
             <QuickReplyButtons
               actions={msg.quickReplies}
               disabled={streaming}

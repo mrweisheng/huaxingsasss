@@ -98,15 +98,17 @@
 
 ```
 START → call_model_node（LLM 决策）
-          ↑         ↓
-          │    [有 tool_calls?]
-          │      ↓           ↓
-          │ execute_tool_node  finalize_node → END
-          │      │
-          └──────┘
+          ↓
+     [有 tool_calls?] ── 否 ──→ finalize_node → END
+          ↓ 是
+  execute_tool_node
+          ↓
+     [ui_handoff?] ── 是 ──→ finalize_node → END（等待用户下一条输入）
+          ↓ 否
+  ToolMessage 回灌 → call_model_node
 ```
 
-**统一 Agent 图**（`unified_agent.py`）：不再有子图、意图推断、路由分支。LLM 自主决定调什么工具、何时结束，代码层只提供执行能力 + 写入防护。
+**统一 Agent 图**（`unified_agent.py`）：不再有子图、意图推断、业务路由分支。LLM 自主决定调什么工具、何时追问；代码层只提供执行能力 + 写入防护。`present_quick_replies` 属于 UI handoff 工具：LLM 决定是否调用它；调用成功后编排层结束当前 turn，等待用户下一条输入。这是工具能力协议，不是业务确认关键词拦截。
 
 前端入口：`AgentChat`（/agent 智能问答，含三个工具标签「录合同」「录收入」「录支出」） + `ReceiptChatModal`（合同列表卡片「收」「支」按钮），均走 `POST /api/v1/agent/chat` SSE。
 
@@ -129,16 +131,19 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
       │              [有 tool_calls?]
       │                ↓           ↓
       │       execute_tool_node   finalize_node（chat_history 落库，幂等）
-      │              │
-      │              └─ 忠实执行 LLM 决定的工具调用（不在代码层做确认拦截）
-      │                  → ToolMessage 回灌
-      └──────────────┘
+      │              ↓
+      │        [ui_handoff?]
+      │          ↓       ↓
+      │        是       否
+      │          ↓       │
+      └──── finalize_node ← ToolMessage 回灌
 ```
 
 - `call_model_node`：LLM 决定展示什么、调哪个工具、追问还是结束。附件信息自动注入到用户消息上下文。
-- `execute_tool_node`：忠实执行 LLM 决定调用的工具，不在代码层做确认关键词拦截。**写入是否需要先向用户确认完全交由 LLM 根据 system prompt 的「确认规则」自主判断**（CLAUDE.md「Agent 模式铁律」：禁止用 if/else 偷懒代替 LLM 决策）。同时发 SSE `tool_start`/`tool_end` 事件给前端。
+- `execute_tool_node`：忠实执行 LLM 决定调用的工具，不在代码层做确认关键词拦截。**写入是否需要先向用户确认完全交由 LLM 根据 system prompt 的「确认规则」自主判断**（CLAUDE.md「Agent 模式铁律」：禁止用 if/else 偷懒代替 LLM 决策）。同时发 SSE `tool_start`/`tool_end` 事件给前端。若执行 `present_quick_replies` 这类 UI handoff 工具，则发送 `ui_actions` 后结束当前 turn，等待用户下一条输入。
 - `finalize_node`：`chat_history` 落库（checkpoint 存机器可读状态，`chat_history` 存人类可读消息），用 `_finalized` 标记做幂等防护。
 - `should_continue`：有 tool_calls → execute_tool_node，否则 → finalize_node。
+- `should_continue_after_tool`：UI handoff → finalize_node，否则 → call_model_node。
 
 ### 状态结构
 
@@ -155,6 +160,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `attachments` | `list[dict]` | 当前轮附件 `[{file_id, file_type, file_name}]` |
 | `iteration_count` | `int` | 迭代计数 |
 | `should_end` | `bool` | 强制结束标记 |
+| `ui_handoff_pending` | `bool` | UI handoff 工具已交还用户，本轮执行完工具后直接 finalize 等待下一条输入 |
 | `errors` | `Annotated[list[str], operator.add]` | 错误累积 |
 | `chat_history_meta` | `dict` | chat_history 落库元数据 |
 | `_finalized` | `bool` | 落库幂等标记 |
@@ -267,7 +273,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | 付款路由（表单录入兜底） | `app/api/v1/payments.py` — `POST /payments` / `PUT /payments/{id}` / `POST /payments/upload` / `POST /payments/extract-receipt` / `POST /payments/{id}/manual-confirm`（admin 强制入账） / `GET /payments`（对话流不走此路径，但保留作为编辑/旧入口/兜底） |
 | 合同/客户/附加项/汇率/用户/账户/统计 | `app/api/v1/{contracts,customers,contract_additional_items,exchange_rates,users,payment_accounts,stats,auth,files}.py` |
 | Agent 图 + 节点 | `app/ai/orchestrator/unified_agent.py` — `_build_graph` / `get_compiled_graph` / `call_model_node` / `execute_tool_node` / `finalize_node` / `should_continue` / `now_context()`（结构化时间上下文） |
-| Agent 状态 | `app/ai/orchestrator/state.py` — `AgentState`（13 个字段，详见上文"状态结构"表） |
+| Agent 状态 | `app/ai/orchestrator/state.py` — `AgentState`（14 个字段，详见上文"状态结构"表） |
 | Checkpoint | `app/ai/orchestrator/checkpointer.py` — `init_checkpointer()` / `get_checkpointer()` / `close_checkpointer()` |
 | SSE 适配 | `app/ai/orchestrator/sse_adapter.py` — `adapt_langgraph_stream_v2()` + `_HEARTBEAT_INTERVAL = 3.0` 秒 |
 | 工具定义 + 执行 | `app/ai/tool_executor.py` — `TOOL_DEFINITIONS`（20 个工具）+ `ToolExecutorV2`（execute 走白名单+轻量 mode guard）+ `MODE_TOOL_WHITELIST` / `filter_tool_definitions()` / `is_tool_allowed_in_mode()` |

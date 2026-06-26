@@ -28,6 +28,7 @@ class AgentState(TypedDict, total=False):
     # ── 流程控制 ──
     iteration_count: int
     should_end: bool
+    ui_handoff_pending: bool  # UI handoff 工具已把控制权交还用户，本轮应 finalize 等待下一条输入
     errors: Annotated[list[str], operator.add]
 
     # ── chat_history 落库标记 ──

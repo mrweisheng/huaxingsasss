@@ -30,7 +30,7 @@ from langchain_core.callbacks.manager import adispatch_custom_event
 from langchain_core.runnables import RunnableConfig
 
 from app.ai.orchestrator.state import AgentState
-from app.ai.tool_executor import TOOL_DEFINITIONS, ToolExecutorV2, filter_tool_definitions
+from app.ai.tool_executor import TOOL_DEFINITIONS, ToolExecutorV2, UI_HANDOFF_TOOLS, filter_tool_definitions
 from app.ai.llm_client import AgentModelClient
 from app.ai.prompts import build_system_prompt, TimeContext
 from app.config import settings
@@ -266,6 +266,7 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
         return {
             "messages": [AIMessage(content="已达到最大对话轮次，请开启新会话继续操作。")],
             "should_end": True,
+            "ui_handoff_pending": False,
         }
 
     # 附件上下文注入：把 state.attachments 信息追加到用户消息
@@ -351,6 +352,7 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
         return {
             "messages": [AIMessage(content=f"抱歉，AI 服务暂时不可用，请稍后重试。（错误: {e}）")],
             "should_end": True,
+            "ui_handoff_pending": False,
             "errors": [str(e)],
         }
 
@@ -369,6 +371,7 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
         return {
             "messages": [AIMessage(content=full_text or "", tool_calls=lc_tool_calls)],
             "iteration_count": iteration + 1,
+            "ui_handoff_pending": False,
         }
 
     # 无工具调用 → 对话结束
@@ -376,14 +379,16 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
         "messages": [AIMessage(content=full_text)],
         "iteration_count": iteration + 1,
         "should_end": True,
+        "ui_handoff_pending": False,
     }
 
 
 async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
     """执行工具调用。
 
-    写入是否需要先确认完全交由 LLM 根据 system prompt 的「确认规则」自主判断，
-    本节点只负责忠实执行 LLM 决定调用的工具。
+    写入是否需要先确认完全交由 LLM 根据 system prompt 的「确认规则」自主判断。
+    UI handoff 工具（如 present_quick_replies）只表达“把控制权交还用户”的工具协议；
+    调用成功后本轮进入 finalize 等待用户下一条输入，不继续回 LLM。
     """
     deps = _get_deps(config)
     executor = deps["executor"]
@@ -393,12 +398,31 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
     executor.session_context = state.get("session_context")
 
     last_msg = state["messages"][-1]
-    if not getattr(last_msg, "tool_calls", None):
-        return {}
+    tool_calls = getattr(last_msg, "tool_calls", None)
+    if not tool_calls:
+        return {"ui_handoff_pending": False}
 
+    has_handoff = any(tc.get("name") in UI_HANDOFF_TOOLS for tc in tool_calls)
+    handoff_pending = False
     tool_messages = []
-    for tc in last_msg.tool_calls:
+
+    for tc in tool_calls:
         tool_name = tc["name"]
+
+        # UI handoff 工具独占本批次：防止同一轮同时展示确认按钮又执行写入工具。
+        if has_handoff and tool_name not in UI_HANDOFF_TOOLS:
+            result = json.dumps({
+                "skipped": True,
+                "reason": "ui_handoff_pending — handoff tool executed in same batch",
+            }, ensure_ascii=False)
+            tool_messages.append(ToolMessage(
+                content=result,
+                tool_call_id=tc["id"],
+                name=tool_name,
+            ))
+            logger.warning("UI handoff 批次跳过非 handoff 工具: %s", tool_name)
+            continue
+
         try:
             args = tc["args"] if isinstance(tc["args"], dict) else (
                 json.loads(tc["args"]) if isinstance(tc["args"], str) else {}
@@ -443,8 +467,10 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
                     await adispatch_custom_event("ui_actions", {
                         "kind": qr_data.get("kind", "confirmation"),
                         "actions": qr_data.get("actions", []),
+                        "await_user": True,
                     })
-                    logger.info("ui_actions 事件发送完成")
+                    handoff_pending = True
+                    logger.info("ui_actions 事件发送完成，当前 turn 将等待用户响应")
             except Exception as e:
                 logger.warning("present_quick_replies 结果解析失败，跳过 ui_actions 事件: %s", e)
 
@@ -458,6 +484,7 @@ async def execute_tool_node(state: AgentState, config: RunnableConfig) -> dict:
     # 跨 turn 同步已移除（_pending_receipt_file_ids 不再需要，录收支改走表单）
     return {
         "messages": tool_messages,
+        "ui_handoff_pending": handoff_pending,
     }
 
 
@@ -579,6 +606,13 @@ def should_continue(state: AgentState) -> Literal["execute_tool_node", "finalize
     return "finalize_node"
 
 
+def should_continue_after_tool(state: AgentState) -> Literal["call_model_node", "finalize_node"]:
+    """UI handoff 工具执行后结束当前 turn，否则继续交给 LLM 决策。"""
+    if state.get("ui_handoff_pending"):
+        return "finalize_node"
+    return "call_model_node"
+
+
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 # 图缓存（进程级单例）
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -599,7 +633,10 @@ def _build_graph():
         "execute_tool_node": "execute_tool_node",
         "finalize_node": "finalize_node",
     })
-    workflow.add_edge("execute_tool_node", "call_model_node")
+    workflow.add_conditional_edges("execute_tool_node", should_continue_after_tool, {
+        "call_model_node": "call_model_node",
+        "finalize_node": "finalize_node",
+    })
     workflow.add_edge("finalize_node", END)
 
     return workflow
