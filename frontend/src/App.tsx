@@ -3,7 +3,6 @@ import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import Login from './pages/Login'
 import CustomerList from './pages/CustomerList'
-import CustomerDetail from './pages/CustomerDetail'
 import ContractList from './pages/ContractList'
 import ContractDetail from './pages/ContractDetail'
 import PaymentList from './pages/PaymentList'
@@ -34,7 +33,6 @@ function App() {
           <Route index element={<Navigate to={defaultPath} replace />} />
           <Route path="customers">
             <Route index element={<ProtectedRoute allowedRoles={['admin', 'income']}><CustomerList /></ProtectedRoute>} />
-            <Route path=":id" element={<ProtectedRoute allowedRoles={['admin', 'income']}><CustomerDetail /></ProtectedRoute>} />
           </Route>
           <Route path="contracts">
             <Route index element={<ProtectedRoute allowedRoles={['admin', 'income']}><ContractList /></ProtectedRoute>} />

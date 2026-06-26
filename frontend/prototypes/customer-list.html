@@ -1,0 +1,843 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>客户管理 · 港式账册式表格</title>
+<style>
+:root{
+  --brand-primary:#1e3a5f;
+  --brand-primary-deep:#13294a;
+  --brand-gold:#c9952b;
+  --brand-gold-deep:#a87a18;
+  --money-done:#0d9488;
+  --money-done-deep:#0a7068;
+  --money-due:#dc6b3d;
+  --money-due-deep:#b8542a;
+  --biz-vehicle:#2d5b8a;
+  --biz-vehicle-deep:#1e3f63;
+  --biz-vehicle-soft:#e5edf6;
+  --biz-cross:#b8423b;
+  --biz-cross-deep:#8f2d28;
+  --biz-cross-soft:#fbe9e7;
+  --biz-insurance:#5b8c63;
+  --biz-insurance-deep:#3d6644;
+  --biz-insurance-soft:#e8f0e9;
+  --paper:#fbf8f1;
+  --paper-edge:#efe9d8;
+  --ink:#1a1f2e;
+  --ink-2:#525c70;
+  --ink-3:#8b94a6;
+  --hair:#d8d0bd;
+  --hair-strong:#b7ac90;
+  --row-stripe:#faf6ec;
+  --customer-bg:#f4f0e2;
+  --customer-edge:#c9952b;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:-apple-system,BlinkMacSystemFont,"PingFang SC","Microsoft YaHei",sans-serif;
+  background:
+    radial-gradient(1200px 600px at 20% 0%, #f3ede0 0%, transparent 60%),
+    radial-gradient(900px 500px at 90% 100%, #ecedf3 0%, transparent 55%),
+    #f6f3eb;
+  color:var(--ink);
+  min-height:100vh;
+  padding:36px 48px 80px;
+}
+
+/* ============ 页头 ============ */
+.page-head{
+  max-width:1320px;margin:0 auto 22px;
+  display:flex;align-items:flex-end;justify-content:space-between;gap:24px;
+}
+.page-head .title-wrap{display:flex;align-items:center;gap:14px}
+.page-head .title-icon{
+  width:38px;height:38px;border-radius:3px;
+  background:linear-gradient(135deg,var(--brand-primary),var(--brand-primary-deep));
+  color:#fff;display:grid;place-items:center;
+  box-shadow:0 4px 12px -4px rgba(30,58,95,.45);
+}
+.page-head .title-icon svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2}
+.page-head h1{
+  margin:0;
+  font-family:"Cormorant Garamond","Source Han Serif SC","Noto Serif SC",Georgia,serif;
+  font-size:32px;font-weight:600;letter-spacing:.01em;
+  color:var(--brand-primary-deep);
+  line-height:1;
+}
+.page-head .head-stats{
+  display:flex;gap:14px;align-items:baseline;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:11px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--ink-3);
+}
+.page-head .head-stats b{
+  font-family:"IBM Plex Serif","Source Han Serif SC",Georgia,serif;
+  font-size:18px;font-weight:600;letter-spacing:0;
+  color:var(--brand-primary-deep);
+  margin-right:4px;
+  font-feature-settings:"tnum" 1;
+}
+.head-stats .stat-divider{
+  width:1px;height:14px;background:var(--hair-strong);align-self:center;
+}
+.head-tools{display:flex;align-items:center;gap:10px}
+.search-input{
+  display:flex;align-items:center;gap:8px;
+  padding:7px 12px;width:280px;
+  background:#fff;border:1px solid var(--hair-strong);border-radius:2px;
+  color:var(--ink-2);font-size:13px;
+  transition:border-color .2s;
+}
+.search-input:focus-within{border-color:var(--brand-primary)}
+.search-input svg{width:14px;height:14px;stroke:var(--ink-3);fill:none;stroke-width:2}
+.search-input input{
+  flex:1;border:none;outline:none;background:transparent;
+  font-size:13px;color:var(--ink);
+  font-family:inherit;
+}
+.search-input input::placeholder{color:var(--ink-3)}
+
+/* ============ 主表容器 ============ */
+.ledger-table-wrap{
+  max-width:1320px;margin:0 auto;
+  position:relative;
+  background:var(--paper);
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(184,66,59,.025) 38px 39px),
+    radial-gradient(1200px 200px at 50% -10%, rgba(201,149,43,.07), transparent 70%);
+  border:1px solid var(--hair-strong);
+  border-radius:3px;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.6) inset,
+    0 18px 42px -28px rgba(30,58,95,.35),
+    0 2px 6px -2px rgba(30,58,95,.12);
+  overflow:hidden;
+}
+.ledger-table-wrap::before{
+  content:"";position:absolute;left:0;right:0;top:0;height:2px;
+  background:linear-gradient(90deg,
+    transparent 0%,
+    var(--brand-gold) 12%,
+    var(--brand-gold-deep) 50%,
+    var(--brand-gold) 88%,
+    transparent 100%);
+  z-index:2;
+}
+
+/* 顶部封条横条 */
+.ledger-table-head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 22px 8px;
+  border-bottom:1px dashed var(--hair-strong);
+  background:linear-gradient(180deg,rgba(255,255,255,.55),transparent);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--ink-2);
+}
+.ledger-table-head .seal{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:2px 9px;border:1px solid var(--biz-cross);
+  color:var(--biz-cross);
+  background:rgba(184,66,59,.06);
+  font-weight:600;letter-spacing:.18em;
+  border-radius:2px;
+  margin-right:14px;
+}
+.ledger-table-head .seal::before{
+  content:"";width:5px;height:5px;background:var(--biz-cross);border-radius:50%;
+}
+.ledger-table-head .right{letter-spacing:.18em;color:var(--ink-3)}
+.ledger-table-head .right b{color:var(--brand-primary);font-weight:600;margin-left:4px;letter-spacing:.12em}
+
+/* ============ 表格本体 ============ */
+.ctable{
+  width:100%;
+  border-collapse:collapse;
+  table-layout:fixed;
+}
+.ctable col.col-customer{width:280px}
+.ctable col.col-biz{width:108px}
+.ctable col.col-no{width:142px}
+.ctable col.col-desc{width:auto}
+.ctable col.col-amount{width:130px}
+.ctable col.col-paid{width:130px}
+.ctable col.col-progress{width:160px}
+
+.ctable thead th{
+  position:sticky;top:0;z-index:1;
+  background:linear-gradient(180deg,#f3ecd9,#ebe2c6);
+  border-bottom:1px solid var(--hair-strong);
+  padding:11px 18px;
+  text-align:left;
+  font-family:"Noto Serif SC","Source Han Serif SC",serif;
+  font-size:12px;font-weight:600;
+  color:var(--brand-primary-deep);
+  letter-spacing:.06em;
+}
+.ctable thead th.right{text-align:right}
+.ctable thead th .sub{
+  display:block;
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:9px;letter-spacing:.18em;font-weight:500;
+  color:var(--ink-3);text-transform:uppercase;margin-top:1px;
+}
+
+/* 客户合并单元格 */
+.ctable td.cell-customer{
+  vertical-align:top;
+  background:var(--customer-bg);
+  background-image:
+    linear-gradient(180deg,rgba(255,255,255,.4),transparent 30%),
+    repeating-linear-gradient(0deg, transparent 0 34px, rgba(201,149,43,.06) 34px 35px);
+  border-right:2px solid var(--customer-edge);
+  border-bottom:1px solid var(--hair-strong);
+  padding:16px 18px 14px;
+  position:relative;
+}
+.ctable td.cell-customer::before{
+  /* 左侧装饰条 */
+  content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+  background:linear-gradient(180deg,
+    var(--brand-primary) 0%,
+    var(--brand-primary-deep) 100%);
+}
+.ctable td.cell-customer .customer-inner{
+  position:sticky;
+  top:54px;
+  display:flex;flex-direction:column;gap:10px;
+}
+.customer-head{
+  display:flex;align-items:center;gap:11px;
+}
+.customer-avatar{
+  width:38px;height:38px;
+  border-radius:3px;
+  background:linear-gradient(135deg,var(--brand-primary),var(--brand-primary-deep));
+  color:#fff7e4;
+  display:grid;place-items:center;
+  font-family:"Cormorant Garamond",Georgia,serif;
+  font-size:20px;font-weight:600;letter-spacing:.02em;
+  box-shadow:
+    0 0 0 1px var(--brand-gold) inset,
+    0 0 0 2px rgba(255,255,255,.5) inset,
+    0 4px 10px -4px rgba(30,58,95,.4);
+  flex-shrink:0;
+}
+.customer-name-wrap{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.customer-name{
+  font-family:"Noto Serif SC","Source Han Serif SC",serif;
+  font-size:16px;font-weight:600;color:var(--ink);
+  letter-spacing:.01em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.contracts-pill{
+  display:inline-flex;align-items:center;gap:5px;
+  align-self:flex-start;
+  padding:2px 8px;
+  background:#fff;border:1px solid var(--brand-gold);
+  color:var(--brand-gold-deep);
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:10px;letter-spacing:.12em;
+  border-radius:999px;
+  text-transform:uppercase;
+}
+.contracts-pill b{
+  font-family:"IBM Plex Serif",Georgia,serif;
+  font-size:12px;font-weight:600;letter-spacing:0;
+  color:var(--brand-primary-deep);
+}
+.contracts-pill svg{width:10px;height:10px;stroke:currentColor;fill:none;stroke-width:2}
+
+.customer-meta{
+  display:flex;flex-direction:column;gap:5px;
+  padding-top:8px;
+  border-top:1px dashed var(--hair-strong);
+}
+.customer-meta-row{
+  display:flex;align-items:center;gap:8px;
+  font-size:12.5px;color:var(--ink-2);
+  min-width:0;
+}
+.customer-meta-row svg{
+  width:12px;height:12px;stroke:var(--ink-3);fill:none;stroke-width:2;
+  flex-shrink:0;
+}
+.customer-meta-row .label{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:9.5px;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-3);
+  min-width:36px;
+}
+.customer-meta-row .val{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;
+  color:var(--ink);
+  letter-spacing:.02em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+}
+.customer-meta-row.empty .val{
+  color:var(--ink-3);font-style:italic;font-family:inherit;font-size:12px;
+}
+
+.customer-actions{
+  margin-top:6px;display:flex;justify-content:flex-end;
+  opacity:0;transition:opacity .2s;
+}
+.ctable tr.customer-row:hover .customer-actions{opacity:1}
+.btn-del{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 9px;
+  font-size:11px;color:var(--biz-cross-deep);
+  background:rgba(184,66,59,.08);
+  border:1px solid rgba(184,66,59,.3);
+  border-radius:2px;
+  cursor:pointer;
+  font-family:inherit;
+  transition:all .15s;
+}
+.btn-del:hover{
+  background:var(--biz-cross);
+  color:#fff;
+  border-color:var(--biz-cross);
+}
+.btn-del svg{width:11px;height:11px;stroke:currentColor;fill:none;stroke-width:2}
+
+/* 合同列们 */
+.ctable td.cell-contract{
+  padding:14px 18px;
+  vertical-align:middle;
+  border-bottom:1px solid #ece4cf;
+  background:#fff;
+  transition:background-color .15s;
+}
+.ctable tr.contract-row:nth-child(even) td.cell-contract{background:var(--row-stripe)}
+.ctable tr.contract-row:hover td.cell-contract{background:#fffaee}
+.ctable tr.last-of-customer td.cell-contract{
+  border-bottom:1px solid var(--hair-strong);
+}
+.ctable tr.last-of-customer td.cell-customer{
+  border-bottom:1px solid var(--hair-strong);
+}
+
+/* 业务徽章 */
+.biz-tag{
+  display:inline-flex;align-items:center;gap:5px;
+  padding:3px 9px;
+  border-radius:2px;
+  font-size:11.5px;font-weight:600;letter-spacing:.04em;
+  font-family:"Noto Serif SC",serif;
+}
+.biz-tag svg{width:12px;height:12px;stroke:currentColor;fill:none;stroke-width:2.2}
+.biz-tag.vehicle{background:var(--biz-vehicle-soft);color:var(--biz-vehicle-deep);border:1px solid rgba(45,91,138,.25)}
+.biz-tag.cross{background:var(--biz-cross-soft);color:var(--biz-cross-deep);border:1px solid rgba(184,66,59,.25)}
+.biz-tag.insurance{background:var(--biz-insurance-soft);color:var(--biz-insurance-deep);border:1px solid rgba(91,140,99,.25)}
+.biz-tag.other{background:#f0f1f4;color:var(--ink-2);border:1px solid var(--hair)}
+
+/* 合同编号 */
+.contract-no{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:12px;letter-spacing:.04em;
+  color:var(--brand-primary);
+  text-decoration:none;
+  font-weight:500;
+}
+.contract-no:hover{color:var(--brand-primary-deep);text-decoration:underline;text-decoration-color:var(--brand-gold);text-underline-offset:3px}
+
+/* 合同描述 */
+.contract-desc{
+  font-family:"Noto Serif SC","Source Han Serif SC",serif;
+  font-size:13.5px;color:var(--ink);line-height:1.4;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;
+  overflow:hidden;
+}
+.contract-desc-sub{
+  display:block;margin-top:3px;
+  font-family:inherit;
+  font-size:10.5px;color:var(--ink-3);
+  letter-spacing:.04em;
+}
+
+/* 金额（衬线 tabular） */
+.amount{
+  text-align:right;
+  font-family:"IBM Plex Serif","Source Han Serif SC",Georgia,serif;
+  font-feature-settings:"tnum" 1,"lnum" 1;
+  font-variant-numeric:tabular-nums lining-nums;
+  font-size:16px;font-weight:600;letter-spacing:.01em;
+  color:var(--ink);
+  line-height:1.1;
+  white-space:nowrap;
+}
+.amount .cur{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:10.5px;font-weight:500;
+  color:var(--ink-3);
+  margin-right:4px;
+  letter-spacing:.04em;
+}
+.amount.total{color:var(--brand-primary-deep)}
+.amount.paid{color:var(--brand-gold-deep)}
+.amount.paid.is-zero{color:var(--ink-3);font-weight:500}
+.amount.paid.is-zero .cur{color:var(--ink-3)}
+.amount.paid.is-done{color:var(--money-done-deep)}
+.amount.paid.is-done .cur{color:var(--money-done-deep)}
+
+/* 进度 */
+.progress-cell{
+  display:flex;align-items:center;gap:9px;
+}
+.progress-track{
+  flex:1;height:5px;border-radius:3px;
+  background:#ede5d2;
+  overflow:hidden;
+  position:relative;
+}
+.progress-fill{
+  height:100%;border-radius:3px;
+  background:linear-gradient(90deg,var(--money-due) 0%,var(--brand-gold) 100%);
+  transition:width .5s ease;
+}
+.progress-fill.full{background:linear-gradient(90deg,var(--money-done) 0%,var(--money-done-deep) 100%)}
+.progress-fill.empty{background:transparent}
+.progress-pct{
+  font-family:"IBM Plex Serif",Georgia,serif;
+  font-feature-settings:"tnum" 1;
+  font-size:12px;font-weight:600;
+  color:var(--ink-2);
+  min-width:38px;text-align:right;
+  letter-spacing:.02em;
+}
+.progress-pct.full{color:var(--money-done-deep)}
+.progress-pct.empty{color:var(--ink-3);font-weight:500}
+
+/* ============ 空档案客户：合并整个合同区 ============ */
+.cell-empty-contracts{
+  padding:18px 18px;
+  background:repeating-linear-gradient(
+    -45deg,
+    transparent 0 8px,
+    rgba(139,148,166,.05) 8px 9px
+  ), #faf9f5;
+  border-bottom:1px solid var(--hair-strong);
+  text-align:center;
+}
+.empty-msg{
+  display:inline-flex;align-items:center;gap:10px;
+  color:var(--ink-3);
+  font-size:13px;
+  font-style:italic;
+  font-family:"Noto Serif SC",serif;
+}
+.empty-msg svg{
+  width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:1.6;
+}
+
+/* ============ 底部脚标 ============ */
+.ledger-table-foot{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:10px 22px;
+  border-top:1px dashed var(--hair-strong);
+  background:linear-gradient(180deg,transparent,rgba(201,149,43,.05));
+  font-family:"IBM Plex Mono",ui-monospace,monospace;
+  font-size:10px;letter-spacing:.22em;
+  color:var(--ink-3);text-transform:uppercase;
+}
+.ledger-table-foot .pager{
+  display:flex;align-items:center;gap:6px;
+}
+.ledger-table-foot .pager button{
+  padding:3px 10px;
+  font-family:inherit;font-size:10px;letter-spacing:.16em;
+  background:#fff;border:1px solid var(--hair-strong);
+  color:var(--ink-2);
+  border-radius:2px;cursor:pointer;
+  transition:all .15s;
+}
+.ledger-table-foot .pager button:hover{
+  background:var(--brand-primary);color:#fff;border-color:var(--brand-primary);
+}
+.ledger-table-foot .pager .current{
+  font-family:"IBM Plex Serif",Georgia,serif;font-size:13px;letter-spacing:0;
+  color:var(--brand-primary-deep);font-weight:600;
+}
+
+/* 说明卡 */
+.notes{
+  max-width:1320px;margin:36px auto 0;
+  display:grid;grid-template-columns:repeat(3,1fr);gap:18px;
+}
+.note{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-left:3px solid var(--brand-primary);
+  padding:14px 16px;
+  border-radius:2px;
+}
+.note.gold{border-left-color:var(--brand-gold)}
+.note.gold h4{color:var(--brand-gold-deep)}
+.note.done{border-left-color:var(--money-done)}
+.note.done h4{color:var(--money-done-deep)}
+.note h4{
+  margin:0 0 6px;
+  font-family:"Noto Serif SC",serif;font-weight:600;font-size:13px;
+  color:var(--brand-primary-deep);letter-spacing:.02em;
+}
+.note p{margin:0;color:var(--ink-2);font-size:12.5px;line-height:1.7}
+.note code{
+  font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;
+  background:#f4f6fa;padding:1px 5px;border-radius:2px;color:var(--brand-primary);
+}
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <div class="title-wrap">
+    <div class="title-icon">
+      <svg viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+    </div>
+    <h1>客户管理</h1>
+    <div class="head-stats">
+      <span><b>128</b>位客户</span>
+      <span class="stat-divider"></span>
+      <span><b>247</b>份合同</span>
+    </div>
+  </div>
+  <div class="head-tools">
+    <div class="search-input">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" placeholder="搜索客户名称 / 电话 / 证件号"/>
+    </div>
+  </div>
+</header>
+
+<div class="ledger-table-wrap">
+  <div class="ledger-table-head">
+    <div>
+      <span class="seal">华星 · 客户档册</span>
+      <span>CLIENT REGISTER · 2026 / Q2</span>
+    </div>
+    <div class="right">本页 <b>4 位客户</b> · 共 <b>6 份合同</b></div>
+  </div>
+
+  <table class="ctable">
+    <colgroup>
+      <col class="col-customer">
+      <col class="col-biz">
+      <col class="col-no">
+      <col class="col-desc">
+      <col class="col-amount">
+      <col class="col-paid">
+      <col class="col-progress">
+    </colgroup>
+    <thead>
+      <tr>
+        <th>客户档案<span class="sub">CLIENT</span></th>
+        <th>业务<span class="sub">TYPE</span></th>
+        <th>合同编号<span class="sub">NO.</span></th>
+        <th>合同描述<span class="sub">DESCRIPTION</span></th>
+        <th class="right">合同金额<span class="sub">AMOUNT</span></th>
+        <th class="right">已收<span class="sub">RECEIVED</span></th>
+        <th>付款进度<span class="sub">PROGRESS</span></th>
+      </tr>
+    </thead>
+    <tbody>
+
+      <!-- ════════ 客户 1：张伟（3 份合同） ════════ -->
+      <tr class="customer-row contract-row">
+        <td class="cell-customer" rowspan="3">
+          <div class="customer-inner">
+            <div class="customer-head">
+              <div class="customer-avatar">张</div>
+              <div class="customer-name-wrap">
+                <div class="customer-name">张伟</div>
+                <span class="contracts-pill">
+                  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <b>3</b> 份合同
+                </span>
+              </div>
+            </div>
+            <div class="customer-meta">
+              <div class="customer-meta-row">
+                <span class="label">TEL</span>
+                <span class="val">138-2287-1234</span>
+              </div>
+              <div class="customer-meta-row">
+                <span class="label">ID</span>
+                <span class="val">44030319870815****</span>
+              </div>
+            </div>
+            <div class="customer-actions">
+              <button class="btn-del">
+                <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+                删除
+              </button>
+            </div>
+          </div>
+        </td>
+        <td class="cell-contract">
+          <span class="biz-tag vehicle">
+            <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+            车辆
+          </span>
+        </td>
+        <td class="cell-contract"><a class="contract-no" href="#">HXC-2026-001</a></td>
+        <td class="cell-contract">
+          <div class="contract-desc">2018 款宝马 X5 xDrive35i 二手车转让</div>
+          <span class="contract-desc-sub">签订 2026-04-12 · 港深双牌</span>
+        </td>
+        <td class="cell-contract amount total"><span class="cur">HK$</span>280,000.00</td>
+        <td class="cell-contract amount paid is-done"><span class="cur">HK$</span>280,000.00</td>
+        <td class="cell-contract">
+          <div class="progress-cell">
+            <div class="progress-track"><div class="progress-fill full" style="width:100%"></div></div>
+            <span class="progress-pct full">100%</span>
+          </div>
+        </td>
+      </tr>
+      <tr class="contract-row">
+        <td class="cell-contract">
+          <span class="biz-tag cross">
+            <svg viewBox="0 0 24 24"><path d="M3 9h18v10H3z"/><path d="M7 9V5h10v4"/></svg>
+            两地牌
+          </span>
+        </td>
+        <td class="cell-contract"><a class="contract-no" href="#">HXC-2026-007</a></td>
+        <td class="cell-contract">
+          <div class="contract-desc">粤Z·XXXXXX 港牌过户 + 中环口岸通关</div>
+          <span class="contract-desc-sub">签订 2026-05-03 · 三期付款</span>
+        </td>
+        <td class="cell-contract amount total"><span class="cur">HK$</span>80,000.00</td>
+        <td class="cell-contract amount paid"><span class="cur">HK$</span>48,000.00</td>
+        <td class="cell-contract">
+          <div class="progress-cell">
+            <div class="progress-track"><div class="progress-fill" style="width:60%"></div></div>
+            <span class="progress-pct">60%</span>
+          </div>
+        </td>
+      </tr>
+      <tr class="contract-row last-of-customer">
+        <td class="cell-contract">
+          <span class="biz-tag insurance">
+            <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            年检保险
+          </span>
+        </td>
+        <td class="cell-contract"><a class="contract-no" href="#">HXC-2026-012</a></td>
+        <td class="cell-contract">
+          <div class="contract-desc">2026 年度年检 + 第三者责任险</div>
+          <span class="contract-desc-sub">签订 2026-06-01 · 一次性</span>
+        </td>
+        <td class="cell-contract amount total"><span class="cur">HK$</span>5,800.00</td>
+        <td class="cell-contract amount paid is-zero"><span class="cur">HK$</span>0.00</td>
+        <td class="cell-contract">
+          <div class="progress-cell">
+            <div class="progress-track"><div class="progress-fill empty" style="width:0%"></div></div>
+            <span class="progress-pct empty">0%</span>
+          </div>
+        </td>
+      </tr>
+
+      <!-- ════════ 客户 2：林婉婷（2 份合同，混币种） ════════ -->
+      <tr class="customer-row contract-row">
+        <td class="cell-customer" rowspan="2">
+          <div class="customer-inner">
+            <div class="customer-head">
+              <div class="customer-avatar">林</div>
+              <div class="customer-name-wrap">
+                <div class="customer-name">林婉婷</div>
+                <span class="contracts-pill">
+                  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <b>2</b> 份合同
+                </span>
+              </div>
+            </div>
+            <div class="customer-meta">
+              <div class="customer-meta-row">
+                <span class="label">TEL</span>
+                <span class="val">135-7782-9988</span>
+              </div>
+              <div class="customer-meta-row">
+                <span class="label">ID</span>
+                <span class="val">44030819920628****</span>
+              </div>
+            </div>
+            <div class="customer-actions">
+              <button class="btn-del">
+                <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+                删除
+              </button>
+            </div>
+          </div>
+        </td>
+        <td class="cell-contract">
+          <span class="biz-tag vehicle">
+            <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+            车辆
+          </span>
+        </td>
+        <td class="cell-contract"><a class="contract-no" href="#">HXC-2026-003</a></td>
+        <td class="cell-contract">
+          <div class="contract-desc">2021 款奔驰 GLC 260 L 二手车收购</div>
+          <span class="contract-desc-sub">签订 2026-04-20 · 分两期</span>
+        </td>
+        <td class="cell-contract amount total"><span class="cur">HK$</span>320,000.00</td>
+        <td class="cell-contract amount paid"><span class="cur">HK$</span>180,000.00</td>
+        <td class="cell-contract">
+          <div class="progress-cell">
+            <div class="progress-track"><div class="progress-fill" style="width:56%"></div></div>
+            <span class="progress-pct">56%</span>
+          </div>
+        </td>
+      </tr>
+      <tr class="contract-row last-of-customer">
+        <td class="cell-contract">
+          <span class="biz-tag vehicle">
+            <svg viewBox="0 0 24 24"><rect x="2" y="6" width="20" height="11" rx="3"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+            车辆
+          </span>
+        </td>
+        <td class="cell-contract"><a class="contract-no" href="#">HXC-2026-019</a></td>
+        <td class="cell-contract">
+          <div class="contract-desc">2023 款雷克萨斯 ES 300h 准新车</div>
+          <span class="contract-desc-sub">签订 2026-05-28 · 四期付款</span>
+        </td>
+        <td class="cell-contract amount total"><span class="cur">¥</span>380,000.00</td>
+        <td class="cell-contract amount paid"><span class="cur">¥</span>100,000.00</td>
+        <td class="cell-contract">
+          <div class="progress-cell">
+            <div class="progress-track"><div class="progress-fill" style="width:26%"></div></div>
+            <span class="progress-pct">26%</span>
+          </div>
+        </td>
+      </tr>
+
+      <!-- ════════ 客户 3：黄国强（1 份合同） ════════ -->
+      <tr class="customer-row contract-row">
+        <td class="cell-customer" rowspan="1">
+          <div class="customer-inner">
+            <div class="customer-head">
+              <div class="customer-avatar">黄</div>
+              <div class="customer-name-wrap">
+                <div class="customer-name">黄国强</div>
+                <span class="contracts-pill">
+                  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <b>1</b> 份合同
+                </span>
+              </div>
+            </div>
+            <div class="customer-meta">
+              <div class="customer-meta-row">
+                <span class="label">TEL</span>
+                <span class="val">130-2245-6677</span>
+              </div>
+              <div class="customer-meta-row empty">
+                <span class="label">ID</span>
+                <span class="val">未登记</span>
+              </div>
+            </div>
+            <div class="customer-actions">
+              <button class="btn-del">
+                <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+                删除
+              </button>
+            </div>
+          </div>
+        </td>
+        <td class="cell-contract">
+          <span class="biz-tag cross">
+            <svg viewBox="0 0 24 24"><path d="M3 9h18v10H3z"/><path d="M7 9V5h10v4"/></svg>
+            两地牌
+          </span>
+        </td>
+        <td class="cell-contract"><a class="contract-no" href="#">HXC-2026-005</a></td>
+        <td class="cell-contract">
+          <div class="contract-desc">港牌 LV·8888 年检过户 + 配额更新</div>
+          <span class="contract-desc-sub">签订 2026-04-08 · 一次性结清</span>
+        </td>
+        <td class="cell-contract amount total"><span class="cur">HK$</span>35,000.00</td>
+        <td class="cell-contract amount paid is-done"><span class="cur">HK$</span>35,000.00</td>
+        <td class="cell-contract">
+          <div class="progress-cell">
+            <div class="progress-track"><div class="progress-fill full" style="width:100%"></div></div>
+            <span class="progress-pct full">100%</span>
+          </div>
+        </td>
+      </tr>
+
+      <!-- ════════ 客户 4：陈雅琴（0 份合同，空档案） ════════ -->
+      <tr class="customer-row">
+        <td class="cell-customer" rowspan="1" style="border-bottom:1px solid var(--hair-strong)">
+          <div class="customer-inner">
+            <div class="customer-head">
+              <div class="customer-avatar" style="background:linear-gradient(135deg,#8b94a6,#525c70)">陈</div>
+              <div class="customer-name-wrap">
+                <div class="customer-name">陈雅琴</div>
+                <span class="contracts-pill" style="border-color:var(--hair-strong);color:var(--ink-3);background:#fafafa">
+                  <svg viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <b style="color:var(--ink-3)">0</b> 份合同
+                </span>
+              </div>
+            </div>
+            <div class="customer-meta">
+              <div class="customer-meta-row">
+                <span class="label">TEL</span>
+                <span class="val">132-9988-0011</span>
+              </div>
+              <div class="customer-meta-row empty">
+                <span class="label">ID</span>
+                <span class="val">未登记</span>
+              </div>
+            </div>
+            <div class="customer-actions">
+              <button class="btn-del">
+                <svg viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-2 14a2 2 0 0 1-2 2H9a2 2 0 0 1-2-2L5 6"/></svg>
+                删除
+              </button>
+            </div>
+          </div>
+        </td>
+        <td class="cell-empty-contracts" colspan="6">
+          <span class="empty-msg">
+            <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            该客户档案下暂无关联合同
+          </span>
+        </td>
+      </tr>
+
+    </tbody>
+  </table>
+
+  <div class="ledger-table-foot">
+    <span>截至 2026 · 06 · 26 · 17:42</span>
+    <div class="pager">
+      <button>首页</button>
+      <button>上一页</button>
+      <span class="current">1</span>
+      <span style="margin:0 4px;color:var(--ink-3)">/</span>
+      <span>7</span>
+      <button>下一页</button>
+      <button>末页</button>
+    </div>
+  </div>
+</div>
+
+<div class="notes">
+  <div class="note">
+    <h4>1 · rowSpan 合并机制</h4>
+    <p>antd Table 原生支持。column render 返回 <code>{children, props:{rowSpan:N}}</code>，同客户后续行返回 <code>rowSpan:0</code> 自动隐藏。数据扁平化为 <code>(customer, contract)</code> 对。</p>
+  </div>
+  <div class="note gold">
+    <h4>2 · 客户列内 sticky</h4>
+    <p>客户档案 cell 用 <code>vertical-align:top</code> + 内层 <code>position:sticky</code>，当行数较多滚动时客户档案信息会跟随到合并区顶部，避免 3 合同滑出视野后忘记是谁。</p>
+  </div>
+  <div class="note done">
+    <h4>3 · 空档案保留可见</h4>
+    <p>0 合同客户用斜纹底 + 灰头像 + 全宽提示行呈现，扫一眼就能找出"该联系/清理"的档案，不会被信息洪流吞掉。</p>
+  </div>
+</div>
+
+</body>
+</html>

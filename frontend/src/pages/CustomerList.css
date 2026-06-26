@@ -1,662 +1,551 @@
 /* ============================================================
-   客户管理页面 · v3 合同卡牌化
-   - 卡片自适应高度（按合同数撑开），无内部滚动
-   - 每份合同独立成卡：左大号金色「已收」+ 右业务摘要/标签/进度
-   - 多币种各显原币，不做卡内汇总
+   客户管理 · v4 港式账册表格
+   - rowSpan 合并：每客户一行档案 + N 行合同
+   - 米黄账纸底 + 金边封口 + 朱砂印章
+   - 合同行：业务徽章 + mono 编号 + 衬线 tabular 金额 + 进度条
    ============================================================ */
 
 .cl-wrap {
   padding: 20px 24px 40px;
   min-height: calc(100vh - 112px);
-}
 
-/* —— 金额语义色（局部声明，作用域客户卡片） —— */
-.cl-wrap {
-  --money-paid: var(--brand-gold);
-  --money-total: var(--brand-primary);
+  /* —— 颜色变量（页面作用域） —— */
   --money-due: #dc6b3d;
   --money-done: #0d9488;
-  --money-placeholder: var(--text-placeholder);
+  --money-done-deep: #0a7068;
   --brand-gold-deep: #a87a18;
 
   --biz-vehicle: #2d5b8a;
   --biz-vehicle-deep: #1e3f63;
   --biz-vehicle-soft: #e5edf6;
-  --biz-vehicle-bg: #f4f7fb;
-
   --biz-cross: #b8423b;
   --biz-cross-deep: #8f2d28;
   --biz-cross-soft: #fbe9e7;
-  --biz-cross-bg: #fdf4f3;
+  --biz-insurance: #5b8c63;
+  --biz-insurance-deep: #3d6644;
+  --biz-insurance-soft: #e8f0e9;
+
+  --cl-paper: #fbf8f1;
+  --cl-ink: #1a1f2e;
+  --cl-ink-2: #525c70;
+  --cl-ink-3: #8b94a6;
+  --cl-hair: #d8d0bd;
+  --cl-hair-strong: #b7ac90;
+  --cl-row-stripe: #faf6ec;
+  --cl-customer-bg: #f4f0e2;
 }
 
-/* ── 卡片网格 ── */
-.cl-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
-  gap: 16px;
-  align-items: start;
+/* —— 顶栏右侧统计 —— */
+.cl-head-stats {
+  display: inline-flex; align-items: baseline; gap: 12px;
+  margin-left: 12px;
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 11px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--cl-ink-3);
+}
+.cl-head-stats b {
+  font-family: 'IBM Plex Serif', 'Source Han Serif SC', Georgia, serif;
+  font-size: 17px; font-weight: 600; letter-spacing: 0;
+  color: var(--brand-primary, #1e3a5f);
+  margin-right: 3px;
+  font-feature-settings: "tnum" 1;
+}
+.cl-stat-divider {
+  width: 1px; height: 12px; background: var(--cl-hair-strong); align-self: center;
 }
 
-/* ══════════════════════════════════════════════
-   卡片主体 · 自适应高度
-   ══════════════════════════════════════════════ */
-.cl-card {
+/* ============================================================
+   账册容器
+   ============================================================ */
+.cl-ledger-wrap {
   position: relative;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  cursor: pointer;
-  transition: transform 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
-  box-shadow: var(--shadow-sm);
+  margin-top: 16px;
+  background: var(--cl-paper);
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(184, 66, 59, 0.025) 38px 39px),
+    radial-gradient(1200px 200px at 50% -10%, rgba(201, 149, 43, 0.07), transparent 70%);
+  border: 1px solid var(--cl-hair-strong);
+  border-radius: 3px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 18px 42px -28px rgba(30, 58, 95, 0.35),
+    0 2px 6px -2px rgba(30, 58, 95, 0.12);
   overflow: hidden;
-  display: flex;
-  flex-direction: column;
-  animation: clCardEnter 0.4s cubic-bezier(0.4, 0, 0.2, 1) forwards;
-  opacity: 0;
+}
+.cl-ledger-wrap::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--brand-gold, #c9952b) 12%,
+    var(--brand-gold-deep) 50%,
+    var(--brand-gold, #c9952b) 88%,
+    transparent 100%);
+  z-index: 2;
 }
 
-@keyframes clCardEnter {
-  from { opacity: 0; transform: translateY(16px); }
-  to   { opacity: 1; transform: translateY(0); }
+/* —— 顶部封条 —— */
+.cl-ledger-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 22px 8px;
+  border-bottom: 1px dashed var(--cl-hair-strong);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.55), transparent);
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: var(--cl-ink-2);
+}
+.cl-seal {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px;
+  border: 1px solid var(--biz-cross);
+  color: var(--biz-cross);
+  background: rgba(184, 66, 59, 0.06);
+  font-weight: 600; letter-spacing: 0.18em;
+  border-radius: 2px;
+  margin-right: 14px;
+}
+.cl-seal::before {
+  content: ""; width: 5px; height: 5px; background: var(--biz-cross); border-radius: 50%;
+}
+.cl-period { color: var(--cl-ink-3); }
+.cl-head-right {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10.5px; letter-spacing: 0.18em; color: var(--cl-ink-3);
+}
+.cl-head-right b {
+  color: var(--brand-primary, #1e3a5f);
+  font-weight: 600; letter-spacing: 0.12em; margin: 0 4px;
 }
 
-.cl-card:hover {
-  transform: translateY(-3px);
-  box-shadow: var(--shadow-lg);
-  border-color: rgba(30, 58, 95, 0.18);
+/* ============================================================
+   表格本体
+   ============================================================ */
+.cl-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+.cl-table col.col-customer { width: 280px; }
+.cl-table col.col-biz { width: 108px; }
+.cl-table col.col-no { width: 142px; }
+.cl-table col.col-desc { width: auto; }
+.cl-table col.col-amount { width: 130px; }
+.cl-table col.col-paid { width: 130px; }
+.cl-table col.col-progress { width: 160px; }
+
+/* 表头 */
+.cl-table thead th {
+  position: sticky; top: 0; z-index: 1;
+  background: linear-gradient(180deg, #f3ecd9, #ebe2c6);
+  border-bottom: 1px solid var(--cl-hair-strong);
+  padding: 11px 18px;
+  text-align: left;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
+  font-size: 12px; font-weight: 600;
+  color: var(--brand-primary-deep, #13294a);
+  letter-spacing: 0.06em;
+}
+.cl-table thead th.th-right { text-align: right; }
+.cl-table thead th .th-sub {
+  display: block;
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9px; letter-spacing: 0.18em; font-weight: 500;
+  color: var(--cl-ink-3); text-transform: uppercase; margin-top: 1px;
 }
 
-/* ── 右上角浮动删除按钮（仅 admin 渲染；hover 显形） ── */
-.cl-card-del {
-  position: absolute;
-  top: 8px;
-  right: 8px;
-  z-index: 3;
-  width: 28px;
-  height: 28px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: rgba(255, 255, 255, 0.85);
-  color: var(--text-tertiary);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity 0.18s ease, color 0.18s ease, background 0.18s ease, border-color 0.18s ease;
+/* —— 客户合并单元格 —— */
+.cl-table td.cell-customer {
+  vertical-align: top;
+  background: var(--cl-customer-bg);
+  background-image:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.4), transparent 30%),
+    repeating-linear-gradient(0deg, transparent 0 34px, rgba(201, 149, 43, 0.06) 34px 35px);
+  border-right: 2px solid var(--brand-gold, #c9952b);
+  border-bottom: 1px solid var(--cl-hair-strong);
+  padding: 16px 18px 14px;
+  position: relative;
 }
-.cl-card:hover .cl-card-del {
-  opacity: 1;
+.cl-table td.cell-customer::before {
+  content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px;
+  background: linear-gradient(180deg,
+    var(--brand-primary, #1e3a5f) 0%,
+    var(--brand-primary-deep, #13294a) 100%);
 }
-.cl-card-del:hover {
-  color: #b8423b;
-  background: #fdf4f3;
-  border-color: #f5c7c2;
-}
-.cl-card-del .anticon {
-  font-size: 14px;
+/* sticky 让客户档案区在合并多行时跟随滚动 */
+.cl-customer-inner {
+  position: sticky; top: 54px;
+  display: flex; flex-direction: column; gap: 10px;
 }
 
-/* ══════════════════════════════════════════════
-   身份区
-   ══════════════════════════════════════════════ */
-.cl-identity {
-  padding: 14px 18px 12px;
-  border-bottom: 1px solid var(--border-light);
-  background: linear-gradient(180deg, #fcfdfe 0%, #ffffff 100%);
+.cl-customer-head {
+  display: flex; align-items: center; gap: 11px;
 }
 
-.cl-identity-top {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-bottom: 8px;
-}
-
+/* —— 客户首字头像（金边） —— */
 .cl-avatar {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, var(--brand-primary) 0%, var(--brand-primary-light) 100%);
-  color: #fff;
-  font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 38px; height: 38px;
+  border-radius: 3px;
+  background: linear-gradient(135deg, var(--brand-primary, #1e3a5f), var(--brand-primary-deep, #13294a));
+  color: #fff7e4;
+  display: grid; place-items: center;
+  font-family: 'Cormorant Garamond', 'Source Han Serif SC', Georgia, serif;
+  font-size: 20px; font-weight: 600; letter-spacing: 0.02em;
+  box-shadow:
+    0 0 0 1px var(--brand-gold, #c9952b) inset,
+    0 0 0 2px rgba(255, 255, 255, 0.5) inset,
+    0 4px 10px -4px rgba(30, 58, 95, 0.4);
   flex-shrink: 0;
-  box-shadow: 0 2px 6px rgba(30, 58, 95, 0.18);
+}
+.cl-avatar.is-empty {
+  background: linear-gradient(135deg, var(--cl-ink-3), var(--cl-ink-2));
+  box-shadow:
+    0 0 0 1px var(--cl-hair-strong) inset,
+    0 0 0 2px rgba(255, 255, 255, 0.5) inset;
 }
 
-.cl-name {
-  font-family: var(--font-display);
-  font-size: 17px;
-  font-weight: 700;
-  color: var(--text-primary);
-  letter-spacing: 0.3px;
-  line-height: 1.2;
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.cl-customer-name-wrap {
+  display: flex; flex-direction: column; gap: 4px;
+  min-width: 0; flex: 1;
+}
+.cl-customer-name {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
+  font-size: 16px; font-weight: 600;
+  color: var(--cl-ink);
+  letter-spacing: 0.01em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
 .cl-contracts-pill {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--brand-primary);
-  background: var(--brand-primary-lighter);
-  padding: 3px 9px;
-  border-radius: 12px;
-  letter-spacing: 0.2px;
-  flex-shrink: 0;
-  line-height: 1.4;
-}
-.cl-contracts-pill .anticon {
-  font-size: 10px;
-  opacity: 0.7;
-}
-.cl-contracts-pill-num {
-  font-size: 12px;
-  font-weight: 700;
-}
-
-.cl-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px 14px;
-  font-size: 12.5px;
-  color: var(--text-secondary);
-}
-
-.cl-meta-item {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  max-width: 100%;
-  min-width: 0;
-}
-.cl-meta-item .anticon {
-  flex-shrink: 0;
-  color: var(--text-tertiary);
-  font-size: 12px;
-}
-.cl-meta-item > span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cl-meta-item--mono {
-  font-family: var(--font-mono);
-  font-size: 11.5px;
-  color: var(--text-tertiary);
-}
-.cl-meta-empty {
-  font-size: 12px;
-  color: var(--text-placeholder);
-  font-style: italic;
-}
-
-/* ══════════════════════════════════════════════
-   合同区 · 卡牌列表（不滚动，自然撑开）
-   ══════════════════════════════════════════════ */
-.cl-contracts {
-  padding: 10px 10px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-/* ── 单份合同卡牌 ── */
-.cl-ct {
-  position: relative;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-md);
-  padding: 11px 13px 11px 16px;
-  background: var(--bg-surface);
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease;
-}
-.cl-ct::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 3px;
-  height: 100%;
-  background: var(--border-default);
-  border-radius: var(--radius-md) 0 0 var(--radius-md);
-}
-.cl-ct.biz-vehicle::before { background: var(--biz-vehicle); }
-.cl-ct.biz-cross::before   { background: var(--biz-cross); }
-.cl-ct:hover {
-  background: var(--bg-subtle);
-  border-color: var(--border-default);
-}
-
-/* ── 合同头：业务徽章 + 签约日/合同号 ── */
-.cl-ct-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 9px;
-}
-
-.cl-biz-mini {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  font-weight: 600;
+  display: inline-flex; align-items: center; gap: 5px;
+  align-self: flex-start;
   padding: 2px 8px;
-  border-radius: 4px;
-  letter-spacing: 0.2px;
-  line-height: 1.5;
-  flex-shrink: 0;
+  background: #fff;
+  border: 1px solid var(--brand-gold, #c9952b);
+  color: var(--brand-gold-deep);
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.12em;
+  border-radius: 999px;
+  text-transform: uppercase;
 }
-.cl-biz-mini-icon {
-  display: inline-flex;
-  width: 11px;
-  height: 11px;
+.cl-contracts-pill b {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 12px; font-weight: 600; letter-spacing: 0;
+  color: var(--brand-primary-deep, #13294a);
+  font-feature-settings: "tnum" 1;
 }
-.cl-biz-mini-icon svg {
-  width: 100%;
-  height: 100%;
+.cl-contracts-pill .anticon { font-size: 10px; }
+.cl-contracts-pill.is-empty {
+  border-color: var(--cl-hair-strong);
+  color: var(--cl-ink-3);
+  background: #fafafa;
 }
-.cl-biz-mini--vehicle {
-  color: var(--biz-vehicle-deep);
-  background: var(--biz-vehicle-soft);
-}
-.cl-biz-mini--cross {
-  color: var(--biz-cross-deep);
-  background: var(--biz-cross-soft);
-}
-.cl-biz-mini--other {
-  color: var(--text-secondary);
-  background: var(--bg-hover);
-}
+.cl-contracts-pill.is-empty b { color: var(--cl-ink-3); }
 
-.cl-ct-meta {
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-tertiary);
-  letter-spacing: 0.3px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* —— 客户联系信息（mono 标签 + 值） —— */
+.cl-customer-meta {
+  display: flex; flex-direction: column; gap: 5px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--cl-hair-strong);
+}
+.cl-meta-row {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 12.5px; color: var(--cl-ink-2);
   min-width: 0;
 }
-
-/* ══════════════════════════════════════════════
-   金额收据区（V2 收据风）
-   - 金色羊皮纸底 + 左侧虚线齿条 + 三行对齐
-   - 已收（大）/ 总额（小）/ 未收（中，加大字号）
-   ══════════════════════════════════════════════ */
-.cl-receipt {
-  background: linear-gradient(180deg, #fdf8ef 0%, #fdfaf3 100%);
-  border: 1px solid #f0e1c2;
-  border-radius: 6px;
-  padding: 10px 13px 11px 16px;
-  position: relative;
-  overflow: hidden;
-}
-.cl-receipt::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 3px;
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--brand-gold) 0 5px,
-    transparent 5px 9px
-  );
-}
-
-/* ── 业务色融合 ──
-   背景与齿条切换到对应业务色（钢蓝/朱砂），保留金/橙数字。
-   用 :not(.is-done) 确保结清状态优先回到 teal —— 业务身份让位于结清状态。
-   ─────────────────── */
-.cl-ct.biz-vehicle .cl-receipt:not(.is-done) {
-  background: linear-gradient(180deg, var(--biz-vehicle-bg) 0%, #ffffff 100%);
-  border-color: #d6e2ee;
-}
-.cl-ct.biz-vehicle .cl-receipt:not(.is-done)::before {
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--biz-vehicle) 0 5px,
-    transparent 5px 9px
-  );
-}
-.cl-ct.biz-vehicle .cl-receipt:not(.is-done) .cl-receipt-row.is-divider {
-  border-top-color: #d6e2ee;
-}
-
-.cl-ct.biz-cross .cl-receipt:not(.is-done) {
-  background: linear-gradient(180deg, var(--biz-cross-bg) 0%, #ffffff 100%);
-  border-color: #f3d4d1;
-}
-.cl-ct.biz-cross .cl-receipt:not(.is-done)::before {
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--biz-cross) 0 5px,
-    transparent 5px 9px
-  );
-}
-.cl-ct.biz-cross .cl-receipt:not(.is-done) .cl-receipt-row.is-divider {
-  border-top-color: #f3d4d1;
-}
-
-.cl-receipt.is-done {
-  background: linear-gradient(180deg, #ecfdf5 0%, #f0fdf9 100%);
-  border-color: #b9e8d8;
-}
-.cl-receipt.is-done::before {
-  background: repeating-linear-gradient(
-    to bottom,
-    var(--money-done) 0 5px,
-    transparent 5px 9px
-  );
-}
-
-.cl-receipt-row {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 6px;
-}
-.cl-receipt-row:last-child {
-  margin-bottom: 0;
-}
-.cl-receipt-row.is-divider {
-  border-top: 1px dashed #e0c889;
-  padding-top: 7px;
-  margin-top: 8px;
-}
-.cl-receipt.is-done .cl-receipt-row.is-divider {
-  border-top-color: #a7e0c8;
-}
-
-.cl-receipt-label {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  color: var(--brand-gold-deep, #a87a18);
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
-  font-weight: 600;
-  white-space: nowrap;
-}
-.cl-receipt-label--due { color: var(--money-due); }
-.cl-receipt-label--done { color: var(--money-done); }
-
-.cl-receipt-num {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums lining-nums;
-  font-weight: 700;
-  letter-spacing: 0.2px;
-  white-space: nowrap;
-  text-align: right;
-  font-feature-settings: 'tnum' on, 'lnum' on;
-}
-/* 已收 —— 主指标，金色，最大 */
-.cl-receipt-num--paid {
-  font-size: 20px;
-  color: var(--brand-gold-deep, #a87a18);
-  line-height: 1;
-}
-.cl-receipt-num--paid.is-done {
-  color: var(--money-done);
-}
-.cl-receipt-num--paid.is-zero {
-  color: var(--text-placeholder);
-}
-/* 总额 —— 基准分母，小灰 */
-.cl-receipt-num--total {
-  font-size: 12px;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-/* 未收 —— 次指标，加大到 17px，暖橙 */
-.cl-receipt-num--due {
-  font-size: 17px;
-  color: var(--money-due);
-  line-height: 1;
-}
-/* 完结提示 —— 替代未收行 */
-.cl-receipt-num--done-text {
-  font-size: 12px;
-  color: var(--money-done);
-  font-weight: 600;
-  letter-spacing: 0.3px;
-}
-
-/* 货币符号 —— 缩小+灰化，制造层级 */
-.cl-receipt-num .cl-cur {
-  font-size: 0.62em;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  margin-right: 2px;
-  letter-spacing: 0;
-  position: relative;
-  top: -0.1em;
-}
-.cl-receipt-num--paid .cl-cur {
-  color: rgba(168, 122, 24, 0.55);
-}
-.cl-receipt-num--paid.is-done .cl-cur {
-  color: rgba(13, 148, 136, 0.6);
-}
-.cl-receipt-num--due .cl-cur {
-  color: rgba(220, 107, 61, 0.55);
-}
-
-/* ══════════════════════════════════════════════
-   合同信息区（业务摘要 + tag + 进度）
-   - 跟在收据下方
-   ══════════════════════════════════════════════ */
-.cl-ct-info {
-  margin-top: 10px;
-}
-.cl-info-desc {
-  font-size: 13px;
-  color: var(--text-primary);
-  font-weight: 500;
-  margin-bottom: 5px;
-  line-height: 1.35;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.cl-info-desc.is-empty {
-  color: var(--text-placeholder);
-  font-weight: 400;
-  font-style: italic;
-}
-.cl-info-tags {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin-bottom: 7px;
-}
-.cl-info-tag {
-  display: inline-block;
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--text-tertiary);
-  background: var(--bg-hover);
-  padding: 1px 7px;
-  border-radius: 3px;
-  letter-spacing: 0.2px;
-  line-height: 1.5;
-  max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.cl-info-progress {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.cl-info-bar {
-  flex: 1;
-  height: 4px;
-  background: var(--bg-hover);
-  border-radius: 2px;
-  overflow: hidden;
+.cl-meta-label {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 9.5px; letter-spacing: 0.16em; text-transform: uppercase;
+  color: var(--cl-ink-3);
   min-width: 30px;
 }
-.cl-info-bar-fill {
-  height: 100%;
-  border-radius: 2px;
-  transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+.cl-meta-val {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--cl-ink);
+  letter-spacing: 0.02em;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.cl-info-bar-fill--full {
-  background: linear-gradient(90deg, var(--money-done) 0%, #14b8a6 100%);
+.cl-meta-row.is-empty .cl-meta-val {
+  color: var(--cl-ink-3); font-style: italic;
+  font-family: inherit; font-size: 12px;
 }
-.cl-info-bar-fill--partial {
-  background: linear-gradient(90deg, var(--money-paid) 0%, #e0b04e 100%);
+
+/* —— 客户操作（hover 显形） —— */
+.cl-customer-actions {
+  margin-top: 6px;
+  display: flex; justify-content: flex-end;
+  opacity: 0; transition: opacity 0.2s;
 }
-.cl-info-bar-fill--empty {
-  background: var(--border-default);
+.cl-row.is-first-of-customer:hover .cl-customer-actions {
+  opacity: 1;
 }
-.cl-info-pct {
-  font-family: var(--font-mono);
+.cl-btn-del {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 3px 9px;
   font-size: 11px;
-  font-weight: 600;
-  color: var(--text-tertiary);
-  min-width: 32px;
-  text-align: right;
-  letter-spacing: 0.2px;
-  font-variant-numeric: tabular-nums;
+  color: var(--biz-cross-deep);
+  background: rgba(184, 66, 59, 0.08);
+  border: 1px solid rgba(184, 66, 59, 0.3);
+  border-radius: 2px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s;
 }
-.cl-info-pct--full    { color: var(--money-done); }
-.cl-info-pct--partial { color: var(--money-paid); }
+.cl-btn-del:hover {
+  background: var(--biz-cross);
+  color: #fff;
+  border-color: var(--biz-cross);
+}
+.cl-btn-del .anticon { font-size: 11px; }
 
-.cl-info-stage {
-  font-family: var(--font-mono);
-  font-size: 10.5px;
-  color: var(--text-tertiary);
+/* —— 合同行单元格 —— */
+.cl-table td.cell-contract {
+  padding: 14px 18px;
+  vertical-align: middle;
+  border-bottom: 1px solid #ece4cf;
+  background: #fff;
+  transition: background-color 0.15s;
+}
+.cl-table td.cell-right { text-align: right; }
+.cl-table tr.cl-row:nth-child(even) td.cell-contract { background: var(--cl-row-stripe); }
+.cl-table tr.cl-row:hover td.cell-contract { background: #fffaee; }
+.cl-table tr.cl-row.is-last-of-customer td.cell-contract,
+.cl-table tr.cl-row.is-last-of-customer td.cell-customer {
+  border-bottom: 1px solid var(--cl-hair-strong);
+}
+
+/* —— 业务徽章 —— */
+.cl-biz-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 9px;
+  border-radius: 2px;
+  font-size: 11.5px; font-weight: 600; letter-spacing: 0.04em;
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
   white-space: nowrap;
-  letter-spacing: 0.2px;
 }
-.cl-info-stage b {
-  color: var(--money-paid);
-  font-weight: 700;
+.cl-biz-tag-icon { display: inline-flex; align-items: center; }
+.cl-biz-tag-icon .anticon { font-size: 12px; }
+.cl-biz-tag--vehicle {
+  background: var(--biz-vehicle-soft);
+  color: var(--biz-vehicle-deep);
+  border: 1px solid rgba(45, 91, 138, 0.25);
 }
-.cl-info-stage.is-done b { color: var(--money-done); }
-
-/* ══════════════════════════════════════════════
-   空状态：无合同
-   ══════════════════════════════════════════════ */
-.cl-empty {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-placeholder);
-  font-size: 12.5px;
-  gap: 8px;
-  padding: 32px 20px;
+.cl-biz-tag--cross {
+  background: var(--biz-cross-soft);
+  color: var(--biz-cross-deep);
+  border: 1px solid rgba(184, 66, 59, 0.25);
 }
-.cl-empty-icon {
-  opacity: 0.4;
+.cl-biz-tag--insurance {
+  background: var(--biz-insurance-soft);
+  color: var(--biz-insurance-deep);
+  border: 1px solid rgba(91, 140, 99, 0.25);
 }
-
-/* ══════════════════════════════════════════════
-   响应式
-   ══════════════════════════════════════════════ */
-@media (max-width: 768px) {
-  .cl-wrap {
-    padding: 12px;
-  }
-  .cl-grid {
-    grid-template-columns: 1fr;
-  }
-  .cl-name {
-    font-size: 16px;
-  }
-  .cl-money-paid {
-    font-size: 18px;
-  }
+.cl-biz-tag--other {
+  background: #f0f1f4;
+  color: var(--cl-ink-2);
+  border: 1px solid var(--cl-hair);
 }
 
-@media (min-width: 1400px) {
-  .cl-grid {
-    grid-template-columns: repeat(3, 1fr);
-  }
+/* —— 合同编号（mono 蓝） —— */
+.cl-contract-no {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 12px; letter-spacing: 0.04em;
+  color: var(--brand-primary, #1e3a5f);
+  text-decoration: none;
+  font-weight: 500;
+  cursor: pointer;
+}
+.cl-contract-no:hover {
+  color: var(--brand-primary-deep, #13294a);
+  text-decoration: underline;
+  text-decoration-color: var(--brand-gold, #c9952b);
+  text-underline-offset: 3px;
 }
 
-@media (min-width: 1600px) {
-  .cl-grid {
-    grid-template-columns: repeat(4, 1fr);
-  }
-}
-
-/* ══════════════════════════════════════════════
-   骨架屏（首次加载占位，避免白屏）
-   ══════════════════════════════════════════════ */
-.cl-skel-card {
-  position: relative;
-  background: var(--bg-surface);
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-lg);
-  box-shadow: var(--shadow-sm);
-  padding: 18px 20px;
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  min-height: 220px;
+/* —— 合同描述 —— */
+.cl-contract-desc {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
+  font-size: 13.5px; color: var(--cl-ink); line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.cl-contract-sub {
+  display: block; margin-top: 3px;
+  font-family: 'Noto Serif SC', serif;
+  font-size: 10.5px; color: var(--cl-ink-3);
+  letter-spacing: 0.04em;
+}
 
+/* —— 金额（衬线 tabular） —— */
+.cl-amount {
+  font-family: 'IBM Plex Serif', 'Source Han Serif SC', Georgia, serif;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-size: 16px; font-weight: 600; letter-spacing: 0.01em;
+  color: var(--cl-ink);
+  line-height: 1.1;
+  white-space: nowrap;
+}
+.cl-amount-cur {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10.5px; font-weight: 500;
+  color: var(--cl-ink-3);
+  margin-right: 4px;
+  letter-spacing: 0.04em;
+}
+.cl-amount-unit {
+  font-family: 'Noto Serif SC', serif;
+  font-size: 10px; font-weight: 500;
+  color: var(--cl-ink-2);
+  margin-left: 2px;
+  letter-spacing: 0.04em;
+}
+.cl-amount--total { color: var(--brand-primary-deep, #13294a); }
+.cl-amount--paid { color: var(--brand-gold-deep); }
+.cl-amount--done { color: var(--money-done-deep); }
+.cl-amount--done .cl-amount-cur { color: var(--money-done-deep); opacity: 0.7; }
+.cl-amount--zero { color: var(--cl-ink-3); font-weight: 500; }
+.cl-amount--zero .cl-amount-cur { color: var(--cl-ink-3); }
+
+/* —— 进度 —— */
+.cl-progress-cell {
+  display: flex; align-items: center; gap: 9px;
+}
+.cl-progress-track {
+  flex: 1; height: 5px; border-radius: 3px;
+  background: #ede5d2;
+  overflow: hidden;
+  position: relative;
+}
+.cl-progress-fill {
+  height: 100%; border-radius: 3px;
+  transition: width 0.5s ease;
+}
+.cl-progress-fill--partial {
+  background: linear-gradient(90deg, var(--money-due) 0%, var(--brand-gold, #c9952b) 100%);
+}
+.cl-progress-fill--full {
+  background: linear-gradient(90deg, var(--money-done) 0%, var(--money-done-deep) 100%);
+}
+.cl-progress-fill--empty { background: transparent; }
+.cl-progress-pct {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-feature-settings: "tnum" 1;
+  font-size: 12px; font-weight: 600;
+  color: var(--cl-ink-2);
+  min-width: 38px; text-align: right;
+  letter-spacing: 0.02em;
+}
+.cl-progress-pct--full { color: var(--money-done-deep); }
+.cl-progress-pct--empty { color: var(--cl-ink-3); font-weight: 500; }
+
+/* —— 空档案合同区（colSpan 占满） —— */
+.cl-table td.cell-empty-contracts {
+  padding: 18px;
+  background:
+    repeating-linear-gradient(-45deg, transparent 0 8px, rgba(139, 148, 166, 0.05) 8px 9px),
+    #faf9f5;
+  border-bottom: 1px solid var(--cl-hair-strong);
+  text-align: center;
+}
+.cl-empty-msg {
+  display: inline-flex; align-items: center; gap: 10px;
+  color: var(--cl-ink-3);
+  font-size: 13px;
+  font-style: italic;
+  font-family: 'Noto Serif SC', serif;
+}
+.cl-empty-msg .anticon { font-size: 14px; }
+
+/* ============================================================
+   底部脚标 + 分页
+   ============================================================ */
+.cl-ledger-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 22px;
+  border-top: 1px dashed var(--cl-hair-strong);
+  background: linear-gradient(180deg, transparent, rgba(201, 149, 43, 0.05));
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  font-size: 10px; letter-spacing: 0.22em;
+  color: var(--cl-ink-3); text-transform: uppercase;
+}
+.cl-stamp { letter-spacing: 0.22em; }
+.cl-pager {
+  display: flex; align-items: center; gap: 6px;
+}
+.cl-pager button {
+  padding: 3px 10px;
+  font-family: inherit; font-size: 10px; letter-spacing: 0.16em;
+  background: #fff;
+  border: 1px solid var(--cl-hair-strong);
+  color: var(--cl-ink-2);
+  border-radius: 2px;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-transform: uppercase;
+}
+.cl-pager button:hover:not(:disabled) {
+  background: var(--brand-primary, #1e3a5f);
+  color: #fff;
+  border-color: var(--brand-primary, #1e3a5f);
+}
+.cl-pager button:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+.cl-pager-current {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 13px; letter-spacing: 0;
+  color: var(--brand-primary-deep, #13294a);
+  font-weight: 600;
+}
+.cl-pager-sep { margin: 0 4px; color: var(--cl-ink-3); }
+.cl-pager-total {
+  font-family: 'IBM Plex Serif', Georgia, serif;
+  font-size: 12px; letter-spacing: 0;
+  color: var(--cl-ink-2);
+}
+
+/* ============================================================
+   骨架屏 / 空状态
+   ============================================================ */
+.cl-skeleton-wrap {
+  padding: 20px;
+  display: flex; flex-direction: column; gap: 14px;
+}
 .cl-skel-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+  display: flex; gap: 16px; align-items: center;
 }
-
 .cl-skel-block {
-  background: linear-gradient(
-    90deg,
-    rgba(0, 0, 0, 0.04) 0%,
-    rgba(0, 0, 0, 0.08) 50%,
-    rgba(0, 0, 0, 0.04) 100%
-  );
+  background: linear-gradient(90deg, #f0e9d5 0%, #f6f0dd 50%, #f0e9d5 100%);
   background-size: 200% 100%;
-  border-radius: 6px;
-  animation: clSkelShimmer 1.4s ease-in-out infinite;
+  animation: cl-skel-shimmer 1.6s ease-in-out infinite;
+  border-radius: 3px;
 }
+.cl-skel-customer { width: 280px; height: 72px; flex-shrink: 0; }
+.cl-skel-line { flex: 1; height: 48px; }
 
-.cl-skel-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
-.cl-skel-name { height: 18px; flex: 1; max-width: 180px; }
-.cl-skel-pill { height: 22px; width: 60px; border-radius: 11px; }
-.cl-skel-line { height: 12px; }
-.cl-skel-line.w-60 { width: 60%; }
-.cl-skel-line.w-80 { width: 80%; }
-.cl-skel-line.w-100 { width: 100%; }
-.cl-skel-receipt { height: 76px; border-radius: 8px; }
-
-@keyframes clSkelShimmer {
+@keyframes cl-skel-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
+}
+
+.cl-empty-state {
+  padding: 60px 20px;
+  display: grid; place-items: center;
+}
+
+/* ============================================================
+   响应式：窄屏（< 1280px）
+   ============================================================ */
+@media (max-width: 1280px) {
+  .cl-table col.col-customer { width: 240px; }
+  .cl-table col.col-biz { width: 96px; }
+  .cl-table col.col-no { width: 130px; }
+  .cl-table col.col-amount { width: 110px; }
+  .cl-table col.col-paid { width: 110px; }
+  .cl-table col.col-progress { width: 140px; }
+  .cl-amount { font-size: 14px; }
+  .cl-customer-name { font-size: 15px; }
 }
