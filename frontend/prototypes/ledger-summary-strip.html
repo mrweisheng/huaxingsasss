@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>账本汇总条 · 重设计</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;500;600;700&family=IBM+Plex+Serif:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+SC:wght@400;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --brand-primary:#1e3a5f;
+  --brand-primary-deep:#13294a;
+  --brand-gold:#c9952b;
+  --brand-gold-deep:#a87a18;
+  --money-done:#0d9488;
+  --money-done-deep:#0a7068;
+  --money-due:#dc6b3d;
+  --money-due-deep:#b8542a;
+  --biz-vehicle:#2d5b8a;
+  --biz-vehicle-soft:#e5edf6;
+  --biz-twoplate:#b8423b;
+  --paper:#fbf8f1;
+  --paper-edge:#efe9d8;
+  --ink:#1a1f2e;
+  --ink-2:#525c70;
+  --ink-3:#8b94a6;
+  --hair:#d8d0bd;
+  --hair-strong:#b7ac90;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:"Inter","Noto Serif SC",sans-serif;
+  background:
+    radial-gradient(1200px 600px at 20% 0%, #f3ede0 0%, transparent 60%),
+    radial-gradient(900px 500px at 90% 100%, #ecedf3 0%, transparent 55%),
+    #f6f3eb;
+  color:var(--ink);
+  min-height:100vh;
+  padding:48px 56px 80px;
+}
+.page-head{
+  max-width:1180px;
+  margin:0 auto 36px;
+}
+.page-head .eyebrow{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11px;
+  letter-spacing:.32em;
+  color:var(--brand-gold-deep);
+  text-transform:uppercase;
+  margin:0 0 10px;
+}
+.page-head h1{
+  font-family:"Cormorant Garamond","Noto Serif SC",serif;
+  font-weight:600;
+  font-size:38px;
+  letter-spacing:.02em;
+  margin:0 0 6px;
+  color:var(--brand-primary-deep);
+}
+.page-head p{
+  margin:0;
+  color:var(--ink-2);
+  font-size:14px;
+  max-width:680px;
+  line-height:1.7;
+}
+
+.section{max-width:1180px;margin:0 auto 56px}
+.section-label{
+  display:flex;align-items:center;gap:12px;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:11px;letter-spacing:.28em;text-transform:uppercase;
+  color:var(--ink-3);
+  margin:0 0 14px;
+}
+.section-label::after{
+  content:"";flex:1;height:1px;background:linear-gradient(to right,var(--hair),transparent);
+}
+.section-label .tag{
+  padding:3px 8px;border:1px solid var(--hair-strong);border-radius:2px;
+  color:var(--brand-primary);background:#fff;
+  letter-spacing:.18em;
+}
+
+/* ============ 原版（对照） ============ */
+.legacy-wrap{
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:10px;
+  padding:18px 20px;
+}
+.ledger-summary-strip{display:flex;gap:24px;flex-wrap:wrap}
+.summary-block{flex:1;min-width:180px;padding:10px 14px;background:#f8fafc;border-radius:8px}
+.summary-block-title{display:flex;align-items:center;gap:6px;font-size:12px;color:#64748b;margin-bottom:8px}
+.dot{width:8px;height:8px;border-radius:50%;display:inline-block}
+.dot.primary{background:#1e3a5f}.dot.gold{background:#c9952b}
+.dot.orange{background:#dc6b3d}.dot.teal{background:#0d9488}
+.summary-currency-rows{display:flex;flex-direction:column;gap:4px}
+.summary-currency-row{display:flex;align-items:baseline;gap:6px;font-size:14px}
+.summary-sym{color:#94a3b8;font-size:12px}
+.summary-val{font-weight:600}
+.summary-val.primary{color:#1e3a5f}.summary-val.gold{color:#c9952b}
+.summary-val.orange{color:#dc6b3d}.summary-val.teal{color:#0d9488}
+
+/* ============ 重设计：港式账本封条 ============ */
+.ledger-bar{
+  position:relative;
+  background:var(--paper);
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(184,66,59,.04) 38px 39px),
+    radial-gradient(800px 200px at 50% -10%, rgba(201,149,43,.08), transparent 70%);
+  border:1px solid var(--hair-strong);
+  border-radius:3px;
+  padding:0;
+  box-shadow:
+    0 1px 0 rgba(255,255,255,.6) inset,
+    0 0 0 1px rgba(255,255,255,.4) inset,
+    0 18px 42px -28px rgba(30,58,95,.35),
+    0 2px 6px -2px rgba(30,58,95,.12);
+  overflow:hidden;
+}
+/* 顶部金线 */
+.ledger-bar::before{
+  content:"";position:absolute;left:0;right:0;top:0;height:2px;
+  background:linear-gradient(90deg,
+    transparent 0%,
+    var(--brand-gold) 12%,
+    var(--brand-gold-deep) 50%,
+    var(--brand-gold) 88%,
+    transparent 100%);
+}
+/* 上方账册编号条 */
+.ledger-bar__head{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:9px 22px 8px;
+  border-bottom:1px dashed var(--hair-strong);
+  background:linear-gradient(180deg,rgba(255,255,255,.5),transparent);
+}
+.ledger-bar__head .lh-left{
+  display:flex;align-items:center;gap:14px;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;letter-spacing:.22em;text-transform:uppercase;
+  color:var(--ink-2);
+}
+.ledger-bar__head .lh-left .seal{
+  display:inline-flex;align-items:center;gap:6px;
+  padding:2px 9px;border:1px solid var(--biz-twoplate);
+  color:var(--biz-twoplate);
+  background:rgba(184,66,59,.06);
+  font-weight:600;letter-spacing:.18em;
+  border-radius:2px;
+}
+.ledger-bar__head .lh-left .seal::before{
+  content:"";width:5px;height:5px;background:var(--biz-twoplate);border-radius:50%;
+}
+.ledger-bar__head .lh-right{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;letter-spacing:.18em;color:var(--ink-3);
+}
+.ledger-bar__head .lh-right b{
+  color:var(--brand-primary);font-weight:600;letter-spacing:.12em;margin-left:6px;
+}
+
+/* 主体 4 列 */
+.ledger-bar__body{
+  display:grid;
+  grid-template-columns:1.15fr 1fr 1fr 1.15fr;
+  padding:18px 4px 18px;
+}
+.ledger-cell{
+  position:relative;
+  padding:6px 26px 4px;
+  display:flex;flex-direction:column;gap:10px;
+  min-width:0;
+}
+.ledger-cell + .ledger-cell{
+  border-left:1px solid var(--hair);
+}
+.ledger-cell + .ledger-cell::before{
+  /* 列分隔上下加端点小帽 */
+  content:"";position:absolute;left:-1px;top:50%;width:3px;height:3px;
+  background:var(--hair-strong);transform:translate(-50%,-50%) rotate(45deg);
+}
+.cell-head{
+  display:flex;align-items:center;gap:10px;
+}
+.cell-bar{
+  width:3px;height:18px;border-radius:1px;
+  background:var(--brand-primary);
+  box-shadow:0 0 0 1px rgba(255,255,255,.6) inset;
+}
+.cell-bar.gold{background:linear-gradient(180deg,var(--brand-gold),var(--brand-gold-deep))}
+.cell-bar.due{background:linear-gradient(180deg,var(--money-due),var(--money-due-deep))}
+.cell-bar.done{background:linear-gradient(180deg,var(--money-done),var(--money-done-deep))}
+.cell-title{
+  font-family:"Noto Serif SC",serif;
+  font-weight:600;font-size:13px;
+  color:var(--ink);
+  letter-spacing:.02em;
+}
+.cell-sub{
+  margin-left:auto;
+  font-family:"IBM Plex Mono",monospace;
+  font-size:9.5px;letter-spacing:.18em;
+  color:var(--ink-3);text-transform:uppercase;
+}
+.cell-sub.pill{
+  padding:2px 7px;border:1px solid var(--brand-gold);color:var(--brand-gold-deep);
+  border-radius:999px;background:#fffaee;
+  letter-spacing:.14em;
+}
+
+/* 数字行 */
+.cell-rows{display:flex;flex-direction:column;gap:6px;margin-top:2px}
+.cell-row{
+  display:grid;grid-template-columns:auto 1fr auto;align-items:baseline;gap:10px;
+  padding:0 4px;
+}
+.cur-sym{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;letter-spacing:.06em;
+  color:var(--ink-3);
+  padding:1px 6px;border:1px solid var(--hair);border-radius:2px;background:#fff;
+  min-width:34px;text-align:center;
+  line-height:1.2;
+}
+.cur-lead{
+  border-top:1px dotted var(--hair-strong);
+  height:1px;align-self:center;margin-top:2px;
+}
+.cur-val{
+  font-family:"IBM Plex Serif","Noto Serif SC",serif;
+  font-feature-settings:"tnum" 1,"lnum" 1;
+  font-weight:600;font-size:22px;letter-spacing:.01em;
+  color:var(--ink);
+  line-height:1;
+  white-space:nowrap;
+}
+.cur-val .unit{
+  font-family:"Noto Serif SC",serif;
+  font-size:11px;font-weight:500;
+  color:var(--ink-2);margin-left:3px;letter-spacing:.04em;
+}
+/* 各 cell 着色 */
+.ledger-cell.primary .cur-val{color:var(--brand-primary-deep)}
+.ledger-cell.gold .cur-val{color:var(--brand-gold-deep)}
+.ledger-cell.due .cur-val{color:var(--money-due-deep)}
+.ledger-cell.done{
+  background:
+    linear-gradient(180deg,rgba(13,148,136,.04),rgba(13,148,136,.0));
+}
+.ledger-cell.done .cur-val{color:var(--money-done-deep)}
+
+/* 零值的微妙处理：保留视觉但弱化 */
+.cur-val.zero{color:var(--ink-3);font-weight:500}
+.cur-val.zero .unit{color:var(--ink-3)}
+
+/* 底部签名条 */
+.ledger-bar__foot{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:8px 22px;
+  border-top:1px dashed var(--hair-strong);
+  background:linear-gradient(180deg,transparent,rgba(201,149,43,.05));
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10px;letter-spacing:.22em;
+  color:var(--ink-3);text-transform:uppercase;
+}
+.ledger-bar__foot .signature{
+  font-family:"Cormorant Garamond",serif;
+  font-style:italic;font-size:13px;letter-spacing:.04em;
+  color:var(--brand-gold-deep);text-transform:none;
+}
+.ledger-bar__foot .barcode{
+  display:inline-flex;gap:1px;align-items:center;
+}
+.ledger-bar__foot .barcode i{
+  display:inline-block;width:1px;background:var(--ink);height:10px;
+}
+.ledger-bar__foot .barcode i:nth-child(3n){height:7px;width:2px}
+.ledger-bar__foot .barcode i:nth-child(4n){height:12px}
+.ledger-bar__foot .barcode i:nth-child(5n){height:8px;background:var(--brand-gold-deep)}
+
+/* ============ 版本 B：紧凑、单行卡片化 ============ */
+.ledger-strip-compact{
+  display:flex;
+  background:#fff;
+  border:1px solid #e5e7eb;
+  border-radius:8px;
+  overflow:hidden;
+  box-shadow:0 1px 2px rgba(15,23,42,.04);
+}
+.lsc-cell{
+  flex:1;
+  padding:14px 18px;
+  display:flex;flex-direction:column;gap:10px;
+  border-right:1px solid #eef0f4;
+  position:relative;
+}
+.lsc-cell:last-child{border-right:none}
+.lsc-cell::before{
+  content:"";position:absolute;left:0;top:14px;bottom:14px;width:3px;border-radius:0 2px 2px 0;
+  background:var(--brand-primary);
+}
+.lsc-cell.gold::before{background:var(--brand-gold)}
+.lsc-cell.due::before{background:var(--money-due)}
+.lsc-cell.done::before{background:var(--money-done)}
+.lsc-cell.done{background:linear-gradient(180deg,rgba(13,148,136,.035),transparent 60%)}
+
+.lsc-head{
+  display:flex;align-items:center;justify-content:space-between;
+}
+.lsc-title{
+  font-family:"Noto Serif SC",serif;
+  font-weight:600;font-size:13px;color:var(--ink);
+}
+.lsc-tag{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:9.5px;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--brand-gold-deep);
+  padding:2px 6px;border:1px solid var(--brand-gold);border-radius:999px;
+  background:#fffaee;
+}
+.lsc-rows{display:flex;align-items:baseline;gap:18px}
+.lsc-row{display:flex;align-items:baseline;gap:8px}
+.lsc-row .sym{
+  font-family:"IBM Plex Mono",monospace;
+  font-size:10.5px;color:var(--ink-3);
+  padding:1px 5px;border:1px solid #e5e7eb;border-radius:2px;
+}
+.lsc-row .val{
+  font-family:"IBM Plex Serif",serif;
+  font-feature-settings:"tnum" 1,"lnum" 1;
+  font-weight:600;font-size:20px;letter-spacing:.005em;color:var(--ink);
+  line-height:1;
+}
+.lsc-row .val .unit{font-family:"Noto Serif SC",serif;font-size:10px;font-weight:500;color:var(--ink-2);margin-left:2px}
+.lsc-row.zero .val{color:var(--ink-3);font-weight:500}
+.lsc-row.zero .val .unit{color:var(--ink-3)}
+.lsc-cell.primary .lsc-row .val{color:var(--brand-primary-deep)}
+.lsc-cell.primary .lsc-row.zero .val{color:var(--ink-3)}
+.lsc-cell.gold .lsc-row .val{color:var(--brand-gold-deep)}
+.lsc-cell.gold .lsc-row.zero .val{color:var(--ink-3)}
+.lsc-cell.due .lsc-row .val{color:var(--money-due-deep)}
+.lsc-cell.due .lsc-row.zero .val{color:var(--ink-3)}
+.lsc-cell.done .lsc-row .val{color:var(--money-done-deep)}
+.lsc-cell.done .lsc-row.zero .val{color:var(--ink-3)}
+
+/* 设计说明 */
+.note-grid{
+  display:grid;grid-template-columns:repeat(3,1fr);gap:20px;
+  margin-top:18px;
+}
+.note-card{
+  background:#fff;
+  border:1px solid #e8ebf0;border-left:3px solid var(--brand-primary);
+  padding:14px 16px;
+  border-radius:2px;
+}
+.note-card h4{
+  margin:0 0 6px;
+  font-family:"Noto Serif SC",serif;
+  font-weight:600;font-size:13px;color:var(--brand-primary-deep);
+  letter-spacing:.02em;
+}
+.note-card p{
+  margin:0;color:var(--ink-2);font-size:12.5px;line-height:1.7;
+}
+.note-card.gold{border-left-color:var(--brand-gold)}
+.note-card.gold h4{color:var(--brand-gold-deep)}
+.note-card.done{border-left-color:var(--money-done)}
+.note-card.done h4{color:var(--money-done-deep)}
+
+@media (max-width:980px){
+  .ledger-bar__body{grid-template-columns:1fr 1fr}
+  .ledger-cell + .ledger-cell:nth-child(3){border-left:none;border-top:1px solid var(--hair)}
+}
+</style>
+</head>
+<body>
+
+<header class="page-head">
+  <p class="eyebrow">华星 · Ledger Summary Bar — Redesign Proposal</p>
+  <h1>账本汇总条 · 港式封条版</h1>
+  <p>把四个并列方块的 dashboard 模板感，重做成一条具有"账册扉页"气质的汇总封条。衬线 tabular 数字、虚线分割、金边封口、印章式编号 chip。深蓝/朱砂/金/teal 各司其职，零值用更浅字重保留视觉但弱化干扰。</p>
+</header>
+
+<!-- ============ 对照：原版 ============ -->
+<section class="section">
+  <div class="section-label"><span class="tag">A</span> 原版（当前）</div>
+  <div class="legacy-wrap">
+    <div class="ledger-summary-strip">
+      <div class="summary-block">
+        <div class="summary-block-title"><span class="dot primary"></span>合同总额</div>
+        <div class="summary-currency-rows">
+          <div class="summary-currency-row"><span class="summary-sym">HK$</span><span class="summary-val primary">123.90万</span></div>
+          <div class="summary-currency-row"><span class="summary-sym">¥</span><span class="summary-val primary">24.00万</span></div>
+        </div>
+      </div>
+      <div class="summary-block">
+        <div class="summary-block-title"><span class="dot gold"></span>已收</div>
+        <div class="summary-currency-rows">
+          <div class="summary-currency-row"><span class="summary-sym">HK$</span><span class="summary-val gold">0.00</span></div>
+          <div class="summary-currency-row"><span class="summary-sym">¥</span><span class="summary-val gold">0.00</span></div>
+        </div>
+      </div>
+      <div class="summary-block">
+        <div class="summary-block-title"><span class="dot orange"></span>支出</div>
+        <div class="summary-currency-rows">
+          <div class="summary-currency-row"><span class="summary-sym">HK$</span><span class="summary-val orange">0.00</span></div>
+          <div class="summary-currency-row"><span class="summary-sym">¥</span><span class="summary-val orange">0.00</span></div>
+        </div>
+      </div>
+      <div class="summary-block">
+        <div class="summary-block-title"><span class="dot teal"></span>净利润<span style="margin-left:6px;font-size:9px;opacity:0.6;">本页</span></div>
+        <div class="summary-currency-rows">
+          <div class="summary-currency-row"><span class="summary-sym">HK$</span><span class="summary-val teal">0.00</span></div>
+          <div class="summary-currency-row"><span class="summary-sym">¥</span><span class="summary-val teal">0.00</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 重设计 · 主推方案 ============ -->
+<section class="section">
+  <div class="section-label"><span class="tag">B</span> 重设计 · 港式账本封条（主推）</div>
+
+  <div class="ledger-bar">
+    <div class="ledger-bar__head">
+      <div class="lh-left">
+        <span class="seal">华星 · 账册</span>
+        <span>LEDGER · 2026 / Q2</span>
+      </div>
+      <div class="lh-right">本页汇总 <b>24 笔合同</b></div>
+    </div>
+
+    <div class="ledger-bar__body">
+      <!-- 合同总额 -->
+      <div class="ledger-cell primary">
+        <div class="cell-head">
+          <span class="cell-bar"></span>
+          <span class="cell-title">合同总额</span>
+          <span class="cell-sub">CONTRACT</span>
+        </div>
+        <div class="cell-rows">
+          <div class="cell-row">
+            <span class="cur-sym">HK$</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val">123.90<span class="unit">万</span></span>
+          </div>
+          <div class="cell-row">
+            <span class="cur-sym">¥&nbsp;CNY</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val">24.00<span class="unit">万</span></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 已收 -->
+      <div class="ledger-cell gold">
+        <div class="cell-head">
+          <span class="cell-bar gold"></span>
+          <span class="cell-title">已收</span>
+          <span class="cell-sub">RECEIVED</span>
+        </div>
+        <div class="cell-rows">
+          <div class="cell-row">
+            <span class="cur-sym">HK$</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val zero">0.00</span>
+          </div>
+          <div class="cell-row">
+            <span class="cur-sym">¥&nbsp;CNY</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val zero">0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 支出 -->
+      <div class="ledger-cell due">
+        <div class="cell-head">
+          <span class="cell-bar due"></span>
+          <span class="cell-title">支出</span>
+          <span class="cell-sub">EXPENSE</span>
+        </div>
+        <div class="cell-rows">
+          <div class="cell-row">
+            <span class="cur-sym">HK$</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val zero">0.00</span>
+          </div>
+          <div class="cell-row">
+            <span class="cur-sym">¥&nbsp;CNY</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val zero">0.00</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 净利润 -->
+      <div class="ledger-cell done">
+        <div class="cell-head">
+          <span class="cell-bar done"></span>
+          <span class="cell-title">净利润</span>
+          <span class="cell-sub pill">本页</span>
+        </div>
+        <div class="cell-rows">
+          <div class="cell-row">
+            <span class="cur-sym">HK$</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val zero">0.00</span>
+          </div>
+          <div class="cell-row">
+            <span class="cur-sym">¥&nbsp;CNY</span>
+            <span class="cur-lead"></span>
+            <span class="cur-val zero">0.00</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="ledger-bar__foot">
+      <span>截至 2026 · 06 · 26 · 14:32</span>
+      <span class="signature">— Wai Sing Ledger —</span>
+      <span class="barcode" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+        <i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i>
+      </span>
+    </div>
+  </div>
+
+  <div class="note-grid">
+    <div class="note-card">
+      <h4>1 · 衬线 tabular 数字</h4>
+      <p>IBM Plex Serif + <code>font-feature-settings:"tnum"</code>，数字按列对齐；货币符号用 Plex Mono 包成小徽章，与正文字号脱钩，重心全部落在金额本身。</p>
+    </div>
+    <div class="note-card gold">
+      <h4>2 · 状态色立柱</h4>
+      <p>原小圆点信息密度低，改为 3px 高 18px 的立柱色条，符合项目设计系统 "border-left 色条" 的规则，业务/状态语义更醒目。</p>
+    </div>
+    <div class="note-card done">
+      <h4>3 · 净利润压轴</h4>
+      <p>净利润是计算结果而非原始事实，用极淡的 teal 渐变底 + 「本页」金边 chip 区分，避免与"已收/支出"被视为同级原始数据。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 备选 C：极简 ============ -->
+<section class="section">
+  <div class="section-label"><span class="tag">C</span> 备选 · 极简版（保留封条精神，去掉装饰）</div>
+  <div class="ledger-strip-compact">
+    <div class="lsc-cell primary">
+      <div class="lsc-head">
+        <span class="lsc-title">合同总额</span>
+      </div>
+      <div class="lsc-rows">
+        <div class="lsc-row"><span class="sym">HK$</span><span class="val">123.90<span class="unit">万</span></span></div>
+        <div class="lsc-row"><span class="sym">¥</span><span class="val">24.00<span class="unit">万</span></span></div>
+      </div>
+    </div>
+    <div class="lsc-cell gold">
+      <div class="lsc-head"><span class="lsc-title">已收</span></div>
+      <div class="lsc-rows">
+        <div class="lsc-row zero"><span class="sym">HK$</span><span class="val">0.00</span></div>
+        <div class="lsc-row zero"><span class="sym">¥</span><span class="val">0.00</span></div>
+      </div>
+    </div>
+    <div class="lsc-cell due">
+      <div class="lsc-head"><span class="lsc-title">支出</span></div>
+      <div class="lsc-rows">
+        <div class="lsc-row zero"><span class="sym">HK$</span><span class="val">0.00</span></div>
+        <div class="lsc-row zero"><span class="sym">¥</span><span class="val">0.00</span></div>
+      </div>
+    </div>
+    <div class="lsc-cell done">
+      <div class="lsc-head"><span class="lsc-title">净利润</span><span class="lsc-tag">本页</span></div>
+      <div class="lsc-rows">
+        <div class="lsc-row zero"><span class="sym">HK$</span><span class="val">0.00</span></div>
+        <div class="lsc-row zero"><span class="sym">¥</span><span class="val">0.00</span></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+</body>
+</html>

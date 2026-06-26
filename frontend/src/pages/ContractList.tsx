@@ -150,10 +150,6 @@ export default function ContractList() {
     return agg
   })()
   const summaryCurrencies = Object.keys(summary)
-  const formatSumVal = (n: number) => {
-    const m = formatMoney(n)
-    return m.unit ? `${m.display}${m.unit}` : m.display
-  }
   const currencySymbol2: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
   return (
@@ -229,60 +225,99 @@ export default function ContractList() {
         </div>
       </div>
 
-      {/* 汇总条 */}
-      {contracts.length > 0 && (
-        <div className="ledger-summary-strip">
-          <div className="summary-block">
-            <div className="summary-block-title"><span className="dot primary" />合同总额</div>
-            <div className="summary-currency-rows">
-              {summaryCurrencies.map(cur => (
-                <div key={cur} className="summary-currency-row">
-                  <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
-                  <span className="summary-val primary">{formatSumVal(summary[cur].total)}</span>
+      {/* 汇总条 · 港式账本封条 */}
+      {contracts.length > 0 && (() => {
+        // 渲染单格金额行：拆分数字主体与"万/亿"单位，让数字成为视觉主角
+        const renderRow = (cur: string, n: number, tone: 'primary' | 'gold' | 'due' | 'done', isNeg = false) => {
+          const m = formatMoney(n)
+          const isZero = Math.abs(n) < 0.005
+          return (
+            <div key={cur} className="cell-row">
+              <span className="cur-sym">{currencySymbol2[cur] || cur}</span>
+              <span className="cur-lead" aria-hidden />
+              <span className={`cur-val ${tone}${isZero ? ' zero' : ''}`}>
+                {isNeg && !isZero ? '-' : ''}{m.display}
+                {m.unit ? <span className="unit">{m.unit}</span> : null}
+              </span>
+            </div>
+          )
+        }
+        const now = new Date()
+        const period = `LEDGER · ${now.getFullYear()} / Q${Math.floor(now.getMonth() / 3) + 1}`
+        const stamp = `${now.getFullYear()} · ${String(now.getMonth() + 1).padStart(2, '0')} · ${String(now.getDate()).padStart(2, '0')} · ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+        return (
+          <div className="ledger-bar">
+            <div className="ledger-bar__head">
+              <div className="lh-left">
+                <span className="seal">华星 · 账册</span>
+                <span>{period}</span>
+              </div>
+              <div className="lh-right">本页汇总 <b>{contracts.length} 笔合同</b></div>
+            </div>
+
+            <div className="ledger-bar__body">
+              {/* 合同总额 */}
+              <div className="ledger-cell primary">
+                <div className="cell-head">
+                  <span className="cell-bar" />
+                  <span className="cell-title">合同总额</span>
+                  <span className="cell-sub">CONTRACT</span>
                 </div>
-              ))}
-            </div>
-          </div>
-          <div className="summary-block">
-            <div className="summary-block-title"><span className="dot gold" />已收</div>
-            <div className="summary-currency-rows">
-              {summaryCurrencies.map(cur => (
-                <div key={cur} className="summary-currency-row">
-                  <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
-                  <span className="summary-val gold">{formatSumVal(summary[cur].paid)}</span>
+                <div className="cell-rows">
+                  {summaryCurrencies.map(cur => renderRow(cur, summary[cur].total, 'primary'))}
                 </div>
-              ))}
-            </div>
-          </div>
-          <div className="summary-block">
-            <div className="summary-block-title"><span className="dot orange" />支出</div>
-            <div className="summary-currency-rows">
-              {summaryCurrencies.map(cur => (
-                <div key={cur} className="summary-currency-row">
-                  <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
-                  <span className="summary-val orange">{formatSumVal(summary[cur].expense)}</span>
+              </div>
+
+              {/* 已收 */}
+              <div className="ledger-cell gold">
+                <div className="cell-head">
+                  <span className="cell-bar gold" />
+                  <span className="cell-title">已收</span>
+                  <span className="cell-sub">RECEIVED</span>
                 </div>
-              ))}
+                <div className="cell-rows">
+                  {summaryCurrencies.map(cur => renderRow(cur, summary[cur].paid, 'gold'))}
+                </div>
+              </div>
+
+              {/* 支出 */}
+              <div className="ledger-cell due">
+                <div className="cell-head">
+                  <span className="cell-bar due" />
+                  <span className="cell-title">支出</span>
+                  <span className="cell-sub">EXPENSE</span>
+                </div>
+                <div className="cell-rows">
+                  {summaryCurrencies.map(cur => renderRow(cur, summary[cur].expense, 'due'))}
+                </div>
+              </div>
+
+              {/* 净利润 */}
+              <div className="ledger-cell done">
+                <div className="cell-head">
+                  <span className="cell-bar done" />
+                  <span className="cell-title">净利润</span>
+                  <span className="cell-sub pill">本页</span>
+                </div>
+                <div className="cell-rows">
+                  {summaryCurrencies.map(cur => {
+                    const p = summary[cur].paid - summary[cur].expense
+                    return renderRow(cur, Math.abs(p), p >= 0 ? 'done' : 'due', p < 0)
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <div className="ledger-bar__foot">
+              <span>截至 {stamp}</span>
+              <span className="signature">— Wai Sing Ledger —</span>
+              <span className="barcode" aria-hidden>
+                {Array.from({ length: 28 }).map((_, i) => <i key={i} />)}
+              </span>
             </div>
           </div>
-          <div className="summary-block">
-            <div className="summary-block-title"><span className="dot teal" />净利润<span style={{ marginLeft: 6, fontSize: 9, opacity: 0.6 }}>本页</span></div>
-            <div className="summary-currency-rows">
-              {summaryCurrencies.map(cur => {
-                const p = summary[cur].paid - summary[cur].expense
-                return (
-                  <div key={cur} className="summary-currency-row">
-                    <span className="summary-sym">{currencySymbol2[cur] || cur}</span>
-                    <span className={`summary-val ${p >= 0 ? 'teal' : 'orange'}`}>
-                      {p < 0 ? '-' : ''}{formatSumVal(Math.abs(p))}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-      )}
+        )
+      })()}
 
       {loading && contracts.length === 0 ? (
         <div className="table-skeleton" style={{ minHeight: 400, padding: 16 }}>

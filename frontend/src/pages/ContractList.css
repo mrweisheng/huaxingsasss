@@ -898,44 +898,203 @@
 }
 
 /* ============================================================
-   汇总条（顶部按币种聚合：合同总额 / 已收 / 支出 / 净利润）
+   汇总条 · 港式账本封条
+   - 衬线 tabular 数字 + mono 货币徽章
+   - 立柱色条对齐项目设计系统（border-left 业务色规范）
+   - 净利润块用极淡 teal 渐变 + 金边 chip，区分"衍生数据"
    ============================================================ */
-.ledger-summary-strip {
+.ledger-bar {
+  position: relative;
   margin-bottom: 12px;
-  background: var(--bg-surface, #ffffff);
-  border: 1px solid var(--border-light, #e2e8f0);
-  border-radius: 8px;
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
-  display: flex; align-items: stretch; overflow: hidden;
+  background: #fbf8f1;
+  background-image:
+    repeating-linear-gradient(0deg, transparent 0 38px, rgba(184, 66, 59, 0.04) 38px 39px),
+    radial-gradient(800px 200px at 50% -10%, rgba(201, 149, 43, 0.08), transparent 70%);
+  border: 1px solid #b7ac90;
+  border-radius: 3px;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.6) inset,
+    0 0 0 1px rgba(255, 255, 255, 0.4) inset,
+    0 18px 42px -28px rgba(30, 58, 95, 0.35),
+    0 2px 6px -2px rgba(30, 58, 95, 0.12);
+  overflow: hidden;
 }
-.summary-block {
-  flex: 1; padding: 14px 18px;
-  display: flex; flex-direction: column; gap: 4px;
+.ledger-bar::before {
+  content: "";
+  position: absolute; left: 0; right: 0; top: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    transparent 0%,
+    var(--brand-gold, #c9952b) 12%,
+    var(--money-paid-deep, #a87a18) 50%,
+    var(--brand-gold, #c9952b) 88%,
+    transparent 100%);
 }
-.summary-block + .summary-block { border-left: 1px solid var(--border-light, #e2e8f0); }
-.summary-block-title {
-  font-size: 11px; font-weight: 600; color: var(--text-tertiary, #94a3b8);
-  letter-spacing: 0.5px; text-transform: uppercase;
-  display: flex; align-items: center; gap: 5px;
+
+/* ---- 顶部：印章 + 期号 + 笔数 ---- */
+.ledger-bar__head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 9px 22px 8px;
+  border-bottom: 1px dashed #b7ac90;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.5), transparent);
 }
-.summary-block-title .dot { width: 5px; height: 5px; border-radius: 50%; }
-.summary-block-title .dot.primary { background: var(--brand-primary, #1e3a5f); }
-.summary-block-title .dot.gold { background: var(--money-paid); }
-.summary-block-title .dot.orange { background: var(--money-due); }
-.summary-block-title .dot.teal { background: var(--money-done); }
-.summary-currency-rows { display: flex; flex-direction: column; gap: 1px; }
-.summary-currency-row { display: flex; align-items: baseline; gap: 6px; }
-.summary-sym {
-  font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 600;
-  color: var(--text-tertiary, #94a3b8); min-width: 28px;
+.ledger-bar__head .lh-left {
+  display: flex; align-items: center; gap: 14px;
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size: 10.5px; letter-spacing: 0.22em; text-transform: uppercase;
+  color: #525c70;
 }
-.summary-val {
-  font-family: 'JetBrains Mono', monospace; font-size: 18px; font-weight: 800;
-  font-variant-numeric: tabular-nums; letter-spacing: -0.5px;
-  color: var(--text-primary, #0f172a);
+.ledger-bar__head .lh-left .seal {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 2px 9px; border: 1px solid #b8423b;
+  color: #b8423b; background: rgba(184, 66, 59, 0.06);
+  font-weight: 600; letter-spacing: 0.18em;
+  border-radius: 2px;
 }
-.summary-val.gold { color: var(--money-paid-deep, #a87a18); }
-.summary-val.teal { color: var(--money-done); }
-.summary-val.orange { color: var(--money-due); }
-.summary-val.primary { color: var(--brand-primary, #1e3a5f); }
-.summary-val.muted { color: var(--text-tertiary, #94a3b8); font-size: 13px; font-weight: 600; }
+.ledger-bar__head .lh-left .seal::before {
+  content: ""; width: 5px; height: 5px; background: #b8423b; border-radius: 50%;
+}
+.ledger-bar__head .lh-right {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size: 10.5px; letter-spacing: 0.18em; color: #8b94a6;
+  text-transform: uppercase;
+}
+.ledger-bar__head .lh-right b {
+  color: var(--brand-primary, #1e3a5f);
+  font-weight: 600; letter-spacing: 0.12em; margin-left: 6px;
+}
+
+/* ---- 主体 4 列 ---- */
+.ledger-bar__body {
+  display: grid;
+  grid-template-columns: 1.15fr 1fr 1fr 1.15fr;
+  padding: 18px 4px;
+}
+.ledger-cell {
+  position: relative;
+  padding: 6px 26px 4px;
+  display: flex; flex-direction: column; gap: 10px;
+  min-width: 0;
+}
+.ledger-cell + .ledger-cell { border-left: 1px solid #d8d0bd; }
+.ledger-cell + .ledger-cell::before {
+  content: "";
+  position: absolute; left: 0; top: 50%;
+  width: 3px; height: 3px;
+  background: #b7ac90;
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+.ledger-cell.done {
+  background: linear-gradient(180deg, rgba(13, 148, 136, 0.04), rgba(13, 148, 136, 0));
+}
+
+.cell-head { display: flex; align-items: center; gap: 10px; }
+.cell-bar {
+  width: 3px; height: 18px; border-radius: 1px;
+  background: var(--brand-primary, #1e3a5f);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.6) inset;
+}
+.cell-bar.gold { background: linear-gradient(180deg, var(--brand-gold, #c9952b), var(--money-paid-deep, #a87a18)); }
+.cell-bar.due  { background: linear-gradient(180deg, var(--money-due, #dc6b3d), #b8542a); }
+.cell-bar.done { background: linear-gradient(180deg, var(--money-done, #0d9488), #0a7068); }
+.cell-title {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
+  font-weight: 600; font-size: 13px;
+  color: var(--text-primary, #1a1f2e);
+  letter-spacing: 0.02em;
+}
+.cell-sub {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size: 9.5px; letter-spacing: 0.18em;
+  color: #8b94a6; text-transform: uppercase;
+}
+.cell-sub.pill {
+  padding: 2px 7px; border: 1px solid var(--brand-gold, #c9952b);
+  color: var(--money-paid-deep, #a87a18);
+  border-radius: 999px; background: #fffaee;
+  letter-spacing: 0.14em;
+}
+
+/* ---- 数字行 ---- */
+.cell-rows { display: flex; flex-direction: column; gap: 6px; margin-top: 2px; }
+.cell-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline; gap: 10px;
+  padding: 0 4px;
+}
+.cur-sym {
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size: 10.5px; letter-spacing: 0.06em;
+  color: #8b94a6;
+  padding: 1px 6px; border: 1px solid #d8d0bd; border-radius: 2px;
+  background: #fff;
+  min-width: 34px; text-align: center;
+  line-height: 1.2;
+}
+.cur-lead {
+  border-top: 1px dotted #b7ac90;
+  height: 1px; align-self: center; margin-top: 2px;
+}
+.cur-val {
+  font-family: 'IBM Plex Serif', 'Source Han Serif SC', 'Noto Serif SC', Georgia, serif;
+  font-feature-settings: "tnum" 1, "lnum" 1;
+  font-variant-numeric: tabular-nums lining-nums;
+  font-weight: 600; font-size: 22px; letter-spacing: 0.01em;
+  color: var(--text-primary, #1a1f2e);
+  line-height: 1;
+  white-space: nowrap;
+}
+.cur-val .unit {
+  font-family: 'Noto Serif SC', 'Source Han Serif SC', serif;
+  font-size: 11px; font-weight: 500;
+  color: #525c70; margin-left: 3px; letter-spacing: 0.04em;
+}
+.cur-val.primary { color: #13294a; }
+.cur-val.gold    { color: var(--money-paid-deep, #a87a18); }
+.cur-val.due     { color: #b8542a; }
+.cur-val.done    { color: #0a7068; }
+
+/* 零值：保留视觉但弱化 */
+.cur-val.zero,
+.cur-val.zero.primary,
+.cur-val.zero.gold,
+.cur-val.zero.due,
+.cur-val.zero.done { color: #8b94a6; font-weight: 500; }
+.cur-val.zero .unit { color: #8b94a6; }
+
+/* ---- 底部签名条 ---- */
+.ledger-bar__foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 22px;
+  border-top: 1px dashed #b7ac90;
+  background: linear-gradient(180deg, transparent, rgba(201, 149, 43, 0.05));
+  font-family: 'JetBrains Mono', 'IBM Plex Mono', monospace;
+  font-size: 10px; letter-spacing: 0.22em;
+  color: #8b94a6; text-transform: uppercase;
+}
+.ledger-bar__foot .signature {
+  font-family: 'Cormorant Garamond', 'EB Garamond', Georgia, serif;
+  font-style: italic; font-size: 13px; letter-spacing: 0.04em;
+  color: var(--money-paid-deep, #a87a18); text-transform: none;
+}
+.ledger-bar__foot .barcode {
+  display: inline-flex; gap: 1px; align-items: center;
+}
+.ledger-bar__foot .barcode i {
+  display: inline-block; width: 1px; height: 10px; background: #1a1f2e;
+}
+.ledger-bar__foot .barcode i:nth-child(3n) { height: 7px; width: 2px; }
+.ledger-bar__foot .barcode i:nth-child(4n) { height: 12px; }
+.ledger-bar__foot .barcode i:nth-child(5n) { height: 8px; background: var(--money-paid-deep, #a87a18); }
+
+/* 窄屏：两列布局 */
+@media (max-width: 980px) {
+  .ledger-bar__body { grid-template-columns: 1fr 1fr; }
+  .ledger-cell + .ledger-cell:nth-child(3) {
+    border-left: none;
+    border-top: 1px solid #d8d0bd;
+  }
+  .ledger-cell + .ledger-cell:nth-child(3)::before { display: none; }
+}
