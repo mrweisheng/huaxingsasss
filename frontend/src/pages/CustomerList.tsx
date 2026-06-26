@@ -377,6 +377,7 @@ export default function CustomerList() {
                           <td className="cell-contract">
                             <a
                               className="cl-contract-no"
+                              title={ct.contract_number}
                               onClick={() => navigate(`/contracts/${ct.id}`)}
                             >
                               {ct.contract_number}
