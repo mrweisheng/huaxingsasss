@@ -151,7 +151,8 @@ class ContractService:
         total = query.count()
 
         # 分页（使用 contains_eager 后 Customer 已 join 加载，无需 N+1 回查）
-        items = query.order_by(Contract.created_at.desc())\
+        # 按签订日期降序排列（新到旧），NULL 值排在最后
+        items = query.order_by(Contract.signed_date.desc().nullslast())\
             .offset((page - 1) * per_page)\
             .limit(per_page)\
             .all()
