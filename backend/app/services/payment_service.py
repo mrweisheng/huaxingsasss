@@ -1091,10 +1091,14 @@ class PaymentService:
                 payment.verification_result = verification_snapshot
                 payment.verified_at = datetime.now(timezone.utc)
             else:
-                # 现阶段无凭证收入：打 [无凭证收入] 标记，不参与校验流程
+                # 现阶段无凭证收入：打 [无凭证收入] 标记，verification_status 显式设 passed
+                # （已直接 paid 结算，校验状态也应是 passed；避免 UI 出现 "已收 + 待校验" 的双重歧义）
+                # notes 里的 [无凭证收入] 前缀已经标识"无凭证"语义，前端 ReceiptChatModal 按此前缀显示"无凭证"标签
                 from app.core.payment_audit import NO_RECEIPT_INCOME_PREFIX
                 base_note = (payment.notes or "").strip()
                 payment.notes = f"{NO_RECEIPT_INCOME_PREFIX} {base_note}".strip()
+                payment.verification_status = "passed"
+                payment.verified_at = datetime.now(timezone.utc)
         else:
             if counterparty_account:
                 payment.counterparty_account = counterparty_account

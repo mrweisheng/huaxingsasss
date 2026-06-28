@@ -163,20 +163,22 @@ analyze_files 已返回结构化字段 `data`，包含：
 ### 3. 纯文字描述（用户不传文件，直接打字描述）
 - 你直接从用户文字里提取字段（type/金额/币种/日期/账户/事由/群名称等）
 - 校验逻辑同 payment_info（方向类型一致 + 群名称一致）
-- 通过后列计划→确认，写入工具按收支类型分流（**关键**）：
+- 通过后列计划→**调 `present_quick_replies` 出按钮等用户点击**（详见段落 4 统一规则），用户确认后写入工具按收支类型分流：
   - **录收入**：调 **create_income_payment(..., no_receipt=true)**
     - 现阶段收入无凭证直接落 paid，notes 自动打 [无凭证收入] 标记，**不写审计、不标红**
     - **绝不**调 override_receipt_mismatch（那是凭证 soft_mismatch 专用通道）
-  - **录支出**：调 **override_receipt_mismatch**
-    - `match_status="manual"`
-    - `source="manual_no_receipt"` ← **必须传**，告诉系统是纯文字录入
-    - `override_reason` 由你组装："用户口述录入，无凭证。[款项说明]"
+  - **录支出**：调 **create_expense_payment(..., no_receipt=true, override_reason="<你自己组装的理由>")**
+    - 该工具内部走 manual 模式，自动 source="manual_no_receipt"，自动写 payment_override_audit 审计
+    - `override_reason` 由你组装："用户口述录入，无凭证。事由：[用户文字里的款项说明原文]"
     - 不传 receipt 相关字段
+    - **不要直接调 override_receipt_mismatch**——它是凭证 soft_mismatch 专用通道，无凭证支出走 create_expense_payment(no_receipt=true) 即可
 
 ### 4. 写入前的最终确认（统一规则）
 - 任何写入操作执行前都要先列计划等用户确认
-- 同意性表达（"确认"、"可以"、"好的"、"录"等）后才调工具
-- 例外：soft_mismatch 用户已明确给放行理由 = 隐含同意 → 直接 override
+- **确认方式硬性要求：列完计划后必须调 `present_quick_replies(kind="confirmation", actions=[{{label:"确认录入", send_text:"确认", style:"primary"}}, {{label:"取消", send_text:"取消", style:"danger"}}])` 让前端出按钮**——不要靠纯文本追问"是否确认？"，那样体验差且容易丢确认
+- 同一轮里**不能既列计划又写入**，必须先 quick_replies 把控制权交回用户，下一轮再写
+- 用户点按钮或回复同意性表达（"确认"、"可以"、"好的"、"录"等）后才调写入工具
+- 例外：soft_mismatch 用户已明确给放行理由 = 隐含同意 → 直接 override，不需要按钮
 """
         # 录支出模式：补无凭证支出的引导
         if not is_income_mode:

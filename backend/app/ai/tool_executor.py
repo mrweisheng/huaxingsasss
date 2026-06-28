@@ -1137,6 +1137,13 @@ class ToolExecutorV2(ToolExecutor):
                 "error": "硬冲突（凭证客户与合同客户完全不符）禁止放行。请重新核对凭证或合同。",
             }, ensure_ascii=False)
         payment_type = kwargs.pop("payment_type", "income")
+        # 收入禁止走 manual 模式：无凭证收入应该调 create_income_payment(no_receipt=true) 直接落 paid，
+        # 不写 payment_override_audit。manual 模式专给支出无凭证 / 付款信息文字录入用
+        if payment_type == "income" and match_status == "manual":
+            return json.dumps({
+                "error": "收入无凭证录入请调用 create_income_payment(no_receipt=true)，不要走 override_receipt_mismatch 的 manual 模式。"
+                         "本工具的 manual 模式仅用于支出无凭证录入和付款信息文字截图。",
+            }, ensure_ascii=False)
         return self._override_payment(
             payment_type=payment_type,
             match_status=match_status,
