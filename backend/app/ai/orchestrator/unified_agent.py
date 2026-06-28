@@ -309,6 +309,7 @@ async def call_model_node(state: AgentState, config: RunnableConfig) -> dict:
                     "currency": contract.currency,
                     "payment_type": session_context.get("payment_type"),
                     "customer_name": "",
+                    "wechat_group": contract.wechat_group,
                 }
                 # 查客户名
                 if contract.customer_id:

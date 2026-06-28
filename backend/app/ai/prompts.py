@@ -45,6 +45,8 @@ def build_system_prompt(
         ]
         if contract_info.get("business_description"):
             ctx_lines.append(f"- 业务描述: {contract_info['business_description']}")
+        if contract_info.get("wechat_group"):
+            ctx_lines.append(f"- 业务微信群: {contract_info['wechat_group']}")
         if contract_info.get("total_amount") is not None:
             ctx_lines.append(f"- 合同总额: {contract_info['currency'] or 'CNY'} {contract_info['total_amount']:,.2f}")
         if contract_info.get("payment_type"):
@@ -162,7 +164,14 @@ analyze_files 已返回结构化字段 `data`，包含：
 
 ### 3. 纯文字描述（用户不传文件，直接打字描述）
 - 你直接从用户文字里提取字段（type/金额/币种/日期/账户/事由/群名称等）
-- 校验逻辑同 payment_info（方向类型一致 + 群名称一致）
+- **方向校验（硬性）**：用户文字第一行是「收款」=income / 「转出」=expense；当前是录入{action_word}，方向必须 = "{ext_type_value}"，否则直接给以下回复并终止：
+  > "检测到不匹配：当前是「录入{action_word}」操作，但您发送的文字描述的是「{type_zh_opposite}」类型。请到对应类型的合同重新操作，本次录入已终止。"
+- **群名校验（硬性，必须做）**：从用户文字里提取群名（通常在"对应业务（群名称）"或类似字样后面），与**上方「当前合同上下文」段落里的`业务微信群`字段直接对比**——这两个字段都已在 system prompt 里给你，**不要调 get_contract_detail 浪费一次工具调用**：
+  - 完全相同（含简繁归一、去标点、仅日期前缀差异）→ 通过，列计划时标注"业务群：xxx（与合同一致 ✓）"
+  - 完全不同（不是同一笔业务的群）→ **直接给以下回复并终止，不要写入**：
+    > "检测到不匹配：您发送的文字对应业务群是「<用户文字里的群名>」，与当前合同的业务群「<合同上下文里的群名>」不是同一笔业务。请到对应合同重新打开「录入{action_word}」操作，本次录入已终止。"
+  - 部分匹配（一方包含另一方，如日期前缀差异）→ 通过，列计划时提醒"业务群：xxx（与合同部分匹配，请复核）"
+  - 合同上下文没有业务群字段 → 通过，列计划时提醒"业务群：xxx（合同未登记业务群，请复核）"
 - 通过后列计划→**调 `present_quick_replies` 出按钮等用户点击**（详见段落 4 统一规则），用户确认后写入工具按收支类型分流：
   - **录收入**：调 **create_income_payment(..., no_receipt=true)**
     - 现阶段收入无凭证直接落 paid，notes 自动打 [无凭证收入] 标记，**不写审计、不标红**
