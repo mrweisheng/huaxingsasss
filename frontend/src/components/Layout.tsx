@@ -200,7 +200,7 @@ export default function Layout() {
   }
 
   return (
-    <AntLayout style={{ minHeight: '100vh' }}>
+    <AntLayout style={{ height: '100vh', overflow: 'hidden' }}>
       {!isMobile && (
       <Sider
         width={240}
@@ -689,7 +689,7 @@ export default function Layout() {
       </Sider>
       )}
 
-      <AntLayout style={{ marginLeft: isMobile ? 0 : (collapsed ? 68 : 240), transition: 'margin-left 0.2s' }}>
+      <AntLayout style={{ marginLeft: isMobile ? 0 : (collapsed ? 68 : 240), transition: 'margin-left 0.2s', height: '100vh', overflow: 'hidden' }}>
         <Header
           style={{
             display: 'flex',
@@ -773,7 +773,7 @@ export default function Layout() {
           </Dropdown>
         </Header>
 
-        <Content style={{ padding: 0, minHeight: 'calc(100vh - 56px)', paddingBottom: isMobile ? 'calc(56px + env(safe-area-inset-bottom, 0px))' : 0 }}>
+        <Content style={{ padding: 0, flex: 1, overflow: 'auto', paddingBottom: isMobile ? 'calc(56px + env(safe-area-inset-bottom, 0px))' : 0 }}>
           <Outlet />
         </Content>
       </AntLayout>
