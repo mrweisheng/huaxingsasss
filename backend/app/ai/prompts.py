@@ -111,13 +111,19 @@ analyze_files 已返回结构化字段 `data`，包含：
 
 两层校验通过后：
 1. 把提取的字段**列计划展示给用户确认**（金额、日期、{("我方收款账户" if is_income_mode else "对方账户")}、款项说明、群名称匹配情况、notes 原文）
-2. 用户同意后，调 **override_receipt_mismatch**：
-   - `match_status="manual"`（付款信息文字算 manual 模式，不算 soft_mismatch）
-   - `source="payment_info_screenshot"` ← **必须传**，告诉系统这是付款信息截图录入
-   - `override_reason="基于付款信息截图录入；款项：[installment_name]；结算明细：[notes 原文摘要]"` —— 你自己组装一句话理由
-   - `_receipt_path` / `_receipt_file_hash` / `_receipt_data` 透传 analyze_files 返回的相应字段
-   - amount / currency / paid_date / installment_name / notes 透传 data 对应字段
-   - {("payment_account_id 由 payment_account_hint 命中匹配，前端会处理" if is_income_mode else "payee_name 和 counterparty_account 透传")}
+2. 用户同意后，写入工具按收支类型分流（**关键**）：
+   - **录收入**：调 **create_income_payment(..., no_receipt=true)**
+     - 付款信息截图内容等同于用户口述文字（用户只是懒得手打才截图），现阶段收入无凭证直接落 paid，
+       notes 自动打 [无凭证收入] 标记，**不写审计、不标红**
+     - amount / currency / paid_date / installment_name / notes / payment_account_id 透传 data 对应字段
+     - **绝不**调 override_receipt_mismatch（那是凭证 soft_mismatch 专用通道）
+   - **录支出**：调 **override_receipt_mismatch**
+     - `match_status="manual"`（付款信息文字算 manual 模式，不算 soft_mismatch）
+     - `source="payment_info_screenshot"` ← **必须传**，告诉系统这是付款信息截图录入
+     - `override_reason="基于付款信息截图录入；款项：[installment_name]；结算明细：[notes 原文摘要]"` —— 你自己组装一句话理由
+     - `_receipt_path` / `_receipt_file_hash` / `_receipt_data` 透传 analyze_files 返回的相应字段
+     - amount / currency / paid_date / installment_name / notes 透传 data 对应字段
+     - payee_name 和 counterparty_account 透传
 
 #### type = "contract" / "group_chat" / "other" → 类型不匹配
 直接给以下回复并终止：
@@ -157,11 +163,15 @@ analyze_files 已返回结构化字段 `data`，包含：
 ### 3. 纯文字描述（用户不传文件，直接打字描述）
 - 你直接从用户文字里提取字段（type/金额/币种/日期/账户/事由/群名称等）
 - 校验逻辑同 payment_info（方向类型一致 + 群名称一致）
-- 通过后列计划→确认→调 **override_receipt_mismatch**：
-  - `match_status="manual"`
-  - `source="manual_no_receipt"` ← **必须传**，告诉系统是纯文字录入
-  - `override_reason` 由你组装："用户口述录入，无凭证。[款项说明]"
-  - 不传 receipt 相关字段
+- 通过后列计划→确认，写入工具按收支类型分流（**关键**）：
+  - **录收入**：调 **create_income_payment(..., no_receipt=true)**
+    - 现阶段收入无凭证直接落 paid，notes 自动打 [无凭证收入] 标记，**不写审计、不标红**
+    - **绝不**调 override_receipt_mismatch（那是凭证 soft_mismatch 专用通道）
+  - **录支出**：调 **override_receipt_mismatch**
+    - `match_status="manual"`
+    - `source="manual_no_receipt"` ← **必须传**，告诉系统是纯文字录入
+    - `override_reason` 由你组装："用户口述录入，无凭证。[款项说明]"
+    - 不传 receipt 相关字段
 
 ### 4. 写入前的最终确认（统一规则）
 - 任何写入操作执行前都要先列计划等用户确认
@@ -177,6 +187,19 @@ analyze_files 已返回结构化字段 `data`，包含：
 - 询问用户："这笔支出没有凭证可上传是吗？请告诉我无凭证的原因（现金支付/代付/对方未提供凭证等），我作为放行理由记录到审计"
 - 拿到无凭证理由后，调 **create_expense_payment(..., no_receipt=true, override_reason="<用户给的理由>")**
   - 该工具内部走 manual 模式，自动 source="manual_no_receipt"
+"""
+        else:
+            # 录收入模式：现阶段（INCOME_RECEIPT_REQUIRED=False）补无凭证收入引导
+            # 将来开关切回 True 时，此段保留但工具层会拒绝 no_receipt（settings.INCOME_RECEIPT_REQUIRED）
+            context_block += """
+### 5. 无凭证收入（现阶段适用）
+- 现阶段业务允许收入无凭证录入。用户描述收入但没上传任何凭证（连付款信息截图也没有），可走"无凭证录入"通道
+- 收集关键信息：金额、币种、付款日期、款项说明、收款账户（payment_account_id，若用户口述账户名则按别名命中）
+- 询问用户："这笔收入暂时没有凭证可上传是吗？确认后我先按您说的录入，凭证后续补上"
+- 用户确认后，调 **create_income_payment(..., no_receipt=true)** 直接录入并结算
+  - 该工具会自动在 notes 打 [无凭证收入] 标记，便于将来补凭证时筛选
+  - 不需要 override_reason，不写 override 审计
+- **不要主动要求用户提供放行理由**（与支出不同，收入现阶段直接放行，无需审计追溯）
 """
 
     return f"""你是华星资源开发有限公司的智能业务助手，专门为两地车牌指标过户服务提供支持。

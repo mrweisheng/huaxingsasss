@@ -19,6 +19,7 @@ from decimal import Decimal
 from typing import Optional
 
 from app.ai.tool_executor_base import ToolExecutor
+from app.config import settings
 from app.schemas.contract_additional_item import AdditionalItemCreate, AdditionalItemUpdate
 from app.services.contract_additional_item_service import AdditionalItemService
 from app.services.file_analyzer import FileAnalyzer
@@ -863,8 +864,12 @@ class ToolExecutorV2(ToolExecutor):
         _receipt_file_hash: Optional[str] = None,
         _receipt_data: Optional[dict] = None,
         verification: Optional[dict] = None,
+        no_receipt: bool = False,
     ) -> str:
-        """内部公共实现：ok 状态对话流创建付款。"""
+        """内部公共实现：ok 状态对话流创建付款。
+
+        no_receipt：现阶段收入无凭证录入时传 True（service 层会打 [无凭证收入] 标记）。
+        """
         err = self._check_payment_role(payment_type)
         if err:
             return err
@@ -913,7 +918,7 @@ class ToolExecutorV2(ToolExecutor):
                 payment_account_id=payment_account_id,
                 counterparty_account=counterparty_account,
                 created_by=self.user.id,
-                no_receipt=False,
+                no_receipt=no_receipt,
             )
         except ValueError as e:
             self.db.rollback()
@@ -930,11 +935,25 @@ class ToolExecutorV2(ToolExecutor):
         }, ensure_ascii=False, default=str)
 
     def create_income_payment(self, **kwargs) -> str:
-        """对话流创建收入付款（凭证已同步预校验通过=ok 时才能调用）。"""
-        # 防御：要求凭证字段
-        if not (kwargs.get("file_id") or kwargs.get("_receipt_path")):
-            return json.dumps({"error": "收入必须先调 analyze_receipt 提取凭证"}, ensure_ascii=False)
-        return self._create_payment_dialog(payment_type="income", **kwargs)
+        """对话流创建收入付款。
+
+        - INCOME_RECEIPT_REQUIRED=True（将来）：必须先调 analyze_receipt 且 match_status=ok 才能调本工具
+        - INCOME_RECEIPT_REQUIRED=False（现阶段，默认）：凭证可选。有凭证按原流程；无凭证传
+          no_receipt=true 直接落 paid（notes 打 [无凭证收入] 标记，不走 override 审计）
+        """
+        no_receipt = bool(kwargs.pop("no_receipt", False))
+        has_receipt = bool(kwargs.get("file_id") or kwargs.get("_receipt_path"))
+        # 凭证与无凭证声明互斥
+        if has_receipt and no_receipt:
+            return json.dumps({"error": "不能同时传 file_id 和 no_receipt=true"}, ensure_ascii=False)
+        if not has_receipt:
+            if settings.INCOME_RECEIPT_REQUIRED:
+                return json.dumps({"error": "收入必须先调 analyze_receipt 提取凭证"}, ensure_ascii=False)
+            if not no_receipt:
+                return json.dumps({
+                    "error": "收入录入需明确：传 file_id（有凭证）或 no_receipt=true（现阶段无凭证）",
+                }, ensure_ascii=False)
+        return self._create_payment_dialog(payment_type="income", no_receipt=no_receipt, **kwargs)
 
     def create_expense_payment(self, **kwargs) -> str:
         """对话流创建支出付款（可无凭证，支出允许 no_receipt）。"""
@@ -1422,7 +1441,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_income_payment",
-            "description": "对话流创建一笔收入。**必须先调 analyze_receipt 且 match_status=ok 时才能调本工具**。把 analyze_receipt 返回的 _receipt_path / _receipt_file_hash / _receipt_data / _payment_account_id / verification 透传进来。写入前必须先用自然语言列出关键信息（金额/币种/付款方/付款日期/期数名）并等用户确认。",
+            "description": "对话流创建一笔收入。**有凭证时**：必须先调 analyze_receipt 且 match_status=ok，把返回的 _receipt_path / _receipt_file_hash / _receipt_data / _payment_account_id / verification 透传进来。**现阶段无凭证时**：传 no_receipt=true 直接录入并结算（notes 自动打 [无凭证收入] 标记）。写入前必须先用自然语言列出关键信息（金额/币种/付款方或收款账户/付款日期/期数名）并等用户确认。",
             "parameters": {
                 "type": "object",
                 "required": ["contract_id", "amount", "currency", "paid_date"],
@@ -1435,12 +1454,13 @@ TOOL_DEFINITIONS = [
                     "installment_name": {"type": "string", "description": "期数名（如\"定金\"、\"尾款\"）"},
                     "description": {"type": "string", "description": "业务描述（不传则自动生成）"},
                     "notes": {"type": "string", "description": "备注"},
-                    "payment_account_id": {"type": "integer", "description": "收款账户ID（从 analyze_receipt._payment_account_id 透传）"},
-                    "file_id": {"type": "string", "description": "凭证文件ID"},
+                    "payment_account_id": {"type": "integer", "description": "收款账户ID（从 analyze_receipt._payment_account_id 透传，或无凭证时按用户口述选择）"},
+                    "file_id": {"type": "string", "description": "凭证文件ID（现阶段可选）"},
                     "_receipt_path": {"type": "string", "description": "凭证落库路径（从 analyze_receipt 透传）"},
                     "_receipt_file_hash": {"type": "string", "description": "凭证哈希（从 analyze_receipt 透传）"},
                     "_receipt_data": {"type": "object", "description": "凭证识别结构化数据（从 analyze_receipt 透传）"},
                     "verification": {"type": "object", "description": "ReceiptMatcher 返回的判定快照（含 expected/extracted/diff_fields），落到 verification_result"},
+                    "no_receipt": {"type": "boolean", "description": "无凭证声明（与 file_id 互斥）。现阶段（INCOME_RECEIPT_REQUIRED=False）收入允许无凭证：true 时直接落 paid 结算，notes 打 [无凭证收入] 标记"},
                 },
             },
         },

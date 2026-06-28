@@ -8,3 +8,7 @@
 # 选择 notes 而非新增字段，遵循「不动 schema」约束；
 # update_payment 工具有前缀保护逻辑，确保用户编辑 notes 时审计标记不丢失。
 NO_RECEIPT_NOTE_PREFIX = "[无凭证支出]"
+
+# 无凭证收入标记前缀：现阶段（INCOME_RECEIPT_REQUIRED=False）收入允许无凭证录入，
+# 在 notes 开头打此标记，便于前端识别与将来补凭证时筛选。
+NO_RECEIPT_INCOME_PREFIX = "[无凭证收入]"

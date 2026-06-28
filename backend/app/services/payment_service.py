@@ -216,9 +216,9 @@ class PaymentService:
             )
 
         has_receipt = bool(receipt_image_path)
-        # require_verification=True：有凭证也先 pending，等异步校验通过再结算（表单收入入口）
-        # 否则维持原逻辑：有凭证直接 paid 结算
-        will_settle = has_receipt and not require_verification
+        # require_verification=True：有凭证也先 pending，等异步校验通过再结算（表单收入入口，开关开启时）
+        # require_verification=False（支出 / 现阶段无凭证收入）：直接 paid 结算，与有无凭证无关
+        will_settle = not require_verification
 
         logger.info(
             "创建付款: contract_id=%d, type=%s, amount=%s %s, receipt=%s, require_verification=%s → status=%s",
@@ -593,8 +593,9 @@ class PaymentService:
 
         is_income = payload.type == "income"
         has_receipt = bool(receipt_path)
-        # 收入必须校验；支出有凭证直接结算
-        require_verification = is_income
+        # 收入凭证校验：仅 INCOME_RECEIPT_REQUIRED=True 时走 pending→异步校验（现阶段关闭，直接结算）
+        # 支出恒 False
+        require_verification = is_income and settings.INCOME_RECEIPT_REQUIRED
 
         # 凭证去重：同一合同下，同一张凭证（按文件哈希）不允许重复录入。
         # 与 AI 路径（file_analyzer / tool_executor）口径一致，scope = 合同内。
@@ -643,6 +644,11 @@ class PaymentService:
         # 表单新增字段（account / counterparty）独立赋值
         if is_income:
             payment.payment_account_id = payload.payment_account_id
+            # 现阶段（开关关闭）：收入无凭证直接打 [无凭证收入] 标记，便于前端识别与将来补凭证
+            if not has_receipt:
+                from app.core.payment_audit import NO_RECEIPT_INCOME_PREFIX
+                base_note = (payment.notes or "").strip()
+                payment.notes = f"{NO_RECEIPT_INCOME_PREFIX} {base_note}".strip()
         else:
             payment.counterparty_account = (
                 payload.counterparty_account.model_dump(exclude_none=True)
@@ -655,7 +661,7 @@ class PaymentService:
                 base_note = (payment.notes or "").strip()
                 payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
 
-        # verification_status：收入有凭证→pending（等校验）；支出→保持 None（弱校验 task 里按需设）
+        # verification_status：收入有凭证→pending（等校验）；无凭证或支出→保持 None（不参与校验流程）
         if is_income and has_receipt:
             payment.verification_status = "pending"
         payment.source = "manual"  # 表单录入标记（区别于 agent 的 screenshot/upload）
@@ -1027,7 +1033,8 @@ class PaymentService:
             raise ValueError(f"合同不存在：{contract_id}")
 
         is_income = payment_type == "income"
-        if is_income and not receipt_path:
+        # 收入凭证强制：仅开关开启时拦截（现阶段关闭，对话流可无凭证直落 paid）
+        if is_income and not receipt_path and settings.INCOME_RECEIPT_REQUIRED:
             raise ValueError("收入必须有凭证")
 
         # 凭证去重：同合同同 hash 拦截
@@ -1078,9 +1085,16 @@ class PaymentService:
         # 表单专属字段补写
         if is_income:
             payment.payment_account_id = payment_account_id
-            payment.verification_status = "passed"
-            payment.verification_result = verification_snapshot
-            payment.verified_at = datetime.now(timezone.utc)
+            if receipt_path:
+                # 有凭证：写校验快照 + passed
+                payment.verification_status = "passed"
+                payment.verification_result = verification_snapshot
+                payment.verified_at = datetime.now(timezone.utc)
+            else:
+                # 现阶段无凭证收入：打 [无凭证收入] 标记，不参与校验流程
+                from app.core.payment_audit import NO_RECEIPT_INCOME_PREFIX
+                base_note = (payment.notes or "").strip()
+                payment.notes = f"{NO_RECEIPT_INCOME_PREFIX} {base_note}".strip()
         else:
             if counterparty_account:
                 payment.counterparty_account = counterparty_account
@@ -1134,7 +1148,7 @@ class PaymentService:
     ) -> Payment:
         """对话流：凭证轻微不符（soft_mismatch）或无凭证（manual）手动放行创建付款。
 
-        - 收入：直接 paid + verification_status=failed + manual_override 标记
+        - 收入：直接 paid + verification_status=passed + manual_override 标记（写入 verification_result）
         - 支出：直接 paid + verification_result 记录原因
         - 同事务写一条 payment_override_audit（业务级审计），失败回滚
         - 同事务写一条 audit_logs（中间件口径，统一 manual_confirm 动作语义）
@@ -1206,7 +1220,10 @@ class PaymentService:
 
         if is_income:
             payment.payment_account_id = payment_account_id
-            payment.verification_status = "failed"
+            # 放行 = 人工确认通过，状态机与 manual_confirm_failed_payment 对齐：
+            # paid 记录的 verification_status 只能是 passed，绝不可能是 failed
+            # （failed 仅用于 pending 待人工放行场景）。审计追溯靠 verification_result.manual_override。
+            payment.verification_status = "passed"
             payment.verified_at = now
         else:
             if counterparty_account:

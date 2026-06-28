@@ -68,6 +68,11 @@ class Settings(BaseSettings):
     # Agent配置
     AGENT_MAX_ITERATIONS: int = 8
 
+    # 业务开关：收入是否强制关联凭证
+    # False（默认，现阶段）：收入凭证可选，无凭证可直接录入并结算，notes 打 [无凭证收入] 标记
+    # True（将来恢复）：收入必须上传凭证，无凭证在各层（schema/api/service/工具/prompt）被拦截
+    INCOME_RECEIPT_REQUIRED: bool = False
+
     # 文件存储配置
     UPLOAD_DIR: str = "/data/contract-system"
     CONTRACT_UPLOAD_DIR: str = "/data/contract-system/contracts"

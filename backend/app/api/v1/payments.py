@@ -59,7 +59,10 @@ def create_payment(
 ):
     """表单创建付款记录（收入/支出统一入口）。
 
-    - 收入：凭证必传，创建后立即落 pending + verification_status=pending，异步校验通过才结算。
+    - 收入：
+      - INCOME_RECEIPT_REQUIRED=True（将来）：凭证必传，落 pending 由异步校验通过才结算
+      - INCOME_RECEIPT_REQUIRED=False（现阶段，默认）：凭证可选，无凭证直接 paid 结算并打
+        [无凭证收入] 标记；有凭证仍投递异步校验
     - 支出：有凭证→paid 结算（弱校验提醒）；无凭证(no_receipt)→paid 结算。
     """
     _enforce_type_permission(current_user, payload.type)
@@ -76,8 +79,12 @@ def create_payment(
         if not receipt_path:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="凭证文件不存在，请重新上传")
 
-    # 收入必须校验凭证存在（schema 已校验 receipt_file_id，这里再确认文件能解析）
-    if payload.type == "income" and not receipt_path:
+    # 收入凭证强制校验：仅在 INCOME_RECEIPT_REQUIRED=True 时拦截（现阶段关闭）
+    if (
+        payload.type == "income"
+        and settings.INCOME_RECEIPT_REQUIRED
+        and not receipt_path
+    ):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="收入必须上传有效凭证")
 
     try:

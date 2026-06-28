@@ -6,6 +6,8 @@ from pydantic import BaseModel, Field, model_validator
 from datetime import date, datetime
 from decimal import Decimal
 
+from app.config import settings
+
 
 class PaymentBase(BaseModel):
     """付款基础模型"""
@@ -45,8 +47,10 @@ class VerificationResult(BaseModel):
 class PaymentCreate(BaseModel):
     """表单创建付款（收入/支出统一入口）
 
-    - 收入（income）：凭证必传（receipt_file_id 或 no_receipt 互斥；income 不允许 no_receipt），
-      提交后立即落库为 pending + verification_status=pending，由 Celery 异步校验。
+    - 收入（income）：
+      - INCOME_RECEIPT_REQUIRED=True（将来）：凭证必传，落库 pending 由 Celery 异步校验
+      - INCOME_RECEIPT_REQUIRED=False（现阶段，默认）：凭证可选，无凭证直接 paid 结算并打
+        [无凭证收入] 标记；有凭证仍走异步校验
     - 支出（expense）：凭证可选；有凭证走 paid 结算并弱校验提醒，无凭证走 no_receipt 直接 paid。
     """
 
@@ -64,20 +68,19 @@ class PaymentCreate(BaseModel):
     payee_name: Optional[str] = Field(None, max_length=200, description="收款方名称（expense）")
     counterparty_account: Optional[CounterpartyAccount] = Field(None, description="对方账户详情（expense）")
     # 凭证
-    receipt_file_id: Optional[str] = Field(None, description="已上传凭证的文件ID（收入必传；支出可选）")
-    no_receipt: bool = Field(False, description="无凭证声明（仅expense可用，与receipt_file_id互斥）")
+    receipt_file_id: Optional[str] = Field(None, description="已上传凭证的文件ID（开关开启时收入必传；否则可选）")
+    no_receipt: bool = Field(False, description="无凭证声明（与 receipt_file_id 互斥；现阶段 income 也允许）")
 
     @model_validator(mode="after")
     def _validate_receipt_rules(self):
         """凭证规则校验"""
+        # 凭证与无凭证声明互斥（收入支出统一）
+        if self.receipt_file_id and self.no_receipt:
+            raise ValueError("不能同时上传凭证和声明无凭证")
         if self.type == "income":
-            # 收入必须有凭证
-            if not self.receipt_file_id:
+            # 收入凭证强制：仅在 INCOME_RECEIPT_REQUIRED=True 时启用（现阶段关闭）
+            if settings.INCOME_RECEIPT_REQUIRED and not self.receipt_file_id:
                 raise ValueError("收入必须上传凭证")
-        else:
-            # 支出：凭证和无凭证声明互斥
-            if self.receipt_file_id and self.no_receipt:
-                raise ValueError("不能同时上传凭证和声明无凭证")
         return self
 
 
