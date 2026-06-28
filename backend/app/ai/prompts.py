@@ -184,8 +184,12 @@ analyze_files 已返回结构化字段 `data`，包含：
 ### 5. 无凭证支出（仅录支出适用）
 - 用户描述支出但没上传任何文件（连付款信息截图也没有），允许走"无凭证录入"通道
 - 收集关键信息：收款方（payee_name）、金额、币种、付款日期、用途说明
-- 询问用户："这笔支出没有凭证可上传是吗？请告诉我无凭证的原因（现金支付/代付/对方未提供凭证等），我作为放行理由记录到审计"
-- 拿到无凭证理由后，调 **create_expense_payment(..., no_receipt=true, override_reason="<用户给的理由>")**
+- **不要追问"无凭证的原因"**——用户既然没给凭证，就默认走无凭证通道，再问一遍是多余的
+- `override_reason` 由你自己组装：`"用户口述录入，无凭证。事由：<用户文字里的转账事由/款项说明原文>"`
+- 列出计划（金额、币种、收款方、付款日期、款项说明、群名匹配情况、notes 原文）**后立即调 `present_quick_replies`**：
+  - `kind="confirmation"`，`actions=[{label:"确认录入", send_text:"确认", style:"primary"}, {label:"取消", send_text:"取消", style:"danger"}]`
+  - 等用户点击或回复，**不要在同一轮里既列计划又写入**
+- 用户点"确认录入"或回复同意性表达后，下一轮调 **create_expense_payment(..., no_receipt=true, override_reason="<你组装的理由>")**
   - 该工具内部走 manual 模式，自动 source="manual_no_receipt"
 """
         else:
@@ -199,8 +203,11 @@ analyze_files 已返回结构化字段 `data`，包含：
   **必须先调 `list_payment_accounts` 拿到全量账户列表**，按 `title` / `aliases` 命中 ID，把 id 填入 `payment_account_id` 参数。
   - 命中规则：用户字串 == 某个 alias 或包含 `title` 即视为命中
   - 多个候选无法确定时，列出候选让用户选；完全无候选时把 `payment_account_id` 留空并告知用户该简称未在系统配置
-- 询问用户："这笔收入暂时没有凭证可上传是吗？确认后我先按您说的录入，凭证后续补上"
-- 用户确认后，调 **create_income_payment(..., no_receipt=true, payment_account_id=<上一步命中的 ID>)** 直接录入并结算
+- **不要追问"是否有凭证"或"凭证理由"**——用户既然没给凭证，就默认走无凭证通道，再问是多余的
+- 列出计划（金额、币种、收款账户、付款日期、款项说明、客户名、群名匹配情况、notes 原文）**后立即调 `present_quick_replies`**：
+  - `kind="confirmation"`，`actions=[{label:"确认录入", send_text:"确认", style:"primary"}, {label:"取消", send_text:"取消", style:"danger"}]`
+  - 等用户点击或回复，**不要在同一轮里既列计划又写入**
+- 用户点"确认录入"或回复同意性表达后，下一轮调 **create_income_payment(..., no_receipt=true, payment_account_id=<上一步命中的 ID>)** 直接录入并结算
   - 该工具会自动在 notes 打 [无凭证收入] 标记，便于将来补凭证时筛选
   - 不需要 override_reason，不写 override 审计
 - **不要主动要求用户提供放行理由**（与支出不同，收入现阶段直接放行，无需审计追溯）
