@@ -96,7 +96,7 @@
 
 .receipt-chat-header-top {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   gap: 11px;
 }
 
@@ -110,23 +110,31 @@
 .receipt-chat-header-info {
   flex: 1;
   min-width: 0;
-}
-
-/* 主行：徽章 + 群名 + 状态 */
-.receipt-chat-header-main {
   display: flex;
   align-items: center;
   gap: 8px;
   flex-wrap: wrap;
 }
 
+/* 主行：徽章 + 群名 + 状态 */
+.receipt-chat-header-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
 /* 次行：客户 · 合同 */
 .receipt-chat-header-sub {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 6px;
-  margin-top: 3px;
-  flex-wrap: wrap;
+}
+
+/* 分隔符 */
+.receipt-chat-header-sep {
+  color: #d0d5dd;
+  font-size: 12px;
+  margin: 0 2px;
 }
 
 /* 业务色徽章（与设计系统业务色对应，只在此标识业务类型） */
@@ -213,39 +221,8 @@
   color: #52c41a;
 }
 
-/* ── 金额小票条（视觉锚点：类型标签 | 金额 | 合同号）── */
-.receipt-chat-receipt-bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 14px;
-  background: var(--bg-surface);
-  border: 1px solid var(--type-color-soft);
-  border-left: 3px solid var(--type-color);
-  border-radius: 8px;
-  box-shadow: 0 1px 3px var(--type-shadow-soft);
-}
-
-.receipt-chat-receipt-type {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--type-color);
-  background: var(--type-color-soft);
-  padding: 3px 9px;
-  border-radius: 4px;
-  letter-spacing: 0.3px;
-  flex-shrink: 0;
-}
-
-.receipt-chat-receipt-sep {
-  width: 1px;
-  height: 18px;
-  background: var(--border-light);
-  flex-shrink: 0;
-}
-
-/* 金额：mono 大字 + 类型色，凭证核对一眼锁定 */
-.receipt-chat-receipt-amount {
+/* header 内嵌金额 */
+.receipt-chat-header-amount {
   font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
   color: var(--type-color);
@@ -253,27 +230,20 @@
   display: inline-flex;
   align-items: baseline;
   gap: 2px;
-  margin-right: auto;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
-.receipt-chat-receipt-amount-cur {
+.receipt-chat-header-amount-cur {
   font-size: 12px;
   font-weight: 600;
   opacity: 0.8;
 }
 
-.receipt-chat-receipt-amount-num {
-  font-size: 18px;
+.receipt-chat-header-amount-num {
+  font-size: 16px;
   letter-spacing: 0.3px;
   line-height: 1;
-}
-
-.receipt-chat-receipt-number {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--text-tertiary);
-  flex-shrink: 0;
-  letter-spacing: 0.2px;
 }
 
 /* ── 消息区域 ── */
@@ -772,4 +742,99 @@
   .receipt-chat-filecard-name {
     max-width: 96px;
   }
+}
+
+/* ═══════════════════════════════════════════════
+   已有收支记录面板（消息区顶部常驻）
+   仅当本合同存在同类型记录时展示，无记录不渲染
+   ═══════════════════════════════════════════════ */
+.receipt-chat-existing {
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--type-color-soft);
+  border: 1px solid var(--type-color-shadow-soft);
+}
+
+.receipt-chat-existing-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--type-color-deep);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+
+.receipt-chat-existing-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.receipt-chat-existing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 3px 0;
+}
+
+/* 款项名：弹性宽度，加粗，超出省略 */
+.receipt-chat-existing-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* 金额：类型色，等宽数字 */
+.receipt-chat-existing-amount {
+  font-weight: 600;
+  color: var(--type-color);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* 日期：次要色，固定窄宽 */
+.receipt-chat-existing-date {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 38px;
+  text-align: right;
+}
+
+/* 状态小标：按状态着色 */
+.receipt-chat-existing-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 8px;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+
+.receipt-chat-existing-status.st-paid {
+  color: var(--type-color-deep);
+  background: var(--type-color-bg);
+}
+
+.receipt-chat-existing-status.st-failed {
+  color: #cf1322;
+  background: #fff2f0;
+}
+
+.receipt-chat-existing-status.st-pending {
+  color: #d46b08;
+  background: #fff7e6;
+}
+
+.receipt-chat-existing-status.st-no-receipt {
+  color: #8c8c8c;
+  background: #f5f5f5;
 }

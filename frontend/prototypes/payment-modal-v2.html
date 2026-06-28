@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<title>PaymentFormModal v2 原型 · 收入 / 支出双弹窗</title>
+<style>
+  /* ============================================================
+     设计 token（与 frontend/src/index.css 同步）
+     ============================================================ */
+  :root {
+    /* 业务色 */
+    --action-income: #5b8c63;
+    --action-income-deep: #3d6644;
+    --money-due: #dc6b3d;
+    --money-due-deep: #b8521f;
+
+    /* 品牌 */
+    --brand-primary: #1e3a5f;
+    --brand-gold: #c9952b;
+
+    /* 中性 */
+    --text-primary: #1f2937;
+    --text-secondary: #64748b;
+    --text-tertiary: #94a3b8;
+    --bg-surface: #ffffff;
+    --bg-page: #f8fafc;
+    --bg-subtle: #f1f5f9;
+    --bg-hover: #f8fafc;
+    --border-light: #e2e8f0;
+    --border-default: #cbd5e1;
+    --border-lighter: #f1f5f9;
+    --color-danger: #ff4d4f;
+
+    /* 圆角 / 字号 */
+    --radius-sm: 4px;
+    --radius-md: 8px;
+    --radius-lg: 12px;
+    --font-mono: 'SF Mono', 'JetBrains Mono', 'Consolas', monospace;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 32px;
+    background: linear-gradient(180deg, #eef2f7 0%, #dde4ee 100%);
+    font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+    color: var(--text-primary);
+    min-height: 100vh;
+  }
+
+  /* ============================================================
+     顶部说明区
+     ============================================================ */
+  .proto-header {
+    max-width: 1640px;
+    margin: 0 auto 28px;
+    padding: 20px 24px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-lg);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
+  }
+  .proto-header h1 {
+    margin: 0 0 8px;
+    font-size: 22px;
+    font-weight: 700;
+  }
+  .proto-header p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 13px;
+    line-height: 1.7;
+  }
+  .proto-header .legend {
+    display: flex;
+    gap: 18px;
+    margin-top: 12px;
+    flex-wrap: wrap;
+  }
+  .proto-header .legend-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .proto-header .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+
+  /* ============================================================
+     双弹窗并排容器
+     ============================================================ */
+  .proto-grid {
+    max-width: 1640px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 28px;
+  }
+  @media (max-width: 1280px) {
+    .proto-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ============================================================
+     模拟 modal（背景遮罩 + 弹窗卡片）
+     ============================================================ */
+  .proto-scene {
+    position: relative;
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.12);
+  }
+  .proto-scene::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background:
+      repeating-linear-gradient(45deg, rgba(148, 163, 184, 0.04), rgba(148, 163, 184, 0.04) 6px, transparent 6px, transparent 12px),
+      var(--bg-page);
+  }
+  .proto-scene .scene-label {
+    position: absolute;
+    top: 14px;
+    left: 14px;
+    z-index: 1;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.75);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    backdrop-filter: blur(6px);
+  }
+  .proto-mock {
+    position: relative;
+    margin: 56px 32px 32px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-md);
+    box-shadow: 0 4px 20px rgba(15, 23, 42, 0.08);
+    overflow: hidden;
+  }
+
+  /* ── modal 标题栏 ── */
+  .pfm-title-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 16px;
+    font-weight: 700;
+  }
+  .pfm-title-bar .pfm-title-stripe {
+    width: 4px;
+    height: 18px;
+    border-radius: 2px;
+  }
+  .pfm-income  .pfm-title-stripe { background: var(--action-income); }
+  .pfm-expense .pfm-title-stripe { background: var(--money-due); }
+  .pfm-income  .pfm-title-bar { color: var(--action-income-deep); }
+  .pfm-expense .pfm-title-bar { color: var(--money-due-deep); }
+
+  /* ── modal 内容区 ── */
+  .pfm-body {
+    padding: 20px 24px 8px;
+  }
+
+  /* ── 顶部 context 卡（合同 + 客户 + 对应业务）── */
+  .pfm-context {
+    padding: 12px 16px;
+    margin-bottom: 18px;
+    background: var(--bg-subtle);
+    border-left: 3px solid var(--pfm-color, var(--action-income));
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  }
+  .pfm-income  .pfm-context { --pfm-color: var(--action-income); }
+  .pfm-expense .pfm-context { --pfm-color: var(--money-due); }
+
+  .pfm-context-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+    line-height: 1.4;
+  }
+  .pfm-context-meta {
+    margin-top: 6px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .pfm-context-meta .meta-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pfm-context-meta .meta-icon {
+    color: var(--text-tertiary);
+    font-size: 13px;
+  }
+  .pfm-context-meta .meta-val {
+    color: var(--text-primary);
+    font-weight: 500;
+  }
+  .pfm-context-meta .meta-tag {
+    padding: 1px 6px;
+    border-radius: 8px;
+    font-size: 10px;
+    background: var(--pfm-color);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  /* ── 表单字段 ── */
+  .pfm-row {
+    display: flex;
+    gap: 14px;
+    margin-bottom: 14px;
+  }
+  .pfm-row > .pfm-field { flex: 1; min-width: 0; }
+  .pfm-field { margin-bottom: 14px; }
+  .pfm-field-label {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13px;
+    font-weight: 500;
+    margin-bottom: 6px;
+    color: var(--text-primary);
+  }
+  .pfm-field-label .seq {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: var(--pfm-bg, rgba(91, 140, 99, 0.1));
+    color: var(--pfm-deep, var(--action-income-deep));
+    font-size: 11px;
+    font-weight: 700;
+    font-family: var(--font-mono);
+    flex-shrink: 0;
+  }
+  .pfm-income  .pfm-field-label .seq { background: rgba(91, 140, 99, 0.12); color: var(--action-income-deep); }
+  .pfm-expense .pfm-field-label .seq { background: rgba(220, 107, 61, 0.12); color: var(--money-due-deep); }
+
+  .pfm-input,
+  .pfm-select {
+    width: 100%;
+    padding: 7px 11px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 32px;
+  }
+  .pfm-input.input-prefilled {
+    background: rgba(91, 140, 99, 0.06);
+    border-color: rgba(91, 140, 99, 0.35);
+  }
+  .pfm-input.input-prefilled .pfm-input-suffix {
+    color: var(--action-income);
+    font-size: 11px;
+    font-weight: 600;
+  }
+  .pfm-select .pfm-select-arrow {
+    color: var(--text-tertiary);
+    font-size: 10px;
+  }
+  .pfm-input-hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-top: 4px;
+    line-height: 1.5;
+  }
+
+  /* ── 金额行 ── */
+  .pfm-amount-row {
+    display: flex;
+    gap: 10px;
+  }
+  .pfm-amount-input {
+    flex: 1;
+    padding: 8px 11px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    font-size: 16px;
+    font-weight: 600;
+    font-family: var(--font-mono);
+    color: var(--brand-gold);
+    background: var(--bg-surface);
+    text-align: right;
+  }
+  .pfm-amount-input::placeholder { color: var(--text-tertiary); font-weight: 400; }
+  .pfm-currency-select {
+    width: 130px;
+    flex-shrink: 0;
+    padding: 7px 11px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* ── 备注多行 ── */
+  .pfm-textarea {
+    width: 100%;
+    padding: 7px 11px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    background: var(--bg-surface);
+    color: var(--text-primary);
+    min-height: 48px;
+    resize: vertical;
+    line-height: 1.5;
+  }
+
+  /* ── 凭证区（核心新设计：并列双卡）── */
+  .pfm-receipt-section {
+    margin-top: 16px;
+    padding: 16px;
+    background: var(--pfm-bg, rgba(91, 140, 99, 0.06));
+    border: 1px solid var(--pfm-border, rgba(91, 140, 99, 0.2));
+    border-radius: var(--radius-md);
+  }
+  .pfm-income  .pfm-receipt-section { --pfm-bg: rgba(91, 140, 99, 0.06); --pfm-border: rgba(91, 140, 99, 0.22); }
+  .pfm-expense .pfm-receipt-section { --pfm-bg: rgba(220, 107, 61, 0.06); --pfm-border: rgba(220, 107, 61, 0.2); }
+
+  .pfm-receipt-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .pfm-receipt-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .pfm-receipt-title .seq {
+    background: var(--pfm-color, var(--action-income));
+    color: #fff;
+  }
+  .pfm-income  .pfm-receipt-title .seq { background: var(--action-income); }
+  .pfm-expense .pfm-receipt-title .seq { background: var(--money-due); }
+  .pfm-tag {
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 600;
+    line-height: 1.6;
+  }
+  .pfm-tag.required { background: var(--color-danger); color: #fff; }
+  .pfm-tag.optional { background: var(--bg-surface); color: var(--text-tertiary); border: 1px solid var(--border-light); }
+  .pfm-tag.ai-smart {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+  }
+  .pfm-receipt-hint {
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  /* 并列双卡 */
+  .pfm-receipt-dual {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+  .pfm-receipt-card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    transition: all 0.18s;
+    position: relative;
+  }
+  .pfm-receipt-card:hover {
+    border-color: var(--pfm-color);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.06);
+  }
+  .pfm-receipt-card.is-active {
+    border-color: var(--pfm-color);
+    background: linear-gradient(180deg, var(--bg-surface), var(--pfm-bg));
+  }
+  .pfm-receipt-card.is-collapsed {
+    padding: 10px 14px;
+    flex-direction: row;
+    align-items: center;
+    gap: 10px;
+    min-height: 52px;
+  }
+  .pfm-receipt-card.is-collapsed .pfm-card-content {
+    display: none;
+  }
+  .pfm-receipt-card.is-collapsed .pfm-card-expand-hint {
+    display: inline-flex;
+  }
+  .pfm-card-expand-hint {
+    display: none;
+    font-size: 11px;
+    color: var(--text-tertiary);
+    margin-left: auto;
+  }
+
+  .pfm-card-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .pfm-card-head .pfm-card-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px;
+    height: 28px;
+    border-radius: 6px;
+    background: var(--bg-subtle);
+    color: var(--text-secondary);
+    font-size: 14px;
+    flex-shrink: 0;
+  }
+  .pfm-card-head .pfm-card-icon.icon-ai {
+    background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(139, 92, 246, 0.18));
+    color: #6366f1;
+  }
+  .pfm-card-head .pfm-card-title {
+    flex: 1;
+  }
+  .pfm-card-head .pfm-card-sub {
+    font-size: 11px;
+    font-weight: 400;
+    color: var(--text-tertiary);
+    margin-top: 2px;
+  }
+  .pfm-card-collapse-btn {
+    font-size: 11px;
+    color: var(--text-tertiary);
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .pfm-card-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  /* 拖拽上传区 */
+  .pfm-uploader {
+    border: 1.5px dashed var(--border-default);
+    border-radius: var(--radius-sm);
+    padding: 18px 12px;
+    background: var(--bg-page);
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.18s;
+  }
+  .pfm-uploader:hover {
+    border-color: var(--pfm-color);
+    background: var(--pfm-bg);
+  }
+  .pfm-uploader-icon {
+    font-size: 24px;
+    color: var(--text-tertiary);
+    margin-bottom: 4px;
+  }
+  .pfm-uploader-text {
+    font-size: 13px;
+    color: var(--text-primary);
+    margin-bottom: 2px;
+  }
+  .pfm-uploader-hint {
+    font-size: 11px;
+    color: var(--text-tertiary);
+  }
+
+  /* 已上传文件预览 */
+  .pfm-file-preview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 8px 10px;
+    background: var(--bg-subtle);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-light);
+  }
+  .pfm-file-preview-left {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+    flex: 1;
+  }
+  .pfm-file-thumb {
+    width: 44px;
+    height: 44px;
+    border-radius: 5px;
+    background: linear-gradient(135deg, #1e3a5f, #2d5b8a);
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .pfm-file-meta {
+    flex: 1;
+    min-width: 0;
+  }
+  .pfm-file-name {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-primary);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .pfm-file-status {
+    font-size: 11px;
+    color: var(--pfm-color);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-top: 2px;
+  }
+  .pfm-file-check {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: var(--pfm-color);
+    color: #fff;
+    font-size: 9px;
+  }
+  .pfm-file-actions {
+    display: flex;
+    gap: 10px;
+    font-size: 12px;
+  }
+  .pfm-file-actions a {
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .pfm-file-actions a:hover { color: var(--pfm-color); }
+  .pfm-file-actions a.danger { color: var(--color-danger); }
+
+  /* AI 识别结果卡（截图卡专用） */
+  .pfm-ai-result {
+    background: linear-gradient(180deg, rgba(99, 102, 241, 0.04), rgba(139, 92, 246, 0.06));
+    border: 1px solid rgba(99, 102, 241, 0.25);
+    border-radius: var(--radius-sm);
+    padding: 10px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .pfm-ai-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    font-size: 12px;
+    font-weight: 600;
+    color: #4f46e5;
+  }
+  .pfm-ai-head .ai-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .pfm-ai-confidence {
+    padding: 1px 8px;
+    border-radius: 999px;
+    background: rgba(99, 102, 241, 0.12);
+    color: #4f46e5;
+    font-size: 10px;
+    font-family: var(--font-mono);
+    font-weight: 600;
+  }
+  .pfm-ai-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    background: var(--bg-surface);
+    border-radius: var(--radius-sm);
+    padding: 6px 8px;
+    border: 1px solid rgba(99, 102, 241, 0.12);
+  }
+  .pfm-ai-field {
+    display: grid;
+    grid-template-columns: 80px 1fr 14px;
+    gap: 8px;
+    align-items: center;
+    font-size: 11px;
+    padding: 2px 0;
+  }
+  .pfm-ai-field .ai-label {
+    color: var(--text-tertiary);
+    font-weight: 500;
+  }
+  .pfm-ai-field .ai-value {
+    color: var(--text-primary);
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .pfm-ai-field .ai-value.amount {
+    font-family: var(--font-mono);
+    font-weight: 700;
+    color: var(--brand-gold);
+  }
+  .pfm-ai-field .ai-check {
+    color: var(--action-income);
+    font-size: 11px;
+    text-align: center;
+  }
+
+  .pfm-ai-actions {
+    display: flex;
+    gap: 6px;
+  }
+  .pfm-ai-btn {
+    flex: 1;
+    padding: 5px 8px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    font-weight: 500;
+    text-align: center;
+    cursor: pointer;
+    transition: all 0.15s;
+    border: 1px solid transparent;
+  }
+  .pfm-ai-btn.primary {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+  }
+  .pfm-ai-btn.primary:hover { opacity: 0.92; }
+  .pfm-ai-btn.ghost {
+    background: var(--bg-surface);
+    border-color: var(--border-default);
+    color: var(--text-secondary);
+  }
+  .pfm-ai-btn.ghost:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+
+  /* ── modal 底部按钮 ── */
+  .pfm-footer {
+    padding: 14px 24px;
+    border-top: 1px solid var(--border-light);
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    background: var(--bg-page);
+  }
+  .pfm-btn {
+    padding: 6px 18px;
+    border-radius: var(--radius-sm);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    border: 1px solid transparent;
+    transition: all 0.15s;
+  }
+  .pfm-btn.primary {
+    background: var(--pfm-color);
+    color: #fff;
+  }
+  .pfm-btn.primary:hover { opacity: 0.92; }
+  .pfm-btn.ghost {
+    background: var(--bg-surface);
+    border-color: var(--border-default);
+    color: var(--text-secondary);
+  }
+  .pfm-btn.ghost:hover { color: var(--text-primary); border-color: var(--text-tertiary); }
+  .pfm-income  .pfm-footer .pfm-btn.primary { background: var(--action-income); }
+  .pfm-expense .pfm-footer .pfm-btn.primary { background: var(--money-due); }
+
+  /* ── 凭证对比说明 ── */
+  .pfm-compare {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: rgba(99, 102, 241, 0.04);
+    border-left: 3px solid #6366f1;
+    border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    line-height: 1.65;
+  }
+  .pfm-compare strong { color: var(--text-primary); }
+  .pfm-compare ul { margin: 6px 0 0; padding-left: 18px; }
+  .pfm-compare li { margin-bottom: 2px; }
+  .pfm-compare .kbd {
+    padding: 1px 6px;
+    border-radius: 3px;
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    color: var(--text-primary);
+  }
+
+  /* ── 提示徽章 ── */
+  .pfm-badge-note {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 10px;
+    font-weight: 600;
+    margin-left: 8px;
+  }
+  .pfm-badge-note.ai-smart {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+  }
+
+  /* ── 字段自动回填视觉提示 ── */
+  .pfm-field.is-autofilled {
+    position: relative;
+  }
+  .pfm-field.is-autofilled::after {
+    content: 'AI 自动填充，可修改';
+    position: absolute;
+    right: 0;
+    bottom: -16px;
+    font-size: 10px;
+    color: #6366f1;
+    font-weight: 500;
+  }
+
+</style>
+</head>
+<body>
+
+<div class="proto-header">
+  <h1>PaymentFormModal v2 原型 · 收入 / 支出双弹窗</h1>
+  <p>
+    改动一览：① 顶部 context 增加「对应业务 · 群名稱」只读展示；② 收入场景新增「收款对象」字段（合同 customer_name 自动回填，对应固定格式第 4 项）；③ 凭证区由单一 Dragger 改为<strong>并列双卡</strong>——左「付款凭证」（原上传区）、右「固定格式截图」（AI 识别回填），截图卡默认折叠态避免视觉拥挤。
+  </p>
+  <div class="legend">
+    <span class="legend-item"><span class="legend-dot" style="background: var(--action-income)"></span>收入 · 鼠尾草绿</span>
+    <span class="legend-item"><span class="legend-dot" style="background: var(--money-due)"></span>支出 · 暖橙</span>
+    <span class="legend-item"><span class="legend-dot" style="background: linear-gradient(135deg, #6366f1, #8b5cf6)"></span>AI 识别 · 紫渐变</span>
+    <span class="legend-item"><span class="legend-dot" style="background: var(--brand-gold)"></span>金额 · 金色</span>
+  </div>
+</div>
+
+<div class="proto-grid">
+
+  <!-- ============================================================
+       弹窗 1：录入收款（income）
+       ============================================================ -->
+  <div class="proto-scene">
+    <div class="scene-label">SCENE 1 · 录入收款</div>
+    <div class="proto-mock pfm-income">
+      <div class="pfm-title-bar">
+        <span class="pfm-title-stripe"></span>
+        <span>录入收款</span>
+      </div>
+
+      <div class="pfm-body">
+
+        <!-- 顶部 context：合同 + 客户 + 对应业务 -->
+        <div class="pfm-context">
+          <div class="pfm-context-title">马森车子过户（粤 Z / 澳康 mini 群 · 第 2 台）</div>
+          <div class="pfm-context-meta">
+            <span class="meta-item">
+              <span class="meta-icon">👤</span>客户 · <span class="meta-val">胡少棣</span>
+            </span>
+            <span class="meta-item">
+              <span class="meta-icon">💬</span>对应业务 · <span class="meta-val">澳康 mini 群（2 台）</span>
+              <span class="meta-tag">已绑定</span>
+            </span>
+            <span class="meta-item">
+              <span class="meta-icon">💰</span>合同总额 · <span class="meta-val">HKD 599,800.00</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 1. 款项说明 + 2. 日期 -->
+        <div class="pfm-row">
+          <div class="pfm-field">
+            <label class="pfm-field-label"><span class="seq">1</span>款项说明</label>
+            <div class="pfm-input">马森车子尾款</div>
+          </div>
+          <div class="pfm-field">
+            <label class="pfm-field-label"><span class="seq">2</span>日期</label>
+            <div class="pfm-input">
+              <span>2026-06-23</span>
+              <span class="pfm-select-arrow">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 收款账户 -->
+        <div class="pfm-field">
+          <label class="pfm-field-label"><span class="seq">3</span>收款账户</label>
+          <div class="pfm-select">
+            <span>高山香港账户 · 125-311308-838</span>
+            <span class="pfm-select-arrow">▾</span>
+          </div>
+          <div class="pfm-input-hint">从收款账户库选择，或下拉底部「+ 新增其他账户」即时录入</div>
+        </div>
+
+        <!-- 4. 收款对象（NEW · 合同 customer_name 自动回填） -->
+        <div class="pfm-field is-autofilled">
+          <label class="pfm-field-label">
+            <span class="seq">4</span>收款对象
+            <span class="pfm-badge-note ai-smart">AI 回填</span>
+          </label>
+          <div class="pfm-input input-prefilled">
+            <span>胡少棣</span>
+            <span class="pfm-input-suffix">✓ 来源：合同客户</span>
+          </div>
+          <div class="pfm-input-hint">对应固定格式第 4 项「收款对象：xxx」。从合同 customer_name 自动回填，可手动修改（防客户改名/历史快照）</div>
+        </div>
+
+        <!-- 5. 金额 + 币种 -->
+        <div class="pfm-field">
+          <label class="pfm-field-label"><span class="seq">5</span>金额</label>
+          <div class="pfm-amount-row">
+            <div class="pfm-amount-input">557,498.00</div>
+            <div class="pfm-currency-select">
+              <span>港币 HKD</span>
+              <span class="pfm-select-arrow">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 6. 结算状态/备注 -->
+        <div class="pfm-field">
+          <label class="pfm-field-label"><span class="seq">6</span>结算状态 / 备注</label>
+          <div class="pfm-textarea">已结清 599800（车款）+ 7498（牌费）+ 100（登记费）+ 100（刻章）- 50000（定金）= 557498</div>
+        </div>
+
+        <!-- 凭证区 · 并列双卡 -->
+        <div class="pfm-receipt-section">
+          <div class="pfm-receipt-header">
+            <span class="pfm-receipt-title">
+              <span class="seq">7</span>凭证
+              <span class="pfm-tag required">收入必传</span>
+            </span>
+            <span class="pfm-receipt-hint">以下任选其一 · 上传后自动校验金额/付款方</span>
+          </div>
+
+          <div class="pfm-receipt-dual">
+
+            <!-- 左卡：付款凭证（展开态 · 已上传） -->
+            <div class="pfm-receipt-card is-active">
+              <div class="pfm-card-head">
+                <span class="pfm-card-icon">📎</span>
+                <div class="pfm-card-title">
+                  付款凭证
+                  <div class="pfm-card-sub">银行水单 / 收据 · 传统上传</div>
+                </div>
+                <span class="pfm-card-collapse-btn">折叠</span>
+              </div>
+              <div class="pfm-card-content">
+                <div class="pfm-file-preview">
+                  <div class="pfm-file-preview-left">
+                    <div class="pfm-file-thumb">$</div>
+                    <div class="pfm-file-meta">
+                      <div class="pfm-file-name">HSBC_水单_20260623.jpg</div>
+                      <div class="pfm-file-status">
+                        <span class="pfm-file-check">✓</span>已上传 · 提交后自动校验
+                      </div>
+                    </div>
+                  </div>
+                  <div class="pfm-file-actions">
+                    <a>预览</a>
+                    <a class="danger">删除</a>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- 右卡：固定格式截图（折叠态 · 默认） -->
+            <div class="pfm-receipt-card is-collapsed">
+              <span class="pfm-card-icon icon-ai">📷</span>
+              <div class="pfm-card-title" style="font-size: 13px;">
+                固定格式截图
+                <div class="pfm-card-sub">AI 自动识别 · 提取字段回填</div>
+              </div>
+              <span class="pfm-tag ai-smart" style="font-size: 10px;">AI 智能</span>
+              <span class="pfm-card-expand-hint">点击展开 ▸</span>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      <div class="pfm-footer">
+        <button class="pfm-btn ghost">取消</button>
+        <button class="pfm-btn primary">提交</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================
+       弹窗 2：录入支出（expense）
+       ============================================================ -->
+  <div class="proto-scene">
+    <div class="scene-label">SCENE 2 · 录入支出</div>
+    <div class="proto-mock pfm-expense">
+      <div class="pfm-title-bar">
+        <span class="pfm-title-stripe"></span>
+        <span>录入支出</span>
+      </div>
+
+      <div class="pfm-body">
+
+        <!-- 顶部 context -->
+        <div class="pfm-context">
+          <div class="pfm-context-title">马森车子过户（粤 Z / 澳康 mini 群 · 第 2 台）</div>
+          <div class="pfm-context-meta">
+            <span class="meta-item">
+              <span class="meta-icon">👤</span>客户 · <span class="meta-val">胡少棣</span>
+            </span>
+            <span class="meta-item">
+              <span class="meta-icon">💬</span>对应业务 · <span class="meta-val">澳康 mini 群（2 台）</span>
+              <span class="meta-tag">已绑定</span>
+            </span>
+            <span class="meta-item">
+              <span class="meta-icon">💰</span>合同总额 · <span class="meta-val">HKD 599,800.00</span>
+            </span>
+          </div>
+        </div>
+
+        <!-- 1. 款项说明 + 2. 日期 -->
+        <div class="pfm-row">
+          <div class="pfm-field">
+            <label class="pfm-field-label"><span class="seq">1</span>款项说明</label>
+            <div class="pfm-input">SHANGYU AUTOMOBILE 现牌尾款</div>
+          </div>
+          <div class="pfm-field">
+            <label class="pfm-field-label"><span class="seq">2</span>日期</label>
+            <div class="pfm-input">
+              <span>2026-06-23</span>
+              <span class="pfm-select-arrow">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 3. 付款方式 -->
+        <div class="pfm-field">
+          <label class="pfm-field-label"><span class="seq">3</span>付款方式</label>
+          <div class="pfm-select">
+            <span>银行转账</span>
+            <span class="pfm-select-arrow">▾</span>
+          </div>
+        </div>
+
+        <!-- 4. 收款方 -->
+        <div class="pfm-field">
+          <label class="pfm-field-label"><span class="seq">4</span>收款方</label>
+          <div class="pfm-input">SHANGYU AUTOMOBILE HK LIMITED</div>
+        </div>
+
+        <!-- 5. 银行账户（联动显示） -->
+        <div class="pfm-row">
+          <div class="pfm-field">
+            <label class="pfm-field-label" style="font-size: 12px;">开户行</label>
+            <div class="pfm-input">HONGKONG AND SHANGHAI BANKING</div>
+          </div>
+          <div class="pfm-field">
+            <label class="pfm-field-label" style="font-size: 12px;">网点</label>
+            <div class="pfm-input">1 QUEEN'S ROAD, CENTRAL, HONGKONG</div>
+          </div>
+        </div>
+        <div class="pfm-row">
+          <div class="pfm-field">
+            <label class="pfm-field-label" style="font-size: 12px;">户名</label>
+            <div class="pfm-input">SHANGYU AUTOMOBILE HK LIMITED</div>
+          </div>
+          <div class="pfm-field">
+            <label class="pfm-field-label" style="font-size: 12px;">卡号 / 账号</label>
+            <div class="pfm-input" style="font-family: var(--font-mono);">125-311308-838</div>
+          </div>
+        </div>
+
+        <!-- 6. 金额 + 币种 -->
+        <div class="pfm-field">
+          <label class="pfm-field-label"><span class="seq">6</span>金额</label>
+          <div class="pfm-amount-row">
+            <div class="pfm-amount-input">557,498.00</div>
+            <div class="pfm-currency-select">
+              <span>港币 HKD</span>
+              <span class="pfm-select-arrow">▾</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- 7. 结算状态/备注 -->
+        <div class="pfm-field">
+          <label class="pfm-field-label"><span class="seq">7</span>结算状态 / 备注</label>
+          <div class="pfm-textarea">已结清，总数 599,800 HKD，纳税牌抵扣 50,000 HKD</div>
+        </div>
+
+        <!-- 凭证区 · 并列双卡（截图展开态示范） -->
+        <div class="pfm-receipt-section">
+          <div class="pfm-receipt-header">
+            <span class="pfm-receipt-title">
+              <span class="seq">8</span>凭证
+              <span class="pfm-tag optional">可选</span>
+            </span>
+            <span class="pfm-receipt-hint">以下任选其一 · 无凭证将标记为「无凭证支出」</span>
+          </div>
+
+          <div class="pfm-receipt-dual">
+
+            <!-- 左卡：付款凭证（折叠态） -->
+            <div class="pfm-receipt-card is-collapsed">
+              <span class="pfm-card-icon">📎</span>
+              <div class="pfm-card-title" style="font-size: 13px;">
+                付款凭证
+                <div class="pfm-card-sub">银行水单 / 发票 · 传统上传</div>
+              </div>
+              <span class="pfm-card-expand-hint">点击展开 ▸</span>
+            </div>
+
+            <!-- 右卡：固定格式截图（展开态 · AI 识别中） -->
+            <div class="pfm-receipt-card is-active">
+              <div class="pfm-card-head">
+                <span class="pfm-card-icon icon-ai">📷</span>
+                <div class="pfm-card-title">
+                  固定格式截图
+                  <span class="pfm-tag ai-smart" style="font-size: 10px; margin-left: 6px;">AI 智能</span>
+                  <div class="pfm-card-sub">已识别 · 可一键回填</div>
+                </div>
+                <span class="pfm-card-collapse-btn">折叠</span>
+              </div>
+              <div class="pfm-card-content">
+                <div class="pfm-file-preview">
+                  <div class="pfm-file-preview-left">
+                    <div class="pfm-file-thumb" style="background: linear-gradient(135deg, #6366f1, #8b5cf6);">📷</div>
+                    <div class="pfm-file-meta">
+                      <div class="pfm-file-name">转账截图_20260623.png</div>
+                      <div class="pfm-file-status" style="color: #6366f1;">
+                        <span class="pfm-file-check" style="background: #6366f1;">✓</span>已上传 · AI 识别完成
+                      </div>
+                    </div>
+                  </div>
+                  <div class="pfm-file-actions">
+                    <a>预览</a>
+                    <a class="danger">删除</a>
+                  </div>
+                </div>
+
+                <div class="pfm-ai-result">
+                  <div class="pfm-ai-head">
+                    <span class="ai-badge">🤖 AI 识别结果</span>
+                    <span class="pfm-ai-confidence">置信度 96%</span>
+                  </div>
+                  <div class="pfm-ai-fields">
+                    <div class="pfm-ai-field">
+                      <span class="ai-label">款项</span>
+                      <span class="ai-value">现牌尾款</span>
+                      <span class="ai-check">✓</span>
+                    </div>
+                    <div class="pfm-ai-field">
+                      <span class="ai-label">日期</span>
+                      <span class="ai-value">2026-06-23</span>
+                      <span class="ai-check">✓</span>
+                    </div>
+                    <div class="pfm-ai-field">
+                      <span class="ai-label">收款方</span>
+                      <span class="ai-value">SHANGYU AUTOMOBILE HK LIMITED</span>
+                      <span class="ai-check">✓</span>
+                    </div>
+                    <div class="pfm-ai-field">
+                      <span class="ai-label">金额</span>
+                      <span class="ai-value amount">557,498.00 HKD</span>
+                      <span class="ai-check">✓</span>
+                    </div>
+                    <div class="pfm-ai-field">
+                      <span class="ai-label">开户行</span>
+                      <span class="ai-value">HONGKONG AND SHANGHAI BANKING</span>
+                      <span class="ai-check">✓</span>
+                    </div>
+                    <div class="pfm-ai-field">
+                      <span class="ai-label">卡号</span>
+                      <span class="ai-value">125-311308-838</span>
+                      <span class="ai-check">✓</span>
+                    </div>
+                    <div class="pfm-ai-field">
+                      <span class="ai-label">备注</span>
+                      <span class="ai-value">已结清 599800+7498+100+100-50000=557498</span>
+                      <span class="ai-check">✓</span>
+                    </div>
+                  </div>
+                  <div class="pfm-ai-actions">
+                    <button class="pfm-ai-btn primary">⚡ 一键应用此截图</button>
+                    <button class="pfm-ai-btn ghost">重新上传</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      </div>
+
+      <div class="pfm-footer">
+        <button class="pfm-btn ghost">取消</button>
+        <button class="pfm-btn primary">提交</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<!-- ============================================================
+     底部对比说明
+     ============================================================ -->
+<div class="proto-header" style="margin-top: 28px;">
+  <h1>📋 双卡交互说明</h1>
+  <ul style="margin: 8px 0 0; padding-left: 20px; color: var(--text-secondary); font-size: 13px; line-height: 1.85;">
+    <li><strong>默认状态</strong>：左卡「付款凭证」展开（已上传状态），右卡「固定格式截图」折叠为单行——只显示标题、图标、AI 徽标，「点击展开 ▸」提示。</li>
+    <li><strong>截图卡折叠态</strong>：占用空间约 52px（接近一行输入框高度），视觉上不挤压主表单。需要用 AI 识别时点开即可。</li>
+    <li><strong>截图卡展开态</strong>：显示上传区或已上传文件预览 + AI 识别结果字段列表 + 「⚡ 一键应用此截图」主按钮。</li>
+    <li><strong>字段回填规则</strong>：点击「⚡ 一键应用」后，AI 识别出的字段批量 <code>form.setFieldsValue</code> 回填到表单（款项说明、日期、收款方、银行账户、金额、备注等），用户仍可手动改任何字段。</li>
+    <li><strong>置信度 &lt; 70%</strong>：截图卡显示橙色提示「⚠ 部分字段识别置信度较低，建议核对后再应用」——不静默回填。</li>
+    <li><strong>凭证归属</strong>：两个卡都能作为这张 payment 的「凭证」字段值（截图卡上传后，<code>receipt_file_id</code> 自动取截图的 file_id；左卡上传则取左卡的 file_id）。</li>
+    <li><strong>互斥</strong>：两个卡不强制要求都上传，收入场景「至少其一」即可满足必传要求。</li>
+  </ul>
+
+  <h1 style="margin-top: 24px;">🎯 设计取舍记录</h1>
+  <div class="pfm-compare" style="margin-top: 12px;">
+    <strong>为什么并列双卡而不是 Tab 切换？</strong>
+    <ul>
+      <li>Tab 切换会隐藏 AI 智能入口——用户可能不知道有这个能力（截图卡默认折叠已经够低存在感了，再 Tab 切换就埋没了）</li>
+      <li>双卡让两张凭证方案在同一视觉平面竞争，用户一眼看到「哦原来可以这样录」</li>
+      <li>折叠态设计（截图卡默认占一行）解决了"并列会撑高表单"的顾虑</li>
+    </ul>
+  </div>
+</div>
+
+</body>
+</html>

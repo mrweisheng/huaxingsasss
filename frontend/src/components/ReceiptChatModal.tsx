@@ -9,8 +9,11 @@ import {
   CloseOutlined,
 } from '@ant-design/icons'
 import { agentApi } from '@/services/agent'
+import { paymentApi } from '@/services/payment'
 import { compressImage } from '@/utils/imageCompress'
+import { isNoReceipt } from '@/utils/payment'
 import type { ChatMessage, FileType, UploadResult } from '@/types/agent'
+import type { Payment } from '@/types'
 import { MarkdownRenderer, WittyLoadingText, ToolCallBlock, QuickReplyButtons } from '@/components/AgentChatShared'
 import { usePendingFiles } from '@/hooks/usePendingFiles'
 import { useDropZone } from '@/hooks/useDropZone'
@@ -37,6 +40,12 @@ interface ReceiptChatModalProps {
 }
 
 const TYPE_LABELS = { income: '收入', expense: '支出' }
+
+/** 写入工具集合：本轮对话调用了其中任一个，流结束后刷新已有记录列表 */
+const WRITE_TOOLS = new Set([
+  'create_income_payment', 'create_expense_payment', 'override_receipt_mismatch',
+])
+
 const TOOL_LABELS: Record<string, string> = {
   analyze_files: '文件识别',
   analyze_image: '图片识别',
@@ -171,8 +180,26 @@ export default function ReceiptChatModal({
   const abortRef = useRef<AbortController | null>(null)
   const sessionCreatingRef = useRef(false)
   const scrollRef = useRef<HTMLDivElement>(null)
+  // 本合同已有的同类型（income/expense）记录，打开弹窗时加载，录入成功后刷新
+  const [existingPayments, setExistingPayments] = useState<Payment[]>([])
+  // 标记本轮对话是否触发了写入工具（用于流结束后刷新已有记录列表）
+  const wroteThisTurnRef = useRef(false)
 
   const typeLabel = TYPE_LABELS[paymentType]
+
+  // 加载本合同已有的同类型收支记录（用于在消息区顶部常驻展示）
+  const loadExistingPayments = useCallback(async () => {
+    if (!contractId) return
+    try {
+      const resp = await paymentApi.getContractPayments(contractId)
+      // axios 拦截器返回整个 body {code, message, data}，真正的 payload 在 resp.data
+      const payload = resp?.data || resp
+      const group = payload?.[paymentType]
+      setExistingPayments(Array.isArray(group?.payments) ? group.payments : [])
+    } catch {
+      setExistingPayments([])
+    }
+  }, [contractId, paymentType])
 
   // 打开时立即重置 UI（不再阻塞等待 createSession）
   // session 改为懒创建：用户首次发送时才创建
@@ -182,16 +209,20 @@ export default function ReceiptChatModal({
     setInputText('')
     clearPending()
     setSessionId(null)
+    setExistingPayments([])
     sessionCreatingRef.current = false
 
     setMessages([{
       id: Date.now(),
       sessionId: '',
       role: 'assistant',
-      content: `请上传${typeLabel}凭证（图片或 PDF），我来帮您分析并录入。`,
+      content: paymentType === 'income'
+        ? `请上传${typeLabel}凭证（图片或 PDF），或直接描述这笔${typeLabel}（金额/日期/款项/收款账户），我来帮您录入。`
+        : `请上传${typeLabel}凭证（图片或 PDF），或直接描述这笔${typeLabel}（金额/日期/款项/收款方），我来帮您录入。`,
       createdAt: new Date().toISOString(),
     }])
-  }, [open, contractId, paymentType])
+    loadExistingPayments()
+  }, [open, contractId, paymentType, loadExistingPayments])
 
   // 关闭时 abort 在飞 SSE（修复 P1 遗漏：之前关闭不中断后台请求）
   useEffect(() => {
@@ -258,6 +289,15 @@ export default function ReceiptChatModal({
       hasCurrentSessionId: !!sessionId,
     })
 
+    // 检测写入工具调用，标记本轮需要刷新已有记录列表
+    if (
+      event.event === 'tool_call' &&
+      typeof event.data?.name === 'string' &&
+      WRITE_TOOLS.has(event.data.name)
+    ) {
+      wroteThisTurnRef.current = true
+    }
+
     if (
       result.textAppend || result.toolCallAppend || result.toolResultLast ||
       result.thoughtAppend || result.thoughtFinalizeLast || result.quickReplies
@@ -298,6 +338,7 @@ export default function ReceiptChatModal({
       }
     }
     setIsStreaming(true)
+    wroteThisTurnRef.current = false
     setMessages(prev => prev.map(m =>
       m.quickReplies ? { ...m, quickReplies: undefined } : m,
     ))
@@ -420,8 +461,13 @@ export default function ReceiptChatModal({
     } finally {
       setIsStreaming(false)
       abortRef.current = null
+      // 本轮若触发了写入工具，刷新已有记录列表（新记录即时出现）
+      if (wroteThisTurnRef.current) {
+        wroteThisTurnRef.current = false
+        loadExistingPayments()
+      }
     }
-  }, [sessionId, typeLabel, contractNumber, customerName, paymentType, contractId, applyEvent])
+  }, [sessionId, typeLabel, contractNumber, customerName, paymentType, contractId, applyEvent, loadExistingPayments])
 
   // 收支录入：有文字或凭证其一即可发送（两者都空才禁用）
   const missingText = !inputText.trim()
@@ -475,6 +521,26 @@ export default function ReceiptChatModal({
 
   const hasMessages = messages.some(m => m.role === 'user' || m.role === 'assistant')
 
+  // 格式化日期为 MM/DD（极简展示，年份省略）
+  const fmtShortDate = (d?: string) => {
+    if (!d) return ''
+    const parts = d.split('-')  // YYYY-MM-DD
+    if (parts.length !== 3) return d
+    return `${parts[1]}/${parts[2]}`
+  }
+
+  // 已有记录的状态标签文案 + 颜色类
+  const existingStatusOf = (p: Payment): { text: string; cls: string } => {
+    if (p.status === 'paid') {
+      if (isNoReceipt(p)) return { text: '无凭证', cls: 'st-no-receipt' }
+      return { text: '已入账', cls: 'st-paid' }
+    }
+    // pending
+    if (p.verification_status === 'failed') return { text: '待放行', cls: 'st-failed' }
+    if (p.verification_status === 'pending') return { text: '校验中', cls: 'st-pending' }
+    return { text: '待入账', cls: 'st-pending' }
+  }
+
   return (
     <Modal
       title={null}
@@ -507,7 +573,16 @@ export default function ReceiptChatModal({
                   {status === 'active' ? '执行中' : status === 'completed' ? '已完成' : status}
                 </span>
               )}
+              {totalAmount != null && (
+                <span className="receipt-chat-header-amount">
+                  <span className="receipt-chat-header-amount-cur">{currencySymbol[currency] || '¥'}</span>
+                  <span className="receipt-chat-header-amount-num">
+                    {totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </span>
+              )}
             </div>
+            <span className="receipt-chat-header-sep">|</span>
             {/* 次行：客户名 · 合同描述 */}
             <div className="receipt-chat-header-sub">
               <span className="receipt-chat-header-customer">{customerName}</span>
@@ -522,20 +597,6 @@ export default function ReceiptChatModal({
             </div>
           </div>
         </div>
-        {/* 金额小票条：类型标签 | 金额（视觉锚点，类型色大字）| 合同号 */}
-        <div className="receipt-chat-receipt-bar">
-          <span className="receipt-chat-receipt-type">录入{typeLabel}</span>
-          <span className="receipt-chat-receipt-sep" />
-          {totalAmount != null && (
-            <span className="receipt-chat-receipt-amount">
-              <span className="receipt-chat-receipt-amount-cur">{currencySymbol[currency] || '¥'}</span>
-              <span className="receipt-chat-receipt-amount-num">
-                {totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-              </span>
-            </span>
-          )}
-          <span className="receipt-chat-receipt-number">{contractNumber}</span>
-        </div>
       </div>
 
       {/* 消息区 */}
@@ -544,6 +605,30 @@ export default function ReceiptChatModal({
         className={`receipt-chat-messages${isOver ? ' chat-drop-active' : ''}`}
         {...dropHandlers}
       >
+        {/* 已有同类型收支记录（常驻顶部，无记录则不展示） */}
+        {existingPayments.length > 0 && (
+          <div className="receipt-chat-existing">
+            <div className="receipt-chat-existing-title">
+              本合同已有 {existingPayments.length} 笔{typeLabel}
+            </div>
+            <div className="receipt-chat-existing-list">
+              {existingPayments.map((p) => {
+                const st = existingStatusOf(p)
+                const label = p.installment_name || p.description || '未命名'
+                return (
+                  <div key={p.id} className="receipt-chat-existing-row">
+                    <span className="receipt-chat-existing-name" title={label}>{label}</span>
+                    <span className="receipt-chat-existing-amount">
+                      {currencySymbol[p.currency] || '¥'}{(p.paid_amount ?? p.amount).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+                    </span>
+                    <span className="receipt-chat-existing-date">{fmtShortDate(p.paid_date)}</span>
+                    <span className={`receipt-chat-existing-status ${st.cls}`}>{st.text}</span>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        )}
         {!hasMessages ? (
           <div className="receipt-chat-empty receipt-chat-drop-zone">
             <InboxOutlined className="receipt-chat-drop-icon" />

@@ -37,8 +37,8 @@ export interface PaymentCreatePayload {
   payee_name?: string
   counterparty_account?: CounterpartyAccount
   // 凭证
-  receipt_file_id?: string  // 已上传凭证的 file_id（收入必传；支出可选）
-  no_receipt?: boolean      // 无凭证声明（仅支出）
+  receipt_file_id?: string  // 已上传凭证的 file_id（开关开启时收入必传；现阶段可选）
+  no_receipt?: boolean      // 无凭证声明（与 receipt_file_id 互斥；现阶段收入也允许）
 }
 
 export interface PaymentUpdatePayload {

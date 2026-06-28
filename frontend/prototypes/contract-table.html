@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>合同管理表格化 · 原型</title>
+<style>
+  :root {
+    --brand-primary: #1e3a5f;
+    --brand-gold: #c9952b;
+    --gold-deep: #a87a18;
+    --teal: #0d9488;
+    --orange: #dc6b3d;
+    --biz-vehicle: #2d5b8a;
+    --biz-vehicle-deep: #1e3f63;
+    --biz-vehicle-soft: #e5edf6;
+    --biz-cross: #b8423b;
+    --biz-cross-deep: #8f2d28;
+    --biz-cross-soft: #fbe9e7;
+    --biz-other-soft: #eef0f3;
+    --biz-other-deep: #5a6473;
+    --text-1: #1f2937;
+    --text-2: #6b7280;
+    --text-3: #9ca3af;
+    --line: #e5e7eb;
+    --bg: #f4f6f9;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    font-family: -apple-system, "Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif;
+    color: var(--text-1);
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 1320px; margin: 0 auto; padding: 32px 28px 80px; }
+  header h1 { margin: 0 0 6px; font-size: 24px; color: var(--brand-primary); }
+  header p { margin: 0 0 28px; color: var(--text-2); font-size: 14px; line-height: 1.7; }
+
+  section { margin-bottom: 40px; }
+  .scheme-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; flex-wrap: wrap; }
+  .badge {
+    font-size: 12px; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+    background: var(--biz-vehicle-soft); color: var(--biz-vehicle-deep);
+  }
+  .badge.recommend { background: #fdf4e3; color: var(--gold-deep); }
+  .scheme-head h2 { margin: 0; font-size: 17px; }
+  .scheme-head .hint { color: var(--text-2); font-size: 13px; }
+
+  .card {
+    background: #fff; border-radius: 12px; box-shadow: 0 1px 3px rgba(16,24,40,.06), 0 1px 2px rgba(16,24,40,.04);
+    overflow: hidden; border: 1px solid var(--line);
+  }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  thead th {
+    background: var(--brand-primary); color: #fff; font-weight: 600;
+    text-align: left; padding: 11px 10px; white-space: nowrap;
+    position: sticky; top: 0;
+  }
+  thead th.num { text-align: right; }
+  tbody td { padding: 12px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; vertical-align: middle; }
+  tbody tr.row:hover { background: #f8fafc; }
+  tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .muted { color: var(--text-3); }
+  .strong { font-weight: 600; }
+
+  /* 业务 chip */
+  .chip {
+    display: inline-flex; align-items: center; gap: 4px;
+    font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 6px; white-space: nowrap;
+  }
+  .chip.vehicle { background: var(--biz-vehicle-soft); color: var(--biz-vehicle-deep); }
+  .chip.cross   { background: var(--biz-cross-soft);   color: var(--biz-cross-deep); }
+  .chip.other   { background: var(--biz-other-soft);   color: var(--biz-other-deep); }
+
+  /* 金额色 */
+  .amt-paid    { color: var(--gold-deep); font-weight: 600; }
+  .amt-due     { color: var(--orange); font-weight: 600; }
+  .amt-due.zero{ color: var(--teal); }
+  .amt-profit  { color: var(--teal); font-weight: 600; }
+  .cur { font-size: 11px; color: var(--text-3); margin-left: 2px; font-weight: 400; }
+
+  /* 进度条 */
+  .prog { display: flex; align-items: center; gap: 8px; min-width: 110px; }
+  .prog .track { flex: 1; height: 7px; border-radius: 999px; background: #eef0f3; overflow: hidden; }
+  .prog .fill  { height: 100%; border-radius: 999px; }
+  .prog .pct   { font-size: 12px; font-weight: 600; min-width: 34px; text-align: right; font-variant-numeric: tabular-nums; }
+  .fill.partial { background: linear-gradient(90deg,#c9952b,#dc6b3d); }
+  .fill.full    { background: var(--teal); }
+  .fill.low     { background: var(--orange); }
+  .pct.full     { color: var(--teal); }
+
+  /* 源文件 / 操作 */
+  .iconbtn {
+    display: inline-flex; align-items: center; gap: 4px; cursor: pointer;
+    font-size: 12px; color: var(--text-2); border: 1px solid var(--line);
+    background: #fff; padding: 4px 8px; border-radius: 6px; text-decoration: none;
+  }
+  .iconbtn:hover { border-color: var(--brand-primary); color: var(--brand-primary); }
+  .act-link { color: var(--brand-primary); font-size: 12px; font-weight: 600; cursor: pointer; text-decoration: none; }
+  .act-link:hover { text-decoration: underline; }
+
+  /* 展开箭头 */
+  .caret { cursor: pointer; user-select: none; width: 18px; text-align: center; color: var(--text-2); font-size: 12px; transition: transform .2s; display: inline-block; }
+  .caret.open { transform: rotate(90deg); color: var(--brand-primary); }
+
+  /* 展开抽屉行 */
+  tr.drawer-row > td { padding: 0; background: #f8fafc; border-bottom: 1px solid var(--line); }
+  .drawer { border-left: 3px solid var(--biz-vehicle); padding: 16px 20px 18px; }
+  .drawer.cross-tone { border-left-color: var(--biz-cross); }
+  .drawer-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px 28px; }
+  .dblock { background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; }
+  .dblock.span2 { grid-column: 1 / -1; }
+  .dtitle { font-size: 12px; font-weight: 700; color: var(--brand-primary); margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between; }
+  .dtitle .add { color: var(--teal); cursor: pointer; font-weight: 600; font-size: 12px; }
+
+  /* 付款条款小标签 */
+  .terms { display: flex; flex-wrap: wrap; gap: 8px; }
+  .term { font-size: 12px; padding: 5px 10px; border-radius: 6px; background: #f4f7fb; border: 1px solid var(--line); color: var(--text-1); }
+  .term .ok { color: var(--teal); font-weight: 600; }
+  .term .part { color: var(--gold-deep); font-weight: 600; }
+
+  /* 迷你明细表 */
+  .mini { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+  .mini th { text-align: left; color: var(--text-3); font-weight: 500; padding: 4px 8px; border-bottom: 1px solid var(--line); }
+  .mini td { padding: 7px 8px; border-bottom: 1px dashed #eef0f3; }
+  .mini tr:last-child td { border-bottom: none; }
+  .mini .proof { color: var(--brand-primary); cursor: pointer; font-size: 12px; }
+  .mini .mini-act { color: var(--text-3); cursor: pointer; font-size: 13px; }
+  .mini .mini-act:hover { color: var(--biz-cross); }
+  .vchip { font-size: 11px; padding: 1px 7px; border-radius: 999px; }
+  .vchip.ok { background: #e6f4f1; color: var(--teal); }
+  .vchip.wait { background: #fdf4e3; color: var(--gold-deep); }
+
+  footer { margin-top: 8px; padding: 18px 20px; background: #fff; border: 1px solid var(--line); border-radius: 10px; font-size: 13.5px; color: var(--text-2); line-height: 1.9; }
+  footer b { color: var(--text-1); }
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .vs div b { display: block; margin-bottom: 4px; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <header>
+    <h1>合同管理页面 · 表格化原型</h1>
+    <p>核心：<b>一条合同一行</b>。下面两个方案主行完全相同，唯一区别是"附加项 / 收支明细 / 凭证"这些一对多数据放哪——<br>
+    方案 1 放详情页（点「详情」跳过去看）；方案 2 放行内抽屉（点左边 ▸ 原地拉开，不跳页）。<b>方案 2 第一行已默认展开，直接看效果。</b></p>
+  </header>
+
+  <!-- ============ 方案 1 ============ -->
+  <section>
+    <div class="scheme-head">
+      <span class="badge">方案 1</span>
+      <h2>纯汇总表格</h2>
+      <span class="hint">最简单 · 一行一合同全是汇总数字 · 明细去详情页看</span>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>签订</th><th>业务</th><th>微信群</th><th>客户</th><th>合同描述</th>
+            <th>源文件</th><th class="num">合同金额</th><th class="num">已收</th><th class="num">剩余尾款</th>
+            <th class="num">成本</th><th class="num">利润</th><th>付款进度</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="row">
+            <td>06-12</td>
+            <td><span class="chip vehicle">🚗 车辆</span></td>
+            <td>华星3群</td><td>张生</td><td>沪A·12345</td>
+            <td><a class="iconbtn">📎 图</a></td>
+            <td class="num strong">80,000<span class="cur">HKD</span></td>
+            <td class="num amt-paid">50,000<span class="cur">HKD</span></td>
+            <td class="num amt-due">30,000<span class="cur">HKD</span></td>
+            <td class="num muted">10,000</td>
+            <td class="num amt-profit">40,000</td>
+            <td><div class="prog"><div class="track"><div class="fill partial" style="width:62%"></div></div><span class="pct">62%</span></div></td>
+            <td><a class="act-link">详情 →</a></td>
+          </tr>
+          <tr class="row">
+            <td>06-10</td>
+            <td><span class="chip cross">🏷 两地牌</span></td>
+            <td>中港A群</td><td>李太</td><td>粤Z·港888</td>
+            <td><a class="iconbtn">📄 档</a></td>
+            <td class="num strong">120,000<span class="cur">HKD</span></td>
+            <td class="num amt-paid">120,000<span class="cur">HKD</span></td>
+            <td class="num amt-due zero">0</td>
+            <td class="num muted">20,000</td>
+            <td class="num amt-profit">100,000</td>
+            <td><div class="prog"><div class="track"><div class="fill full" style="width:100%"></div></div><span class="pct full">100%</span></div></td>
+            <td><a class="act-link">详情 →</a></td>
+          </tr>
+          <tr class="row">
+            <td>05-28</td>
+            <td><span class="chip other">🔧 其他</span></td>
+            <td>华星1群</td><td>王生</td><td>年检 + 保险</td>
+            <td><a class="iconbtn">📎 图</a></td>
+            <td class="num strong">6,000<span class="cur">CNY</span></td>
+            <td class="num amt-paid">3,000<span class="cur">CNY</span></td>
+            <td class="num amt-due">3,000<span class="cur">CNY</span></td>
+            <td class="num muted">1,000</td>
+            <td class="num amt-profit">2,000</td>
+            <td><div class="prog"><div class="track"><div class="fill low" style="width:50%"></div></div><span class="pct">50%</span></div></td>
+            <td><a class="act-link">详情 →</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 方案 2 ============ -->
+  <section>
+    <div class="scheme-head">
+      <span class="badge recommend">方案 2 · 推荐</span>
+      <h2>汇总表格 + 行内抽屉</h2>
+      <span class="hint">主行与方案 1 一模一样 · 点左边 ▸ 原地拉开看明细（不跳页）· 再点收起</span>
+    </div>
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th style="width:30px"></th>
+            <th>签订</th><th>业务</th><th>微信群</th><th>客户</th><th>合同描述</th>
+            <th>源文件</th><th class="num">合同金额</th><th class="num">已收</th><th class="num">剩余尾款</th>
+            <th class="num">成本</th><th class="num">利润</th><th>付款进度</th><th>操作</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- 第1行：可展开（默认展开） -->
+          <tr class="row expandable" onclick="toggleDrawer(this)">
+            <td><span class="caret open">▶</span></td>
+            <td>06-12</td>
+            <td><span class="chip vehicle">🚗 车辆</span></td>
+            <td>华星3群</td><td>张生</td><td>沪A·12345</td>
+            <td><a class="iconbtn" onclick="event.stopPropagation()">📎 图</a></td>
+            <td class="num strong">80,000<span class="cur">HKD</span></td>
+            <td class="num amt-paid">50,000<span class="cur">HKD</span></td>
+            <td class="num amt-due">30,000<span class="cur">HKD</span></td>
+            <td class="num muted">10,000</td>
+            <td class="num amt-profit">40,000</td>
+            <td><div class="prog"><div class="track"><div class="fill partial" style="width:62%"></div></div><span class="pct">62%</span></div></td>
+            <td><a class="act-link" onclick="event.stopPropagation()">付款通知单</a></td>
+          </tr>
+          <tr class="drawer-row">
+            <td colspan="14">
+              <div class="drawer">
+                <div class="drawer-grid">
+
+                  <div class="dblock span2">
+                    <div class="dtitle">付款条款（合同计划）</div>
+                    <div class="terms">
+                      <span class="term">① 定金 20,000 HKD <span class="ok">✓ 已收</span></span>
+                      <span class="term">② 尾款 60,000 HKD <span class="part">▰▰▱ 部分收</span></span>
+                    </div>
+                  </div>
+
+                  <div class="dblock">
+                    <div class="dtitle">附加项 <span class="add">＋ 新增</span></div>
+                    <table class="mini">
+                      <tr><td>车险</td><td class="num">5,000 <span class="cur">CNY</span></td><td class="muted">付保险公司 · 06-10</td><td><span class="mini-act">✎ 🗑</span></td></tr>
+                      <tr><td>保养</td><td class="num">3,000 <span class="cur">CNY</span></td><td class="muted">付4S店 · 06-12</td><td><span class="mini-act">✎ 🗑</span></td></tr>
+                    </table>
+                  </div>
+
+                  <div class="dblock">
+                    <div class="dtitle">收入流水（客户已付款）</div>
+                    <table class="mini">
+                      <tr><td>定金</td><td class="num amt-paid">20,000 <span class="cur">HKD</span></td><td class="muted">06-13</td><td><span class="proof">🖼 看凭证</span> <span class="vchip ok">✓ 已核验</span></td></tr>
+                      <tr><td>尾款</td><td class="num amt-paid">30,000 <span class="cur">HKD</span></td><td class="muted">06-20</td><td><span class="proof">🖼 看凭证</span> <span class="vchip wait">待核验</span></td></tr>
+                    </table>
+                  </div>
+
+                  <div class="dblock span2">
+                    <div class="dtitle">支出流水（合同成本）</div>
+                    <table class="mini">
+                      <tr><td>过户费</td><td class="num">10,000 <span class="cur">HKD</span></td><td class="muted">付车行 · 06-14</td><td><span class="proof">🖼 看凭证</span></td></tr>
+                    </table>
+                  </div>
+
+                </div>
+              </div>
+            </td>
+          </tr>
+
+          <!-- 第2行：收起状态 -->
+          <tr class="row expandable" onclick="toggleDrawer(this)">
+            <td><span class="caret">▶</span></td>
+            <td>06-10</td>
+            <td><span class="chip cross">🏷 两地牌</span></td>
+            <td>中港A群</td><td>李太</td><td>粤Z·港888</td>
+            <td><a class="iconbtn" onclick="event.stopPropagation()">📄 档</a></td>
+            <td class="num strong">120,000<span class="cur">HKD</span></td>
+            <td class="num amt-paid">120,000<span class="cur">HKD</span></td>
+            <td class="num amt-due zero">0</td>
+            <td class="num muted">20,000</td>
+            <td class="num amt-profit">100,000</td>
+            <td><div class="prog"><div class="track"><div class="fill full" style="width:100%"></div></div><span class="pct full">100%</span></div></td>
+            <td><a class="act-link" onclick="event.stopPropagation()">付款通知单</a></td>
+          </tr>
+
+          <!-- 第3行：收起状态 -->
+          <tr class="row expandable" onclick="toggleDrawer(this)">
+            <td><span class="caret">▶</span></td>
+            <td>05-28</td>
+            <td><span class="chip other">🔧 其他</span></td>
+            <td>华星1群</td><td>王生</td><td>年检 + 保险</td>
+            <td><a class="iconbtn" onclick="event.stopPropagation()">📎 图</a></td>
+            <td class="num strong">6,000<span class="cur">CNY</span></td>
+            <td class="num amt-paid">3,000<span class="cur">CNY</span></td>
+            <td class="num amt-due">3,000<span class="cur">CNY</span></td>
+            <td class="num muted">1,000</td>
+            <td class="num amt-profit">2,000</td>
+            <td><div class="prog"><div class="track"><div class="fill low" style="width:50%"></div></div><span class="pct">50%</span></div></td>
+            <td><a class="act-link" onclick="event.stopPropagation()">付款通知单</a></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer>
+    <div class="vs">
+      <div>
+        <b>方案 1 · 纯汇总表格</b>
+        实现最快，主行就是全部。改附加项、看某笔付款凭证、看付款条款 → 都得点「详情」跳到详情页。表格本身只读汇总，干净。
+      </div>
+      <div>
+        <b>方案 2 · 汇总 + 行内抽屉（推荐）</b>
+        平时和方案 1 一模一样（紧凑一行），需要时点 ▸ 把明细原地拉开——附加项可增删改、收支凭证可直接看、付款条款一览，全程不跳页。就是把详情页搬进了表格。
+      </div>
+    </div>
+    <div style="margin-top:14px">两个方案<b>主行完全相同</b>，开发上方案 2 = 方案 1 + 一个展开抽屉，增量不大。后端数据两个方案都已够用（明细用现有 <code>?include=payments</code> 拉全，附加项明细走懒加载，后端零改动）。</div>
+  </footer>
+
+</div>
+
+<script>
+  function toggleDrawer(rowEl) {
+    const drawerRow = rowEl.nextElementSibling;
+    if (!drawerRow || !drawerRow.classList.contains('drawer-row')) return;
+    const caret = rowEl.querySelector('.caret');
+    if (drawerRow.dataset.shown === '1') {
+      drawerRow.style.display = 'none';
+      drawerRow.dataset.shown = '0';
+      caret.classList.remove('open');
+    } else {
+      drawerRow.style.display = '';
+      drawerRow.dataset.shown = '1';
+      caret.classList.add('open');
+    }
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    const first = document.querySelector('.drawer-row');
+    if (first) { first.dataset.shown = '1'; first.style.display = ''; }
+  });
+</script>
+</body>
+</html>

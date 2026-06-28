@@ -129,8 +129,9 @@ interface Props {
  * 收支录入表单 Modal（add/edit 共用，mode 区分）。
  * 纯表单 CRUD，不走 Agent。对应 CLAUDE.md：字段固定的结构化录入用表单。
  *
- * - 收入：凭证必传，收款账户下拉（预设 payment_accounts，可选"其他"即时新增）；
- *   提交后后端异步校验凭证金额/付款方，不符则标红置顶不结算。
+ * - 收入：收款账户下拉（预设 payment_accounts，可选"其他"即时新增）；
+ *   凭证现阶段可选（INCOME_RECEIPT_REQUIRED=False）——有凭证走异步校验，无凭证标记
+ *   「无凭证收入」直接入账，后续可补传。开关切回 True 时恢复必传。
  * - 支出：对方账户手填（供应商不固定），凭证可选，无凭证可声明。
  */
 export default function PaymentFormModal({
@@ -233,10 +234,9 @@ export default function PaymentFormModal({
     }
   }, [open, isEdit, editing, form, contractCurrency, isIncome])
 
-  // 收入必须已上传凭证才能提交；编辑时若未换凭证且未清除，沿用原凭证
-  const canSubmit = !submitting && !uploading && (
-    !isIncome || !!uploadedFileId || (isEdit && !!editing?.receipt_image_path && !receiptCleared)
-  )
+  // 凭证提交门槛：现阶段（INCOME_RECEIPT_REQUIRED=False）收入凭证可选；
+  // 支出本就可选；编辑时若未换凭证且未清除，沿用原凭证
+  const canSubmit = !submitting && !uploading
 
   // ── 凭证上传（左列）：只上传，不识别 ──
   const handleReceiptUpload = async (file: File) => {
@@ -474,11 +474,12 @@ export default function PaymentFormModal({
         }
         if (isIncome) {
           payload.payment_account_id = values.payment_account_id
-          if (!uploadedFileId) {
-            message.error('收入必须上传凭证')
-            return
+          // 现阶段收入凭证可选：有凭证传 file_id；无凭证声明 no_receipt（后端打 [无凭证收入] 标记）
+          if (uploadedFileId) {
+            payload.receipt_file_id = uploadedFileId
+          } else {
+            payload.no_receipt = true
           }
-          payload.receipt_file_id = uploadedFileId
         } else {
           payload.payee_name = values.payee_name?.trim() || undefined
           const cp: CounterpartyAccount = {}
@@ -495,7 +496,8 @@ export default function PaymentFormModal({
           else payload.no_receipt = true
         }
         await paymentApi.create(contractId!, payload)
-        message.success(`${typeLabel}已录入${isIncome ? '，正在校验凭证…' : ''}`)
+        // 收入有凭证才异步校验；无凭证（no_receipt）直接入账
+        message.success(`${typeLabel}已录入${isIncome && uploadedFileId ? '，正在校验凭证…' : ''}`)
       } else {
         // ── 编辑 ──
         // 收入：按（可能变更后的）收款账户重新推导 payment_method，保持与账户一致；
@@ -786,9 +788,7 @@ export default function PaymentFormModal({
               <div className="pfm-col-header">
                 <span className="pfm-col-title">
                   <i className="pfm-seq">{seqNotes + 1}</i>凭证
-                  {isIncome
-                    ? <span className="pfm-receipt-tag pfm-required">必传</span>
-                    : <span className="pfm-receipt-tag pfm-optional">可选</span>}
+                  <span className="pfm-receipt-tag pfm-optional">可选</span>
                 </span>
               </div>
               <div className="pfm-col-content">
@@ -834,7 +834,9 @@ export default function PaymentFormModal({
                 )}
               </div>
               <div className="pfm-col-hint">
-                {isIncome ? '收入必须上传凭证' : '提交后后台校验'}
+                {isIncome
+                  ? '现阶段可选；无凭证将标记「无凭证收入」直接入账，后续可补传'
+                  : '提交后后台校验'}
               </div>
             </div>
 

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Input, Empty, message } from 'antd'
+import { Input, Select, Empty, message } from 'antd'
 import {
   SearchOutlined,
   TeamOutlined,
@@ -123,6 +123,7 @@ export default function CustomerList() {
   const [loading, setLoading] = useState(false)
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
   const [totalPages, setTotalPages] = useState(1)
   const [keyword, setKeyword] = useState('')
   const abortControllerRef = useRef<AbortController | null>(null)
@@ -137,7 +138,7 @@ export default function CustomerList() {
     setLoading(true)
     try {
       const response = await customerApi.getList(
-        { page, per_page: 20, keyword: keyword || undefined },
+        { page, per_page: pageSize, keyword: keyword || undefined },
         controller.signal,
       )
       if (controller.signal.aborted) return
@@ -180,7 +181,7 @@ export default function CustomerList() {
     } finally {
       if (!controller.signal.aborted) setLoading(false)
     }
-  }, [page, keyword])
+  }, [page, pageSize, keyword])
 
   useEffect(() => {
     loadData()
@@ -273,15 +274,6 @@ export default function CustomerList() {
           </div>
         ) : (
           <table className="cl-table">
-            <colgroup>
-              <col className="col-customer" />
-              <col className="col-biz" />
-              <col className="col-no" />
-              <col className="col-desc" />
-              <col className="col-amount" />
-              <col className="col-paid" />
-              <col className="col-progress" />
-            </colgroup>
             <thead>
               <tr>
                 <th>客户档案<span className="th-sub">CLIENT</span></th>
@@ -419,17 +411,35 @@ export default function CustomerList() {
         {/* 底部脚标 + 分页 */}
         <div className="cl-ledger-foot">
           <span className="cl-stamp">截至 {stamp}</span>
-          {totalPages > 1 && (
-            <div className="cl-pager">
-              <button disabled={page <= 1} onClick={() => { setPage(1); window.scrollTo(0, 0) }}>首页</button>
-              <button disabled={page <= 1} onClick={() => { setPage(p => p - 1); window.scrollTo(0, 0) }}>上一页</button>
-              <span className="cl-pager-current">{page}</span>
-              <span className="cl-pager-sep">/</span>
-              <span className="cl-pager-total">{totalPages}</span>
-              <button disabled={page >= totalPages} onClick={() => { setPage(p => p + 1); window.scrollTo(0, 0) }}>下一页</button>
-              <button disabled={page >= totalPages} onClick={() => { setPage(totalPages); window.scrollTo(0, 0) }}>末页</button>
+          <div className="cl-pager">
+            <div className="cl-page-size">
+              <span>每页</span>
+              <Select
+                value={pageSize}
+                onChange={(val) => { setPageSize(val); setPage(1); window.scrollTo(0, 0) }}
+                options={[
+                  { value: 10, label: '10' },
+                  { value: 20, label: '20' },
+                  { value: 50, label: '50' },
+                ]}
+                size="small"
+                popupMatchSelectWidth={false}
+              />
+              <span>条</span>
             </div>
-          )}
+            <span className="cl-pager-total-info">共 {total} 条</span>
+            {totalPages > 1 && (
+              <>
+                <button disabled={page <= 1} onClick={() => { setPage(1); window.scrollTo(0, 0) }}>首页</button>
+                <button disabled={page <= 1} onClick={() => { setPage(p => p - 1); window.scrollTo(0, 0) }}>上一页</button>
+                <span className="cl-pager-current">{page}</span>
+                <span className="cl-pager-sep">/</span>
+                <span className="cl-pager-total">{totalPages}</span>
+                <button disabled={page >= totalPages} onClick={() => { setPage(p => p + 1); window.scrollTo(0, 0) }}>下一页</button>
+                <button disabled={page >= totalPages} onClick={() => { setPage(totalPages); window.scrollTo(0, 0) }}>末页</button>
+              </>
+            )}
+          </div>
         </div>
       </div>
 

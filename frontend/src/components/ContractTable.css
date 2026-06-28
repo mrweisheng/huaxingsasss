@@ -42,11 +42,24 @@
 
 /* 业务群单元格：完整展示，长名称允许换行 */
 .wechat-group-cell {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
   white-space: normal;
   word-break: break-all;
   line-height: 1.45;
 }
+.wechat-group-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  font-size: 12px;
+}
+/* 业务类型色调 */
+.biz-tone-vehicle { color: var(--biz-vehicle-deep, #1e3f63); }
+.biz-tone-cross { color: var(--biz-cross-deep, #8f2d28); }
+.biz-tone-insurance { color: #2e7d32; }
+.biz-tone-default { color: #1f2937; }
 
 /* 合同描述单元格：完整展示，允许换行 */
 .description-cell {

@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>合同列表展开态原型</title>
+  <style>
+    :root {
+      --brand-primary: #1e3a5f;
+      --brand-gold: #c9952b;
+      --money-done: #0d9488;
+      --money-due: #dc6b3d;
+      --biz-vehicle: #2d5b8a;
+      --biz-vehicle-deep: #1e3f63;
+      --biz-vehicle-soft: #e5edf6;
+      --biz-vehicle-bg: #f4f7fb;
+      --biz-transfer: #b8423b;
+      --biz-transfer-deep: #8f2d28;
+      --biz-transfer-soft: #fbe9e7;
+      --biz-transfer-bg: #fdf4f3;
+      --text-main: #172033;
+      --text-secondary: #647084;
+      --line: #e7ebf2;
+      --paper: #ffffff;
+      --page: #f5f7fb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background:
+        radial-gradient(circle at 18% 8%, rgba(201, 149, 43, .10), transparent 28%),
+        linear-gradient(135deg, #f7f9fc 0%, #edf2f8 100%);
+      color: var(--text-main);
+      font-family: "Avenir Next", "PingFang SC", "Microsoft YaHei", sans-serif;
+    }
+
+    .page {
+      width: 1180px;
+      margin: 34px auto;
+    }
+
+    .titlebar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+      margin-bottom: 18px;
+    }
+
+    .eyebrow {
+      color: var(--brand-gold);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+    }
+
+    h1 {
+      margin: 5px 0 0;
+      color: var(--brand-primary);
+      font-size: 28px;
+      letter-spacing: .03em;
+    }
+
+    .hint {
+      color: var(--text-secondary);
+      font-size: 13px;
+    }
+
+    .toolbar {
+      display: flex;
+      gap: 10px;
+    }
+
+    .pill {
+      height: 34px;
+      padding: 0 14px;
+      display: inline-flex;
+      align-items: center;
+      border: 1px solid #dfe5ee;
+      border-radius: 999px;
+      background: rgba(255,255,255,.82);
+      color: #536176;
+      font-size: 13px;
+      box-shadow: 0 8px 18px rgba(30,58,95,.06);
+    }
+
+    .board {
+      padding: 16px;
+      border: 1px solid rgba(30, 58, 95, .08);
+      border-radius: 24px;
+      background: rgba(255,255,255,.74);
+      box-shadow: 0 24px 70px rgba(30, 58, 95, .12);
+      backdrop-filter: blur(10px);
+    }
+
+    .table-head,
+    .contract-row {
+      display: grid;
+      grid-template-columns: 1.25fr .9fr .85fr .72fr .85fr .8fr 44px;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .table-head {
+      padding: 0 18px 11px 25px;
+      color: #7b8797;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+    }
+
+    .contract-row {
+      min-height: 72px;
+      padding: 0 18px 0 22px;
+      border-radius: 16px;
+      background: var(--paper);
+      border: 1px solid transparent;
+    }
+
+    .normal-row {
+      position: relative;
+      margin-top: 8px;
+      box-shadow: inset 3px 0 0 var(--biz-transfer), 0 1px 0 rgba(30,58,95,.06);
+    }
+
+    .normal-row.vehicle {
+      box-shadow: inset 3px 0 0 var(--biz-vehicle), 0 1px 0 rgba(30,58,95,.06);
+    }
+
+    .normal-row:hover {
+      transform: translateY(-1px);
+      border-color: #dde6f2;
+      box-shadow: inset 3px 0 0 var(--biz-transfer), 0 10px 28px rgba(30,58,95,.08);
+    }
+
+    .normal-row.vehicle:hover {
+      box-shadow: inset 3px 0 0 var(--biz-vehicle), 0 10px 28px rgba(30,58,95,.08);
+    }
+
+    .contract-main strong {
+      display: block;
+      margin-bottom: 4px;
+      font-size: 15px;
+      letter-spacing: .01em;
+    }
+
+    .contract-main span,
+    .subtext {
+      color: var(--text-secondary);
+      font-size: 12px;
+    }
+
+    .biz-chip,
+    .status-chip {
+      width: fit-content;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .biz-chip.transfer {
+      color: var(--biz-transfer-deep);
+      background: var(--biz-transfer-soft);
+    }
+
+    .biz-chip.vehicle {
+      color: var(--biz-vehicle-deep);
+      background: var(--biz-vehicle-soft);
+    }
+
+    .status-chip.done {
+      color: #08786f;
+      background: #dff7f3;
+    }
+
+    .status-chip.due {
+      color: #a84d2a;
+      background: #fff0e8;
+    }
+
+    .money {
+      font-weight: 900;
+      font-size: 15px;
+    }
+
+    .money.gold { color: var(--brand-gold); }
+    .money.due { color: var(--money-due); }
+    .money.done { color: var(--money-done); }
+
+    .expand-icon {
+      width: 30px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border-radius: 10px;
+      background: #f2f5f9;
+      color: #758093;
+      font-weight: 900;
+    }
+
+    .active-group {
+      position: relative;
+      margin: 10px 0 12px;
+      overflow: hidden;
+      border: 1px solid rgba(45, 91, 138, .24);
+      border-radius: 22px;
+      background:
+        linear-gradient(90deg, rgba(45, 91, 138, .115), transparent 42%),
+        var(--biz-vehicle-bg);
+      box-shadow:
+        0 18px 42px rgba(30, 63, 99, .13),
+        0 0 0 4px rgba(229, 237, 246, .62);
+    }
+
+    .active-group::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      width: 5px;
+      background: linear-gradient(180deg, var(--biz-vehicle), var(--biz-vehicle-deep));
+      box-shadow: 8px 0 24px rgba(45, 91, 138, .24);
+    }
+
+    .active-group::after {
+      content: "当前展开";
+      position: absolute;
+      right: 18px;
+      top: 12px;
+      padding: 4px 9px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.76);
+      color: var(--biz-vehicle-deep);
+      border: 1px solid rgba(45,91,138,.16);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .active-group .contract-row {
+      border-radius: 0;
+      padding-left: 24px;
+      background: transparent;
+      border: 0;
+      min-height: 78px;
+    }
+
+    .active-group .expand-icon {
+      background: rgba(255,255,255,.86);
+      color: var(--biz-vehicle-deep);
+      transform: rotate(180deg);
+    }
+
+    .detail {
+      margin-left: 5px;
+      padding: 0 18px 18px 18px;
+    }
+
+    .detail-inner {
+      display: grid;
+      grid-template-columns: 1.12fr .88fr .82fr;
+      gap: 14px;
+      padding: 16px;
+      border-top: 1px dashed rgba(45,91,138,.22);
+      background: rgba(255,255,255,.62);
+      border-radius: 0 0 17px 17px;
+    }
+
+    .panel {
+      min-height: 138px;
+      padding: 15px;
+      border: 1px solid rgba(45, 91, 138, .10);
+      border-radius: 16px;
+      background: rgba(255,255,255,.78);
+      box-shadow: 0 10px 24px rgba(30,58,95,.055);
+    }
+
+    .panel-title {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      color: var(--brand-primary);
+      font-size: 13px;
+      font-weight: 900;
+    }
+
+    .panel-title small {
+      color: #8b97a9;
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .pay-line {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 12px;
+      padding: 9px 0;
+      border-bottom: 1px solid #edf1f6;
+      font-size: 13px;
+    }
+
+    .pay-line:last-child { border-bottom: 0; }
+
+    .pay-line .label {
+      color: #46556b;
+      font-weight: 700;
+    }
+
+    .progress-track {
+      height: 8px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e9eef5;
+    }
+
+    .progress-fill {
+      width: 72%;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, var(--brand-gold), var(--money-done));
+    }
+
+    .action-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .action {
+      padding: 7px 10px;
+      border-radius: 10px;
+      border: 1px solid #dbe3ed;
+      background: #fff;
+      color: #41506a;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .action.primary {
+      border-color: rgba(91,140,99,.22);
+      background: #eef8f0;
+      color: #3d6644;
+    }
+
+    .mini-note {
+      margin-top: 10px;
+      padding: 10px;
+      border-radius: 12px;
+      background: #f7f9fc;
+      color: #657185;
+      font-size: 12px;
+      line-height: 1.55;
+    }
+
+    .compare-label {
+      margin-top: 18px;
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 12px;
+      color: #66758b;
+      font-size: 12px;
+    }
+
+    .compare-label b {
+      display: block;
+      margin-bottom: 5px;
+      color: #2e3c52;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <section class="titlebar">
+      <div>
+        <div class="eyebrow">Prototype · active contract group</div>
+        <h1>合同管理 / 展开态识别</h1>
+        <div class="hint">重点看中间展开项：行与详情合成一个“激活组块”，左侧业务色轨贯穿到底。</div>
+      </div>
+      <div class="toolbar">
+        <span class="pill">搜索客户 / 业务群</span>
+        <span class="pill">状态：全部</span>
+        <span class="pill">签订日期</span>
+      </div>
+    </section>
+
+    <section class="board">
+      <div class="table-head">
+        <div>合同</div><div>客户</div><div>业务类型</div><div>状态</div><div>已收 / 未收</div><div>签订日期</div><div></div>
+      </div>
+
+      <div class="contract-row normal-row">
+        <div class="contract-main"><strong>中港两地牌过户服务</strong><span>HX-2026-0618 · 深圳湾口岸</span></div>
+        <div><strong>陈先生</strong><div class="subtext">鸿运物流有限公司</div></div>
+        <div><span class="biz-chip transfer">两地牌过户</span></div>
+        <div><span class="status-chip due">执行中</span></div>
+        <div><span class="money gold">¥180,000</span><div class="subtext">未收 ¥40,000</div></div>
+        <div><strong>2026-06-18</strong><div class="subtext">剩余 14 天</div></div>
+        <div class="expand-icon">⌄</div>
+      </div>
+
+      <div class="active-group">
+        <div class="contract-row">
+          <div class="contract-main"><strong>奔驰 S450 车辆买卖合同</strong><span>HX-2026-0620 · 含保险与上牌</span></div>
+          <div><strong>李小姐</strong><div class="subtext">星河贸易</div></div>
+          <div><span class="biz-chip vehicle">车辆买卖</span></div>
+          <div><span class="status-chip due">执行中</span></div>
+          <div><span class="money gold">HK$620,000</span><div class="subtext">未收 HK$170,000</div></div>
+          <div><strong>2026-06-20</strong><div class="subtext">第 2 期待收</div></div>
+          <div class="expand-icon">⌄</div>
+        </div>
+
+        <div class="detail">
+          <div class="detail-inner">
+            <div class="panel">
+              <div class="panel-title">收入计划 <small>3 笔 / 已完成 2 笔</small></div>
+              <div class="pay-line"><span class="label">订金</span><span class="money done">HK$120,000</span></div>
+              <div class="pay-line"><span class="label">车款第二期</span><span class="money done">HK$330,000</span></div>
+              <div class="pay-line"><span class="label">尾款</span><span class="money due">HK$170,000</span></div>
+              <div class="mini-note">展开内容不再像“下一条记录”，而是被收进同一个容器。</div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-title">回款进度 <small>72%</small></div>
+              <div class="progress-track"><div class="progress-fill"></div></div>
+              <div class="compare-label">
+                <div><b>合同额</b>HK$620,000</div>
+                <div><b>已收</b>HK$450,000</div>
+                <div><b>未收</b>HK$170,000</div>
+              </div>
+              <div class="mini-note">金额仍用状态色：已收金 / 未收橙 / 结清 teal，业务蓝只负责归属。</div>
+            </div>
+
+            <div class="panel">
+              <div class="panel-title">快捷操作 <small>当前合同</small></div>
+              <div class="action-row">
+                <span class="action primary">录入收入</span>
+                <span class="action">录入支出</span>
+                <span class="action">查看详情</span>
+                <span class="action">编辑备注</span>
+              </div>
+              <div class="mini-note">右上角“当前展开”只是原型标注；实际可以不要，靠组块本身就够清楚。</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="contract-row normal-row vehicle">
+        <div class="contract-main"><strong>保时捷 Macan 车辆买卖</strong><span>HX-2026-0622 · 现车交付</span></div>
+        <div><strong>王总</strong><div class="subtext">个人客户</div></div>
+        <div><span class="biz-chip vehicle">车辆买卖</span></div>
+        <div><span class="status-chip done">已结清</span></div>
+        <div><span class="money done">¥438,000</span><div class="subtext">未收 ¥0</div></div>
+        <div><strong>2026-06-22</strong><div class="subtext">已归档</div></div>
+        <div class="expand-icon">⌄</div>
+      </div>
+
+      <div class="contract-row normal-row">
+        <div class="contract-main"><strong>FV 车牌续期与转名</strong><span>HX-2026-0624 · 皇岗口岸</span></div>
+        <div><strong>黄先生</strong><div class="subtext">港粤通商务</div></div>
+        <div><span class="biz-chip transfer">两地牌过户</span></div>
+        <div><span class="status-chip due">执行中</span></div>
+        <div><span class="money gold">¥96,000</span><div class="subtext">未收 ¥30,000</div></div>
+        <div><strong>2026-06-24</strong><div class="subtext">资料待补</div></div>
+        <div class="expand-icon">⌄</div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

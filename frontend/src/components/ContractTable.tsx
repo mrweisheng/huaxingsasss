@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect } from 'react'
-import { Table, Button, Tag, Progress, Image, Badge, Empty, message, Popconfirm, Tooltip } from 'antd'
+import { Table, Button, Progress, Image, Badge, Empty, message, Popconfirm, Tooltip } from 'antd'
 import {
   PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
   EyeOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined,
@@ -143,22 +143,21 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       render: (v) => fmtDate(v),
     },
     {
-      title: '业务',
-      dataIndex: 'business_type',
-      key: 'business_type',
-      width: 110,
-      render: (t) => {
-        const v = BIZ_VISUAL[t]
-        if (v) return <Tag className={v.className} icon={v.icon}>{v.label}</Tag>
-        return t ? <Tag>{t}</Tag> : <span className="text-muted">—</span>
-      },
-    },
-    {
       title: '业务群',
       dataIndex: 'wechat_group',
       key: 'wechat_group',
-      width: 220,
-      render: (v) => v ? <span className="wechat-group-cell" title={v}>{v}</span> : <span className="text-muted">—</span>,
+      width: 170,
+      render: (v, row) => {
+        const biz = BIZ_VISUAL[row.business_type || '']
+        const tone = getBizToneClass(row.business_type)
+        if (!v && !biz) return <span className="text-muted">—</span>
+        return (
+          <span className={`wechat-group-cell biz-tone-${tone}`} title={v || biz?.label}>
+            {biz && <span className="wechat-group-icon">{biz.icon}</span>}
+            {v || <span className="text-muted">—</span>}
+          </span>
+        )
+      },
     },
     {
       title: '客户',
@@ -172,6 +171,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '合同描述',
       dataIndex: 'business_description',
       key: 'business_description',
+      width: 180,
       render: (v, row) => (
         <span className="description-cell" title={v || row.title}>
           {v || row.title || <span className="text-muted">—</span>}
@@ -181,7 +181,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
     {
       title: '源文件',
       key: 'original_file',
-      width: 90,
+      width: 70,
       render: (_, row) => {
         if (!row.original_file_path) return <span className="text-muted">—</span>
         const ext = row.original_file_path.split('.').pop()?.toLowerCase()
@@ -210,7 +210,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '合同金额',
       dataIndex: 'total_amount',
       key: 'total_amount',
-      width: 115,
+      width: 100,
       align: 'right',
       render: (v, row) => <span className="amount-text">{fmt(v, row.currency)}</span>,
     },
@@ -218,14 +218,14 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '已收',
       dataIndex: 'paid_amount',
       key: 'paid_amount',
-      width: 100,
+      width: 90,
       align: 'right',
       render: (v, row) => <span className="amount-paid">{fmt(v, row.currency)}</span>,
     },
     {
       title: '剩余尾款',
       key: 'remaining',
-      width: 100,
+      width: 90,
       align: 'right',
       render: (_, row) => {
         const total = Number(row.total_amount || 0)
@@ -241,14 +241,14 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '成本',
       dataIndex: 'total_expense',
       key: 'total_expense',
-      width: 100,
+      width: 90,
       align: 'right',
       render: (v, row) => <span className="amount-expense">{fmt(Number(v ?? 0), row.currency)}</span>,
     },
     {
       title: '利润',
       key: 'profit',
-      width: 100,
+      width: 90,
       align: 'right',
       render: (_, row) => {
         const profit = Number(row.paid_amount ?? 0) - Number(row.total_expense ?? 0)
@@ -551,7 +551,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           }
           return classes.join(' ')
         }}
-        scroll={{ x: 1630 }}
+        scroll={{ x: 1365 }}
       />
 
       {/* 附加项弹窗 */}
