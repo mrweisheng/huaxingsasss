@@ -177,7 +177,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 - Agent 编排：LangGraph 1.2.x · `StateGraph` / `astream_events(version="v2")`
 - Checkpoint：`AsyncPostgresSaver` + `psycopg3` `AsyncConnectionPool`（`autocommit=True`、`prepare_threshold=0`），复用现有 PG，`main.py:on_startup` 调 `init_checkpointer()` 自动建表
 - LLM 客户端：`backend/app/ai/llm_client.py` — `DeepSeekAgentClient`（`DEEPSEEK_AGENT_MODEL = "deepseek-v4-flash"`，`DEEPSEEK_BASE_URL` 默认 `https://api.deepseek.com`）。统一走 DeepSeek 兼容的 OpenAI function calling 协议，支持流式 + 工具调用增量 + 指数退避重试（429/5xx/Timeout）。**不引入** `langchain-openai` / `ChatOpenAI`（避免引入 OpenAI SDK 间接依赖）。视觉模型走独立的 `DASHSCOPE_*` 配置（百炼 qwen3-vl-flash），由 `call_vl_model` 工具函数直调
-- 工具执行：`backend/app/ai/tool_executor.py` — 20 个工具（`TOOL_DEFINITIONS`，OpenAI function calling 格式）+ `ToolExecutorV2`（execute 走 `_ALLOWED_TOOLS` 白名单 + 轻量 `MODE_TOOL_WHITELIST` mode guard：receipt_income/receipt_expense 会话裁剪到对应工具子集）
+- 工具执行：`backend/app/ai/tool_executor.py` — 22 个工具（`TOOL_DEFINITIONS`，OpenAI function calling 格式）+ `ToolExecutorV2`（execute 走 `_ALLOWED_TOOLS` 白名单 + 轻量 `MODE_TOOL_WHITELIST` mode guard：receipt_income/receipt_expense 会话裁剪到对应工具子集）
 - 编排层：`backend/app/ai/orchestrator/` — `unified_agent.py`（Agent 图 + 节点） / `state.py`（AgentState） / `checkpointer.py` / `sse_adapter.py`
 - 业务封装：`backend/app/services/` — 工具层不直接 ORM，统一走 Service。`receipt_matcher.py` 提供凭证三态对比器（ok / soft_mismatch / hard_conflict），对话流前置校验用
 - 可观测性：`.env` 设 `LANGCHAIN_TRACING_V2=true` 后 LangGraph 节点自动埋点到 LangSmith（`main.py:on_startup` 同步 env）
@@ -222,7 +222,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 2. 在 `ToolExecutorV2.execute_analyze_files` 中调用
 3. `prompts.py` 加对应的分析 prompt
 
-## 工具清单（tool_executor.py, 16 个）
+## 工具清单（tool_executor.py, 22 个）
 
 | 工具名 | 类型 | 写入防护 | 说明 |
 |---|---|---|---|
@@ -242,8 +242,9 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `add_additional_item` | 写入 | ✅ | 新增附加项（应收清单上的额外项目，非独立财务实体） |
 | `update_additional_item` | 写入 | - | 更新已有附加项字段 |
 | `delete_additional_item` | 写入 | ✅ | 软删附加项，引用此附加项的付款标签自动置空 |
+| `list_payment_accounts` | 查询 | - | 列出系统配置的所有收款账户（含 id/title/aliases/account_type）。**录收入前若用户口述账户简称（"高山香港账户"/"现金"等）必须先调用本工具拿到准确的 payment_account_id 再传给 create_income_payment** |
 | `analyze_receipt` | 分析 | - | 凭证录入对话流第一步：同步 VL 提取 + ReceiptMatcher 三态判定（ok/soft_mismatch/hard_conflict）。返回 extracted/expected/diff_fields + `_receipt_path`/`_receipt_file_hash`/`_receipt_data` 等内部字段供后续写入工具透传 |
-| `create_income_payment` | 写入 | ✅ | 对话流创建收入（必须先调 analyze_receipt 且 match_status=ok）。直落 paid + verification_status=passed，不走异步校验 |
+| `create_income_payment` | 写入 | ✅ | 对话流创建收入。`INCOME_RECEIPT_REQUIRED=True` 时必须先调 analyze_receipt 且 match_status=ok；现阶段（默认 False）可传 `no_receipt=true` 直接落 paid + 打 `[无凭证收入]` 标记（不写审计） |
 | `create_expense_payment` | 写入 | ✅ | 对话流创建支出。有凭证走 analyze_receipt 路径；无凭证传 `no_receipt=true + override_reason`，走 manual 模式审计 |
 | `override_receipt_mismatch` | 写入 | ✅ | soft_mismatch 状态下用户提供放行理由后创建付款。同事务写 `payment_override_audit`（who/when/reason+识别快照+用户输入快照+差异） + `audit_logs`。hard_conflict 工具入口硬挡 |
 
@@ -255,9 +256,9 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 ### Mode Guard（轻量恢复）
 
 `MODE_TOOL_WHITELIST` 按 `session_mode` 限定可见/可调工具集：
-- `chat` → 20 个工具全集
-- `receipt_income` → 11 个工具：基础查询/分析 + `analyze_receipt` + `create_income_payment` + `override_receipt_mismatch`
-- `receipt_expense` → 11 个工具：基础查询/分析 + `analyze_receipt` + `create_expense_payment` + `override_receipt_mismatch`
+- `chat` → 22 个工具全集
+- `receipt_income` → 12 个工具：基础查询/分析 + `analyze_receipt` + `list_payment_accounts` + `create_income_payment` + `override_receipt_mismatch`
+- `receipt_expense` → 12 个工具：基础查询/分析 + `analyze_receipt` + `list_payment_accounts` + `create_expense_payment` + `override_receipt_mismatch`
 
 两层防护：
 1. `unified_agent.call_model_node` 用 `filter_tool_definitions(mode)` 给 LLM 暴露的 tools 列表过滤
@@ -276,7 +277,7 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | Agent 状态 | `app/ai/orchestrator/state.py` — `AgentState`（14 个字段，详见上文"状态结构"表） |
 | Checkpoint | `app/ai/orchestrator/checkpointer.py` — `init_checkpointer()` / `get_checkpointer()` / `close_checkpointer()` |
 | SSE 适配 | `app/ai/orchestrator/sse_adapter.py` — `adapt_langgraph_stream_v2()` + `_HEARTBEAT_INTERVAL = 3.0` 秒 |
-| 工具定义 + 执行 | `app/ai/tool_executor.py` — `TOOL_DEFINITIONS`（20 个工具）+ `ToolExecutorV2`（execute 走白名单+轻量 mode guard）+ `MODE_TOOL_WHITELIST` / `filter_tool_definitions()` / `is_tool_allowed_in_mode()` |
+| 工具定义 + 执行 | `app/ai/tool_executor.py` — `TOOL_DEFINITIONS`（22 个工具）+ `ToolExecutorV2`（execute 走白名单+轻量 mode guard）+ `MODE_TOOL_WHITELIST` / `filter_tool_definitions()` / `is_tool_allowed_in_mode()` |
 | 旧工具文件（保留兼容） | `app/ai/tool_executor_base.py` — `ToolExecutor`（v1 父类，凭证目录复制/Redis 缓存等基础能力 v2 仍复用，但 v1 的 mode/document guard 不再走） |
 | 凭证-合同三态对比器 | `app/services/receipt_matcher.py` — `match_receipt()` 返回 ok/soft_mismatch/hard_conflict + diff_fields + expected/extracted 快照；`pick_payment_term()` 按金额命中付款计划项 |
 | 凭证放行审计模型 | `app/models/payment_override_audit.py` — 对话流软放行/manual 模式落审计行（who/when/reason+三份快照+差异） |

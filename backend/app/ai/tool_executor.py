@@ -685,6 +685,32 @@ class ToolExecutorV2(ToolExecutor):
             return json.dumps({"error": "当前角色无权录入支出"}, ensure_ascii=False)
         return None
 
+    def list_payment_accounts(self) -> str:
+        """列出系统所有收款账户（含别名 aliases）。
+
+        给 LLM 用：录入收入时如用户口述账户简称（如"高山香港账户"/"现金"），
+        先调本工具拿到 ID，再传给 create_income_payment.payment_account_id。
+
+        Returns:
+            JSON list[{id, title, account_type, account_name, bank_name, aliases, is_default}]
+        """
+        accounts = PaymentAccountService.list_accounts(self.db)
+        return json.dumps(
+            [
+                {
+                    "id": a.id,
+                    "title": a.title,
+                    "account_type": a.account_type,
+                    "account_name": a.account_name,
+                    "bank_name": a.bank_name,
+                    "aliases": (a.extra_info or {}).get("aliases", []) if isinstance(a.extra_info, dict) else [],
+                    "is_default": a.is_default,
+                }
+                for a in accounts
+            ],
+            ensure_ascii=False,
+        )
+
     def analyze_receipt(
         self,
         file_id: str,
@@ -1423,6 +1449,17 @@ TOOL_DEFINITIONS = [
     {
         "type": "function",
         "function": {
+            "name": "list_payment_accounts",
+            "description": "列出系统配置的所有收款账户（含别名 aliases、ID、账户类型）。**录收入前，如用户口述了账户简称（如「高山香港账户」「现金」「陈振耀账户」等），必须先调本工具拿到准确的 payment_account_id，再传给 create_income_payment。** 工具是只读查询，无副作用。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "analyze_receipt",
             "description": "识别凭证并对照合同/付款计划做三态判定（ok/soft_mismatch/hard_conflict）。这是凭证录入对话流的第一步：用户上传凭证图后立刻调它，根据返回的 match_status 决定下一步：ok→展示计划等用户确认→create_income_payment/create_expense_payment；soft_mismatch→把差异展示给用户，请用户给放行理由→override_receipt_mismatch；hard_conflict→明确拒绝录入并提醒用户核对。**必须在调 create_*_payment / override_receipt_mismatch 之前先调本工具**，把返回结果中的 _receipt_path / _receipt_file_hash / _receipt_data / _payment_account_id / extracted / expected / diff_fields 透传到后续写入工具。",
             "parameters": {
@@ -1594,6 +1631,7 @@ _RECEIPT_COMMON_TOOLS = frozenset({
     "query_payments",
     "search_contract_text",
     "list_additional_items",
+    "list_payment_accounts",
     "override_receipt_mismatch",
     "present_quick_replies",
 })
