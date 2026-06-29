@@ -20,24 +20,17 @@ interface Props {
  * 数据全部来自详情页已有的 contract / incomePayments，无后端改动。
  * 支持下载为 PNG（html-to-image），方便微信发给客户核对。
  *
- * 应收口径与详情页一致：
- *   receivable = total_amount + additional_total_in_contract_currency
- *   unpaid     = max(0, receivable - paid_amount)
+ * 应收口径：直接以合同 total_amount 为准（系统不再维护附加项）。
  */
 export default function PaymentNoticeModal({ open, contract, incomePayments, onClose }: Props) {
   const sheetRef = useRef<HTMLDivElement>(null)
   const [downloading, setDownloading] = useState(false)
 
-  /* ── 口径计算（与 ContractDetail 完全一致） ── */
+  /* ── 口径计算 ── */
   const cur = contract.currency
   const total = Number(contract.total_amount || 0)
   const paid = Number(contract.paid_amount || 0)
-  const addlNum = contract.additional_total_in_contract_currency != null
-    ? Number(contract.additional_total_in_contract_currency) : 0
-  const addlItems = contract.additional_items || []
-  const hasAddlItems = addlItems.length > 0
-  const addlUnconverted = hasAddlItems && addlNum === 0   // 有附加项但缺汇率未折算
-  const receivable = total + addlNum
+  const receivable = total
   const unpaid = Math.max(0, receivable - paid)
   const overpaid = Math.max(0, paid - receivable)
   // 金额比较归一到「分」,避免浮点精度导致已结清的合同显示成 ¥0.00 未付
@@ -149,27 +142,8 @@ export default function PaymentNoticeModal({ open, contract, incomePayments, onC
               <td>合同金额</td>
               <td className="pn-num">{fmtFull(total, cur)}</td>
             </tr>
-            {addlItems.map((it, idx) => (
-              <tr key={it.id}>
-                <td>{idx + 2}</td>
-                <td>
-                  {it.name}
-                  {it.currency !== cur && (
-                    <span className="pn-unconverted-hint">（{it.currency}）</span>
-                  )}
-                </td>
-                <td className="pn-num">{fmtFull(it.amount, it.currency)}</td>
-              </tr>
-            ))}
             <tr className="pn-row-total">
-              <td colSpan={2}>
-                应收合计
-                {addlUnconverted && (
-                  <span className="pn-unconverted-hint">
-                    （{addlItems.length} 项附加项因缺汇率未折算，未计入）
-                  </span>
-                )}
-              </td>
+              <td colSpan={2}>应收合计</td>
               <td className="pn-num">{fmtFull(receivable, cur)}</td>
             </tr>
           </tbody>

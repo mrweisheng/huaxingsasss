@@ -100,7 +100,7 @@ def get_contract(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """获取合同详情（含附加项明细）"""
+    """获取合同详情"""
     contract = ContractService.get_contract_detail(db, contract_id)
 
     if not contract:

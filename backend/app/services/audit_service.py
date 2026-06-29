@@ -62,8 +62,8 @@ class AuditService:
         """把 values 转成 JSON 可序列化结构。
 
         audit_logs.old_values / new_values 落库到 JSON 列，遇到 date / datetime /
-        Decimal / set 等类型会抛 TypeError，导致整个请求 500（旧 bug：编辑附加项时
-        occurred_date 是 date，序列化失败引发 PendingRollbackError）。
+        Decimal / set 等类型会抛 TypeError，导致整个请求 500（旧 bug：编辑带
+        date 字段的实体时序列化失败引发 PendingRollbackError）。
         此处统一兜底，保证审计日志写入不阻断业务流程。
         """
         def convert(v: Any) -> Any:

@@ -346,9 +346,7 @@ export default function CustomerList() {
                       </td>
                     ) : (() => {
                       const biz = getBizVisual(ct.business_type)
-                      const totalNum = Number(ct.total_amount || 0)
-                      const addl = Number(ct.additional_total_in_contract_currency ?? 0)
-                      const receivable = totalNum + addl
+                      const receivable = Number(ct.total_amount || 0)
                       const paidNum = Number(ct.paid_amount || 0)
                       const pct = calcProgress(paidNum, receivable)
                       const isDone = pct >= 100

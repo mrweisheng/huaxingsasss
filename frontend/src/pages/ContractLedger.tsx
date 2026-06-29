@@ -149,10 +149,7 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
         const paid = Number(c.paid_amount || 0)
         const expense = Number(c.total_expense || 0)
         const profit = paid - expense
-        // 应收口径与详情页统一：合同金额 + 附加项折算（含附加项的进度才准确）
-        const addl = c.additional_total_in_contract_currency != null
-          ? Number(c.additional_total_in_contract_currency) : 0
-        const receivable = Number(c.total_amount || 0) + addl
+        const receivable = Number(c.total_amount || 0)
         const progress = receivable > 0
           ? Math.min(Math.round((paid / receivable) * 100), 999)
           : 0
@@ -218,20 +215,7 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
                 <div className="info-amount-line">
                   <span className="info-amount-label">合同</span>
                   <span className="info-amount-value">
-                    {addl > 0 ? (
-                      <Tooltip
-                        title={`应收 = 合同金额 ${formatMoney(Number(c.total_amount)).full} + 附加项折算 ${formatMoney(addl).full}\n含：${c.additional_total_by_currency
-                          ? Object.entries(c.additional_total_by_currency)
-                              .filter(([, v]) => Number(v) > 0)
-                              .map(([cur, v]) => `${currencySymbol[cur] || cur}${formatMoney(Number(v)).full}`)
-                              .join(' + ')
-                          : ''}`}
-                      >
-                        <span><CompactMoney value={receivable} currency={c.currency} /></span>
-                      </Tooltip>
-                    ) : (
-                      <CompactMoney value={Number(c.total_amount)} currency={c.currency} />
-                    )}
+                    <CompactMoney value={Number(c.total_amount)} currency={c.currency} />
                   </span>
                 </div>
                 <div className="mini-progress">

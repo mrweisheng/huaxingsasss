@@ -393,14 +393,6 @@
   white-space: nowrap;
 }
 
-/* 附加项标签：较小字号 + 金色 */
-.amount-tag--addl .amount-tag-value {
-  font-size: 18px;
-  font-weight: 600;
-  color: var(--brand-gold);
-  cursor: help;
-}
-
 /* 货币符号：略小、半透明 —— 让数字本身做主角 */
 .amount-tag-value .money-sym {
   font-size: 18px;
@@ -417,14 +409,6 @@
   opacity: 0.7;
   letter-spacing: 0.5px;
   margin-left: 2px;
-}
-
-.amount-tag--addl .amount-tag-value .money-sym {
-  font-size: 14px;
-}
-
-.amount-tag--addl .amount-tag-value .money-unit {
-  font-size: 13px;
 }
 
 /* 业务色染 hero 底（与 CustomerList 收据同款语义）

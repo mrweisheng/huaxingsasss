@@ -126,7 +126,6 @@ class PaymentResponse(PaymentBase):
     receipt_image_path: Optional[str]
     receipt_data: Optional[dict] = None
     additional_receipt_files: Optional[list[dict]] = None
-    additional_item_id: Optional[int] = None
     # 表单录入新增字段
     payment_account_id: Optional[int] = None
     payment_account_title: Optional[str] = None  # 账户展示标题（join 填充）

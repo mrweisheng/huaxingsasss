@@ -140,10 +140,7 @@ export default function ContractList() {
     for (const c of contracts) {
       const cur = c.currency || 'CNY'
       if (!agg[cur]) agg[cur] = { total: 0, paid: 0, expense: 0 }
-      // 合同总额含附加项折算
-      const addl = c.additional_total_in_contract_currency != null
-        ? Number(c.additional_total_in_contract_currency) : 0
-      agg[cur].total += Number(c.total_amount || 0) + addl
+      agg[cur].total += Number(c.total_amount || 0)
       agg[cur].paid += Number(c.paid_amount || 0)
       agg[cur].expense += Number(c.total_expense || 0)
     }

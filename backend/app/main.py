@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.api.v1 import auth, customers, contracts, contract_additional_items, payments, agent, files, exchange_rates, users, stats, payment_accounts
+from app.api.v1 import auth, customers, contracts, payments, agent, files, exchange_rates, users, stats, payment_accounts
 from app.core.exceptions import AppException
 from app.core.middleware import RequestLoggingMiddleware, AuditLogMiddleware
 from app.core.logging import setup_logging
@@ -60,7 +60,6 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth.router, prefix=f"{settings.API_V1_STR}/auth", tags=["认证"])
 app.include_router(customers.router, prefix=f"{settings.API_V1_STR}/customers", tags=["客户管理"])
 app.include_router(contracts.router, prefix=f"{settings.API_V1_STR}/contracts", tags=["合同管理"])
-app.include_router(contract_additional_items.router, prefix=f"{settings.API_V1_STR}/contracts", tags=["合同附加项"])
 app.include_router(payments.router, prefix=f"{settings.API_V1_STR}/payments", tags=["付款管理"])
 app.include_router(agent.router, prefix=f"{settings.API_V1_STR}/agent", tags=["智能问答"])
 app.include_router(files.router, prefix=f"{settings.API_V1_STR}/files", tags=["文件管理"])

@@ -5,7 +5,6 @@ from app.models.base import Base
 from app.models.user import User
 from app.models.customer import Customer
 from app.models.contract import Contract
-from app.models.contract_additional_item import ContractAdditionalItem
 from app.models.payment import Payment
 from app.models.payment_account import PaymentAccount
 from app.models.exchange_rate import ExchangeRate
@@ -21,7 +20,6 @@ __all__ = [
     "User",
     "Customer",
     "Contract",
-    "ContractAdditionalItem",
     "Payment",
     "PaymentAccount",
     "ExchangeRate",

@@ -1,16 +1,14 @@
-import { useState, useCallback, useEffect } from 'react'
-import { Table, Button, Progress, Image, Badge, Empty, message, Popconfirm, Tooltip } from 'antd'
+import { useState, useCallback } from 'react'
+import { Table, Button, Progress, Image, Badge, Empty, Popconfirm, Tooltip } from 'antd'
 import {
-  PlusOutlined, EditOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
+  PlusOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
   EyeOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined,
   CaretRightOutlined, CarOutlined, SwapOutlined, SafetyCertificateOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
-import type { ContractWithPayments, ContractAdditionalItem } from '@/types'
-import AdditionalItemFormModal from './AdditionalItemFormModal'
+import type { ContractWithPayments } from '@/types'
 import ReceiptChatModal from './ReceiptChatModal'
 import PaymentNoticeModal from './PaymentNoticeModal'
-import { additionalItemApi } from '@/services/contractAdditionalItem'
 import { formatMoney } from '@/utils/money'
 import dayjs from 'dayjs'
 import './ContractTable.css'
@@ -73,60 +71,11 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
   // 互斥展开：同一时间只展开一行
   const [expandedRowKey, setExpandedRowKey] = useState<number | null>(null)
 
-  // 附加项明细（按合同 ID 懒加载）
-  const [additionalItems, setAdditionalItems] = useState<Record<number, ContractAdditionalItem[]>>({})
-  const [additionalLoading, setAdditionalLoading] = useState<Record<number, boolean>>({})
-
-  // 附加项弹窗
-  const [addlModal, setAddlModal] = useState<{ open: boolean; contractId: number; contractCurrency: string; editing?: ContractAdditionalItem | null }>({ open: false, contractId: 0, contractCurrency: 'CNY' })
-
   // 凭证录入弹窗（收入/支出）
   const [receiptModal, setReceiptModal] = useState<{ open: boolean; contract: ContractWithPayments | null; type: 'income' | 'expense' }>({ open: false, contract: null, type: 'income' })
 
   // 付款通知单弹窗
   const [noticeModal, setNoticeModal] = useState<{ open: boolean; contract: ContractWithPayments | null }>({ open: false, contract: null })
-
-  // 展开时懒加载附加项明细
-  useEffect(() => {
-    if (expandedRowKey == null) return
-    if (additionalItems[expandedRowKey] != null) return  // 已加载过，跳过
-
-    const load = async () => {
-      setAdditionalLoading(prev => ({ ...prev, [expandedRowKey]: true }))
-      try {
-        const items = await additionalItemApi.list(expandedRowKey)
-        setAdditionalItems(prev => ({ ...prev, [expandedRowKey]: items }))
-      } catch (e) {
-        console.error(e)
-        message.error('加载附加项失败')
-      } finally {
-        setAdditionalLoading(prev => ({ ...prev, [expandedRowKey]: false }))
-      }
-    }
-
-    load()
-  }, [expandedRowKey])
-
-  // 附加项操作成功回调：刷新当前合同的附加项列表，并通知父级刷新合同汇总（附加项总额）
-  const handleAddlSuccess = useCallback(() => {
-    if (expandedRowKey == null) return
-    // 清除缓存，下次展开重新拉取（保证附加项总金额同步更新）
-    setAdditionalItems(prev => {
-      const next = { ...prev }
-      delete next[expandedRowKey]
-      return next
-    })
-    onContractUpdated?.()
-  }, [expandedRowKey, onContractUpdated])
-
-  const handleDeleteAddlItem = useCallback((itemId: number) => {
-    additionalItemApi.remove(itemId)
-      .then(() => {
-        message.success('附加项已删除')
-        handleAddlSuccess()
-      })
-      .catch((e: any) => message.error(e?.response?.data?.detail || '删除失败'))
-  }, [handleAddlSuccess])
 
   // 凭证录入成功回调：刷新父级列表（已收金额/进度同步更新）
   const handleReceiptSuccess = useCallback(() => {
@@ -228,11 +177,10 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       width: 90,
       align: 'right',
       render: (_, row) => {
-        const total = Number(row.total_amount || 0)
-        const addl = Number(row.additional_total_in_contract_currency ?? 0)
-        const receivable = total + addl
-        const unpaid = Math.max(0, receivable - Number(row.paid_amount || 0))
-        const overpaid = Math.max(0, Number(row.paid_amount || 0) - receivable)
+        const receivable = Number(row.total_amount || 0)
+        const paid = Number(row.paid_amount || 0)
+        const unpaid = Math.max(0, receivable - paid)
+        const overpaid = Math.max(0, paid - receivable)
         if (overpaid > 0) return <span className="amount-overpaid">+{fmt(overpaid, row.currency)}</span>
         return unpaid > 0 ? <span className="amount-unpaid">{fmt(unpaid, row.currency)}</span> : <Badge status="success" text="已结清" />
       },
@@ -262,9 +210,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       key: 'progress',
       width: 135,
       render: (_, row) => {
-        const total = Number(row.total_amount || 0)
-        const addl = Number(row.additional_total_in_contract_currency ?? 0)
-        const receivable = total + addl
+        const receivable = Number(row.total_amount || 0)
         const paid = Number(row.paid_amount || 0)
         const pct = calcProgress(paid, receivable)
         const capPct = Math.min(pct, 100)
@@ -318,10 +264,8 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
     },
   ]
 
-  // 展开行内容：付款条款 / 附加项 / 收入流水 / 支出流水
+  // 展开行内容：付款条款 / 收入流水 / 支出流水
   const expandedRowRender = (row: ContractWithPayments) => {
-    const addlItems = additionalItems[row.id] || []
-    const isLoading = additionalLoading[row.id]
     const incomePayments = (row.payments || []).filter(p => p.type === 'income')
     const expensePayments = (row.payments || []).filter(p => p.type === 'expense')
 
@@ -351,59 +295,6 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
                 <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无付款计划" />
               )}
             </div>
-          </div>
-
-          {/* ─── 中间：附加项 ─── */}
-          <div className="expanded-panel">
-            <div className="expanded-panel-head">
-              <span className="expanded-panel-title">附加项</span>
-              <Button
-                size="small"
-                type="text"
-                icon={<PlusOutlined />}
-                onClick={() => setAddlModal({ open: true, contractId: row.id, contractCurrency: row.currency })}
-              >
-                新增
-              </Button>
-            </div>
-            {isLoading ? (
-              <div className="expanded-loading">加载中...</div>
-            ) : addlItems.length === 0 ? (
-              <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="暂无附加项" />
-            ) : (
-              <div className="additional-list">
-                {addlItems.map(item => (
-                  <div key={item.id} className="additional-item">
-                    <div className="addl-main">
-                      <div className="addl-name">{item.name}</div>
-                      <div className="addl-amount">{fmt(item.amount, item.currency)}</div>
-                    </div>
-                    <div className="addl-meta">
-                      {item.paid_to && <span className="addl-paid-to">付给：{item.paid_to}</span>}
-                      {item.occurred_date && <span className="addl-date">{item.occurred_date}</span>}
-                    </div>
-                    <div className="addl-actions">
-                      <Button size="small" type="text" icon={<EditOutlined />} onClick={() => {
-                        setAddlModal({ open: true, contractId: row.id, contractCurrency: row.currency, editing: item })
-                      }}>
-                        编辑
-                      </Button>
-                      <Popconfirm
-                        title="删除附加项？"
-                        okText="删除"
-                        cancelText="取消"
-                        okButtonProps={{ danger: true }}
-                        onConfirm={() => handleDeleteAddlItem(item.id)}
-                      >
-                        <Button size="small" type="text" danger icon={<DeleteOutlined />}>
-                          删除
-                        </Button>
-                      </Popconfirm>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
           </div>
 
           {/* ─── 右侧：收入流水 ─── */}
@@ -456,8 +347,8 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
             )}
           </div>
 
-          {/* ─── 底部：支出流水（横跨全部宽度） ─── */}
-          <div className="expanded-panel span-3">
+          {/* ─── 底部：支出流水（横跨两栏） ─── */}
+          <div className="expanded-panel span-2">
             <div className="expanded-panel-head">
               <span className="expanded-panel-title">支出流水</span>
               <Button
@@ -541,9 +432,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         }}
         rowClassName={(row) => {
           const classes: string[] = []
-          const total = Number(row.total_amount || 0)
-          const addl = Number(row.additional_total_in_contract_currency ?? 0)
-          const receivable = total + addl
+          const receivable = Number(row.total_amount || 0)
           const paid = Number(row.paid_amount || 0)
           if (paid >= receivable) classes.push('row-cleared')
           if (expandedRowKey === row.id) {
@@ -553,19 +442,6 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         }}
         scroll={{ x: 1365 }}
       />
-
-      {/* 附加项弹窗 */}
-      {addlModal.open && (
-        <AdditionalItemFormModal
-          open={addlModal.open}
-          mode={addlModal.editing ? 'edit' : 'add'}
-          contractId={addlModal.contractId}
-          contractCurrency={addlModal.contractCurrency}
-          editing={addlModal.editing || null}
-          onClose={() => setAddlModal(prev => ({ ...prev, open: false }))}
-          onSuccess={handleAddlSuccess}
-        />
-      )}
 
       {/* 凭证录入弹窗 */}
       {receiptModal.contract && (

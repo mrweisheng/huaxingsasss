@@ -230,10 +230,10 @@
   background: var(--active-color, var(--brand-primary));
 }
 
-/* 展开行网格布局 */
+/* 展开行网格布局：两栏 — 付款条款 / 收入流水（支出流水跨两栏在下面） */
 .expanded-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
 
@@ -245,7 +245,7 @@
   padding: 14px 16px;
   box-shadow: 0 8px 18px rgba(30, 58, 95, 0.045);
 }
-.expanded-panel.span-3 {
+.expanded-panel.span-2 {
   grid-column: 1 / -1;
 }
 
@@ -326,62 +326,6 @@
 .term-condition {
   font-size: 11px;
   color: #9ca3af;
-}
-
-/* ─── 附加项列表 ─── */
-.additional-list {
-  display: flex;
-  flex-direction: column;
-  gap: 7px;
-}
-.additional-item {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  background: #f8fafc;
-  border-radius: 6px;
-  border: 1px solid #f0f1f3;
-}
-.addl-main {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  flex: 1;
-  min-width: 0;
-}
-.addl-name {
-  font-weight: 500;
-  font-size: 13px;
-  color: #1f2937;
-}
-.addl-amount {
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  color: #6b7280;
-  margin-left: auto;
-}
-.addl-meta {
-  display: flex;
-  gap: 10px;
-  flex-basis: 100%;
-  margin-top: 2px;
-}
-.addl-paid-to,
-.addl-date {
-  font-size: 11px;
-  color: #9ca3af;
-}
-.addl-actions {
-  display: flex;
-  gap: 4px;
-  margin-left: auto;
-  opacity: 0;
-  transition: opacity 0.2s;
-}
-.additional-item:hover .addl-actions {
-  opacity: 1;
 }
 
 /* ─── 收支流水列表 ─── */

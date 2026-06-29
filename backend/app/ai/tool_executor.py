@@ -20,8 +20,6 @@ from typing import Optional
 
 from app.ai.tool_executor_base import ToolExecutor
 from app.config import settings
-from app.schemas.contract_additional_item import AdditionalItemCreate, AdditionalItemUpdate
-from app.services.contract_additional_item_service import AdditionalItemService
 from app.services.file_analyzer import FileAnalyzer
 from app.services.payment_service import PaymentService
 from app.services.payment_account_service import PaymentAccountService
@@ -521,139 +519,6 @@ class ToolExecutorV2(ToolExecutor):
         return json.dumps({
             "grouped_by": group_by,
             "payments": list(result.values()),
-        }, ensure_ascii=False)
-
-    # ═══════════════════════════════════════════════════════════
-    # 🆕 合同附加项工具（list/add/update/delete）+ get_contract_detail 扩展
-    # 附加项 = 合同应收清单上的一行；付款打标 additional_item_id 为可选展示标签，
-    # 不参与任何金额聚合（聚合逻辑在 payment_service，完全不变）。
-    # ═══════════════════════════════════════════════════════════
-
-    def _additional_item_to_dict(self, it) -> dict:
-        """附加项精简序列化（Agent 返回用）。"""
-        return {
-            "id": it.id,
-            "contract_id": it.contract_id,
-            "name": it.name,
-            "amount": float(it.amount) if it.amount is not None else 0.0,
-            "currency": it.currency,
-            "paid_to": it.paid_to,
-            "description": it.description,
-            "occurred_date": str(it.occurred_date) if it.occurred_date else None,
-            "remarks": it.remarks,
-        }
-
-    def get_contract_detail(self, contract_id: int) -> str:
-        """合同详情（覆写父类，追加附加项明细 + 分币种汇总）。
-
-        附加项是合同应收的细化补充，详情需让 LLM 感知，便于回答"这个合同有哪些附加项/共多少"。
-        复用父类全部逻辑（客户/合同/收支/利润），仅追加附加项字段。
-        """
-        result_str = super().get_contract_detail(contract_id)
-        try:
-            result = json.loads(result_str)
-        except json.JSONDecodeError:
-            return result_str
-        # 父类对不存在/无权合同返回 {"error": ...}，原样透传
-        if not isinstance(result, dict) or result.get("error"):
-            return result_str
-
-        items = AdditionalItemService.list_by_contract(self.db, contract_id)
-        result["additional_items"] = [self._additional_item_to_dict(it) for it in items]
-        result["additional_total_by_currency"] = AdditionalItemService.get_summary_by_currency(
-            self.db, contract_id
-        )
-        # 附加项折算到合同主币种（应收口径统一用）；缺汇率返回 None，LLM 据此降级
-        result["additional_total_in_contract_currency"] = AdditionalItemService.get_additional_total_in_contract_currency(
-            self.db, contract_id
-        )
-        return json.dumps(result, ensure_ascii=False, default=str)
-
-    def list_additional_items(self, contract_id: int) -> str:
-        """列出合同所有附加项 + 分币种汇总（只读，所有角色可见）。"""
-        items = AdditionalItemService.list_by_contract(self.db, contract_id)
-        summary = AdditionalItemService.get_summary_by_currency(self.db, contract_id)
-        return json.dumps({
-            "success": True,
-            "contract_id": contract_id,
-            "additional_items": [self._additional_item_to_dict(it) for it in items],
-            "additional_total_by_currency": summary,
-        }, ensure_ascii=False, default=str)
-
-    def add_additional_item(
-        self,
-        contract_id: int,
-        name: str,
-        amount: float,
-        currency: Optional[str] = None,
-        paid_to: Optional[str] = None,
-        description: Optional[str] = None,
-        occurred_date: Optional[str] = None,
-        remarks: Optional[str] = None,
-    ) -> str:
-        """新增合同附加项（写入工具，遵循确认规则）。"""
-        if self.user.role == "expense":
-            return json.dumps({"error": "当前角色无权操作合同附加项"}, ensure_ascii=False)
-        try:
-            occurred = date.fromisoformat(occurred_date) if occurred_date else None
-            item_data = AdditionalItemCreate(
-                contract_id=contract_id,
-                name=name,
-                amount=amount,
-                currency=currency or "CNY",
-                paid_to=paid_to,
-                description=description,
-                occurred_date=occurred,
-                remarks=remarks,
-            )
-            item = AdditionalItemService.create(self.db, item_data, user_id=self.user.id)
-            return json.dumps({
-                "success": True,
-                "additional_item": self._additional_item_to_dict(item),
-                "message": f"附加项「{item.name}」已创建",
-            }, ensure_ascii=False, default=str)
-        except ValueError as e:
-            return json.dumps({"error": str(e)}, ensure_ascii=False)
-        except Exception as e:
-            self.db.rollback()
-            logger.exception("add_additional_item 失败")
-            return json.dumps({"error": f"创建附加项失败: {e}"}, ensure_ascii=False)
-
-    def update_additional_item(self, item_id: int, **kwargs) -> str:
-        """更新合同附加项字段（写入工具，遵循确认规则）。"""
-        if self.user.role == "expense":
-            return json.dumps({"error": "当前角色无权操作合同附加项"}, ensure_ascii=False)
-        payload = {k: v for k, v in kwargs.items() if v is not None}
-        if payload.get("occurred_date"):
-            try:
-                payload["occurred_date"] = date.fromisoformat(payload["occurred_date"])
-            except (ValueError, TypeError):
-                pass
-        try:
-            item_data = AdditionalItemUpdate(**payload)
-            item = AdditionalItemService.update(self.db, item_id, item_data, user_id=self.user.id)
-            if not item:
-                return json.dumps({"error": f"附加项不存在: {item_id}"}, ensure_ascii=False)
-            return json.dumps({
-                "success": True,
-                "additional_item": self._additional_item_to_dict(item),
-                "message": f"附加项「{item.name}」已更新",
-            }, ensure_ascii=False, default=str)
-        except Exception as e:
-            self.db.rollback()
-            logger.exception("update_additional_item 失败")
-            return json.dumps({"error": f"更新附加项失败: {e}"}, ensure_ascii=False)
-
-    def delete_additional_item(self, item_id: int) -> str:
-        """软删合同附加项（引用此附加项的付款标签自动置空）。"""
-        if self.user.role == "expense":
-            return json.dumps({"error": "当前角色无权操作合同附加项"}, ensure_ascii=False)
-        success = AdditionalItemService.delete(self.db, item_id, user_id=self.user.id)
-        if not success:
-            return json.dumps({"error": f"附加项不存在: {item_id}"}, ensure_ascii=False)
-        return json.dumps({
-            "success": True,
-            "message": "附加项已删除（引用此附加项的付款标签已自动置空）",
         }, ensure_ascii=False)
 
     # ═══════════════════════════════════════════════════════════
@@ -1381,77 +1246,6 @@ TOOL_DEFINITIONS = [
             },
         },
     },
-    # ── 合同附加项（4 个） ──
-    {
-        "type": "function",
-        "function": {
-            "name": "list_additional_items",
-            "description": "列出合同的所有附加项（车险/保养/人工费等应收清单项）+ 按币种汇总。只读，用于回答\"这个合同有哪些附加项/附加项共多少\"。",
-            "parameters": {
-                "type": "object",
-                "required": ["contract_id"],
-                "properties": {
-                    "contract_id": {"type": "integer", "description": "合同ID"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "add_additional_item",
-            "description": "为合同新增一项附加项（应收清单上的额外项目，如车险/保养改装/人工费）。附加项是合同应收的细化补充，不是独立财务实体，无已收/未收概念。写入工具，需先列计划等用户确认。币种可与合同不同（系统按所选币种独立记账，不自动折算）。",
-            "parameters": {
-                "type": "object",
-                "required": ["contract_id", "name", "amount"],
-                "properties": {
-                    "contract_id": {"type": "integer", "description": "合同ID"},
-                    "name": {"type": "string", "description": "项目名称（如：车险、保养改装、过户费、人工费）"},
-                    "amount": {"type": "number", "description": "金额"},
-                    "currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "币种，默认 CNY"},
-                    "paid_to": {"type": "string", "description": "付给谁（如：太平洋保险、XX修理厂）"},
-                    "description": {"type": "string", "description": "用途说明（如：基础三责险+车损）"},
-                    "occurred_date": {"type": "string", "description": "发生日期（YYYY-MM-DD），备查用"},
-                    "remarks": {"type": "string", "description": "业务备注"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "update_additional_item",
-            "description": "更新已有附加项的字段。写入工具，需先列计划等用户确认。",
-            "parameters": {
-                "type": "object",
-                "required": ["item_id"],
-                "properties": {
-                    "item_id": {"type": "integer", "description": "附加项ID"},
-                    "name": {"type": "string", "description": "项目名称"},
-                    "amount": {"type": "number", "description": "金额"},
-                    "currency": {"type": "string", "enum": ["CNY", "HKD"]},
-                    "paid_to": {"type": "string"},
-                    "description": {"type": "string"},
-                    "occurred_date": {"type": "string", "description": "YYYY-MM-DD"},
-                    "remarks": {"type": "string"},
-                },
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "delete_additional_item",
-            "description": "软删附加项。引用此附加项的付款标签会自动置空（付款本身保留）。删除自由，无硬保护。",
-            "parameters": {
-                "type": "object",
-                "required": ["item_id"],
-                "properties": {
-                    "item_id": {"type": "integer", "description": "附加项ID"},
-                },
-            },
-        },
-    },
     # ── 凭证录入对话流（4 个） ──
     {
         "type": "function",
@@ -1637,7 +1431,6 @@ _RECEIPT_COMMON_TOOLS = frozenset({
     "get_contract_detail",
     "query_payments",
     "search_contract_text",
-    "list_additional_items",
     "list_payment_accounts",
     "override_receipt_mismatch",
     "present_quick_replies",
