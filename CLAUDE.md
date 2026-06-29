@@ -110,7 +110,7 @@ START → call_model_node（LLM 决策）
 
 **统一 Agent 图**（`unified_agent.py`）：不再有子图、意图推断、业务路由分支。LLM 自主决定调什么工具、何时追问；代码层只提供执行能力 + 写入防护。`present_quick_replies` 属于 UI handoff 工具：LLM 决定是否调用它；调用成功后编排层结束当前 turn，等待用户下一条输入。这是工具能力协议，不是业务确认关键词拦截。
 
-前端入口：`AgentChat`（/agent 智能问答，含三个工具标签「录合同」「录收入」「录支出」） + `ReceiptChatModal`（合同列表卡片「收」「支」按钮），均走 `POST /api/v1/agent/chat` SSE。
+前端入口：`AgentChat`（/agent 智能问答，含三个工具标签「录合同」「录收入」「录支出」，走 `POST /api/v1/agent/chat` SSE）+ `PaymentFormModal`（合同列表卡片「收」「支」按钮，表单式「文本→解析→表单→提交」，复用 `/payments/extract-text` 大模型解析 + `/payments` 落库 + 方向/群名校验，AI 只解析不落库，不走 agent）。
 
 ### 编排层职责边界
 
@@ -182,8 +182,8 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 - 业务封装：`backend/app/services/` — 工具层不直接 ORM，统一走 Service。`receipt_matcher.py` 提供凭证三态对比器（ok / soft_mismatch / hard_conflict），对话流前置校验用
 - 可观测性：`.env` 设 `LANGCHAIN_TRACING_V2=true` 后 LangGraph 节点自动埋点到 LangSmith（`main.py:on_startup` 同步 env）
 - 凭证校验：**两条路径并存**——
-  - **对话流路径（默认）**：合同卡片"录入收入/支出"按钮 → `ReceiptChatModal` 对话流 → LLM 调 `analyze_receipt` 同步前置识别+三态对比 → ok 走 `create_*_payment`，soft_mismatch 走 `override_receipt_mismatch`（带放行理由+审计），hard_conflict 工具层硬挡禁止录入
-  - **表单路径（保留兜底）**：`POST /api/v1/payments` 表单 API → 异步 `verify_receipt(payment_id)` task 回写 `verification_status`（pending/passed/failed），admin 可经 `POST /api/v1/payments/{id}/manual-confirm` 强制入账
+  - **表单路径（合同卡片主路径）**：合同卡片"录入收入/支出"按钮 → `PaymentFormModal`（粘贴文本 → `/payments/extract-text` 大模型解析 → 可编辑表单 + 方向/群名校验 → `/payments` 落库）→ 异步 `verify_receipt(payment_id)` task 回写 `verification_status`（pending/passed/failed），admin 可经 `POST /api/v1/payments/{id}/manual-confirm` 强制入账。AI 只做解析+校验，不落库（避开 agent loop 自动执行 write tool）
+  - **对话流路径（/agent 智能问答入口）**：`AgentChat` → LLM 调 `analyze_receipt` 同步前置识别+三态对比 → ok 走 `create_*_payment`，soft_mismatch 走 `override_receipt_mismatch`（带放行理由+审计），hard_conflict 工具层硬挡禁止录入
   - 放行审计：对话流放行时同时写 `payment_override_audit` 表（业务级审计）+ `audit_logs`（通用 CRUD 审计），合同详情页"放行历史"折叠区块直接从 `payment.verification_result.manual_override` 读取展示
 
 ## SSE 事件协议（前后端约定）
@@ -249,9 +249,9 @@ call_model_node（LLM 决策，迭代上限 settings.AGENT_MAX_ITERATIONS=8）
 | `override_receipt_mismatch` | 写入 | ✅ | soft_mismatch 状态下用户提供放行理由后创建付款。同事务写 `payment_override_audit`（who/when/reason+识别快照+用户输入快照+差异） + `audit_logs`。hard_conflict 工具入口硬挡 |
 
 > **凭证录入双轨**：
-> - 对话流（默认）：合同卡片"录入收入/支出"按钮 → `ReceiptChatModal` → `POST /api/v1/agent/chat` SSE → 四工具组合（analyze_receipt → create_*_payment 或 override_receipt_mismatch）
-> - 表单（保留兜底/编辑）：`POST /api/v1/payments` + `POST /api/v1/payments/extract-receipt`（VL）+ 异步 `verify_receipt` task，`PaymentList.tsx` 的编辑入口仍走表单（凭证不符修复 / 改字段）
-> - **不要再说"支付录入改走表单路径"** — v3 起对话流是主路径
+> - 表单（合同卡片主路径）：合同卡片"录入收入/支出"按钮 → `PaymentFormModal`（文本 → `/payments/extract-text` 大模型解析 → 可编辑表单 + 方向/群名校验 → `/payments` 落库）；`PaymentList.tsx` 的编辑入口也走表单（凭证不符修复 / 改字段）
+> - 对话流（/agent 智能问答入口）：`AgentChat` → `POST /api/v1/agent/chat` SSE → 四工具组合（analyze_receipt → create_*_payment 或 override_receipt_mismatch）
+> - v4 起**合同卡片录入改回表单路径**（PaymentFormModal），AI 只解析+校验不落库；对话流仅 /agent 智能问答入口保留
 
 ### Mode Guard（轻量恢复）
 

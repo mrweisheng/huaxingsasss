@@ -7,7 +7,7 @@
  * - 顶部汇总条按当前页数据累加（不是全量；全量汇总待后续 /summary 接口）
  *
  * 不复用 ContractList 的卡片渲染——刻意分文件让两套视图各自演化。
- * 共用的：筛选条状态、删除、ReceiptChatModal、ContractChatModal、分页。
+ * 共用的：筛选条状态、删除、PaymentFormModal（合同卡片录入）、ContractChatModal、分页。
  * 因此把筛选条 + 模态控制留在外层 ContractList 里，本组件只接收数据 + 上报事件。
  */
 import { useState } from 'react'

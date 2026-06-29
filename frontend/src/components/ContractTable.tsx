@@ -9,7 +9,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import type { ContractWithPayments } from '@/types'
 import { contractApi } from '@/services/contract'
-import ReceiptChatModal from './ReceiptChatModal'
+import PaymentFormModal from './PaymentFormModal'
 import PaymentNoticeModal from './PaymentNoticeModal'
 import { formatMoney } from '@/utils/money'
 import dayjs from 'dayjs'
@@ -108,11 +108,15 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
   }>({ open: false, contractId: null, field: 'signed_date', oldValue: null, newValue: null })
   const [saving, setSaving] = useState(false)
 
-  // 凭证录入成功回调：刷新父级列表（已收金额/进度同步更新）
-  const handleReceiptSuccess = useCallback(() => {
-    setReceiptModal(prev => ({ ...prev, open: false }))
+  // 凭证录入成功回调：刷新父级列表（已收金额/进度同步），保持弹窗打开支持连续录入
+  const handleReceiptInserted = useCallback(() => {
     onContractUpdated?.()
   }, [onContractUpdated])
+
+  // 关闭录入弹窗
+  const handleCloseReceipt = useCallback(() => {
+    setReceiptModal(prev => ({ ...prev, open: false }))
+  }, [])
 
   // 打开编辑弹窗
   const openEdit = useCallback((contract: ContractWithPayments, field: 'signed_date' | 'wechat_group') => {
@@ -475,11 +479,13 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         scroll={{ x: 1365 }}
       />
 
-      {/* 凭证录入弹窗 */}
+      {/* 凭证录入弹窗（文本→解析→表单→提交） */}
       {receiptModal.contract && (
-        <ReceiptChatModal
+        <PaymentFormModal
+          mode="add"
           open={receiptModal.open}
-          onClose={() => handleReceiptSuccess()}
+          onClose={handleCloseReceipt}
+          onSuccess={handleReceiptInserted}
           contractId={receiptModal.contract.id}
           contractNumber={receiptModal.contract.contract_number}
           customerName={receiptModal.contract.customer_name || ''}

@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
-import { Button, Modal, Form, Input, InputNumber, Select, Space, DatePicker, Upload, Alert, message, Spin } from 'antd'
+import { Button, Modal, Form, Input, InputNumber, Select, Space, DatePicker, Upload, Alert, message, Spin, Avatar } from 'antd'
 const { useWatch } = Form
-import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, CheckCircleOutlined, WechatOutlined, UserOutlined, FileTextOutlined, PictureOutlined, SwapOutlined, CloseOutlined } from '@ant-design/icons'
+import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, CheckCircleOutlined, WechatOutlined, UserOutlined, PictureOutlined, SwapOutlined, CloseOutlined, RobotOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   paymentApi,
@@ -12,6 +12,8 @@ import {
 } from '@/services/payment'
 import { paymentAccountApi, type PaymentAccount } from '@/services/paymentAccount'
 import { compressImage } from '@/utils/imageCompress'
+import { isNoReceipt } from '@/utils/payment'
+import { groupMismatchLevel, normalizeForCompare } from '@/utils/textNormalize'
 import type { Payment } from '@/types'
 import './PaymentFormModal.css'
 
@@ -34,6 +36,37 @@ function deriveMethodFromAccount(accountId: number | undefined, accounts: Paymen
   const acc = accounts.find(a => a.id === accountId)
   if (!acc) return undefined
   return ACCOUNT_TYPE_TO_METHOD[acc.account_type]
+}
+
+// 业务色徽章映射：与设计系统业务色保持一致（仅在此标识业务类型）
+const BIZ_BADGE_STYLE: Record<string, { className: string; label: string }> = {
+  '两地牌过户': { className: 'biz-license-chip', label: '两地牌' },
+  '车辆买卖': { className: 'biz-vehicle-chip', label: '车辆' },
+  '年检保险': { className: 'biz-insurance-chip', label: '年检保险' },
+  '其他': { className: 'biz-other-chip', label: '其他业务' },
+}
+
+// 币种 → 货币符号
+const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
+
+// 格式化日期为 MM/DD（极简展示，年份省略）
+function fmtShortDate(d?: string) {
+  if (!d) return ''
+  const parts = d.split('-')  // YYYY-MM-DD
+  if (parts.length !== 3) return d
+  return `${parts[1]}/${parts[2]}`
+}
+
+// 已有记录的状态标签文案 + 颜色类
+function existingStatusOf(p: Payment): { text: string; cls: string } {
+  if (p.status === 'paid') {
+    if (isNoReceipt(p)) return { text: '无凭证', cls: 'st-no-receipt' }
+    return { text: '已入账', cls: 'st-paid' }
+  }
+  // pending
+  if (p.verification_status === 'failed') return { text: '待放行', cls: 'st-failed' }
+  if (p.verification_status === 'pending') return { text: '校验中', cls: 'st-pending' }
+  return { text: '待入账', cls: 'st-pending' }
 }
 
 function formatVerificationValue(value: unknown, currency?: string): string {
@@ -104,6 +137,8 @@ type MismatchItem = {
   actual: string
   /** 可选副标题；type 不匹配时解释"为什么不能用对方向" */
   hint?: string
+  /** true = 阻断提交（方向不符 / 群名严重不符）；false = 仅提醒可放行 */
+  blocking?: boolean
 }
 
 interface Props {
@@ -115,6 +150,8 @@ interface Props {
   customerName?: string
   contractTitle?: string
   wechatGroup?: string
+  businessType?: string   // 车辆买卖 / 两地牌过户 / 年检保险 / 其他（header 业务徽章）
+  status?: string         // 合同状态 active / completed（header 状态标）
   totalAmount?: number
   currency?: string
   /** 收支方向（add 必填；edit 由 editing 推断） */
@@ -136,7 +173,7 @@ interface Props {
  */
 export default function PaymentFormModal({
   open, mode, contractId, customerName, contractTitle, wechatGroup,
-  currency, paymentType, editing, onClose, onSuccess,
+  businessType, status, currency, totalAmount, paymentType, editing, onClose, onSuccess,
 }: Props) {
   const [form] = Form.useForm()
   const [submitting, setSubmitting] = useState(false)
@@ -153,6 +190,8 @@ export default function PaymentFormModal({
   const [extracting, setExtracting] = useState(false)
   const [extractedData, setExtractedData] = useState<ExtractedReceiptData | null>(null)
   const [mismatchItems, setMismatchItems] = useState<MismatchItem[] | null>(null)
+  // 本合同已有的同类型（income/expense）记录，打开时加载，录入成功后刷新
+  const [existingPayments, setExistingPayments] = useState<Payment[]>([])
   const [step, setStep] = useState<'input' | 'form'>('input')
   const [inputText, setInputText] = useState('')
   const [inputImage, setInputImage] = useState<{ file: File; preview_url: string } | null>(null)
@@ -183,6 +222,26 @@ export default function PaymentFormModal({
       setAccounts(arr)
     }).catch(() => setAccounts([]))
   }, [open, isIncome])
+
+  // 加载本合同已有的同类型收支记录（add 模式顶部展示，录入成功后刷新）
+  const loadExistingPayments = async () => {
+    if (!contractId || !paymentType) return
+    try {
+      const resp = await paymentApi.getContractPayments(contractId)
+      // axios 拦截器返回整个 body，真正的 payload 在 resp.data
+      const payload = resp?.data || resp
+      const group = payload?.[paymentType]
+      setExistingPayments(Array.isArray(group?.payments) ? group.payments : [])
+    } catch {
+      setExistingPayments([])
+    }
+  }
+
+  // 打开时加载已有记录（仅 add 模式）
+  useEffect(() => {
+    if (!open || isEdit || !contractId) return
+    loadExistingPayments()
+  }, [open, isEdit, contractId, paymentType])
 
   // 组件卸载标记，防止 async 回调在关闭后触发状态更新
   useEffect(() => {
@@ -280,6 +339,7 @@ export default function PaymentFormModal({
         extracted: actualLabel,
         actual: expectedLabel,
         hint: `当前入口只能录入${expectedLabel}，请改用「录入${actualLabel}」入口`,
+        blocking: true,
       }])
       message.error(`识别结果「${actualLabel}」，与当前「${expectedLabel}」录入方向不一致`)
       return
@@ -317,22 +377,36 @@ export default function PaymentFormModal({
 
     // 检查其他不匹配
     const mismatches: MismatchItem[] = []
+    // 业务群名：分两档——major（关键信息完全对不上）拦截，minor（大小写/空格/繁简差异）提醒
     const actualGroup = wechatGroup || editing?.contract_wechat_group
-    if (extracted.wechat_group && actualGroup && !actualGroup.includes(extracted.wechat_group) && !extracted.wechat_group.includes(actualGroup)) {
-      mismatches.push({
-        field: 'group',
-        label: '业务群名',
-        extracted: extracted.wechat_group,
-        actual: actualGroup,
-      })
+    if (extracted.wechat_group && actualGroup) {
+      const level = groupMismatchLevel(extracted.wechat_group, actualGroup)
+      if (level === 'major') {
+        mismatches.push({
+          field: 'group', label: '业务群名',
+          extracted: extracted.wechat_group, actual: actualGroup,
+          blocking: true,
+          hint: '关键信息（客户/业务/时间）完全对不上，请确认是否选错合同',
+        })
+      } else if (level === 'minor') {
+        mismatches.push({
+          field: 'group', label: '业务群名',
+          extracted: extracted.wechat_group, actual: actualGroup,
+          blocking: false,
+        })
+      }
     }
-    if (extracted.customer_name_hint && customerName && !customerName.includes(extracted.customer_name_hint) && !extracted.customer_name_hint.includes(customerName)) {
-      mismatches.push({
-        field: 'customer',
-        label: '客户姓名',
-        extracted: extracted.customer_name_hint,
-        actual: customerName,
-      })
+    // 客户姓名：归一化后仍不一致则提醒（非阻断）
+    if (extracted.customer_name_hint && customerName) {
+      const ec = normalizeForCompare(extracted.customer_name_hint)
+      const ac = normalizeForCompare(customerName)
+      if (ec && ac && !ac.includes(ec) && !ec.includes(ac)) {
+        mismatches.push({
+          field: 'customer', label: '客户姓名',
+          extracted: extracted.customer_name_hint, actual: customerName,
+          blocking: false,
+        })
+      }
     }
     // 收款账户简称有但后端没匹配到 ID → 提示用户手动选择
     if (isIncome && extracted.payment_account_hint && !extracted.payment_account_id) {
@@ -451,6 +525,11 @@ export default function PaymentFormModal({
   }
 
   const handleOk = async () => {
+    // 阻断项（方向不符 / 群名严重不符）必须先处理，禁止提交
+    if (mismatchItems?.some(m => m.blocking)) {
+      message.error('存在需处理的不匹配项（收支方向 / 业务群名），请核对后再提交')
+      return
+    }
     try {
       const values = await form.validateFields()
       setSubmitting(true)
@@ -535,8 +614,32 @@ export default function PaymentFormModal({
         await paymentApi.update(editing!.id, payload)
         message.success(`${typeLabel}已更新${isIncome && (uploadedFileId || receiptCleared) ? '，正在重新校验…' : ''}`)
       }
-      onSuccess()
-      onClose()
+      if (!isEdit) {
+        // 新建：刷新已有记录 + 重置回文本输入步（支持连续录入），保持弹窗打开
+        await loadExistingPayments()
+        form.resetFields()
+        form.setFieldsValue({
+          currency: contractCurrency || 'CNY',
+          paid_date: dayjs(),
+          payment_method: !isIncome ? 'bank_transfer' : undefined,
+        })
+        setUploadedFileId(undefined)
+        setUploadedFile(null)
+        setReceiptCleared(false)
+        setMismatchItems(null)
+        setExtractedData(null)
+        extractedCounterpartyRef.current = null
+        if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
+        setTemplateFile(null)
+        setInputText('')
+        if (inputImage?.preview_url) URL.revokeObjectURL(inputImage.preview_url)
+        setInputImage(null)
+        setStep('input')
+        onSuccess()
+      } else {
+        onSuccess()
+        onClose()
+      }
     } catch (e: any) {
       if (e?.errorFields) return  // antd 表单校验失败
       message.error(e?.response?.data?.detail || '操作失败')
@@ -575,29 +678,66 @@ export default function PaymentFormModal({
     >
       {renderVerificationPanel(editing)}
 
-      {/* 顶部信息区：群名称（第一行）+ 客户·业务描述（第二行） */}
-      {(contractTitle || customerName || wechatGroup) && (
-        <div className={`pfm-context ${themeClass}`}>
-          {wechatGroup && (
-            <div className="pfm-context-group">
-              <WechatOutlined className="pfm-context-icon" />
-              {wechatGroup}
+      {/* 顶部合同信息 header：Avatar + 业务徽章 + 群名 + 状态 + 金额 + 客户·合同 */}
+      {(wechatGroup || customerName || contractTitle || businessType) && (
+        <div className={`pfm-header ${themeClass}`}>
+          <Avatar icon={<RobotOutlined />} className="pfm-header-avatar" size={38} />
+          <div className="pfm-header-info">
+            <div className="pfm-header-main">
+              {businessType && BIZ_BADGE_STYLE[businessType] && (
+                <span className={`pfm-header-biz-chip ${BIZ_BADGE_STYLE[businessType].className}`}>
+                  {BIZ_BADGE_STYLE[businessType].label}
+                </span>
+              )}
+              <span className="pfm-header-groupname" title={wechatGroup}>
+                {wechatGroup || '未设置业务群'}
+              </span>
+              {status && (
+                <span className={`pfm-header-status ${status}`}>
+                  {status === 'active' ? '执行中' : status === 'completed' ? '已完成' : status}
+                </span>
+              )}
+              {totalAmount != null && (
+                <span className="pfm-header-amount">
+                  <span className="pfm-header-amount-cur">{currencySymbol[contractCurrency || currency || 'CNY'] || '¥'}</span>
+                  <span className="pfm-header-amount-num">
+                    {totalAmount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                  </span>
+                </span>
+              )}
             </div>
-          )}
-          <div className="pfm-context-sub">
-            {customerName && (
-              <span className="pfm-context-item">
-                <UserOutlined className="pfm-context-icon" />
-                {customerName}
-              </span>
-            )}
-            {customerName && contractTitle && <span className="pfm-context-dot">·</span>}
-            {contractTitle && (
-              <span className="pfm-context-item">
-                <FileTextOutlined className="pfm-context-icon" />
-                {contractTitle}
-              </span>
-            )}
+            <div className="pfm-header-sub">
+              <span className="pfm-header-customer">{customerName || '—'}</span>
+              {contractTitle && (
+                <>
+                  <span className="pfm-header-dot">·</span>
+                  <span className="pfm-header-contract-title" title={contractTitle}>{contractTitle}</span>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 已有同类型收支记录（仅 add 模式且有记录时展示） */}
+      {!isEdit && existingPayments.length > 0 && (
+        <div className={`pfm-existing ${themeClass}`}>
+          <div className="pfm-existing-title">本合同已有 {existingPayments.length} 笔{typeLabel}</div>
+          <div className="pfm-existing-list">
+            {existingPayments.map((p) => {
+              const st = existingStatusOf(p)
+              const label = p.installment_name || p.description || '未命名'
+              return (
+                <div key={p.id} className="pfm-existing-row">
+                  <span className="pfm-existing-name" title={label}>{label}</span>
+                  <span className="pfm-existing-amount">
+                    {currencySymbol[p.currency] || '¥'}{(p.paid_amount ?? p.amount).toLocaleString('zh-CN', { maximumFractionDigits: 2 })}
+                  </span>
+                  <span className="pfm-existing-date">{fmtShortDate(p.paid_date)}</span>
+                  <span className={`pfm-existing-status ${st.cls}`}>{st.text}</span>
+                </div>
+              )
+            })}
           </div>
         </div>
       )}
@@ -627,10 +767,11 @@ export default function PaymentFormModal({
             {mismatchItems.map((item) => {
               const Icon = item.field === 'group' ? WechatOutlined : item.field === 'customer' ? UserOutlined : SwapOutlined
               return (
-                <li key={item.field} className="pfm-mismatch-row">
+                <li key={item.field} className={`pfm-mismatch-row${item.blocking ? ' is-blocking' : ''}`}>
                   <div className="pfm-mismatch-row-head">
                     <Icon className="pfm-mismatch-row-icon" />
                     <span className="pfm-mismatch-row-label">{item.label}</span>
+                    {item.blocking && <span className="pfm-mismatch-block-tag">需处理</span>}
                   </div>
                   {item.hint && <div className="pfm-mismatch-row-hint">{item.hint}</div>}
                   <div className="pfm-mismatch-pair">

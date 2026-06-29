@@ -7,8 +7,18 @@
 
 /* ── 主题色 token（对齐 ContractList 设计 token）──
    收入 = 鼠尾草绿（--action-income），支出 = 暖橙（--money-due） */
-.pfm-modal.pfm-income  { --pfm-color: var(--action-income, #5b8c63); --pfm-deep: var(--action-income-deep, #3d6644); --pfm-bg: rgba(91, 140, 99, 0.08); --pfm-border: rgba(91, 140, 99, 0.25); }
-.pfm-modal.pfm-expense { --pfm-color: var(--money-due, #dc6b3d); --pfm-deep: #b8521f; --pfm-bg: rgba(220, 107, 61, 0.08); --pfm-border: rgba(220, 107, 61, 0.22); }
+.pfm-modal.pfm-income  {
+  --pfm-color: var(--action-income, #5b8c63); --pfm-deep: var(--action-income-deep, #3d6644);
+  --pfm-bg: rgba(91, 140, 99, 0.08); --pfm-border: rgba(91, 140, 99, 0.25);
+  --pfm-soft: rgba(91, 140, 99, 0.10); --pfm-light: #7aa683;
+  --pfm-shadow: rgba(91, 140, 99, 0.22); --pfm-glow: rgba(91, 140, 99, 0.14);
+}
+.pfm-modal.pfm-expense {
+  --pfm-color: var(--money-due, #dc6b3d); --pfm-deep: #b8521f;
+  --pfm-bg: rgba(220, 107, 61, 0.08); --pfm-border: rgba(220, 107, 61, 0.22);
+  --pfm-soft: rgba(220, 107, 61, 0.10); --pfm-light: #e88a5e;
+  --pfm-shadow: rgba(220, 107, 61, 0.22); --pfm-glow: rgba(220, 107, 61, 0.14);
+}
 
 /* ── 标题（左竖条 + 文字，文字本身也吃主题色）── */
 .pfm-title { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--pfm-deep); }
@@ -56,6 +66,189 @@
 }
 .pfm-context-dot {
   color: var(--text-tertiary);
+}
+
+/* ── 合同信息 header：Avatar + 业务徽章 + 群名 + 状态 + 金额 + 客户·合同 ── */
+.pfm-header {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: linear-gradient(180deg, var(--bg-surface) 0%, var(--pfm-bg) 160%);
+  border-left: 3px solid var(--pfm-color);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+.pfm-header-avatar {
+  background: linear-gradient(135deg, var(--pfm-color) 0%, var(--pfm-light) 100%) !important;
+  color: #fff !important;
+  flex-shrink: 0;
+  box-shadow: 0 3px 10px var(--pfm-shadow);
+}
+.pfm-header-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.pfm-header-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pfm-header-sub {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.pfm-header-biz-chip {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+  border: 1px solid transparent;
+}
+.pfm-header-biz-chip.biz-vehicle-chip {
+  color: var(--biz-vehicle-deep, #1e3f63);
+  background: var(--biz-vehicle-soft, #e5edf6);
+  border-color: rgba(45, 91, 138, 0.15);
+}
+.pfm-header-biz-chip.biz-license-chip {
+  color: var(--biz-license-deep, #8f2d28);
+  background: var(--biz-license-soft, #fbe9e7);
+  border-color: rgba(184, 66, 59, 0.15);
+}
+.pfm-header-biz-chip.biz-insurance-chip,
+.pfm-header-biz-chip.biz-other-chip {
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  border-color: var(--border-light);
+}
+.pfm-header-groupname {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  letter-spacing: 0.2px;
+}
+.pfm-header-status {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-weight: 500;
+  flex-shrink: 0;
+}
+.pfm-header-status.active { background: #e6f7ff; color: #1890ff; }
+.pfm-header-status.completed { background: #f6ffed; color: #52c41a; }
+/* header 合同总额锚点（中性基准色，非已收/未收状态色） */
+.pfm-header-amount {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-primary);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 2px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.pfm-header-amount-cur { font-size: 12px; font-weight: 600; color: var(--text-tertiary); }
+.pfm-header-amount-num { font-size: 16px; letter-spacing: 0.3px; line-height: 1; }
+.pfm-header-customer { font-size: 12.5px; font-weight: 600; color: var(--text-secondary); flex-shrink: 0; }
+.pfm-header-dot { color: var(--text-tertiary); font-size: 11px; }
+.pfm-header-contract-title {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+/* ── 已有收支记录面板（仅 add 模式且存在同类型记录时展示）── */
+.pfm-existing {
+  margin-bottom: 16px;
+  padding: 10px 14px;
+  border-radius: 10px;
+  background: var(--pfm-soft);
+  border: 1px solid var(--pfm-border);
+}
+.pfm-existing-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--pfm-deep);
+  margin-bottom: 8px;
+  letter-spacing: 0.02em;
+}
+.pfm-existing-list { display: flex; flex-direction: column; gap: 4px; }
+.pfm-existing-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 3px 0;
+}
+.pfm-existing-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pfm-existing-amount {
+  font-weight: 600;
+  color: var(--pfm-color);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pfm-existing-date {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  min-width: 38px;
+  text-align: right;
+}
+.pfm-existing-status {
+  flex-shrink: 0;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: 8px;
+  white-space: nowrap;
+  line-height: 1.6;
+}
+.pfm-existing-status.st-paid { color: var(--pfm-deep); background: var(--pfm-bg); }
+.pfm-existing-status.st-failed { color: #cf1322; background: #fff2f0; }
+.pfm-existing-status.st-pending { color: #d46b08; background: #fff7e6; }
+.pfm-existing-status.st-no-receipt { color: #8c8c8c; background: #f5f5f5; }
+
+/* ── 不匹配卡片：blocking 项（方向/群名严重不符）红色强调，必须处理才能提交 ── */
+.pfm-mismatch-row.is-blocking {
+  background: rgba(255, 77, 79, 0.07);
+  border-left: 3px solid var(--color-danger, #ff4d4f);
+  padding-left: 10px;
+  border-radius: 0 6px 6px 0;
+}
+.pfm-mismatch-block-tag {
+  font-size: 10px;
+  font-weight: 700;
+  color: #fff;
+  background: var(--color-danger, #ff4d4f);
+  padding: 0 6px;
+  border-radius: 3px;
+  margin-left: 6px;
+  line-height: 1.7;
 }
 
 

@@ -1,5 +1,5 @@
 /**
- * SSE 流读取 + 事件分发（共享给 useAgentStore / ReceiptChatModal）
+ * SSE 流读取 + 事件分发（共享给 useAgentStore）
  *
  * 设计：
  *  - `readSSEStream` 是纯 AsyncGenerator，从 Response body 解码 data: 行
