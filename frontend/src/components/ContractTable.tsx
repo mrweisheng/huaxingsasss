@@ -563,7 +563,6 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
                 onChange={(d) => setEditModal(prev => ({ ...prev, value: d ? d.format('YYYY-MM-DD') : null }))}
                 style={{ width: '100%' }}
                 size="large"
-                allowClear
                 placeholder="选择签订日期"
                 format="YYYY年MM月DD日"
               />
