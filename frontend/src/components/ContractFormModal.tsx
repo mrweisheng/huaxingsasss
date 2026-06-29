@@ -378,6 +378,7 @@ export default function ContractFormModal({ open, onClose }: Props) {
       open={open}
       onCancel={() => onClose(false)}
       destroyOnClose
+      centered
       maskClosable={false}
       width={760}
       footer={step === 'upload' ? (
