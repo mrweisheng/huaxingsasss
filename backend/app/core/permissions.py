@@ -28,3 +28,12 @@ def can_view_expense(user) -> bool:
 def can_create_contract(user) -> bool:
     """admin 或 income 可创建合同"""
     return user.role in (Role.ADMIN, Role.INCOME)
+
+
+def can_delete_contract(user, contract=None) -> bool:
+    """admin 可删除所有合同；income 可删除自己录入的合同"""
+    if user.role == Role.ADMIN:
+        return True
+    if user.role == Role.INCOME and contract is not None:
+        return contract.sales_person_id == user.id
+    return False

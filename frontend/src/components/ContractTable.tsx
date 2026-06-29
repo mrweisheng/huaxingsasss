@@ -9,6 +9,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import type { ContractWithPayments } from '@/types'
 import { contractApi } from '@/services/contract'
+import { useAuthStore } from '@/store/useAuthStore'
 import PaymentFormModal from './PaymentFormModal'
 import PaymentNoticeModal from './PaymentNoticeModal'
 import { formatMoney } from '@/utils/money'
@@ -88,6 +89,7 @@ const VERIFY_LABELS: Record<string, string> = {
 }
 
 export default function ContractTable({ contracts, loading, onDeleteContract, onContractUpdated }: Props) {
+  const user = useAuthStore(s => s.user)
   // 互斥展开：同一时间只展开一行
   const [expandedRowKey, setExpandedRowKey] = useState<number | null>(null)
 
@@ -280,7 +282,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           >
             通知单
           </Button>
-          {onDeleteContract && (
+          {onDeleteContract && (user?.role === 'admin' || row.sales_person_id === user?.id) && (
             <Popconfirm
               title="确认删除合同？"
               description="该合同名下的付款计划与收付款记录将一并删除。"

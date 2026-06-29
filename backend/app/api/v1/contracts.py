@@ -18,7 +18,7 @@ from app.schemas.contract import (
 )
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
-from app.core.permissions import Role, is_admin
+from app.core.permissions import Role, is_admin, can_delete_contract
 from app.models.user import User
 from app.services.contract_service import ContractService
 from app.config import settings
@@ -224,11 +224,11 @@ def delete_contract(
             detail="合同不存在"
         )
     
-    # 权限检查（仅管理员可删除）
-    if not is_admin(current_user):
+    # 权限检查：admin 可删除所有；income 可删除自己录入的合同
+    if not can_delete_contract(current_user, contract):
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="仅管理员可删除合同"
+            detail="无权删除此合同"
         )
     
     try:

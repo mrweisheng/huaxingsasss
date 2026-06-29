@@ -322,7 +322,7 @@ export default function ContractList() {
           <ContractTable
             contracts={contracts}
             loading={loading}
-            onDeleteContract={role === 'admin' ? handleDelete : undefined}
+            onDeleteContract={(role === 'admin' || role === 'income') ? handleDelete : undefined}
             onContractUpdated={loadContracts}
           />
 
