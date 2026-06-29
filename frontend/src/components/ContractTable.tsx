@@ -347,8 +347,8 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
             )}
           </div>
 
-          {/* ─── 底部：支出流水（横跨两栏） ─── */}
-          <div className="expanded-panel span-2">
+          {/* ─── 右侧：支出流水 ─── */}
+          <div className="expanded-panel">
             <div className="expanded-panel-head">
               <span className="expanded-panel-title">支出流水</span>
               <Button
