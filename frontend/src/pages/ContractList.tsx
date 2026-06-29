@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Input, Select, DatePicker, Button, message, Empty, Popover, Pagination } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, FileTextOutlined, DownloadOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, FilterOutlined, FileTextOutlined, DownloadOutlined, WechatOutlined, UserOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractChatModal from '@/components/ContractChatModal'
@@ -354,12 +354,29 @@ export default function ContractList() {
         open={!!deleteTarget}
         title="确认删除合同"
         description={deleteTarget && (
-          <>
-            {deleteTarget.wechatGroup && <div>业务群：<strong>{deleteTarget.wechatGroup}</strong></div>}
-            {deleteTarget.customerName && <div>客户：{deleteTarget.customerName}</div>}
-            {deleteTarget.title && <div>业务：{deleteTarget.title}</div>}
-            <div style={{ marginTop: 8 }}>关联的所有收付款记录将<strong>一并删除</strong>。</div>
-          </>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {deleteTarget.wechatGroup && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <WechatOutlined style={{ color: '#07c160', fontSize: 15 }} />
+                <strong>{deleteTarget.wechatGroup}</strong>
+              </div>
+            )}
+            {deleteTarget.customerName && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <UserOutlined style={{ color: '#1677ff', fontSize: 14 }} />
+                <span>{deleteTarget.customerName}</span>
+              </div>
+            )}
+            {deleteTarget.title && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <FileTextOutlined style={{ color: '#8c8c8c', fontSize: 14 }} />
+                <span>{deleteTarget.title}</span>
+              </div>
+            )}
+            <div style={{ marginTop: 6, color: '#8c8c8c', fontSize: 13 }}>
+              关联的所有收付款记录将一并删除
+            </div>
+          </div>
         )}
         warning="此操作不可撤销，金额统计、客户回款状态都会受影响。"
         onConfirm={handleDeleteConfirmed}
