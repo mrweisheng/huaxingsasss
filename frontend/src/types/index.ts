@@ -37,12 +37,14 @@ export interface Contract {
   currency: string
   total_amount: number
   paid_amount: number
-  remaining_amount: number
-  total_amount_in_cny?: number
-  paid_amount_in_cny?: number
-  remaining_amount_in_cny?: number
   total_expense?: number
-  total_expense_in_cny?: number
+  // 改造后：按币种分桶（混币种合同的完整真相），由后端在序列化时计算
+  // 例如 {"HKD": 150000, "CNY": 20000}
+  paid_by_currency?: Record<string, number>
+  expense_by_currency?: Record<string, number>
+  // 改造后：剩余尾款来自该合同最新一笔 income payment 的录入快照（不再 total-paid 计算）
+  outstanding_amount?: number
+  outstanding_currency?: string
   confidence?: number
   needs_review?: boolean
   status: string
@@ -76,7 +78,7 @@ export interface Payment {
   customer_name?: string
   contract_business_description?: string
   contract_wechat_group?: string
-  contract_currency?: string  // 合同主币种（仅合同详情页回填，全局列表为空）
+  contract_currency?: string  // 合同主币种（仅合同详情页回填，全局列表为空；改造后仅参考用，不参与换算）
   installment_number: number
   installment_name?: string
   type: string
@@ -84,9 +86,9 @@ export interface Payment {
   currency: string
   amount: number
   paid_amount: number
-  exchange_rate?: number
-  amount_in_cny?: number
-  paid_amount_in_cny?: number
+  // 改造后：剩余尾款快照（仅 income 写入；expense 永远为 null）
+  outstanding_amount?: number
+  outstanding_currency?: string
   due_date?: string
   paid_date?: string
   receipt_image_path?: string

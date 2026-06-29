@@ -146,13 +146,20 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
   // 支出
   ws.mergeCells('H2:J2')
   setSummaryBlock(ws, 'H2', '支出', sumCurrs.map(c => fmtSum(c, 'expense')).join('  '), CLR.orange)
-  // 净利润
+  // 剩余尾款（改造后：按 outstanding_currency 分桶累加）
   ws.mergeCells('K2:N2')
-  const profitSumText = sumCurrs.map(c => {
-    const p = summary[c].paid - summary[c].expense
-    return `${p < 0 ? '-' : ''}${CURRENCY_SYMBOL[c]}${Math.abs(p).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`
-  }).join('  ')
-  setSummaryBlock(ws, 'K2', '净利润', profitSumText, CLR.teal)
+  const outstandingByCur: Record<string, number> = {}
+  for (const c of contracts) {
+    if (c.outstanding_amount != null && c.outstanding_currency) {
+      outstandingByCur[c.outstanding_currency] = (outstandingByCur[c.outstanding_currency] || 0) + Number(c.outstanding_amount)
+    }
+  }
+  const outstandingSumText = Object.keys(outstandingByCur).length === 0
+    ? '—'
+    : Object.entries(outstandingByCur).map(([cur, val]) =>
+        `${CURRENCY_SYMBOL[cur] || cur}${val.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`
+      ).join('  ')
+  setSummaryBlock(ws, 'K2', '剩余尾款', outstandingSumText, CLR.teal)
   // 合同数
   ws.mergeCells('O2:R2')
   const countCell = ws.getCell('O2')
@@ -183,7 +190,7 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
   })
 
   fillRange(ws, 4, 18, 4, 18, {
-    value: '利润',
+    value: '尾款',
     font: { bold: true, size: 11, color: { argb: CLR.white } },
     alignment: { horizontal: 'center', vertical: 'middle' },
     fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: CLR.brand } },
@@ -195,7 +202,7 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
     '业务群', '客户', '合同号', '签约日', '业务类型', '业务说明',
     '合同金额', '回款进度', '状态',
     '收/支', '款项名称', '金额', '币种', '付款日期', '付款方式', '收款方', '凭证',
-    '净利润',
+    '剩余尾款',
   ]
   const hr5 = ws.getRow(5)
   colNames.forEach((name, i) => {
@@ -224,20 +231,15 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
     const startRow = curRow
     const endRow = curRow + rowCount - 1
 
-    // 计算合同级汇总
-    const paid = Number(c.paid_amount || 0)
-    const expense = Number(c.total_expense || 0)
-    const profit = paid - expense
+  // 计算合同级汇总
     const progress = c.total_amount > 0
-      ? Math.min(Math.round((paid / Number(c.total_amount)) * 100), 999)
+      ? Math.min(Math.round((Number(c.paid_amount || 0) / Number(c.total_amount)) * 100), 999)
       : 0
     const statusText = c.status === 'completed' ? '已完成' : '执行中'
 
-    // CNY 折算利润（HKD 合同才有）
-    let profitCny: number | null = null
-    if (c.currency === 'HKD' && c.paid_amount_in_cny != null && c.total_expense_in_cny != null) {
-      profitCny = Number(c.paid_amount_in_cny) - Number(c.total_expense_in_cny)
-    }
+    // 剩余尾款（改造后：取最新一笔 income 的 outstanding 快照，不再做利润折算）
+    const outstandingAmount = c.outstanding_amount != null ? Number(c.outstanding_amount) : null
+    const outstandingCurrency = c.outstanding_currency || c.currency
 
     // 填充每一行
     for (let i = 0; i < rowCount; i++) {
@@ -292,13 +294,12 @@ export async function exportLedger(options: ExportOptions): Promise<void> {
     r0.getCell(9).value = statusText
     r0.getCell(9).alignment = { horizontal: 'center', vertical: 'middle' }
 
-    // 净利润（R 列）
-    const profitText = `${profit < 0 ? '-' : ''}${fmtMoney(Math.abs(profit), c.currency)}`
-    const fullProfit = profitCny !== null
-      ? `${profitText}\n≈ ¥${Math.abs(profitCny).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}`
-      : profitText
-    r0.getCell(18).value = fullProfit
-    r0.getCell(18).font = { bold: true, color: { argb: profit >= 0 ? CLR.profitPos : CLR.profitNeg } }
+    // 剩余尾款（R 列，原"净利润"列已下线）
+    const outstandingText = outstandingAmount != null
+      ? fmtMoney(outstandingAmount, outstandingCurrency)
+      : '—'
+    r0.getCell(18).value = outstandingText
+    r0.getCell(18).font = { bold: true, color: { argb: CLR.gold } }
     r0.getCell(18).alignment = { vertical: 'middle', horizontal: 'right', wrapText: true }
 
     // 纵向合并（合同信息列 + 净利润列）

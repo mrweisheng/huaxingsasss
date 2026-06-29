@@ -18,7 +18,6 @@ from app.models.customer import Customer
 from app.models.payment import Payment
 from app.schemas.contract import ContractCreate, ContractUpdate
 from app.services.audit_service import AuditService
-from app.services.exchange_rate_service import ExchangeRateService
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,97 @@ class ContractService:
         """自动生成唯一合同编号: HT + 时间戳 + 4位随机"""
         return f"HT{datetime.now().strftime('%Y%m%d%H%M%S')}{uuid.uuid4().hex[:4].upper()}"
     """合同服务类"""
-    
+
+    @staticmethod
+    def _load_currency_aggregates(
+        db: Session,
+        contract_ids: List[int],
+    ) -> Dict[int, Dict[str, Any]]:
+        """按 contract_id 一次性查出：
+        - paid_by_currency / expense_by_currency：按币种分桶累加 paid_amount（仅 status='paid'）
+        - outstanding_amount / outstanding_currency：取该合同最新一笔 income payment 的 outstanding 快照
+
+        Returns:
+            {contract_id: {
+                "paid_by_currency": {"HKD": 150000, "CNY": 20000},
+                "expense_by_currency": {"HKD": 30000},
+                "outstanding_amount": Decimal("60000") | None,
+                "outstanding_currency": "HKD" | None,
+            }}
+        """
+        result: Dict[int, Dict[str, Any]] = {
+            cid: {
+                "paid_by_currency": {},
+                "expense_by_currency": {},
+                "outstanding_amount": None,
+                "outstanding_currency": None,
+            }
+            for cid in contract_ids
+        }
+        if not contract_ids:
+            return result
+
+        # 1. 按币种分桶累加 paid_amount
+        rows = (
+            db.query(
+                Payment.contract_id,
+                Payment.type,
+                Payment.currency,
+                func.sum(Payment.paid_amount).label("total"),
+            )
+            .filter(
+                Payment.contract_id.in_(contract_ids),
+                Payment.is_deleted == False,
+                Payment.status == "paid",
+            )
+            .group_by(Payment.contract_id, Payment.type, Payment.currency)
+            .all()
+        )
+        for r in rows:
+            bucket_key = "paid_by_currency" if r.type == "income" else "expense_by_currency"
+            if r.contract_id in result and r.currency:
+                result[r.contract_id][bucket_key][r.currency] = float(r.total or 0)
+
+        # 2. 最新一笔 income payment 的 outstanding 快照
+        # 用 paid_date DESC, id DESC 排序，每个 contract_id 取第一条非空
+        latest_outstandings = (
+            db.query(
+                Payment.contract_id,
+                Payment.outstanding_amount,
+                Payment.outstanding_currency,
+                Payment.paid_date,
+                Payment.id,
+            )
+            .filter(
+                Payment.contract_id.in_(contract_ids),
+                Payment.is_deleted == False,
+                Payment.type == "income",
+                Payment.outstanding_amount.isnot(None),
+            )
+            .order_by(
+                Payment.contract_id,
+                Payment.paid_date.desc().nullslast(),
+                Payment.id.desc(),
+            )
+            .all()
+        )
+        # Python 端取每个 contract_id 的第一条（即最新）
+        for row in latest_outstandings:
+            entry = result.get(row.contract_id)
+            if entry and entry["outstanding_amount"] is None:
+                entry["outstanding_amount"] = row.outstanding_amount
+                entry["outstanding_currency"] = row.outstanding_currency
+
+        return result
+
+    @staticmethod
+    def _attach_aggregates(contract: Contract, agg: Dict[str, Any]) -> None:
+        """把按币种字典 + outstanding 挂到合同对象上（pydantic from_attributes 序列化用）。"""
+        contract.paid_by_currency = agg.get("paid_by_currency") or {}
+        contract.expense_by_currency = agg.get("expense_by_currency") or {}
+        contract.outstanding_amount = agg.get("outstanding_amount")
+        contract.outstanding_currency = agg.get("outstanding_currency")
+
     @staticmethod
     def get_contracts(
         db: Session,
@@ -172,8 +261,11 @@ class ContractService:
                 .all()
             )
             stats_map = {s.contract_id: s for s in payment_stats}
+            # 按币种聚合 + 最新尾款（替代旧的 _in_cny 换算字段）
+            aggregates_map = ContractService._load_currency_aggregates(db, contract_ids)
         else:
             stats_map = {}
+            aggregates_map = {}
 
         for item in items:
             if item.customer:
@@ -184,6 +276,7 @@ class ContractService:
             item.paid_count = stats.paid_count if stats else 0
             item.expense_count = stats.expense_count if stats else 0
             item.payment_total_count = stats.total_count if stats else 0
+            ContractService._attach_aggregates(item, aggregates_map.get(item.id, {}))
             # include_payments：DB 层已过滤软删/类型，这里只按 (期数, id) 排序保证前端展示稳定
             if include_payments:
                 item.payments = sorted(
@@ -262,39 +355,19 @@ class ContractService:
         except Exception as e:
             logger.warning("审计日志写入失败: entity=contract, action=create, error=%s", e)
 
-        # 所有合同统一维护 _in_cny 字段（CNY 合同为原值，非 CNY 合同按汇率折算）
-        if contract.total_amount > 0:
-            if contract.currency == "CNY":
-                contract.total_amount_in_cny = contract.total_amount
-                contract.remaining_amount_in_cny = contract.total_amount
-                logger.info("合同CNY等值: contract_id=%d, CNY 1:1, amount=%s", contract.id, contract.total_amount)
-            else:
-                rate_date = contract.signed_date or date.today()
-                try:
-                    exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
-                        db, contract.total_amount, contract.currency, rate_date
-                    )
-                    contract.total_amount_in_cny = total_in_cny
-                    contract.remaining_amount_in_cny = total_in_cny  # paid_amount=0, 所以 remaining = total
-                    logger.info(
-                        "合同CNY等值计算: contract_id=%d, %s %s → %s CNY (汇率=%s, 日期=%s)",
-                        contract.id, contract.total_amount, contract.currency,
-                        total_in_cny, exchange_rate, rate_date,
-                    )
-                except Exception as e:
-                    logger.warning("合同CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
-            db.commit()
-            db.refresh(contract)
-
         return contract
     
     @staticmethod
     def get_contract(db: Session, contract_id: int) -> Optional[Contract]:
         """获取合同详情（排除已软删除）"""
-        return db.query(Contract).filter(
+        contract = db.query(Contract).filter(
             Contract.id == contract_id,
             Contract.is_deleted == False
         ).first()
+        if contract:
+            aggregates = ContractService._load_currency_aggregates(db, [contract.id])
+            ContractService._attach_aggregates(contract, aggregates.get(contract.id, {}))
+        return contract
 
     @staticmethod
     def get_contract_detail(db: Session, contract_id: int) -> Optional[Contract]:
@@ -302,10 +375,7 @@ class ContractService:
 
         附加项功能已下线后，详情接口与 get_contract 等价，保留独立入口便于未来按需扩展。
         """
-        return db.query(Contract).filter(
-            Contract.id == contract_id,
-            Contract.is_deleted == False
-        ).first()
+        return ContractService.get_contract(db, contract_id)
 
     @staticmethod
     def update_contract(
@@ -470,30 +540,6 @@ class ContractService:
         
         # 解析完成直接设为执行中（人工确认路径，不按置信度分级）
         contract.status = 'active'
-
-        # 所有合同统一维护 _in_cny 字段（CNY 合同为原值，非 CNY 合同按汇率折算）
-        if contract.total_amount > 0:
-            if contract.currency == "CNY":
-                contract.total_amount_in_cny = contract.total_amount
-                contract.paid_amount_in_cny = contract.paid_amount_in_cny or 0
-                contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
-                logger.info("AI解析后CNY等值: contract_id=%d, CNY 1:1, amount=%s", contract.id, contract.total_amount)
-            else:
-                rate_date = contract.signed_date or date.today()
-                try:
-                    exchange_rate, total_in_cny = ExchangeRateService.convert_to_cny(
-                        db, contract.total_amount, contract.currency, rate_date
-                    )
-                    contract.total_amount_in_cny = total_in_cny
-                    contract.paid_amount_in_cny = contract.paid_amount_in_cny or 0
-                    contract.remaining_amount_in_cny = (contract.total_amount_in_cny or 0) - (contract.paid_amount_in_cny or 0)
-                    logger.info(
-                        "AI解析后重算CNY等值: contract_id=%d, %s %s → %s CNY (汇率=%s)",
-                        contract.id, contract.total_amount, contract.currency,
-                        total_in_cny, exchange_rate,
-                    )
-                except Exception as e:
-                    logger.warning("AI解析后CNY等值计算失败: contract_id=%d, error=%s", contract.id, e)
 
         db.commit()
         db.refresh(contract)

@@ -288,21 +288,6 @@ export default function ContractList() {
                   {summaryCurrencies.map(cur => renderRow(cur, summary[cur].expense, 'due'))}
                 </div>
               </div>
-
-              {/* 净利润 */}
-              <div className="ledger-cell done">
-                <div className="cell-head">
-                  <span className="cell-bar done" />
-                  <span className="cell-title">净利润</span>
-                  <span className="cell-sub pill">本页</span>
-                </div>
-                <div className="cell-rows">
-                  {summaryCurrencies.map(cur => {
-                    const p = summary[cur].paid - summary[cur].expense
-                    return renderRow(cur, Math.abs(p), p >= 0 ? 'done' : 'due', p < 0)
-                  })}
-                </div>
-              </div>
             </div>
 
             <div className="ledger-bar__foot">

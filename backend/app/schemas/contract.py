@@ -64,12 +64,17 @@ class ContractResponse(ContractBase):
     customer_name: Optional[str] = None
     sales_person_id: int
     paid_amount: Decimal
-    remaining_amount: Optional[Decimal] = None
-    total_amount_in_cny: Optional[Decimal] = None
-    paid_amount_in_cny: Optional[Decimal] = None
-    remaining_amount_in_cny: Optional[Decimal] = None
     total_expense: Decimal = Decimal("0")
-    total_expense_in_cny: Optional[Decimal] = Decimal("0")
+
+    # 改造后：按币种分桶（混币种合同的完整真相），由 Service 在序列化时计算
+    # 例如 {"HKD": 150000, "CNY": 20000}
+    paid_by_currency: Dict[str, float] = Field(default_factory=dict, description="按币种分组的已收金额")
+    expense_by_currency: Dict[str, float] = Field(default_factory=dict, description="按币种分组的已付支出")
+
+    # 改造后：剩余尾款不再 total-paid 算，取该合同最新一笔 income payment 的 outstanding 快照
+    outstanding_amount: Optional[Decimal] = Field(None, description="当前剩余尾款（来自最新一笔收入的录入快照）")
+    outstanding_currency: Optional[str] = Field(None, description="尾款币种")
+
     confidence: Optional[float] = None
     needs_review: Optional[bool] = False
     status: str

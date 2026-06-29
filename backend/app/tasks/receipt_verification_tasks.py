@@ -213,8 +213,6 @@ def _settle_back_if_paid(db, payment: Payment):
             db, contract, payment, is_income=True,
             old_amount=payment.paid_amount or Decimal('0'),
             old_currency=payment.currency,
-            old_paid_amount_in_cny=payment.paid_amount_in_cny or Decimal('0'),
-            old_paid_date=payment.paid_date,
         )
     payment.status = "pending"
 

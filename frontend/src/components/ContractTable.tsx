@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Table, Button, Progress, Image, Badge, Empty, Popconfirm, Tooltip, Modal, Input, DatePicker, message } from 'antd'
+import { Table, Button, Image, Badge, Empty, Popconfirm, Tooltip, Modal, Input, DatePicker, message } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
   EyeOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined,
@@ -41,11 +41,6 @@ function getBizToneClass(type?: string): 'vehicle' | 'cross' | 'insurance' | 'de
 // 货币符号
 const SYMBOL: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
-function calcProgress(paid: number, total: number): number {
-  if (total === 0) return 0
-  return Math.round((paid / total) * 100)
-}
-
 function fmt(amount: number, currency: string): string {
   const m = formatMoney(amount)
   const sym = SYMBOL[currency] || '¥'
@@ -55,6 +50,29 @@ function fmt(amount: number, currency: string): string {
 function fmtDate(d: string | undefined): string {
   if (!d) return '—'
   return dayjs(d).format('YYYY-MM-DD')
+}
+
+/** 多币种单元格：按币种分别展示 HK$10万 / ¥5万（垂直堆叠）；无数据时显示 fallback */
+function MultiCurrencyCell({
+  data,
+  fallback = '—',
+  className,
+}: {
+  data?: Record<string, number>
+  fallback?: string
+  className?: string
+}) {
+  const entries = Object.entries(data || {}).filter(([, v]) => Number(v) > 0)
+  if (entries.length === 0) {
+    return <span className="text-muted">{fallback}</span>
+  }
+  return (
+    <span className={`multi-currency-cell ${className || ''}`}>
+      {entries.map(([cur, val]) => (
+        <span key={cur} className="multi-currency-line">{fmt(Number(val), cur)}</span>
+      ))}
+    </span>
+  )
 }
 
 const VERIFY_ICONS: Record<string, React.ReactNode> = {
@@ -208,75 +226,40 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       title: '合同金额',
       dataIndex: 'total_amount',
       key: 'total_amount',
-      width: 100,
+      width: 110,
       align: 'right',
       render: (v, row) => <span className="amount-text">{fmt(v, row.currency)}</span>,
     },
     {
       title: '已收',
-      dataIndex: 'paid_amount',
-      key: 'paid_amount',
-      width: 90,
+      key: 'paid_by_currency',
+      width: 130,
       align: 'right',
-      render: (v, row) => <span className="amount-paid">{fmt(v, row.currency)}</span>,
+      render: (_, row) => <MultiCurrencyCell data={row.paid_by_currency} fallback="—" className="amount-paid" />,
     },
     {
       title: '剩余尾款',
-      key: 'remaining',
-      width: 90,
+      key: 'outstanding',
+      width: 110,
       align: 'right',
       render: (_, row) => {
-        const receivable = Number(row.total_amount || 0)
-        const paid = Number(row.paid_amount || 0)
-        const unpaid = Math.max(0, receivable - paid)
-        const overpaid = Math.max(0, paid - receivable)
-        if (overpaid > 0) return <span className="amount-overpaid">+{fmt(overpaid, row.currency)}</span>
-        return unpaid > 0 ? <span className="amount-unpaid">{fmt(unpaid, row.currency)}</span> : <Badge status="success" text="已结清" />
+        const amt = row.outstanding_amount
+        const cur = row.outstanding_currency
+        if (amt == null || !cur) {
+          return <span className="text-muted">—</span>
+        }
+        if (Number(amt) <= 0) {
+          return <Badge status="success" text="已结清" />
+        }
+        return <span className="amount-unpaid">{fmt(Number(amt), cur)}</span>
       },
     },
     {
       title: '成本',
-      dataIndex: 'total_expense',
-      key: 'total_expense',
-      width: 90,
+      key: 'expense_by_currency',
+      width: 130,
       align: 'right',
-      render: (v, row) => <span className="amount-expense">{fmt(Number(v ?? 0), row.currency)}</span>,
-    },
-    {
-      title: '利润',
-      key: 'profit',
-      width: 90,
-      align: 'right',
-      render: (_, row) => {
-        const profit = Number(row.paid_amount ?? 0) - Number(row.total_expense ?? 0)
-        return <span className={profit >= 0 ? 'amount-profit' : 'amount-loss'}>
-          {profit < 0 ? '-' : ''}{fmt(Math.abs(profit), row.currency)}
-        </span>
-      },
-    },
-    {
-      title: '付款进度',
-      key: 'progress',
-      width: 135,
-      render: (_, row) => {
-        const receivable = Number(row.total_amount || 0)
-        const paid = Number(row.paid_amount || 0)
-        const pct = calcProgress(paid, receivable)
-        const capPct = Math.min(pct, 100)
-        const color = capPct >= 100 ? '#0d9488' : capPct >= 70 ? '#faad14' : '#ff4d4f'
-        return (
-          <div className="progress-cell">
-            <Progress
-              percent={capPct}
-              size={[65, 6]}
-              strokeColor={color}
-              showInfo={false}
-              strokeLinecap="round"
-            />
-            <span className="progress-text" style={{ color }}>{capPct}%</span>
-          </div>
-        )
-      },
+      render: (_, row) => <MultiCurrencyCell data={row.expense_by_currency} fallback="¥0" className="amount-expense" />,
     },
     {
       title: '操作',

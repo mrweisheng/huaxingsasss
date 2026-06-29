@@ -329,11 +329,6 @@ export default function PaymentList() {
                 <span className="pl-cell-no-receipt">无凭证</span>
               </Tooltip>
             )}
-            {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
-              <div style={{ fontSize: 11, color: 'var(--text-tertiary)', fontFamily: 'var(--font-mono)' }}>
-                ≈ ¥{Math.round(record.paid_amount_in_cny).toLocaleString('zh-CN')}
-              </div>
-            )}
           </div>
         )
       },
@@ -766,16 +761,11 @@ export default function PaymentList() {
                     <div style={{ color: 'var(--text-secondary)', fontSize: 13, lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>{record.notes}</div>
                   </div>
                 ) : null}
-                {record.paid_amount_in_cny != null && record.currency !== 'CNY' && (
+                {record.outstanding_amount != null && record.outstanding_currency && record.type === 'income' && (
                   <div style={{ paddingTop: 8, borderTop: '1px solid var(--border-light)' }}>
-                    <span className="pl-expand-label" style={{ display: 'inline-block', marginBottom: 4 }}>折算 CNY</span>
+                    <span className="pl-expand-label" style={{ display: 'inline-block', marginBottom: 4 }}>本次结算后剩余尾款</span>
                     <div style={{ color: 'var(--text-primary)', fontSize: 14, fontWeight: 600 }}>
-                      {fmt(record.paid_amount_in_cny, 'CNY')}
-                      {record.exchange_rate && (
-                        <span style={{ color: 'var(--text-tertiary)', fontWeight: 400, fontSize: 12, marginLeft: 8 }}>
-                          汇率：{record.exchange_rate}
-                        </span>
-                      )}
+                      {fmt(record.outstanding_amount, record.outstanding_currency)}
                     </div>
                   </div>
                 )}

@@ -181,11 +181,12 @@ class ToolExecutor:
             "currency": c.currency,
             "total_amount": float(c.total_amount) if c.total_amount else 0,
             "paid_amount": float(c.paid_amount) if c.paid_amount else 0,
-            "remaining_amount": float(c.remaining_amount) if c.remaining_amount else 0,
-            "total_amount_in_cny": float(c.total_amount_in_cny) if c.total_amount_in_cny else None,
-            "paid_amount_in_cny": float(c.paid_amount_in_cny) if c.paid_amount_in_cny else 0,
             "total_expense": float(c.total_expense) if c.total_expense else 0,
-            "total_expense_in_cny": float(c.total_expense_in_cny) if c.total_expense_in_cny else 0,
+            # 改造后：按币种字典（如 {"HKD": 150000, "CNY": 20000}）
+            "paid_by_currency": getattr(c, "paid_by_currency", {}) or {},
+            "expense_by_currency": getattr(c, "expense_by_currency", {}) or {},
+            "outstanding_amount": float(c.outstanding_amount) if getattr(c, "outstanding_amount", None) else None,
+            "outstanding_currency": getattr(c, "outstanding_currency", None),
             "status": c.status,
             "wechat_group": c.wechat_group,
             "signed_date": str(c.signed_date) if c.signed_date else None,
@@ -208,9 +209,8 @@ class ToolExecutor:
             "currency": p.currency,
             "amount": float(p.amount) if p.amount else 0,
             "paid_amount": float(p.paid_amount) if p.paid_amount else 0,
-            "exchange_rate": float(p.exchange_rate) if p.exchange_rate else None,
-            "amount_in_cny": float(p.amount_in_cny) if p.amount_in_cny else None,
-            "paid_amount_in_cny": float(p.paid_amount_in_cny) if p.paid_amount_in_cny else None,
+            "outstanding_amount": float(p.outstanding_amount) if p.outstanding_amount else None,
+            "outstanding_currency": p.outstanding_currency,
             "due_date": str(p.due_date) if p.due_date else None,
             "paid_date": str(p.paid_date) if p.paid_date else None,
             "payment_method": p.payment_method,
@@ -246,7 +246,8 @@ class ToolExecutor:
             "currency": p.currency,
             "amount": float(p.amount) if p.amount else 0,
             "paid_amount": float(p.paid_amount) if p.paid_amount else 0,
-            "paid_amount_in_cny": float(p.paid_amount_in_cny) if p.paid_amount_in_cny else 0,
+            "outstanding_amount": float(p.outstanding_amount) if p.outstanding_amount else None,
+            "outstanding_currency": p.outstanding_currency,
             "status": p.status,
             "due_date": str(p.due_date) if p.due_date else None,
             "paid_date": str(p.paid_date) if p.paid_date else None,
@@ -396,25 +397,30 @@ class ToolExecutor:
             income_pays = [p for p in all_payments if p.type == "income"]
             expense_pays = [p for p in all_payments if p.type == "expense"]
 
-            total_paid_cny = sum(p.paid_amount_in_cny or 0 for p in income_pays if p.status == 'paid')
-            total_expense_cny = sum(p.paid_amount_in_cny or 0 for p in expense_pays if p.status == 'paid')
+            # 按币种分桶（改造后：不再做汇率折算）
+            def _bucket(pays):
+                buckets: dict = {}
+                for p in pays:
+                    if p.status == "paid" and p.currency:
+                        buckets[p.currency] = float(buckets.get(p.currency, 0) + (p.paid_amount or 0))
+                return buckets
+
+            paid_by_currency = _bucket(income_pays)
+            expense_by_currency = _bucket(expense_pays)
 
             if type_filter != "expense":
                 result["income"] = {
                     "payments": [self._payment_to_dict_lite(p) for p in income_pays],
                     "total_amount": float(contract.total_amount),
                     "paid_amount": float(contract.paid_amount),
-                    "remaining_amount": float(contract.remaining_amount or 0),
-                    "total_paid_in_cny": float(total_paid_cny),
+                    "paid_by_currency": paid_by_currency,
                 }
             if type_filter != "income":
                 result["expense"] = {
                     "payments": [self._payment_to_dict_lite(p) for p in expense_pays],
                     "total_expense": float(contract.total_expense or 0),
-                    "total_expense_in_cny": float(contract.total_expense_in_cny or 0),
+                    "expense_by_currency": expense_by_currency,
                 }
-            if self._is_admin():
-                result["profit_in_cny"] = float(total_paid_cny - total_expense_cny)
         except Exception:
             result["income"] = {"payments": []}
             result["expense"] = {"payments": []}
@@ -992,7 +998,11 @@ class ToolExecutor:
         # 合同对所有角色可见，income 可更新任意合同的收入流水（类型隔离由 _can_view_income/_expense 守卫）
 
         # 可更新字段白名单
-        updatable_fields = ["notes", "payment_method", "receipt_image_path", "receipt_data", "installment_name", "paid_date"]
+        updatable_fields = [
+            "notes", "payment_method", "receipt_image_path", "receipt_data",
+            "installment_name", "paid_date",
+            "outstanding_amount", "outstanding_currency",  # 仅 income 编辑时支持
+        ]
         updates = {f: kwargs[f] for f in updatable_fields if kwargs.get(f) is not None}
 
         # 凭证路径双保险：LLM 主动传 > 同请求缓存 > DB 查询兜底

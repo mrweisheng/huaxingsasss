@@ -22,14 +22,15 @@ class Payment(BaseModel):
     type = Column(String(20), nullable=False, default="income", index=True, comment="类型: income/expense")
     
     # 金额与币种（支持多币种）
+    # 改造后：每笔按本币记账，不再做币种换算（删除了 exchange_rate/amount_in_cny/paid_amount_in_cny）
     currency = Column(String(3), nullable=False, default="CNY", index=True, comment="付款币种: CNY/HKD")
     amount = Column(DECIMAL(15, 2), nullable=False, comment="本期应付金额")
     paid_amount = Column(DECIMAL(15, 2), default=0, comment="实际已付金额")
-    
-    # 汇率结算
-    exchange_rate = Column(DECIMAL(10, 6), comment="使用的汇率")
-    amount_in_cny = Column(DECIMAL(15, 2), comment="折算CNY金额")
-    paid_amount_in_cny = Column(DECIMAL(15, 2), comment="已付折算CNY")
+
+    # 剩余尾款快照（仅 income 录入时写入；从用户消息「结算状态：剩 X 万」提取）
+    # outstanding_currency 推断规则（LLM 层）：用户明示币种则用，否则跟随本次 currency
+    outstanding_amount = Column(DECIMAL(15, 2), comment="本次录入时该合同剩余尾款快照（仅 income）")
+    outstanding_currency = Column(String(3), comment="尾款币种: CNY/HKD（仅 income）")
     
     # 时间
     due_date = Column(Date, index=True, comment="应付款日期")

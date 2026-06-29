@@ -42,14 +42,18 @@
   background: linear-gradient(to right, var(--biz-cross-bg)   0%, #ffffff 35%);
 }
 
-/* 5 列：客户信息 28% | 收入 31% | 支出 31% | 净利 10% | 操作固定 */
+/* 4 列：客户信息 28% | 收入 36% | 支出 36% | 操作固定（净利润列已下线） */
 .ledger-row-inner {
   display: grid;
-  grid-template-columns: 28% 31% 31% 10% 48px;
+  grid-template-columns: 28% 36% 36% 48px;
+  background: #fff;
   min-height: 100px;
 }
+@media (max-width: 1280px) {
+  .ledger-row-inner { grid-template-columns: 26% 36% 36% 40px; }
+}
 @media (max-width: 1200px) {
-  .ledger-row-inner { grid-template-columns: 26% 30% 30% 10% 40px; }
+  .ledger-row-inner { grid-template-columns: 26% 36% 36% 40px; }
 }
 
 /* ============================================================
@@ -156,25 +160,18 @@
 .lm-money .sym { font-size: 11px; font-weight: 600; opacity: 0.55; margin-right: 1px; }
 .lm-money .unit { font-family: 'Noto Sans SC', sans-serif; font-size: 12px; font-weight: 700; opacity: 0.7; margin-left: 1px; }
 
-/* mini 进度条 */
-.mini-progress { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
-.mini-progress-track {
-  flex: 1; height: 3px; background: var(--border-light, #e2e8f0);
-  border-radius: 2px; overflow: hidden;
+/* mini 进度条样式已下线（不再展示付款进度），相关 class 整段删除。 */
+
+/* 多币种总额展示（收入/支出 header 总额） */
+.multi-currency-total {
+  display: inline-flex; align-items: baseline; gap: 6px;
+  flex-wrap: wrap; justify-content: flex-end;
 }
-.mini-progress-fill {
-  height: 100%; border-radius: 2px;
-  background: linear-gradient(90deg, var(--money-paid), #e0b04e);
-  transition: width 0.4s;
+.multi-currency-item { white-space: nowrap; }
+.multi-currency-item + .multi-currency-item::before {
+  content: '/'; margin-right: 6px;
+  color: var(--text-tertiary, #94a3b8); font-weight: 400; opacity: 0.6;
 }
-.mini-progress-fill.done { background: linear-gradient(90deg, var(--money-done), #14b8a6); }
-.mini-progress-fill.over { background: linear-gradient(90deg, var(--action-income), #6fa878); }
-.mini-progress-text {
-  font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 600;
-  color: var(--text-tertiary, #94a3b8); min-width: 30px; text-align: right;
-}
-.mini-progress-text.done { color: var(--money-done); }
-.mini-progress-text.over { color: var(--action-income); }
 
 /* ============================================================
    收入/支出列
@@ -266,36 +263,7 @@
   padding: 12px 0 6px; text-align: center; font-style: italic;
 }
 
-/* ============================================================
-   净利润列
-   ============================================================ */
-.ledger-cell-profit {
-  padding: 8px 10px;
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center; gap: 3px;
-  border-left: 1px solid var(--border-light, #e2e8f0);
-  background: rgba(13, 148, 136, 0.02);
-}
-.profit-label {
-  font-size: 9px; font-weight: 600; color: var(--text-tertiary, #94a3b8);
-  letter-spacing: 0.5px; text-transform: uppercase;
-}
-.profit-value {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 15px; font-weight: 800;
-  font-variant-numeric: tabular-nums; letter-spacing: -0.3px;
-}
-.profit-value.positive { color: var(--money-done); }
-.profit-value.negative { color: #ef4444; }
-.profit-value.zero { color: var(--text-tertiary, #94a3b8); }
-.profit-divider { width: 28px; height: 2px; border-radius: 1px; margin: 1px 0; }
-.profit-divider.positive { background: var(--money-done); opacity: 0.4; }
-.profit-divider.negative { background: #ef4444; opacity: 0.4; }
-.profit-divider.zero { background: var(--text-tertiary, #94a3b8); opacity: 0.3; }
-.profit-cny {
-  font-family: 'JetBrains Mono', monospace;
-  font-size: 9.5px; color: var(--text-tertiary, #94a3b8); font-weight: 500;
-}
+/* 净利润列已下线（混币种不再做汇率合并），相关 .ledger-cell-profit / .profit-* 整段删除。 */
 
 /* ============================================================
    操作列

@@ -64,6 +64,9 @@ class PaymentCreate(BaseModel):
     notes: Optional[str] = Field(None, description="备注（对应模板第6项结算状态说明等）")
     # 收入专属
     payment_account_id: Optional[int] = Field(None, description="收款账户ID（income 关联己方预设账户）")
+    # 收入专属：剩余尾款快照（从用户消息「结算状态：剩 X 万」提取，仅 income 写入）
+    outstanding_amount: Optional[Decimal] = Field(None, ge=0, description="本次结算后剩余尾款（仅income）")
+    outstanding_currency: Optional[str] = Field(None, description="尾款币种 CNY/HKD（仅income，默认随本笔币种）")
     # 支出专属
     payee_name: Optional[str] = Field(None, max_length=200, description="收款方名称（expense）")
     counterparty_account: Optional[CounterpartyAccount] = Field(None, description="对方账户详情（expense）")
@@ -97,6 +100,8 @@ class PaymentUpdate(BaseModel):
     payee_name: Optional[str] = None
     counterparty_account: Optional[CounterpartyAccount] = None
     payment_account_id: Optional[int] = None
+    outstanding_amount: Optional[Decimal] = Field(None, ge=0, description="剩余尾款（仅income编辑时支持）")
+    outstanding_currency: Optional[str] = None
     # 换凭证：传新 file_id 触发重新校验；传空字符串表示删除凭证
     receipt_file_id: Optional[str] = None
     no_receipt: Optional[bool] = None
@@ -117,12 +122,12 @@ class PaymentResponse(PaymentBase):
     customer_name: Optional[str] = None
     contract_business_description: Optional[str] = None
     contract_wechat_group: Optional[str] = None
-    contract_currency: Optional[str] = None  # 合同主币种（前端据此判断是否异币种展示）
+    contract_currency: Optional[str] = None  # 合同主币种（仍保留供前端参考，不再用于换算）
     description: Optional[str] = None
     paid_amount: Decimal
-    exchange_rate: Optional[Decimal]
-    amount_in_cny: Optional[Decimal]
-    paid_amount_in_cny: Optional[Decimal]
+    # 改造后：剩余尾款快照（仅 income 写入，expense 永远为 None）
+    outstanding_amount: Optional[Decimal] = None
+    outstanding_currency: Optional[str] = None
     receipt_image_path: Optional[str]
     receipt_data: Optional[dict] = None
     additional_receipt_files: Optional[list[dict]] = None

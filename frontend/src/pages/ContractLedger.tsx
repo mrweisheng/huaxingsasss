@@ -72,6 +72,24 @@ function FlowAmount({ value, currency }: { value: number; currency: string }) {
   return <>{symbol}{value.toLocaleString('zh-CN', { maximumFractionDigits: 0 })}</>
 }
 
+/** 多币种总额：按币种逐行展示（HKD / CNY 分别显示），空字典时显示 ¥0 */
+function MultiCurrencyTotal({ data }: { data: Record<string, number> }) {
+  const entries = Object.entries(data).filter(([, v]) => Number(v) > 0)
+  if (entries.length === 0) {
+    return <>¥0</>
+  }
+  return (
+    <span className="multi-currency-total">
+      {entries.map(([cur, val]) => (
+        <span key={cur} className="multi-currency-item">
+          {currencySymbol[cur] || cur}
+          {Number(val).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}
+        </span>
+      ))}
+    </span>
+  )
+}
+
 /** 一笔流水（收入/支出共用） */
 function FlowItem({
   payment,
@@ -146,24 +164,28 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
         const incomes = (c.payments || []).filter(p => p.type === 'income')
         const expenses = (c.payments || []).filter(p => p.type === 'expense')
 
-        const paid = Number(c.paid_amount || 0)
-        const expense = Number(c.total_expense || 0)
-        const profit = paid - expense
-        const receivable = Number(c.total_amount || 0)
-        const progress = receivable > 0
-          ? Math.min(Math.round((paid / receivable) * 100), 999)
-          : 0
-        const progressClass = progress >= 100 ? (progress > 100 ? 'over' : 'done') : ''
+        // 按币种分桶（改造后：不再做汇率换算，按本币分别展示）
+        // 优先用后端返回的 paid_by_currency；fallback 到前端 payment 流水累加
+        const paidByCurrency: Record<string, number> = c.paid_by_currency && Object.keys(c.paid_by_currency).length > 0
+          ? c.paid_by_currency
+          : incomes.reduce<Record<string, number>>((acc, p) => {
+              if (p.status === 'paid' && p.currency) {
+                acc[p.currency] = (acc[p.currency] || 0) + Number(p.paid_amount || 0)
+              }
+              return acc
+            }, {})
+        const expenseByCurrency: Record<string, number> = c.expense_by_currency && Object.keys(c.expense_by_currency).length > 0
+          ? c.expense_by_currency
+          : expenses.reduce<Record<string, number>>((acc, p) => {
+              if (p.status === 'paid' && p.currency) {
+                acc[p.currency] = (acc[p.currency] || 0) + Number(p.paid_amount || 0)
+              }
+              return acc
+            }, {})
 
         const bizClass = bizClassOf(c.business_type)
         const statusClass = c.status === 'completed' ? 'completed' : 'active'
         const statusText = c.status === 'completed' ? '已完成' : '执行中'
-
-        // CNY 净利润折算（仅 HKD 合同）
-        let profitCny: number | null = null
-        if (c.currency === 'HKD' && c.paid_amount_in_cny != null && c.total_expense_in_cny != null) {
-          profitCny = Number(c.paid_amount_in_cny) - Number(c.total_expense_in_cny)
-        }
 
         return (
           <div key={c.id} className={`ledger-row ${bizClass}`}>
@@ -218,15 +240,14 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
                     <CompactMoney value={Number(c.total_amount)} currency={c.currency} />
                   </span>
                 </div>
-                <div className="mini-progress">
-                  <div className="mini-progress-track">
-                    <div
-                      className={`mini-progress-fill ${progressClass}`}
-                      style={{ width: `${Math.min(progress, 100)}%` }}
-                    />
+                {c.outstanding_amount != null && c.outstanding_currency && (
+                  <div className="info-amount-line">
+                    <span className="info-amount-label">尾款</span>
+                    <span className="info-amount-value">
+                      <CompactMoney value={Number(c.outstanding_amount)} currency={c.outstanding_currency} />
+                    </span>
                   </div>
-                  <span className={`mini-progress-text ${progressClass}`}>{progress}%</span>
-                </div>
+                )}
               </div>
 
               {/* ── 收入列 ── */}
@@ -236,7 +257,7 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
                   <span className="title">收入</span>
                   <span className="badge">{incomes.length}笔</span>
                   <span className="total income">
-                    <FlowAmount value={paid} currency={c.currency} />
+                    <MultiCurrencyTotal data={paidByCurrency} />
                   </span>
                 </div>
                 {incomes.length === 0 ? (
@@ -255,7 +276,7 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
                   <span className="title">支出</span>
                   <span className="badge">{expenses.length}笔</span>
                   <span className={`total expense ${expenses.length === 0 ? 'muted' : ''}`}>
-                    <FlowAmount value={expense} currency={c.currency} />
+                    <MultiCurrencyTotal data={expenseByCurrency} />
                   </span>
                 </div>
                 {expenses.length === 0 ? (
@@ -264,21 +285,6 @@ export default function ContractLedger({ contracts, role, onDelete }: Props) {
                   expenses.map(p => (
                     <FlowItem key={p.id} payment={p} currency={c.currency} onPreview={openReceiptPreview} />
                   ))
-                )}
-              </div>
-
-              {/* ── 净利润列 ── */}
-              <div className="ledger-cell-profit">
-                <span className="profit-label">净利润</span>
-                <span className={`profit-value ${profit > 0 ? 'positive' : profit < 0 ? 'negative' : 'zero'}`}>
-                  {profit < 0 ? '-' : ''}{currencySymbol[c.currency] || '¥'}
-                  {Math.abs(profit).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}
-                </span>
-                <div className={`profit-divider ${profit > 0 ? 'positive' : profit < 0 ? 'negative' : 'zero'}`} />
-                {profitCny !== null && (
-                  <span className="profit-cny">
-                    ≈ ¥{Math.abs(profitCny).toLocaleString('zh-CN', { maximumFractionDigits: 0 })}
-                  </span>
                 )}
               </div>
 

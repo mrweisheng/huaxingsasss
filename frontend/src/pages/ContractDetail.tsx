@@ -21,7 +21,6 @@ import { paymentApi } from '@/services/payment'
 import PaymentNoticeModal from '@/components/PaymentNoticeModal'
 import { useAuthStore } from '@/store/useAuthStore'
 import { API_BASE_URL } from '@/services/api'
-import { formatMoneyShort } from '@/utils/money'
 import {
   fmt, fmtFull, amountToChinese, currencySymbol, methodMap,
 } from '@/utils/moneyFormat'
@@ -37,17 +36,6 @@ const statusMap: Record<string, { text: string; cls: string }> = {
 const businessTypeCls: Record<string, string> = {
   '车辆业务':   'type-vehicle',
   '中港牌业务': 'type-zhonggang',
-}
-
-/** CNY 折算副文字（缩写） */
-function fmtCny(amount: number | undefined | null): string {
-  if (amount === undefined || amount === null || amount === 0) return ''
-  return `≈ ¥${formatMoneyShort(amount)}`
-}
-
-function calcProgress(paid: number, total: number): number {
-  if (total === 0) return 0
-  return Math.round((paid / total) * 100)
 }
 
 const paymentStatusMap: Record<string, { text: string }> = {
@@ -196,21 +184,25 @@ export default function ContractDetail() {
   const total = Number(contract.total_amount || 0)
   const receivable = total
   const overpaid = Math.max(0, paid - receivable)
-  const unpaid = Math.max(0, receivable - paid)
-  // 收款三态：待收（已收 < 应收）/ 已结清（=应收）/ 超收（>应收）
-  const paymentState: 'pending' | 'cleared' | 'overpaid' =
-    overpaid > 0 ? 'overpaid' : unpaid > 0 ? 'pending' : 'cleared'
-  const progressRaw = calcProgress(paid, receivable)
-  const progress = Math.min(progressRaw, 100)  // 视觉进度条 cap 在 100%
 
-  // 利润计算 — 以合同主要币种为基准
-  const profitMain = (contract.paid_amount || 0) - (contract.total_expense || 0)
-  const totalIncomeCny  = summary?.income?.total_paid_in_cny   || contract.paid_amount_in_cny   || 0
-  const totalExpenseCny = summary?.expense?.total_expense_in_cny || contract.total_expense_in_cny || 0
-  const profitCny = summary?.profit_in_cny ?? (totalIncomeCny - totalExpenseCny)
+  // 改造后：剩余尾款不再 total-paid 算，直接取后端派生的最新一笔 income 的 outstanding 快照
+  const outstandingAmount = contract.outstanding_amount != null ? Number(contract.outstanding_amount) : null
+  const outstandingCurrency = contract.outstanding_currency || cur
+  // 收款状态：has-outstanding（有尾款）/ cleared（已结清）/ unknown（未录入任何收款，无尾款数据）
+  const paymentState: 'pending' | 'cleared' | 'overpaid' | 'unknown' =
+    outstandingAmount == null
+      ? 'unknown'
+      : outstandingAmount > 0
+        ? 'pending'
+        : overpaid > 0 ? 'overpaid' : 'cleared'
 
-  // CNY 折算副文字（仅非 CNY 合同显示）
-  const showCnyHint = cur !== 'CNY'
+  // 按币种分桶（混币种合同的完整真相）
+  const paidByCurrency: Record<string, number> = contract.paid_by_currency && Object.keys(contract.paid_by_currency).length > 0
+    ? contract.paid_by_currency
+    : (summary?.income?.paid_by_currency as Record<string, number> | undefined) || {}
+  const expenseByCurrency: Record<string, number> = contract.expense_by_currency && Object.keys(contract.expense_by_currency).length > 0
+    ? contract.expense_by_currency
+    : (summary?.expense?.expense_by_currency as Record<string, number> | undefined) || {}
 
   // ── 付款记录横向卡片 ──
   const renderPaymentTimeline = (payments: Payment[], isExpense: boolean) => {
@@ -244,34 +236,10 @@ export default function ContractDetail() {
                 </span>
               </div>
               <div className={`cd-pay-card-amount ${isPaid ? 'settled' : isExpense ? 'expense' : 'pending'}`}>
-                {(() => {
-                  // 异币种展示：合同主货币为主位，原始凭证币种为副位
-                  // 仅处理 CNY 合同 + 非 CNY 凭证（最常见场景，如 HKD 支出进 CNY 合同）
-                  const contractCur = payment.contract_currency
-                  const isMismatched = !!contractCur && payment.currency !== contractCur && payment.currency !== 'CNY'
-                    && contractCur === 'CNY' && payment.paid_amount_in_cny != null
-                  if (isMismatched) {
-                    return (
-                      <>
-                        <Tooltip title={fmtFull(payment.paid_amount_in_cny, contractCur!)}>
-                          <span>{fmt(payment.paid_amount_in_cny, contractCur!)}</span>
-                        </Tooltip>
-                        <span className="cd-pay-card-cny">原币 {fmt(payment.paid_amount, payment.currency)}</span>
-                      </>
-                    )
-                  }
-                  // 同币种或反向场景：保持原展示逻辑
-                  return (
-                    <>
-                      <Tooltip title={fmtFull(payment.paid_amount, payment.currency)}>
-                        <span>{fmt(payment.paid_amount, payment.currency)}</span>
-                      </Tooltip>
-                      {payment.paid_amount_in_cny != null && payment.currency !== 'CNY' && (
-                        <span className="cd-pay-card-cny">≈ ¥{formatMoneyShort(payment.paid_amount_in_cny)}</span>
-                      )}
-                    </>
-                  )
-                })()}
+                {/* 改造后：统一展示本币金额，不再做币种换算副位 */}
+                <Tooltip title={fmtFull(payment.paid_amount, payment.currency)}>
+                  <span>{fmt(payment.paid_amount, payment.currency)}</span>
+                </Tooltip>
                 {isNoReceipt(payment) && (
                   <Tooltip title="无凭证 · 用户口头确认">
                     <span className="cd-pay-card-no-receipt">无凭证</span>
@@ -425,19 +393,8 @@ export default function ContractDetail() {
             <Tooltip title={`${fmtFull(total, cur)}\n${amountToChinese(total, cur)}`}>
               <span className="cd-fn-hero-value">{fmt(receivable, cur)}</span>
             </Tooltip>
-            {showCnyHint && (
-              <span className="cd-fn-hero-cny">{fmtCny(contract.total_amount_in_cny || summary?.total_amount_in_cny)}</span>
-            )}
           </div>
           <div className="cd-fn-hero-right">
-            <span className="cd-fn-progress-label">收款进度</span>
-            <div className="cd-fn-progress-track">
-              <div
-                className={`cd-fn-progress-fill ${progress === 100 ? 'done' : ''}`}
-                style={{ width: `${progress}%` }}
-              />
-            </div>
-            <span className={`cd-fn-progress-pct ${progress === 100 ? 'done' : ''}`}>{progress}%</span>
             <Button
               size="small"
               icon={<FileTextOutlined />}
@@ -449,7 +406,7 @@ export default function ContractDetail() {
           </div>
         </div>
 
-        {/* ── 行2：四栏指标（紧凑） ── */}
+        {/* ── 行2：三栏指标（按币种分别展示；混币种合同需双值并列） ── */}
         <div className="cd-fn-metrics">
           {/* 已收 */}
           <div className="cd-fn-metric">
@@ -458,13 +415,16 @@ export default function ContractDetail() {
               <span className="cd-fn-metric-label">已收金额</span>
             </div>
             <div className="cd-fn-metric-row">
-              <Tooltip title={`${fmtFull(contract.paid_amount, cur)}\n${amountToChinese(contract.paid_amount, cur)}`}>
-                <span className="cd-fn-metric-value income">{fmt(contract.paid_amount, cur)}</span>
-              </Tooltip>
-              <span className="cd-fn-metric-tag">{contract.paid_count}笔</span>
-              {showCnyHint && (
-                <span className="cd-fn-metric-cny">{fmtCny(contract.paid_amount_in_cny || summary?.income?.total_paid_in_cny)}</span>
+              {Object.keys(paidByCurrency).length === 0 ? (
+                <span className="cd-fn-metric-value income">{fmt(0, cur)}</span>
+              ) : (
+                <span className="cd-fn-metric-multi">
+                  {Object.entries(paidByCurrency).map(([c, v]) => (
+                    <span key={c} className="cd-fn-metric-value income">{fmt(Number(v), c)}</span>
+                  ))}
+                </span>
               )}
+              <span className="cd-fn-metric-tag">{contract.paid_count}笔</span>
             </div>
           </div>
 
@@ -475,21 +435,20 @@ export default function ContractDetail() {
               <span className="cd-fn-metric-label">剩余尾款</span>
             </div>
             <div className="cd-fn-metric-row">
-              {paymentState === 'pending' ? (
+              {paymentState === 'unknown' ? (
+                <span className="cd-fn-metric-value remaining" style={{ color: 'var(--text-tertiary)' }}>待录入收入</span>
+              ) : paymentState === 'pending' ? (
                 <>
-                  <Tooltip title={`${fmtFull(unpaid, cur)}\n${amountToChinese(unpaid, cur)}`}>
+                  <Tooltip title={`${fmtFull(outstandingAmount || 0, outstandingCurrency)}\n${amountToChinese(outstandingAmount || 0, outstandingCurrency)}`}>
                     <span className="cd-fn-metric-value remaining">
-                      {fmt(unpaid, cur)}
+                      {fmt(Number(outstandingAmount || 0), outstandingCurrency)}
                     </span>
                   </Tooltip>
-                  <span className="cd-fn-metric-status remaining">待收中</span>
-                  {showCnyHint && (
-                    <span className="cd-fn-metric-cny">{fmtCny(contract.remaining_amount_in_cny)}</span>
-                  )}
+                  <span className="cd-fn-metric-status remaining">未结清</span>
                 </>
               ) : (
                 <>
-                  <span className="cd-fn-metric-value cleared">{fmt(0, cur)}</span>
+                  <span className="cd-fn-metric-value cleared">{fmt(0, outstandingCurrency)}</span>
                   <span className="cd-fn-metric-status cleared">已结清 ✓</span>
                   {paymentState === 'overpaid' && (
                     <Tooltip title={`实付超出合同金额 ${fmtFull(overpaid, cur)}。\n可能原因：手续费、多付等`}>
@@ -510,32 +469,17 @@ export default function ContractDetail() {
               <span className="cd-fn-metric-label">总支出</span>
             </div>
             <div className="cd-fn-metric-row">
-              <Tooltip title={`${fmtFull(contract.total_expense || 0, cur)}\n${amountToChinese(contract.total_expense || 0, cur)}`}>
-                <span className="cd-fn-metric-value expense">{fmt(contract.total_expense || 0, cur)}</span>
-              </Tooltip>
+              {Object.keys(expenseByCurrency).length === 0 ? (
+                <span className="cd-fn-metric-value expense">{fmt(0, cur)}</span>
+              ) : (
+                <span className="cd-fn-metric-multi">
+                  {Object.entries(expenseByCurrency).map(([c, v]) => (
+                    <span key={c} className="cd-fn-metric-value expense">{fmt(Number(v), c)}</span>
+                  ))}
+                </span>
+              )}
               {(contract as any).expense_count > 0 && (
                 <span className="cd-fn-metric-tag expense">{(contract as any).expense_count}笔</span>
-              )}
-              {showCnyHint && (
-                <span className="cd-fn-metric-cny">{fmtCny(contract.total_expense_in_cny || summary?.expense?.total_expense_in_cny)}</span>
-              )}
-            </div>
-          </div>
-
-          {/* 净利润 */}
-          <div className="cd-fn-metric">
-            <div className="cd-fn-metric-header">
-              <span className={`cd-fn-metric-dot ${profitMain >= 0 ? 'income' : 'expense'}`} />
-              <span className="cd-fn-metric-label">净利润</span>
-            </div>
-            <div className="cd-fn-metric-row">
-              <Tooltip title={`${fmtFull(profitMain, cur)}\n${amountToChinese(Math.abs(profitMain), cur)}`}>
-                <span className={`cd-fn-metric-value ${profitMain >= 0 ? 'income' : 'expense'}`}>
-                  {fmt(profitMain, cur)}
-                </span>
-              </Tooltip>
-              {showCnyHint && profitCny !== 0 && (
-                <span className="cd-fn-metric-cny">{fmtCny(profitCny)}</span>
               )}
             </div>
           </div>

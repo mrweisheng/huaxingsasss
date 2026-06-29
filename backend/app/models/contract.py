@@ -29,19 +29,17 @@ class Contract(BaseModel):
     sales_person_id = Column(Integer, ForeignKey("users.id", ondelete="RESTRICT"), nullable=False, index=True, comment="业务员ID")
     
     # 金额相关（支持多币种）
+    # 改造后说明：跨币种不再折算合并。paid_amount / total_expense / remaining_amount
+    # 仅作为「合同主币种本币口径」的快照（同币种付款累加），混币种合同的完整真相由
+    # 序列化时的 paid_by_currency / expense_by_currency 字典提供；剩余尾款不再由
+    # total - paid 计算，而是取该合同最新一笔 income payment 的 outstanding 快照。
     currency = Column(String(3), nullable=False, default="CNY", comment="合同币种: CNY/HKD")
     total_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="合同总金额")
-    paid_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="已付金额")
-    remaining_amount = Column(DECIMAL(15, 2), comment="剩余金额")
-    
-    # 折算CNY金额
-    total_amount_in_cny = Column(DECIMAL(15, 2), comment="合同总额折算CNY")
-    paid_amount_in_cny = Column(DECIMAL(15, 2), default=0, comment="已付金额折算CNY")
-    remaining_amount_in_cny = Column(DECIMAL(15, 2), comment="剩余尾款折算CNY")
+    paid_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="已付金额（合同币种本币累加，跨币种不计入）")
+    remaining_amount = Column(DECIMAL(15, 2), comment="保留兼容字段，已不维护；尾款看最新一笔 income payment 的 outstanding")
 
     # 支出汇总
-    total_expense = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出金额")
-    total_expense_in_cny = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出折算CNY")
+    total_expense = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出（合同币种本币累加，跨币种不计入）")
 
     # 合同文件
     original_file_path = Column(String(500), nullable=False, comment="原始合同文件路径")

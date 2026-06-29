@@ -756,10 +756,13 @@ class ToolExecutorV2(ToolExecutor):
         _receipt_data: Optional[dict] = None,
         verification: Optional[dict] = None,
         no_receipt: bool = False,
+        outstanding_amount: Optional[float] = None,
+        outstanding_currency: Optional[str] = None,
     ) -> str:
         """内部公共实现：ok 状态对话流创建付款。
 
         no_receipt：现阶段收入无凭证录入时传 True（service 层会打 [无凭证收入] 标记）。
+        outstanding_amount / outstanding_currency：仅 income 透传；用户消息「结算状态：剩 X 万」提取。
         """
         err = self._check_payment_role(payment_type)
         if err:
@@ -776,6 +779,18 @@ class ToolExecutorV2(ToolExecutor):
             return json.dumps({"error": "amount 必须为数字"}, ensure_ascii=False)
         if amount_dec <= 0:
             return json.dumps({"error": "amount 必须大于 0"}, ensure_ascii=False)
+
+        # outstanding 规整：仅 income 写入，支出强制 None；币种 fallback 到本次收款币种
+        eff_outstanding_amount = None
+        eff_outstanding_currency = None
+        if payment_type == "income" and outstanding_amount is not None:
+            try:
+                eff_outstanding_amount = Decimal(str(outstanding_amount))
+            except Exception:
+                return json.dumps({"error": "outstanding_amount 必须为数字"}, ensure_ascii=False)
+            if eff_outstanding_amount < 0:
+                return json.dumps({"error": "outstanding_amount 不能为负数"}, ensure_ascii=False)
+            eff_outstanding_currency = (outstanding_currency or currency or "").upper() or None
 
         receipt_path, receipt_hash, receipt_data = self._resolve_receipt_artifact(
             file_id, _receipt_path, _receipt_file_hash, _receipt_data,
@@ -810,6 +825,8 @@ class ToolExecutorV2(ToolExecutor):
                 counterparty_account=counterparty_account,
                 created_by=self.user.id,
                 no_receipt=no_receipt,
+                outstanding_amount=eff_outstanding_amount,
+                outstanding_currency=eff_outstanding_currency,
             )
         except ValueError as e:
             self.db.rollback()
@@ -892,11 +909,14 @@ class ToolExecutorV2(ToolExecutor):
         diff_fields: Optional[list] = None,
         no_receipt: bool = False,
         source: str = "bank_receipt",
+        outstanding_amount: Optional[float] = None,
+        outstanding_currency: Optional[str] = None,
     ) -> str:
         """内部：放行创建（soft_mismatch / manual）。
 
         source 取值：bank_receipt / payment_info_screenshot / manual_no_receipt。
         no_receipt=True 时会自动覆盖 source 为 manual_no_receipt（防 LLM 传错）。
+        outstanding_amount / outstanding_currency：仅 income 透传；用户消息「结算状态：剩 X 万」提取。
         """
         err = self._check_payment_role(payment_type)
         if err:
@@ -914,6 +934,18 @@ class ToolExecutorV2(ToolExecutor):
             return json.dumps({"error": "amount 必须为数字"}, ensure_ascii=False)
         if amount_dec <= 0:
             return json.dumps({"error": "amount 必须大于 0"}, ensure_ascii=False)
+
+        # outstanding 规整：仅 income 写入；币种 fallback 到本次收款币种
+        eff_outstanding_amount = None
+        eff_outstanding_currency = None
+        if payment_type == "income" and outstanding_amount is not None:
+            try:
+                eff_outstanding_amount = Decimal(str(outstanding_amount))
+            except Exception:
+                return json.dumps({"error": "outstanding_amount 必须为数字"}, ensure_ascii=False)
+            if eff_outstanding_amount < 0:
+                return json.dumps({"error": "outstanding_amount 不能为负数"}, ensure_ascii=False)
+            eff_outstanding_currency = (outstanding_currency or currency or "").upper() or None
 
         receipt_path, receipt_hash, receipt_data = self._resolve_receipt_artifact(
             file_id, _receipt_path, _receipt_file_hash, _receipt_data,
@@ -969,6 +1001,8 @@ class ToolExecutorV2(ToolExecutor):
                 diff_fields=diff_fields,
                 no_receipt=no_receipt,
                 source=source,
+                outstanding_amount=eff_outstanding_amount,
+                outstanding_currency=eff_outstanding_currency,
             )
         except ValueError as e:
             self.db.rollback()
@@ -1214,7 +1248,7 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "update_payment",
-            "description": "更新已有付款记录的备注、凭证、付款方式等信息。为已有 pending 付款补充凭证时使用（系统自动转为 paid 并参与结算）。",
+            "description": "更新已有付款记录的备注、凭证、付款方式等信息。为已有 pending 付款补充凭证时使用（系统自动转为 paid 并参与结算）。outstanding_amount / outstanding_currency 仅 income 编辑时支持，用于修正录入时的尾款快照。",
             "parameters": {
                 "type": "object",
                 "required": ["payment_id"],
@@ -1226,6 +1260,8 @@ TOOL_DEFINITIONS = [
                     "receipt_data": {"type": "object", "description": "凭证分析数据"},
                     "installment_name": {"type": "string", "description": "期数名称"},
                     "paid_date": {"type": "string", "description": "付款日期（YYYY-MM-DD）"},
+                    "outstanding_amount": {"type": "number", "description": "本次结算后剩余尾款（仅income编辑时支持）"},
+                    "outstanding_currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "尾款币种"},
                 },
             },
         },
@@ -1279,15 +1315,17 @@ TOOL_DEFINITIONS = [
         "type": "function",
         "function": {
             "name": "create_income_payment",
-            "description": "对话流创建一笔收入。**有凭证时**：必须先调 analyze_receipt 且 match_status=ok，把返回的 _receipt_path / _receipt_file_hash / _receipt_data / _payment_account_id / verification 透传进来。**现阶段无凭证时**：传 no_receipt=true 直接录入并结算（notes 自动打 [无凭证收入] 标记）。写入前必须先用自然语言列出关键信息（金额/币种/付款方或收款账户/付款日期/期数名）并等用户确认。",
+            "description": "对话流创建一笔收入。**有凭证时**：必须先调 analyze_receipt 且 match_status=ok，把返回的 _receipt_path / _receipt_file_hash / _receipt_data / _payment_account_id / verification 透传进来。**现阶段无凭证时**：传 no_receipt=true 直接录入并结算（notes 自动打 [无凭证收入] 标记）。**outstanding_amount 必填**：每次录收入都要从用户消息的「结算状态/剩多少」字段提取剩余尾款；币种从用户消息推断（明确写明则用，否则跟随本次收款币种）。写入前必须先用自然语言列出关键信息（金额/币种/付款方或收款账户/付款日期/期数名/剩余尾款）并等用户确认。",
             "parameters": {
                 "type": "object",
-                "required": ["contract_id", "amount", "currency", "paid_date"],
+                "required": ["contract_id", "amount", "currency", "paid_date", "outstanding_amount", "outstanding_currency"],
                 "properties": {
                     "contract_id": {"type": "integer", "description": "合同ID"},
                     "amount": {"type": "number", "description": "金额（凭证识别值）"},
                     "currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "币种"},
                     "paid_date": {"type": "string", "description": "付款日期 YYYY-MM-DD"},
+                    "outstanding_amount": {"type": "number", "description": "本次结算后该合同剩余尾款（从用户「结算状态：剩 X 万」提取；已结清传 0；缺失则反问，不要瞎填）"},
+                    "outstanding_currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "尾款币种。用户明确写「人民币/港币」时用之；否则 fallback 到本次 currency"},
                     "payment_method": {"type": "string", "description": "付款方式 bank_transfer/wechat/alipay/cash/check"},
                     "installment_name": {"type": "string", "description": "期数名（如\"定金\"、\"尾款\"）"},
                     "description": {"type": "string", "description": "业务描述（不传则自动生成）"},
@@ -1357,6 +1395,8 @@ TOOL_DEFINITIONS = [
                     "counterparty_account": {"type": "object"},
                     "payment_account_id": {"type": "integer", "description": "收款账户ID（仅收入）"},
                     "override_reason": {"type": "string", "description": "放行理由（必填，要落审计）。付款信息截图：'基于付款信息截图录入；[款项摘要]'；纯文字：'用户口述录入，无凭证。[款项说明]'"},
+                    "outstanding_amount": {"type": "number", "description": "本次结算后剩余尾款（仅 income 必填；从用户「结算状态：剩 X 万」提取；已结清传 0）"},
+                    "outstanding_currency": {"type": "string", "enum": ["CNY", "HKD"], "description": "尾款币种。用户明确写则用，否则跟随 currency（仅 income）"},
                     "file_id": {"type": "string"},
                     "_receipt_path": {"type": "string"},
                     "_receipt_file_hash": {"type": "string"},
