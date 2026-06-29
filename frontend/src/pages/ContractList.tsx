@@ -141,8 +141,25 @@ export default function ContractList() {
       const cur = c.currency || 'CNY'
       if (!agg[cur]) agg[cur] = { total: 0, paid: 0, expense: 0 }
       agg[cur].total += Number(c.total_amount || 0)
-      agg[cur].paid += Number(c.paid_amount || 0)
-      agg[cur].expense += Number(c.total_expense || 0)
+      // 优先用实时聚合的 paid_by_currency（与台账视图一致），fallback 到反规范化字段
+      if (c.paid_by_currency && Object.keys(c.paid_by_currency).length > 0) {
+        for (const [cCur, amt] of Object.entries(c.paid_by_currency)) {
+          const k = cCur || cur
+          if (!agg[k]) agg[k] = { total: 0, paid: 0, expense: 0 }
+          agg[k].paid += Number(amt || 0)
+        }
+      } else {
+        agg[cur].paid += Number(c.paid_amount || 0)
+      }
+      if (c.expense_by_currency && Object.keys(c.expense_by_currency).length > 0) {
+        for (const [cCur, amt] of Object.entries(c.expense_by_currency)) {
+          const k = cCur || cur
+          if (!agg[k]) agg[k] = { total: 0, paid: 0, expense: 0 }
+          agg[k].expense += Number(amt || 0)
+        }
+      } else {
+        agg[cur].expense += Number(c.total_expense || 0)
+      }
     }
     return agg
   })()
