@@ -3,6 +3,7 @@ import {
   Button, Modal, Form, Input, InputNumber, Select, Space, Upload, DatePicker,
   Spin, Alert, Tag, Radio, message,
 } from 'antd'
+import type { InputRef } from 'antd'
 import {
   InboxOutlined, FilePdfOutlined, FileWordOutlined, FileOutlined,
   DeleteOutlined, WechatOutlined, RobotOutlined, WarningOutlined,
@@ -99,6 +100,11 @@ export default function ContractFormModal({ open, onClose }: Props) {
   const [newCustomerPhone, setNewCustomerPhone] = useState('')
 
   const isMountedRef = useRef(true)
+  // 业务群输入框 ref：群为空时拖文件，自动聚焦引导用户先填群名
+  const wechatGroupInputRef = useRef<InputRef>(null)
+  // 业务群名同步到 ref，避免 drop 闭包读到旧值（setState 是异步的）
+  const wechatGroupRef = useRef('')
+  useEffect(() => { wechatGroupRef.current = wechatGroup }, [wechatGroup])
 
   useEffect(() => {
     isMountedRef.current = true
@@ -127,6 +133,35 @@ export default function ContractFormModal({ open, onClose }: Props) {
     setNewCustomerName('')
     setNewCustomerPhone('')
     form.resetFields()
+  }
+
+  // ── 拖拽拦截：上传步骤整块区域始终阻止浏览器默认行为 ──
+  // 根因：群为空时若不拦截 onDrop，浏览器会打开文件（新标签页），用户一脸懵。
+  // 这里无论群是否填好，都先阻止默认；群为空则高亮+聚焦输入框引导。
+  const handleDropOnStep = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (analyzing || uploadedFile) return  // 分析中 / 已上传：不再接受新文件
+    if (!wechatGroupRef.current.trim()) {
+      message.warning('请先填写业务群名称，再上传合同文件', 2.5)
+      wechatGroupInputRef.current?.focus()
+      // 输入框短暂红色高亮，吸引视线
+      const el = wechatGroupInputRef.current?.nativeElement as HTMLElement | undefined
+      if (el) {
+        const input = el.querySelector('input') || el
+        input.style.borderColor = 'var(--color-danger, #ff4d4f)'
+        setTimeout(() => { input.style.borderColor = '' }, 1500)
+      }
+      return
+    }
+    const file = e.dataTransfer.files?.[0]
+    if (file) handleFileSelect(file)
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    // 必须 preventDefault 才能让后续 onDrop 触发（否则浏览器仍会打开文件）
+    e.preventDefault()
+    e.stopPropagation()
   }
 
   // ── 文件选择 + 上传 + 分析 ──
@@ -365,7 +400,11 @@ export default function ContractFormModal({ open, onClose }: Props) {
       )}
     >
       {step === 'upload' ? (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 320 }}>
+        <div
+          style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 320 }}
+          onDrop={handleDropOnStep}
+          onDragOver={handleDragOver}
+        >
           <Alert
             type="info" showIcon
             message="上传合同文件，AI 自动分析关键字段，预览确认后一键录入"
@@ -374,8 +413,10 @@ export default function ContractFormModal({ open, onClose }: Props) {
             <Form.Item
               label={<span><WechatOutlined style={{ marginRight: 6 }} />业务群名称</span>}
               required
+              validateStatus={wechatGroup.trim() ? 'success' : ''}
             >
               <Input
+                ref={wechatGroupInputRef}
                 value={wechatGroup}
                 onChange={e => setWechatGroup(e.target.value)}
                 placeholder="每笔业务必须关联业务群，请填写微信群名称"
@@ -411,13 +452,17 @@ export default function ContractFormModal({ open, onClose }: Props) {
                   maxCount={1}
                   showUploadList={false}
                   beforeUpload={handleFileSelect}
-                  disabled={!wechatGroup.trim()}
                 >
                   <p className="ant-upload-drag-icon"><InboxOutlined style={{ fontSize: 28 }} /></p>
                   <p className="ant-upload-text" style={{ fontSize: 13 }}>
-                    {wechatGroup.trim() ? '点击或拖拽合同文件上传' : '请先填写业务群名称'}
+                    点击或拖拽合同文件上传
                   </p>
-                  <p className="ant-upload-hint" style={{ fontSize: 11 }}>支持 JPG / PNG / PDF / Word · 上传后自动分析</p>
+                  <p className="ant-upload-hint" style={{ fontSize: 11 }}>
+                    支持 JPG / PNG / PDF / Word · 上传后自动分析
+                    {!wechatGroup.trim() && (
+                      <span style={{ color: 'var(--color-danger, #ff4d4f)' }}>（请先填写上方业务群名称）</span>
+                    )}
+                  </p>
                 </Upload.Dragger>
               )}
             </Form.Item>
