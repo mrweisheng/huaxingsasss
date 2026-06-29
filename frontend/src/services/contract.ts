@@ -22,19 +22,33 @@ export interface ContractAnalyzeResult {
 }
 
 export interface ContractAnalyzeData {
+  contract_number?: string
   title?: string
   currency?: string
   total_amount?: number
-  payment_terms?: any[]
-  party_a?: { name?: string }
-  party_b?: { name?: string }
   signed_date?: string
   business_type?: string
   business_description?: string
-  special_terms?: string
+  party_a?: { name?: string; contact?: string; address?: string }
+  party_b?: { name?: string; id_info?: string; phone?: string }
+  vehicle_info?: { plate_number?: string; vehicle_model?: string; registration_number?: string }
+  port?: string
+  service_items?: Array<{ name?: string; description?: string; amount?: number }>
+  payment_terms?: PaymentTerm[]
   validity_period?: { start_date?: string; end_date?: string }
+  special_terms?: string[]
+  confidence?: number
   full_text?: string
   [key: string]: any
+}
+
+/** AI 提取的付款计划单项（与 prompts.py:493 schema 对齐） */
+export interface PaymentTerm {
+  name?: string
+  amount?: number
+  currency?: string
+  due_date?: string
+  condition?: string
 }
 
 /** 端点2 create 表单入参（与后端 ContractFormCreate 对齐） */

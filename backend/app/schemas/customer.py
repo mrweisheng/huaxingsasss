@@ -20,6 +20,15 @@ class CustomerBase(BaseModel):
     remarks: Optional[str] = Field(None, description="备注")
 
 
+class CustomerCreate(CustomerBase):
+    """创建客户（表单通道合同录入用）。
+
+    复用 CustomerBase 全字段；路由层调 CustomerService.create_or_get，
+    按 同名+同电话 / 同名+同邮箱 去重，命中则复用已有客户。
+    """
+    pass
+
+
 class CustomerUpdate(BaseModel):
     """更新客户"""
 

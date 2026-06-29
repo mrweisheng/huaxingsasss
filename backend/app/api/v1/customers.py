@@ -8,7 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
-from app.schemas.customer import CustomerUpdate, CustomerResponse
+from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerResponse
 from app.schemas.response import PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user
 from app.core.permissions import Role, is_admin
@@ -38,6 +38,33 @@ def list_customers(
             total_pages=(total + per_page - 1) // per_page,
         ),
     )
+
+
+@router.post("", response_model=CustomerResponse)
+def create_customer(
+    customer_data: CustomerCreate,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """创建客户或返回已有客户（按 同名+同电话 / 同名+同邮箱 去重复用）。
+
+    供合同表单录入的「关联客户 · 新建」分支调用：用户可基于 AI 提取的乙方姓名
+    一键建客户，再去重落库。返回客户对象（新建或复用均返回 200）。
+    """
+    customer, was_created = CustomerService.create_or_get(
+        db,
+        name=customer_data.name,
+        phone=customer_data.phone,
+        email=customer_data.email,
+        contact_person=customer_data.contact_person,
+        id_card_number=customer_data.id_card_number,
+        business_license=customer_data.business_license,
+        address=customer_data.address,
+        wechat_group_name=customer_data.wechat_group_name,
+        remarks=customer_data.remarks,
+        created_by=current_user.id,
+    )
+    return customer
 
 
 @router.get("/{customer_id}", response_model=CustomerResponse)

@@ -1,14 +1,15 @@
 import { useEffect, useState, useRef } from 'react'
 import {
   Button, Modal, Form, Input, InputNumber, Select, Space, Upload, DatePicker,
-  Spin, Alert, Tag, message,
+  Spin, Alert, Tag, Radio, message,
 } from 'antd'
 import {
   InboxOutlined, FilePdfOutlined, FileWordOutlined, FileOutlined,
   DeleteOutlined, WechatOutlined, RobotOutlined, WarningOutlined,
+  UserAddOutlined, SearchOutlined,
 } from '@ant-design/icons'
 import dayjs from 'dayjs'
-import { contractApi, type ContractAnalyzeResult, type ContractAnalyzeData, type ContractFormPayload } from '@/services/contract'
+import { contractApi, type ContractAnalyzeResult, type ContractAnalyzeData, type PaymentTerm, type ContractFormPayload } from '@/services/contract'
 import { customerApi } from '@/services/customer'
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
@@ -41,12 +42,40 @@ const CURRENCY_OPTIONS = [
   { label: '港币 HKD', value: 'HKD' },
 ]
 
+const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
+
 const ACCEPT = 'image/*,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx'
 
+/** 去重命中信息（用于预览页明确提示，替代一闪而过的 message） */
+interface DuplicateInfo {
+  contractId: number
+  contractNumber: string
+  title?: string
+  status?: string
+  totalAmount?: number
+  currency?: string
+  customerName?: string
+}
+
+/** 客户关联模式：三态 */
+type CustomerMode = 'existing' | 'new' | 'none'
+
+const fmtMoney = (n?: number, currency?: string) => {
+  if (n == null) return '-'
+  const sym = CURRENCY_SYMBOL[currency || ''] || ''
+  return `${sym}${n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+const fmtDate = (d?: string) => {
+  if (!d) return '-'
+  const day = dayjs(d)
+  return day.isValid() ? day.format('YYYY-MM-DD') : d
+}
+
 /**
- * 合同表单录入 Modal（与 Agent 对话通道并存，互不干扰）。
- * 两步式：上传文件 → AI 分析 → 预览确认（字段可改）→ 一键录入。
- * 对应 .mimocode/plans/1782377932485-sunny-knight.md。
+ * 合同表单录入 Modal。
+ * 两步式：上传文件 → AI 分析 → 预览确认（付款计划/客户/关键字段全展示）→ 一键录入。
+ * 底层存储逻辑（合同主记录 / 文件复制 / contract_data / contract_text）完全由后端处理，前端只管展示与提交。
  */
 export default function ContractFormModal({ open, onClose }: Props) {
   const [form] = Form.useForm()
@@ -58,9 +87,17 @@ export default function ContractFormModal({ open, onClose }: Props) {
   // AI 原始解析结果（保留 full_text 等用于最终提交，不进表单）
   const analyzeResultRef = useRef<ContractAnalyzeResult | null>(null)
   const analyzeDataRef = useRef<ContractAnalyzeData | null>(null)
-  // 客户下拉
+  // 去重命中信息（null = 未命中 / 已处理）
+  const [duplicateInfo, setDuplicateInfo] = useState<DuplicateInfo | null>(null)
+
+  // 客户关联三态
+  const [customerMode, setCustomerMode] = useState<CustomerMode>('none')
   const [customers, setCustomers] = useState<Customer[]>([])
   const [customerSearching, setCustomerSearching] = useState(false)
+  const [selectedCustomerId, setSelectedCustomerId] = useState<number | undefined>()
+  const [newCustomerName, setNewCustomerName] = useState('')
+  const [newCustomerPhone, setNewCustomerPhone] = useState('')
+
   const isMountedRef = useRef(true)
 
   useEffect(() => {
@@ -71,16 +108,26 @@ export default function ContractFormModal({ open, onClose }: Props) {
   // 打开/关闭重置
   useEffect(() => {
     if (!open) return
+    resetAll()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open])
+
+  const resetAll = () => {
     setStep('upload')
     setWechatGroup('')
     setUploadedFile(null)
     setAnalyzing(false)
     setSubmitting(false)
+    setDuplicateInfo(null)
     analyzeResultRef.current = null
     analyzeDataRef.current = null
     setCustomers([])
+    setCustomerMode('none')
+    setSelectedCustomerId(undefined)
+    setNewCustomerName('')
+    setNewCustomerPhone('')
     form.resetFields()
-  }, [open, form])
+  }
 
   // ── 文件选择 + 上传 + 分析 ──
   const handleFileSelect = async (file: File) => {
@@ -89,9 +136,7 @@ export default function ContractFormModal({ open, onClose }: Props) {
       return false
     }
     try {
-      // 1. 压缩图片（非图片原样返回）
       const processed = await compressImage(file)
-      // 2. 上传到 agent 目录（复用现有端点）
       const isImage = file.type.startsWith('image/')
       const previewUrl = isImage ? URL.createObjectURL(file) : undefined
       const res = await agentApi.uploadFile(processed)
@@ -106,26 +151,37 @@ export default function ContractFormModal({ open, onClose }: Props) {
         previewUrl,
       })
 
-      // 3. 调 analyze 触发 AI 分析（图片型慢，给 loading）
       setAnalyzing(true)
       const result = await contractApi.analyze(fileId)
       if (!isMountedRef.current) return
 
-      // 去重命中：终止流程，提示已存在
+      // 去重命中：进入预览页，但顶部明确提示已有合同（不再一闪而过）
       if (result.duplicate_detected && result.existing_contract) {
         const ex = result.existing_contract
+        setDuplicateInfo({
+          contractId: ex.id,
+          contractNumber: ex.contract_number,
+          title: ex.title,
+          status: ex.status,
+          totalAmount: ex.total_amount,
+          currency: ex.currency,
+          customerName: ex.customer_name,
+        })
+        analyzeResultRef.current = result
+        analyzeDataRef.current = result.data || null
         setAnalyzing(false)
-        setUploadedFile(null)
-        message.warning(`该文件已存在合同记录（编号 ${ex.contract_number}）`, 6)
+        setStep('preview')
+        message.warning('该文件已在系统中存在对应合同，请核对下方提示')
         return false
       }
       if (!result.success || !result.data) {
         setAnalyzing(false)
         setUploadedFile(null)
-        message.error((result as any).error || '文件分析失败，请重试或换用对话录入')
+        message.error((result as any).error || '文件分析失败，请重试')
         return false
       }
 
+      setDuplicateInfo(null)
       analyzeResultRef.current = result
       analyzeDataRef.current = result.data
       fillFormFromAnalyze(result.data)
@@ -140,7 +196,7 @@ export default function ContractFormModal({ open, onClose }: Props) {
     return false
   }
 
-  // 把 AI 解析结果填入可编辑表单
+  // 把 AI 解析结果填入可编辑表单 + 初始化客户三态
   const fillFormFromAnalyze = (data: ContractAnalyzeData) => {
     const v: Record<string, any> = {}
     if (data.title) v.title = data.title
@@ -155,9 +211,19 @@ export default function ContractFormModal({ open, onClose }: Props) {
     if (data.business_description) v.business_description = data.business_description
     v.wechat_group = wechatGroup.trim()
     form.setFieldsValue(v)
+
+    // 客户三态默认值：AI 提取到乙方姓名 → 默认"新建"分支并预填姓名；否则"不关联"
+    const partyBName = data.party_b?.name
+    if (partyBName) {
+      setCustomerMode('new')
+      setNewCustomerName(partyBName)
+      setNewCustomerPhone(data.party_b?.phone || '')
+    } else {
+      setCustomerMode('none')
+    }
   }
 
-  // ── 客户搜索（下拉）──
+  // ── 客户搜索（existing 模式下拉）──
   const searchCustomers = async (keyword: string) => {
     if (!keyword.trim()) { setCustomers([]); return }
     setCustomerSearching(true)
@@ -172,24 +238,66 @@ export default function ContractFormModal({ open, onClose }: Props) {
     }
   }
 
+  // ── 新建客户（new 模式）──
+  const handleCreateCustomer = async (): Promise<number | undefined> => {
+    if (!newCustomerName.trim()) {
+      message.warning('请填写客户姓名')
+      return undefined
+    }
+    try {
+      const created = await customerApi.createOrGet({
+        name: newCustomerName.trim(),
+        phone: newCustomerPhone.trim() || undefined,
+      })
+      message.success('客户已创建/关联')
+      return created.id
+    } catch (e: any) {
+      message.error(e?.response?.data?.detail || '客户创建失败')
+      return undefined
+    }
+  }
+
   const handleRemoveFile = () => {
     if (uploadedFile?.previewUrl) URL.revokeObjectURL(uploadedFile.previewUrl)
     setUploadedFile(null)
     analyzeResultRef.current = null
     analyzeDataRef.current = null
+    setDuplicateInfo(null)
     setStep('upload')
   }
 
   const handleOk = async () => {
+    // 去重命中：禁止重复录入
+    if (duplicateInfo) {
+      message.error('该文件已存在合同记录，无法重复录入。如需重新录入请先删除原合同')
+      return
+    }
     try {
       const values = await form.validateFields()
-      if (!uploadedFile || !analyzeResultRef.current) {
+      if (!uploadedFile || !analyzeResultRef.current || !analyzeDataRef.current) {
         message.error('请先上传并分析合同文件')
         return
       }
       setSubmitting(true)
 
-      const fullText = analyzeDataRef.current?.full_text || analyzeDataRef.current?.special_terms || undefined
+      // 客户关联：existing 直取 ID；new 调创建接口拿 ID；none 不传
+      let customerId: number | undefined
+      if (customerMode === 'existing') {
+        if (!selectedCustomerId) {
+          message.warning('请选择一个已有客户')
+          setSubmitting(false)
+          return
+        }
+        customerId = selectedCustomerId
+      } else if (customerMode === 'new') {
+        customerId = await handleCreateCustomer()
+        if (!customerId) {
+          setSubmitting(false)
+          return
+        }
+      }
+
+      const fullText = analyzeDataRef.current.full_text || undefined
       const payload: ContractFormPayload = {
         title: values.title?.trim() || undefined,
         business_type: values.business_type || undefined,
@@ -198,9 +306,9 @@ export default function ContractFormModal({ open, onClose }: Props) {
         total_amount: values.total_amount != null ? Number(values.total_amount) : undefined,
         signed_date: values.signed_date ? values.signed_date.format('YYYY-MM-DD') : undefined,
         wechat_group: values.wechat_group?.trim() || undefined,
-        customer_id: values.customer_id || undefined,
+        customer_id: customerId,
         file_id: uploadedFile.fileId,
-        contract_data: analyzeDataRef.current || {},
+        contract_data: analyzeDataRef.current,
         contract_text: fullText,
         confidence: analyzeResultRef.current.confidence,
       }
@@ -216,9 +324,12 @@ export default function ContractFormModal({ open, onClose }: Props) {
     }
   }
 
-  const handleBack = () => {
-    handleRemoveFile()
-  }
+  const data = analyzeDataRef.current
+  const paymentTerms: PaymentTerm[] = data?.payment_terms || []
+  const partyA = data?.party_a
+  const partyB = data?.party_b
+  const validity = data?.validity_period
+  const specialTerms = data?.special_terms || []
 
   return (
     <Modal
@@ -233,15 +344,23 @@ export default function ContractFormModal({ open, onClose }: Props) {
       onCancel={() => onClose(false)}
       destroyOnClose
       maskClosable={false}
-      width={720}
+      width={760}
       footer={step === 'upload' ? (
         <Space>
           <Button onClick={() => onClose(false)}>取消</Button>
         </Space>
       ) : (
         <Space>
-          <Button onClick={handleBack} disabled={submitting}>重新上传</Button>
-          <Button type="primary" onClick={handleOk} loading={submitting}>确认录入</Button>
+          <Button onClick={handleRemoveFile} disabled={submitting}>重新上传</Button>
+          <Button
+            type="primary"
+            onClick={handleOk}
+            loading={submitting}
+            disabled={!!duplicateInfo}
+            title={duplicateInfo ? '该文件已存在合同，无法重复录入' : undefined}
+          >
+            确认录入
+          </Button>
         </Space>
       )}
     >
@@ -249,8 +368,7 @@ export default function ContractFormModal({ open, onClose }: Props) {
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16, minHeight: 320 }}>
           <Alert
             type="info" showIcon
-            message="表单模式：上传文件后 AI 自动分析，预览确认后一键录入"
-            description="也可使用「AI 对话录入」进行多轮交互。"
+            message="上传合同文件，AI 自动分析关键字段，预览确认后一键录入"
           />
           <Form layout="vertical">
             <Form.Item
@@ -306,76 +424,219 @@ export default function ContractFormModal({ open, onClose }: Props) {
           </Form>
         </div>
       ) : (
-        <Form form={form} layout="vertical" requiredMark="optional">
-          <Alert
-            type="success" showIcon
-            style={{ marginBottom: 16 }}
-            message="AI 已完成分析，请核对以下字段（可修改）后确认录入"
-          />
-
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item name="title" label="合同标题" style={{ flex: 1 }}>
-              <Input placeholder="如：车辆买卖合同" maxLength={500} />
-            </Form.Item>
-            <Form.Item name="signed_date" label="签订日期" style={{ width: 200 }}>
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item
-              name="total_amount" label="合同金额" rules={[{ required: true, message: '请输入合同金额' }]}
-              style={{ flex: 1 }}
-            >
-              <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="0.00" />
-            </Form.Item>
-            <Form.Item name="currency" label="币种" rules={[{ required: true }]} style={{ width: 160 }}>
-              <Select options={CURRENCY_OPTIONS} />
-            </Form.Item>
-          </div>
-
-          <div style={{ display: 'flex', gap: 12 }}>
-            <Form.Item name="business_type" label="业务类型" style={{ flex: 1 }}>
-              <Select options={BUSINESS_TYPE_OPTIONS} allowClear placeholder="选择业务类型" />
-            </Form.Item>
-            <Form.Item name="wechat_group" label="业务群" rules={[{ required: true, message: '请填写业务群名称' }]} style={{ flex: 1 }}>
-              <Input maxLength={200} />
-            </Form.Item>
-          </div>
-
-          <Form.Item name="business_description" label="业务描述">
-            <Input maxLength={200} placeholder="如：深圳湾粤Z牌过户" />
-          </Form.Item>
-
-          <Form.Item label="关联客户（可选）">
-            <Select
-              showSearch
-              allowClear
-              placeholder="搜索客户名称（可留空，后续再关联）"
-              filterOption={false}
-              onSearch={searchCustomers}
-              loading={customerSearching}
-              notFoundContent={customerSearching ? '搜索中...' : '输入关键词搜索'}
-              options={customers.map(c => ({ label: c.name, value: c.id }))}
-            />
-          </Form.Item>
-
-          {analyzeDataRef.current?.payment_terms && analyzeDataRef.current.payment_terms.length > 0 && (
-            <Alert
-              type="info" showIcon
-              style={{ marginBottom: 8 }}
-              message={`AI 识别到 ${analyzeDataRef.current.payment_terms.length} 期付款计划（已保存，付款记录请到合同卡片录入）`}
-            />
-          )}
-
-          {analyzeResultRef.current?.confidence != null && analyzeResultRef.current.confidence < 0.85 && (
+        <>
+          {/* 去重命中明确提示卡片（替代一闪而过的 message） */}
+          {duplicateInfo && (
             <Alert
               type="warning" showIcon
               icon={<WarningOutlined />}
-              message={`AI 解析置信度较低（${Math.round((analyzeResultRef.current.confidence) * 100)}%），请重点核对金额与日期`}
+              style={{ marginBottom: 16 }}
+              message="该文件已在系统中存在对应合同"
+              description={
+                <div style={{ fontSize: 13 }}>
+                  <div>合同编号：<b>{duplicateInfo.contractNumber}</b></div>
+                  {duplicateInfo.title && <div>标题：{duplicateInfo.title}</div>}
+                  <div>
+                    金额：{fmtMoney(duplicateInfo.totalAmount, duplicateInfo.currency)}
+                    {duplicateInfo.customerName ? ` · 客户：${duplicateInfo.customerName}` : ''}
+                    {duplicateInfo.status ? ` · 状态：${duplicateInfo.status}` : ''}
+                  </div>
+                  <div style={{ marginTop: 6, color: 'var(--color-danger, #ff4d4f)' }}>
+                    无法重复录入。如需重新录入，请先到合同管理删除原合同。
+                  </div>
+                </div>
+              }
             />
           )}
-        </Form>
+
+          {!duplicateInfo && (
+            <Alert
+              type="success" showIcon
+              style={{ marginBottom: 16 }}
+              message="AI 已完成分析，请核对以下字段（可修改）后确认录入"
+            />
+          )}
+
+          <Form form={form} layout="vertical" requiredMark="optional">
+            {/* 文件来源摘要 */}
+            {uploadedFile && (
+              <div style={{ marginBottom: 16, padding: '8px 12px', background: 'var(--bg-subtle, #fafafa)', borderRadius: 6, fontSize: 13, color: 'var(--text-secondary, #666)' }}>
+                来源文件：{uploadedFile.fileName}
+                {analyzeResultRef.current?.confidence != null && (
+                  <span style={{ marginLeft: 12 }}>
+                    AI 置信度：<b>{Math.round((analyzeResultRef.current.confidence) * 100)}%</b>
+                    {analyzeResultRef.current.confidence < 0.85 && (
+                      <Tag color="orange" style={{ marginLeft: 8 }}>较低，请重点核对</Tag>
+                    )}
+                  </span>
+                )}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <Form.Item name="title" label="合同标题" style={{ flex: 1 }}>
+                <Input placeholder="如：车辆买卖合同" maxLength={500} />
+              </Form.Item>
+              <Form.Item name="signed_date" label="签订日期" style={{ width: 200 }}>
+                <DatePicker style={{ width: '100%' }} />
+              </Form.Item>
+            </div>
+
+            {/* AI 提取的合同编号（只读展示，便于用户核对，不入库——后端自动生成新编号） */}
+            {data?.contract_number && (
+              <Form.Item label="原合同编号（仅供参考，系统将自动生成新编号）">
+                <Input value={data.contract_number} disabled />
+              </Form.Item>
+            )}
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <Form.Item
+                name="total_amount" label="合同金额" rules={[{ required: true, message: '请输入合同金额' }]}
+                style={{ flex: 1 }}
+              >
+                <InputNumber style={{ width: '100%' }} min={0} precision={2} placeholder="0.00" />
+              </Form.Item>
+              <Form.Item name="currency" label="币种" rules={[{ required: true }]} style={{ width: 160 }}>
+                <Select options={CURRENCY_OPTIONS} />
+              </Form.Item>
+            </div>
+
+            <div style={{ display: 'flex', gap: 12 }}>
+              <Form.Item name="business_type" label="业务类型" style={{ flex: 1 }}>
+                <Select options={BUSINESS_TYPE_OPTIONS} allowClear placeholder="选择业务类型" />
+              </Form.Item>
+              <Form.Item name="wechat_group" label="业务群" rules={[{ required: true, message: '请填写业务群名称' }]} style={{ flex: 1 }}>
+                <Input maxLength={200} />
+              </Form.Item>
+            </div>
+
+            <Form.Item name="business_description" label="业务描述">
+              <Input maxLength={200} placeholder="如：深圳湾粤Z牌过户" />
+            </Form.Item>
+
+            {/* ── 客户关联（三态选择器）── */}
+            <Form.Item label="关联客户">
+              <Radio.Group
+                value={customerMode}
+                onChange={e => setCustomerMode(e.target.value)}
+                style={{ marginBottom: 8 }}
+              >
+                <Radio.Button value="existing"><SearchOutlined /> 搜索现有</Radio.Button>
+                <Radio.Button value="new"><UserAddOutlined /> 新建客户</Radio.Button>
+                <Radio.Button value="none">不关联</Radio.Button>
+              </Radio.Group>
+
+              {customerMode === 'existing' && (
+                <Select
+                  showSearch
+                  allowClear
+                  placeholder="输入客户姓名/电话搜索"
+                  filterOption={false}
+                  onSearch={searchCustomers}
+                  loading={customerSearching}
+                  value={selectedCustomerId}
+                  onChange={setSelectedCustomerId}
+                  style={{ width: '100%' }}
+                  notFoundContent={customerSearching ? '搜索中...' : '输入关键词搜索'}
+                  options={customers.map(c => ({
+                    label: `${c.name}${c.phone ? ' · ' + c.phone : ''}`,
+                    value: c.id,
+                  }))}
+                />
+              )}
+              {customerMode === 'new' && (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <Input
+                    value={newCustomerName}
+                    onChange={e => setNewCustomerName(e.target.value)}
+                    placeholder="客户姓名（默认带入 AI 识别的乙方）"
+                    maxLength={200}
+                    style={{ flex: 2 }}
+                  />
+                  <Input
+                    value={newCustomerPhone}
+                    onChange={e => setNewCustomerPhone(e.target.value)}
+                    placeholder="电话（选填）"
+                    maxLength={20}
+                    style={{ flex: 1 }}
+                  />
+                </div>
+              )}
+              {customerMode === 'none' && (
+                <div style={{ fontSize: 12, color: 'var(--text-tertiary, #999)' }}>
+                  暂不关联客户，可后续到客户管理补关联
+                </div>
+              )}
+            </Form.Item>
+
+            {/* ── AI 提取的只读参考信息（不入库主字段，仅展示供核对）── */}
+            {(partyB || partyA) && (
+              <div style={{ marginBottom: 16, padding: 12, border: '1px solid var(--border-default, #eee)', borderRadius: 6, background: 'var(--bg-subtle, #fafafa)' }}>
+                <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 13 }}>AI 提取的甲乙方信息（参考）</div>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px 24px', fontSize: 13 }}>
+                  {partyB?.name && <div>乙方（客户）：{partyB.name}</div>}
+                  {partyB?.id_info && <div>证件：{partyB.id_info}</div>}
+                  {partyB?.phone && <div>电话：{partyB.phone}</div>}
+                  {partyA?.name && <div>甲方：{partyA.name}</div>}
+                  {partyA?.contact && <div>甲方联系：{partyA.contact}</div>}
+                </div>
+              </div>
+            )}
+
+            {/* ── 付款计划明细（关键字段，完整展示）── */}
+            {paymentTerms.length > 0 && (
+              <div style={{ marginBottom: 16 }}>
+                <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 13 }}>
+                  付款计划（共 {paymentTerms.length} 期，已随合同保存；实际收款请到合同卡片录入）
+                </div>
+                <div style={{ border: '1px solid var(--border-default, #eee)', borderRadius: 6, overflow: 'hidden' }}>
+                  {paymentTerms.map((term, i) => (
+                    <div
+                      key={i}
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: '1fr auto auto',
+                        gap: 12,
+                        padding: '8px 12px',
+                        fontSize: 13,
+                        borderBottom: i < paymentTerms.length - 1 ? '1px solid var(--border-default, #f0f0f0)' : 'none',
+                        alignItems: 'center',
+                      }}
+                    >
+                      <div>
+                        <div>{term.name || `第 ${i + 1} 期`}</div>
+                        {term.condition && (
+                          <div style={{ fontSize: 11, color: 'var(--text-tertiary, #999)' }}>{term.condition}</div>
+                        )}
+                      </div>
+                      <div style={{ fontWeight: 500, color: 'var(--color-success, #52c41a)' }}>
+                        {fmtMoney(term.amount, term.currency || data?.currency)}
+                      </div>
+                      <div style={{ fontSize: 12, color: 'var(--text-secondary, #666)', minWidth: 96, textAlign: 'right' }}>
+                        {fmtDate(term.due_date)}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── 有效期 + 特殊条款（只读参考）── */}
+            {(validity?.start_date || validity?.end_date || specialTerms.length > 0) && (
+              <div style={{ marginBottom: 16, padding: 12, border: '1px solid var(--border-default, #eee)', borderRadius: 6, background: 'var(--bg-subtle, #fafafa)' }}>
+                <div style={{ fontWeight: 500, marginBottom: 8, fontSize: 13 }}>其他条款（参考）</div>
+                <div style={{ fontSize: 13, lineHeight: 1.8 }}>
+                  {(validity?.start_date || validity?.end_date) && (
+                    <div>合同有效期：{fmtDate(validity?.start_date)} ~ {fmtDate(validity?.end_date)}</div>
+                  )}
+                  {specialTerms.map((t, i) => (
+                    <div key={i}>· {t}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Form>
+        </>
       )}
     </Modal>
   )
