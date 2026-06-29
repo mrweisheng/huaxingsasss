@@ -433,3 +433,16 @@
   font-size: 12px;
   color: #9ca3af;
 }
+
+/* 可编辑单元格 */
+.editable-cell {
+  cursor: pointer;
+  border-bottom: 1px dashed transparent;
+  transition: border-color 0.2s;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.editable-cell:hover {
+  border-bottom-color: var(--brand-primary, #1677ff);
+  background: rgba(22, 119, 255, 0.04);
+}
