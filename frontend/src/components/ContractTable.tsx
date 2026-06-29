@@ -1,9 +1,10 @@
-import { useState, useCallback } from 'react'
-import { Table, Button, Progress, Image, Badge, Empty, Popconfirm, Tooltip, Popover, Input, DatePicker, message } from 'antd'
+import { useState, useCallback, useRef, useEffect } from 'react'
+import { Table, Button, Progress, Image, Badge, Empty, Popconfirm, Tooltip, Modal, Input, DatePicker, message } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
   EyeOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined,
   CaretRightOutlined, CarOutlined, SwapOutlined, SafetyCertificateOutlined,
+  CalendarOutlined, WechatOutlined,
 } from '@ant-design/icons'
 import type { ColumnsType } from 'antd/es/table'
 import type { ContractWithPayments } from '@/types'
@@ -78,10 +79,16 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
   // 付款通知单弹窗
   const [noticeModal, setNoticeModal] = useState<{ open: boolean; contract: ContractWithPayments | null }>({ open: false, contract: null })
 
-  // 内联编辑状态
-  const [editingCell, setEditingCell] = useState<{ contractId: number; field: string } | null>(null)
-  const [editValue, setEditValue] = useState<any>(null)
+  // 编辑弹窗状态
+  const [editModal, setEditModal] = useState<{
+    open: boolean
+    contractId: number | null
+    contractNumber?: string
+    field: 'signed_date' | 'wechat_group'
+    value: any
+  }>({ open: false, contractId: null, field: 'signed_date', value: null })
   const [saving, setSaving] = useState(false)
+  const inputRef = useRef<any>(null)
 
   // 凭证录入成功回调：刷新父级列表（已收金额/进度同步更新）
   const handleReceiptSuccess = useCallback(() => {
@@ -89,34 +96,44 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
     onContractUpdated?.()
   }, [onContractUpdated])
 
-  // 开始编辑
-  const startEdit = useCallback((contractId: number, field: string, currentValue: any) => {
-    setEditingCell({ contractId, field })
-    setEditValue(currentValue)
-  }, [])
-
-  // 取消编辑
-  const cancelEdit = useCallback(() => {
-    setEditingCell(null)
-    setEditValue(null)
+  // 打开编辑弹窗
+  const openEdit = useCallback((contract: ContractWithPayments, field: 'signed_date' | 'wechat_group') => {
+    setEditModal({
+      open: true,
+      contractId: contract.id,
+      contractNumber: contract.contract_number,
+      field,
+      value: contract[field] || null,
+    })
   }, [])
 
   // 保存编辑
-  const saveEdit = useCallback(async (contractId: number, field: string) => {
-    if (saving) return
+  const saveEdit = useCallback(async () => {
+    if (saving || !editModal.contractId) return
     setSaving(true)
     try {
-      await contractApi.update(contractId, { [field]: editValue })
+      await contractApi.update(editModal.contractId, { [editModal.field]: editModal.value })
       message.success('修改成功')
-      setEditingCell(null)
-      setEditValue(null)
+      setEditModal(prev => ({ ...prev, open: false }))
       onContractUpdated?.()
     } catch (e: any) {
       message.error(e?.response?.data?.detail || '修改失败')
     } finally {
       setSaving(false)
     }
-  }, [editValue, saving, onContractUpdated])
+  }, [editModal, saving, onContractUpdated])
+
+  // 弹窗打开后自动聚焦
+  useEffect(() => {
+    if (editModal.open && inputRef.current) {
+      setTimeout(() => {
+        inputRef.current?.focus()
+        if (editModal.field === 'wechat_group') {
+          inputRef.current?.select()
+        }
+      }, 100)
+    }
+  }, [editModal.open, editModal.field])
 
   const columns: ColumnsType<ContractWithPayments> = [
     {
@@ -124,38 +141,11 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       dataIndex: 'signed_date',
       key: 'signed_date',
       width: 100,
-      render: (v, row) => {
-        const isEditing = editingCell?.contractId === row.id && editingCell?.field === 'signed_date'
-        if (isEditing) {
-          return (
-            <Popover
-              open
-              trigger="click"
-              content={
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <DatePicker
-                    size="small"
-                    value={editValue ? dayjs(editValue) : null}
-                    onChange={(d) => setEditValue(d ? d.format('YYYY-MM-DD') : null)}
-                    style={{ width: 130 }}
-                    allowClear
-                  />
-                  <Button size="small" type="primary" loading={saving} onClick={() => saveEdit(row.id, 'signed_date')}>保存</Button>
-                  <Button size="small" onClick={cancelEdit}>取消</Button>
-                </div>
-              }
-              onOpenChange={(open) => { if (!open) cancelEdit() }}
-            >
-              <span className="editable-cell">{fmtDate(v)}</span>
-            </Popover>
-          )
-        }
-        return (
-          <span className="editable-cell" onDoubleClick={() => startEdit(row.id, 'signed_date', v)}>
-            {fmtDate(v)}
-          </span>
-        )
-      },
+      render: (v, row) => (
+        <span className="editable-cell" onDoubleClick={() => openEdit(row, 'signed_date')}>
+          {fmtDate(v)}
+        </span>
+      ),
     },
     {
       title: '业务群',
@@ -165,44 +155,12 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       render: (v, row) => {
         const biz = BIZ_VISUAL[row.business_type || '']
         const tone = getBizToneClass(row.business_type)
-        const isEditing = editingCell?.contractId === row.id && editingCell?.field === 'wechat_group'
-
-        if (isEditing) {
-          return (
-            <Popover
-              open
-              trigger="click"
-              content={
-                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-                  <Input
-                    size="small"
-                    value={editValue ?? ''}
-                    onChange={(e) => setEditValue(e.target.value)}
-                    placeholder="业务群名称"
-                    style={{ width: 160 }}
-                    onPressEnter={() => saveEdit(row.id, 'wechat_group')}
-                    autoFocus
-                  />
-                  <Button size="small" type="primary" loading={saving} onClick={() => saveEdit(row.id, 'wechat_group')}>保存</Button>
-                  <Button size="small" onClick={cancelEdit}>取消</Button>
-                </div>
-              }
-              onOpenChange={(open) => { if (!open) cancelEdit() }}
-            >
-              <span className={`wechat-group-cell biz-tone-${tone} editable-cell`}>
-                {biz && <span className="wechat-group-icon">{biz.icon}</span>}
-                {v || <span className="text-muted">—</span>}
-              </span>
-            </Popover>
-          )
-        }
-
         if (!v && !biz) return <span className="text-muted">—</span>
         return (
           <span
             className={`wechat-group-cell biz-tone-${tone} editable-cell`}
             title={v || biz?.label}
-            onDoubleClick={() => startEdit(row.id, 'wechat_group', v)}
+            onDoubleClick={() => openEdit(row, 'wechat_group')}
           >
             {biz && <span className="wechat-group-icon">{biz.icon}</span>}
             {v || <span className="text-muted">—</span>}
@@ -572,6 +530,76 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           onClose={() => setNoticeModal({ open: false, contract: null })}
         />
       )}
+
+      {/* 快捷编辑弹窗 */}
+      <Modal
+        open={editModal.open}
+        onCancel={() => setEditModal(prev => ({ ...prev, open: false }))}
+        footer={null}
+        centered
+        width={380}
+        closable={false}
+        className="quick-edit-modal"
+        maskStyle={{ background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(2px)' }}
+      >
+        <div className="quick-edit-content">
+          <div className="quick-edit-header">
+            <div className="quick-edit-icon">
+              {editModal.field === 'signed_date' ? <CalendarOutlined /> : <WechatOutlined />}
+            </div>
+            <div className="quick-edit-title">
+              {editModal.field === 'signed_date' ? '修改签订日期' : '修改业务群'}
+            </div>
+            <div className="quick-edit-subtitle">
+              合同 {editModal.contractNumber}
+            </div>
+          </div>
+
+          <div className="quick-edit-body">
+            {editModal.field === 'signed_date' ? (
+              <DatePicker
+                ref={inputRef}
+                value={editModal.value ? dayjs(editModal.value) : null}
+                onChange={(d) => setEditModal(prev => ({ ...prev, value: d ? d.format('YYYY-MM-DD') : null }))}
+                style={{ width: '100%' }}
+                size="large"
+                allowClear
+                placeholder="选择签订日期"
+                format="YYYY年MM月DD日"
+              />
+            ) : (
+              <Input
+                ref={inputRef}
+                value={editModal.value ?? ''}
+                onChange={(e) => setEditModal(prev => ({ ...prev, value: e.target.value }))}
+                placeholder="输入业务群名称"
+                size="large"
+                allowClear
+                onPressEnter={saveEdit}
+              />
+            )}
+          </div>
+
+          <div className="quick-edit-footer">
+            <Button
+              size="large"
+              onClick={() => setEditModal(prev => ({ ...prev, open: false }))}
+              style={{ flex: 1 }}
+            >
+              取消
+            </Button>
+            <Button
+              type="primary"
+              size="large"
+              loading={saving}
+              onClick={saveEdit}
+              style={{ flex: 2 }}
+            >
+              保存
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </>
   )
 }

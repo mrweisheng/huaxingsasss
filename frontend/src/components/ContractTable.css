@@ -438,11 +438,110 @@
 .editable-cell {
   cursor: pointer;
   border-bottom: 1px dashed transparent;
-  transition: border-color 0.2s;
-  padding: 2px 4px;
+  transition: all 0.2s;
+  padding: 2px 6px;
   border-radius: 4px;
+  display: inline-block;
+  min-width: 60px;
 }
 .editable-cell:hover {
   border-bottom-color: var(--brand-primary, #1677ff);
-  background: rgba(22, 119, 255, 0.04);
+  background: rgba(22, 119, 255, 0.06);
+}
+
+/* 快捷编辑弹窗 */
+.quick-edit-modal .ant-modal-content {
+  padding: 0;
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.15), 0 0 0 1px rgba(0, 0, 0, 0.05);
+}
+
+.quick-edit-content {
+  padding: 0;
+}
+
+.quick-edit-header {
+  padding: 28px 28px 20px;
+  text-align: center;
+  background: linear-gradient(135deg, #f8f9fa 0%, #fff 100%);
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.quick-edit-icon {
+  width: 52px;
+  height: 52px;
+  border-radius: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+  margin-bottom: 14px;
+  background: linear-gradient(135deg, var(--brand-primary, #1677ff) 0%, var(--brand-primary-hover, #4096ff) 100%);
+  color: #fff;
+  box-shadow: 0 6px 16px rgba(22, 119, 255, 0.25);
+}
+
+.quick-edit-title {
+  font-size: 17px;
+  font-weight: 600;
+  color: #1a1a1a;
+  margin-bottom: 4px;
+  letter-spacing: -0.01em;
+}
+
+.quick-edit-subtitle {
+  font-size: 13px;
+  color: #888;
+  font-weight: 400;
+}
+
+.quick-edit-body {
+  padding: 24px 28px;
+}
+
+.quick-edit-body .ant-picker,
+.quick-edit-body .ant-input {
+  border-radius: 10px;
+  border: 2px solid #e8e8e8;
+  transition: all 0.2s;
+}
+
+.quick-edit-body .ant-picker:hover,
+.quick-edit-body .ant-input:hover {
+  border-color: var(--brand-primary, #1677ff);
+}
+
+.quick-edit-body .ant-picker:focus,
+.quick-edit-body .ant-input:focus,
+.quick-edit-body .ant-picker-focused,
+.quick-edit-body .ant-input-focused {
+  border-color: var(--brand-primary, #1677ff);
+  box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.1);
+}
+
+.quick-edit-footer {
+  padding: 0 28px 24px;
+  display: flex;
+  gap: 12px;
+}
+
+.quick-edit-footer .ant-btn {
+  border-radius: 10px;
+  font-weight: 500;
+  height: 44px;
+}
+
+.quick-edit-footer .ant-btn-default {
+  border: 2px solid #e8e8e8;
+  color: #666;
+}
+
+.quick-edit-footer .ant-btn-default:hover {
+  border-color: #d9d9d9;
+  color: #333;
+}
+
+.quick-edit-footer .ant-btn-primary {
+  box-shadow: 0 4px 12px rgba(22, 119, 255, 0.2);
 }
