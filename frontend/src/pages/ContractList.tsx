@@ -355,10 +355,10 @@ export default function ContractList() {
         title="确认删除合同"
         description={deleteTarget && (
           <>
-            {deleteTarget.customerName && <div>客户：<strong>{deleteTarget.customerName}</strong></div>}
-            {deleteTarget.wechatGroup && <div>业务群：{deleteTarget.wechatGroup}</div>}
+            {deleteTarget.wechatGroup && <div>业务群：<strong>{deleteTarget.wechatGroup}</strong></div>}
+            {deleteTarget.customerName && <div>客户：{deleteTarget.customerName}</div>}
             {deleteTarget.title && <div>业务：{deleteTarget.title}</div>}
-            <div style={{ marginTop: 8 }}>该合同名下的<strong>付款计划与收付款记录将一并删除</strong>。</div>
+            <div style={{ marginTop: 8 }}>关联的所有收付款记录将<strong>一并删除</strong>。</div>
           </>
         )}
         warning="此操作不可撤销，金额统计、客户回款状态都会受影响。"
