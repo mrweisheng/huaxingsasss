@@ -17,13 +17,14 @@ class PaymentOverrideAudit(Base):
     """凭证不匹配手动放行审计表。
 
     使用裸 Base（非 BaseModel）——本表不需要 updated_at / is_deleted / soft_delete：
-    审计记录一旦写入永不修改、永不删除。
+    审计记录一旦写入永不修改；当关联 payment 被删除时，本审计行随之级联删除
+    （payment 不存在后审计失去追溯对象，一并清理）。
     """
 
     __tablename__ = "payment_override_audit"
 
     id = Column(Integer, primary_key=True, index=True, autoincrement=True)
-    payment_id = Column(Integer, ForeignKey("payments.id", ondelete="RESTRICT"), nullable=False, index=True, comment="关联付款 ID")
+    payment_id = Column(Integer, ForeignKey("payments.id", ondelete="CASCADE"), nullable=False, index=True, comment="关联付款 ID；payment 被删除时本审计行级联清理")
     operator_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), index=True, comment="放行人 user_id；用户删后置 NULL")
     operator_name = Column(String(100), nullable=False, comment="冗余存放行人姓名/用户名，保证审计可读")
     operator_role = Column(String(20), comment="放行时的角色快照（admin/income/expense）")
