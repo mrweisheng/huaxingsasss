@@ -313,14 +313,14 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           <div className="expanded-panel">
             <div className="expanded-panel-head">
               <span className="expanded-panel-title">付款条款</span>
-              {(row.payments || []).length === 0 && <span className="expanded-panel-empty-hint">无付款计划</span>}
+              {(row.contract_data?.payment_terms?.length || 0) === 0 && (row.payments || []).length === 0 && <span className="expanded-panel-empty-hint">无付款计划</span>}
             </div>
             <div className="payment-terms-list">
               {row.contract_data?.payment_terms?.length > 0 ? (
                 row.contract_data?.payment_terms.map((term: any, idx: number) => (
                   <div key={idx} className="term-item">
                     <div className="term-name">{term.name || `第${idx + 1}期`}</div>
-                    <div className="term-amount">{fmt(term.amount, row.currency)}</div>
+                    <div className="term-amount">{fmt(term.amount, term.currency || row.currency)}</div>
                     <div className="term-meta">
                       {term.due_date && <span className="term-date">{term.due_date}</span>}
                       {term.condition && <span className="term-condition">{term.condition}</span>}
