@@ -180,7 +180,7 @@ export default function ContractDetail() {
     : null
   const statusInfo = statusMap[contract.status] || { text: contract.status, cls: '' }
   // 应收口径：直接以合同 total_amount 为准（系统不再维护附加项）
-  const paid = Number(contract.paid_amount || 0)
+  const paid = Number((contract.paid_by_currency || {})[contract.currency] ?? contract.paid_amount ?? 0)
   const total = Number(contract.total_amount || 0)
   const receivable = total
   const overpaid = Math.max(0, paid - receivable)

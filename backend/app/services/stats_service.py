@@ -51,14 +51,16 @@ class StatsService:
             Customer.is_deleted == False
         ).scalar()
 
-        # 从 contracts 表直接汇总金额（比 payments 更准确）
-        # 已收金额：按币种分
+        # 已收金额：从 payments 表实时聚合（避免反规范化 paid_amount 残留）
         income_by_currency = db.query(
-            Contract.currency,
-            func.sum(Contract.paid_amount).label("total"),
-        ).filter(
+            Payment.currency,
+            func.sum(Payment.paid_amount).label("total"),
+        ).join(Contract, Payment.contract_id == Contract.id).filter(
             Contract.is_deleted == False,
-        ).group_by(Contract.currency).all()
+            Payment.is_deleted == False,
+            Payment.status == "paid",
+            Payment.type == "income",
+        ).group_by(Payment.currency).all()
 
         # 待收金额
         remaining_by_currency = db.query(
@@ -68,13 +70,16 @@ class StatsService:
             Contract.is_deleted == False,
         ).group_by(Contract.currency).all()
 
-        # 支出金额
+        # 支出金额：从 payments 表实时聚合
         expense_by_currency = db.query(
-            Contract.currency,
-            func.sum(Contract.total_expense).label("total"),
-        ).filter(
+            Payment.currency,
+            func.sum(Payment.paid_amount).label("total"),
+        ).join(Contract, Payment.contract_id == Contract.id).filter(
             Contract.is_deleted == False,
-        ).group_by(Contract.currency).all()
+            Payment.is_deleted == False,
+            Payment.status == "paid",
+            Payment.type == "expense",
+        ).group_by(Payment.currency).all()
 
         income = {"CNY": Decimal("0"), "HKD": Decimal("0")}
         remaining = {"CNY": Decimal("0"), "HKD": Decimal("0")}

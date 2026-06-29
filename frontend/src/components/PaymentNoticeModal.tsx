@@ -29,7 +29,7 @@ export default function PaymentNoticeModal({ open, contract, incomePayments, onC
   /* ── 口径计算 ── */
   const cur = contract.currency
   const total = Number(contract.total_amount || 0)
-  const paid = Number(contract.paid_amount || 0)
+  const paid = Number((contract.paid_by_currency || {})[contract.currency] ?? contract.paid_amount ?? 0)
   const receivable = total
   const unpaid = Math.max(0, receivable - paid)
   const overpaid = Math.max(0, paid - receivable)

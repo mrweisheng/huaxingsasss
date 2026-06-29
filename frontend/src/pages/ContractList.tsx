@@ -134,31 +134,22 @@ export default function ContractList() {
     }
   }
 
-  // 汇总条：按当前页累加，按币种分组
+  // 汇总条：按当前页累加，按币种分组（用实时聚合 paid_by_currency，不用反规范化 paid_amount）
   const summary = (() => {
     const agg: Record<string, { total: number; paid: number; expense: number }> = {}
     for (const c of contracts) {
       const cur = c.currency || 'CNY'
       if (!agg[cur]) agg[cur] = { total: 0, paid: 0, expense: 0 }
       agg[cur].total += Number(c.total_amount || 0)
-      // 优先用实时聚合的 paid_by_currency（与台账视图一致），fallback 到反规范化字段
-      if (c.paid_by_currency && Object.keys(c.paid_by_currency).length > 0) {
-        for (const [cCur, amt] of Object.entries(c.paid_by_currency)) {
-          const k = cCur || cur
-          if (!agg[k]) agg[k] = { total: 0, paid: 0, expense: 0 }
-          agg[k].paid += Number(amt || 0)
-        }
-      } else {
-        agg[cur].paid += Number(c.paid_amount || 0)
+      for (const [cCur, amt] of Object.entries(c.paid_by_currency || {})) {
+        const k = cCur || cur
+        if (!agg[k]) agg[k] = { total: 0, paid: 0, expense: 0 }
+        agg[k].paid += Number(amt || 0)
       }
-      if (c.expense_by_currency && Object.keys(c.expense_by_currency).length > 0) {
-        for (const [cCur, amt] of Object.entries(c.expense_by_currency)) {
-          const k = cCur || cur
-          if (!agg[k]) agg[k] = { total: 0, paid: 0, expense: 0 }
-          agg[k].expense += Number(amt || 0)
-        }
-      } else {
-        agg[cur].expense += Number(c.total_expense || 0)
+      for (const [cCur, amt] of Object.entries(c.expense_by_currency || {})) {
+        const k = cCur || cur
+        if (!agg[k]) agg[k] = { total: 0, paid: 0, expense: 0 }
+        agg[k].expense += Number(amt || 0)
       }
     }
     return agg

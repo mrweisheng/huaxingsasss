@@ -469,7 +469,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         rowClassName={(row) => {
           const classes: string[] = []
           const receivable = Number(row.total_amount || 0)
-          const paid = Number(row.paid_amount || 0)
+          const paid = Number((row.paid_by_currency || {})[row.currency] ?? row.paid_amount ?? 0)
           if (paid >= receivable) classes.push('row-cleared')
           if (expandedRowKey === row.id) {
             classes.push('row-expanded-active', `row-biz-${getBizToneClass(row.business_type)}`)
