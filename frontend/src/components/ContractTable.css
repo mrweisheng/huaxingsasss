@@ -545,3 +545,61 @@
 .quick-edit-footer .ant-btn-primary {
   box-shadow: 0 4px 12px rgba(22, 119, 255, 0.2);
 }
+
+.quick-edit-footer .ant-btn-primary:disabled {
+  box-shadow: none;
+  opacity: 0.65;
+}
+
+/* 当前值展示区 */
+.quick-edit-current {
+  background: #f8f9fa;
+  border-radius: 10px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.quick-edit-label {
+  font-size: 13px;
+  color: #888;
+  font-weight: 500;
+}
+
+.quick-edit-current-value {
+  font-size: 14px;
+  color: #333;
+  font-weight: 600;
+}
+
+/* 变更预览 */
+.quick-edit-preview {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: linear-gradient(135deg, #e8f5e9 0%, #f1f8e9 100%);
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+}
+
+.quick-edit-old {
+  font-size: 13px;
+  color: #999;
+  text-decoration: line-through;
+}
+
+.quick-edit-arrow {
+  font-size: 16px;
+  color: #4caf50;
+  font-weight: bold;
+}
+
+.quick-edit-new {
+  font-size: 14px;
+  color: #2e7d32;
+  font-weight: 600;
+}

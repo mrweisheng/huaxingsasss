@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import { Table, Button, Progress, Image, Badge, Empty, Popconfirm, Tooltip, Modal, Input, DatePicker, message } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
@@ -85,10 +85,10 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
     contractId: number | null
     contractNumber?: string
     field: 'signed_date' | 'wechat_group'
-    value: any
-  }>({ open: false, contractId: null, field: 'signed_date', value: null })
+    oldValue: any
+    newValue: any
+  }>({ open: false, contractId: null, field: 'signed_date', oldValue: null, newValue: null })
   const [saving, setSaving] = useState(false)
-  const inputRef = useRef<any>(null)
 
   // 凭证录入成功回调：刷新父级列表（已收金额/进度同步更新）
   const handleReceiptSuccess = useCallback(() => {
@@ -103,16 +103,17 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       contractId: contract.id,
       contractNumber: contract.contract_number,
       field,
-      value: contract[field] || null,
+      oldValue: contract[field] || null,
+      newValue: null,
     })
   }, [])
 
   // 保存编辑
   const saveEdit = useCallback(async () => {
-    if (saving || !editModal.contractId) return
+    if (saving || !editModal.contractId || !editModal.newValue) return
     setSaving(true)
     try {
-      await contractApi.update(editModal.contractId, { [editModal.field]: editModal.value })
+      await contractApi.update(editModal.contractId, { [editModal.field]: editModal.newValue })
       message.success('修改成功')
       setEditModal(prev => ({ ...prev, open: false }))
       onContractUpdated?.()
@@ -122,18 +123,6 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
       setSaving(false)
     }
   }, [editModal, saving, onContractUpdated])
-
-  // 弹窗打开后自动聚焦
-  useEffect(() => {
-    if (editModal.open && inputRef.current) {
-      setTimeout(() => {
-        inputRef.current?.focus()
-        if (editModal.field === 'wechat_group') {
-          inputRef.current?.select()
-        }
-      }, 100)
-    }
-  }, [editModal.open, editModal.field])
 
   const columns: ColumnsType<ContractWithPayments> = [
     {
@@ -537,7 +526,7 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
         onCancel={() => setEditModal(prev => ({ ...prev, open: false }))}
         footer={null}
         centered
-        width={380}
+        width={400}
         closable={false}
         className="quick-edit-modal"
         maskStyle={{ background: 'rgba(0, 0, 0, 0.3)', backdropFilter: 'blur(2px)' }}
@@ -556,26 +545,55 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
           </div>
 
           <div className="quick-edit-body">
+            {/* 当前值展示 */}
+            <div className="quick-edit-current">
+              <span className="quick-edit-label">当前{editModal.field === 'signed_date' ? '日期' : '群名'}</span>
+              <span className="quick-edit-current-value">
+                {editModal.field === 'signed_date'
+                  ? (editModal.oldValue ? dayjs(editModal.oldValue).format('YYYY年MM月DD日') : '未设置')
+                  : (editModal.oldValue || '未设置')
+                }
+              </span>
+            </div>
+
+            {/* 选择新值 */}
             {editModal.field === 'signed_date' ? (
               <DatePicker
-                ref={inputRef}
-                value={editModal.value ? dayjs(editModal.value) : null}
-                onChange={(d) => setEditModal(prev => ({ ...prev, value: d ? d.format('YYYY-MM-DD') : null }))}
+                value={editModal.newValue ? dayjs(editModal.newValue) : null}
+                onChange={(d) => setEditModal(prev => ({ ...prev, newValue: d ? d.format('YYYY-MM-DD') : null }))}
                 style={{ width: '100%' }}
                 size="large"
-                placeholder="选择签订日期"
+                placeholder="点击选择新日期"
                 format="YYYY年MM月DD日"
+                open={undefined}
               />
             ) : (
               <Input
-                ref={inputRef}
-                value={editModal.value ?? ''}
-                onChange={(e) => setEditModal(prev => ({ ...prev, value: e.target.value }))}
-                placeholder="输入业务群名称"
+                value={editModal.newValue ?? ''}
+                onChange={(e) => setEditModal(prev => ({ ...prev, newValue: e.target.value }))}
+                placeholder="输入新的业务群名称"
                 size="large"
-                allowClear
                 onPressEnter={saveEdit}
               />
+            )}
+
+            {/* 变更预览 */}
+            {editModal.newValue && (
+              <div className="quick-edit-preview">
+                <span className="quick-edit-old">
+                  {editModal.field === 'signed_date'
+                    ? (editModal.oldValue ? dayjs(editModal.oldValue).format('YYYY-MM-DD') : '无')
+                    : (editModal.oldValue || '无')
+                  }
+                </span>
+                <span className="quick-edit-arrow">→</span>
+                <span className="quick-edit-new">
+                  {editModal.field === 'signed_date'
+                    ? dayjs(editModal.newValue).format('YYYY-MM-DD')
+                    : editModal.newValue
+                  }
+                </span>
+              </div>
             )}
           </div>
 
@@ -592,9 +610,10 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
               size="large"
               loading={saving}
               onClick={saveEdit}
+              disabled={!editModal.newValue}
               style={{ flex: 2 }}
             >
-              保存
+              确认修改
             </Button>
           </div>
         </div>
