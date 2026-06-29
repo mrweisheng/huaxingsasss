@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Table, Button, Image, Badge, Empty, Popconfirm, Tooltip, Modal, Input, DatePicker, message } from 'antd'
+import { Table, Button, Image, Badge, Empty, Tooltip, Modal, Input, DatePicker, message } from 'antd'
 import {
   PlusOutlined, DeleteOutlined, FileTextOutlined, PrinterOutlined,
   EyeOutlined, CheckCircleOutlined, ClockCircleOutlined, ExclamationCircleOutlined,
@@ -283,19 +283,11 @@ export default function ContractTable({ contracts, loading, onDeleteContract, on
             通知单
           </Button>
           {onDeleteContract && (user?.role === 'admin' || row.sales_person_id === user?.id) && (
-            <Popconfirm
-              title="确认删除合同？"
-              description="该合同名下的付款计划与收付款记录将一并删除。"
-              okText="删除"
-              cancelText="取消"
-              okButtonProps={{ danger: true }}
-              onConfirm={(e) => { e?.stopPropagation(); onDeleteContract(row.id) }}
-              onCancel={(e) => e?.stopPropagation()}
+            <Button size="small" type="text" danger icon={<DeleteOutlined />}
+              onClick={(e) => { e.stopPropagation(); onDeleteContract(row.id) }}
             >
-              <Button size="small" type="text" danger icon={<DeleteOutlined />}>
-                删除
-              </Button>
-            </Popconfirm>
+              删除
+            </Button>
           )}
         </div>
       ),
