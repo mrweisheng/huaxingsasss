@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef } from 'react'
-import { Button, Modal, Form, Input, InputNumber, Select, Space, DatePicker, Upload, Alert, message, Spin, Avatar } from 'antd'
+import { Button, Modal, Form, Input, InputNumber, Select, Space, DatePicker, Upload, Alert, message, Avatar } from 'antd'
 const { useWatch } = Form
-import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, CheckCircleOutlined, WechatOutlined, UserOutlined, PictureOutlined, SwapOutlined, CloseOutlined, RobotOutlined } from '@ant-design/icons'
+import { PlusOutlined, InboxOutlined, FilePdfOutlined, FileOutlined, DeleteOutlined, WarningOutlined, WechatOutlined, UserOutlined, SwapOutlined, CloseOutlined, RobotOutlined } from '@ant-design/icons'
 import dayjs from 'dayjs'
 import {
   paymentApi,
@@ -48,6 +48,24 @@ const BIZ_BADGE_STYLE: Record<string, { className: string; label: string }> = {
 
 // 币种 → 货币符号
 const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
+
+// 第一步文本框 placeholder：贴合收款 7 项 / 转出 6 项固定模板，引导用户照填（编号可省）
+const INPUT_PLACEHOLDER_INCOME = `粘贴收款信息（可参考模板，编号可省）：
+1、收款（款项说明）
+2、2025年6月13日
+3、收款账户：高山香港账户
+4、收款对象：客户名
+5、金额：HKD 210479
+6、结算状态：已结清 / 未结清
+7、对应业务：群名称`
+
+const INPUT_PLACEHOLDER_EXPENSE = `粘贴转出信息（可参考模板，编号可省）：
+1、转出（款项说明）
+2、2025年6月13日
+3、转出账户：户名 / 卡号 / 开户行
+4、金额：17万 RMB
+5、结算状态：已结清 / 未结清
+6、对应业务：群名称`
 
 // 格式化日期为 MM/DD（极简展示，年份省略）
 function fmtShortDate(d?: string) {
@@ -186,15 +204,11 @@ export default function PaymentFormModal({
     file_id: string; file_name: string; file_type: string; preview_url?: string
   } | null>(null)
   const [receiptCleared, setReceiptCleared] = useState(false)
-  const [templateFile, setTemplateFile] = useState<{ file: File; preview_url: string } | null>(null)
-  const [extracting, setExtracting] = useState(false)
-  const [extractedData, setExtractedData] = useState<ExtractedReceiptData | null>(null)
   const [mismatchItems, setMismatchItems] = useState<MismatchItem[] | null>(null)
   // 本合同已有的同类型（income/expense）记录，打开时加载，录入成功后刷新
   const [existingPayments, setExistingPayments] = useState<Payment[]>([])
   const [step, setStep] = useState<'input' | 'form'>('input')
   const [inputText, setInputText] = useState('')
-  const [inputImage, setInputImage] = useState<{ file: File; preview_url: string } | null>(null)
   const [parsing, setParsing] = useState(false)
   const extractedCounterpartyRef = useRef<Partial<CounterpartyAccount> | null>(null)
   const isMountedRef = useRef(true)
@@ -254,19 +268,13 @@ export default function PaymentFormModal({
     if (!open) return
     // 清理旧的预览 URL
     if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
-    if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
     setUploadedFileId(undefined)
     setUploadedFile(null)
-    setTemplateFile(null)
     setReceiptCleared(false)
-    setExtracting(false)
-    setExtractedData(null)
     setMismatchItems(null)
     extractedCounterpartyRef.current = null
     setStep(isEdit ? 'form' : 'input')
     setInputText('')
-    if (inputImage?.preview_url) URL.revokeObjectURL(inputImage.preview_url)
-    setInputImage(null)
     setParsing(false)
     if (isEdit && editing) {
       form.setFieldsValue({
@@ -327,7 +335,6 @@ export default function PaymentFormModal({
   const applyExtractedData = (extracted: ExtractedReceiptData) => {
     // 函数自身负责清自己写的状态：每次重新识别都先抹掉上一次的红卡
     setMismatchItems(null)
-    setExtractedData(extracted)
 
     // 检查类型是否匹配
     if (extracted.type && extracted.type !== paymentType) {
@@ -423,36 +430,6 @@ export default function PaymentFormModal({
     }
   }
 
-  // ── 模板图上传（右列）：只识别，不上传凭证 ──
-  const handleTemplateUpload = async (file: File) => {
-    setExtracting(true)
-    setExtractedData(null)
-    setMismatchItems(null)
-    extractedCounterpartyRef.current = null
-    try {
-      const isImage = file.type.startsWith('image/')
-      if (!isImage) {
-        message.warning('仅支持图片格式')
-        setExtracting(false)
-        return false
-      }
-      const previewUrl = URL.createObjectURL(file)
-      if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
-      setTemplateFile({ file, preview_url: previewUrl })
-
-      const extracted = await paymentApi.extractReceipt(file)
-      if (!isMountedRef.current) return false
-
-      applyExtractedData(extracted)
-    } catch (e: any) {
-      console.warn('图片识别失败', e)
-      message.warning('图片识别失败，请手动填写')
-    } finally {
-      if (isMountedRef.current) setExtracting(false)
-    }
-    return false
-  }
-
   const handleRemoveReceipt = () => {
     if (uploadedFile?.preview_url) URL.revokeObjectURL(uploadedFile.preview_url)
     setUploadedFile(null)
@@ -460,31 +437,15 @@ export default function PaymentFormModal({
     setReceiptCleared(false)
   }
 
-  const handleRemoveTemplate = () => {
-    if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
-    setTemplateFile(null)
-    setExtractedData(null)
-    setMismatchItems(null)
-    extractedCounterpartyRef.current = null
-  }
-
-  // ── 两步式：下一步（文本/图片解析 → 填充表单） ──
+  // ── 两步式：下一步（文本解析 → 填充表单） ──
   const handleNextStep = async () => {
-    if (!inputText.trim() && !inputImage) {
-      message.warning('请输入文本或拖入图片')
+    if (!inputText.trim()) {
+      message.warning('请输入文本')
       return
     }
     setParsing(true)
     try {
-      let extracted!: ExtractedReceiptData
-      if (inputText.trim()) {
-        extracted = await paymentApi.extractText(inputText.trim())
-      } else if (inputImage) {
-        extracted = await paymentApi.extractReceipt(inputImage.file)
-        // 设置 templateFile 以在 form 步骤显示已识别缩略图
-        if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
-        setTemplateFile({ file: inputImage.file, preview_url: inputImage.preview_url })
-      }
+      const extracted = await paymentApi.extractText(inputText.trim())
       if (!isMountedRef.current) return
       applyExtractedData(extracted)
       setStep('form')
@@ -532,6 +493,11 @@ export default function PaymentFormModal({
     }
     try {
       const values = await form.validateFields()
+      // 新建必传凭证：凭证只作存储 + 前端可查看，不做校验识别，但必须上传
+      if (!isEdit && !uploadedFileId) {
+        message.error('请上传凭证')
+        return
+      }
       setSubmitting(true)
 
       if (!isEdit) {
@@ -553,12 +519,7 @@ export default function PaymentFormModal({
         }
         if (isIncome) {
           payload.payment_account_id = values.payment_account_id
-          // 现阶段收入凭证可选：有凭证传 file_id；无凭证声明 no_receipt（后端打 [无凭证收入] 标记）
-          if (uploadedFileId) {
-            payload.receipt_file_id = uploadedFileId
-          } else {
-            payload.no_receipt = true
-          }
+          payload.receipt_file_id = uploadedFileId!
         } else {
           payload.payee_name = values.payee_name?.trim() || undefined
           const cp: CounterpartyAccount = {}
@@ -571,8 +532,7 @@ export default function PaymentFormModal({
             if (!cp.swift_code && extractedCounterpartyRef.current.swift_code) cp.swift_code = extractedCounterpartyRef.current.swift_code
           }
           if (Object.keys(cp).length) payload.counterparty_account = cp
-          if (uploadedFileId) payload.receipt_file_id = uploadedFileId
-          else payload.no_receipt = true
+          payload.receipt_file_id = uploadedFileId!
         }
         await paymentApi.create(contractId!, payload)
         // 收入有凭证才异步校验；无凭证（no_receipt）直接入账
@@ -627,13 +587,8 @@ export default function PaymentFormModal({
         setUploadedFile(null)
         setReceiptCleared(false)
         setMismatchItems(null)
-        setExtractedData(null)
         extractedCounterpartyRef.current = null
-        if (templateFile?.preview_url) URL.revokeObjectURL(templateFile.preview_url)
-        setTemplateFile(null)
         setInputText('')
-        if (inputImage?.preview_url) URL.revokeObjectURL(inputImage.preview_url)
-        setInputImage(null)
         setStep('input')
         onSuccess()
       } else {
@@ -667,7 +622,7 @@ export default function PaymentFormModal({
       footer={step === 'input' ? (
         <Space>
           <Button onClick={onClose}>取消</Button>
-          <Button type="primary" onClick={handleNextStep} loading={parsing} disabled={!inputText.trim() && !inputImage}>下一步</Button>
+          <Button type="primary" onClick={handleNextStep} loading={parsing} disabled={!inputText.trim()}>下一步</Button>
         </Space>
       ) : (
         <Space>
@@ -929,7 +884,7 @@ export default function PaymentFormModal({
               <div className="pfm-col-header">
                 <span className="pfm-col-title">
                   <i className="pfm-seq">{seqNotes + 1}</i>凭证
-                  <span className="pfm-receipt-tag pfm-optional">可选</span>
+                  <span className="pfm-receipt-tag pfm-required">必传</span>
                 </span>
               </div>
               <div className="pfm-col-content">
@@ -974,72 +929,7 @@ export default function PaymentFormModal({
                   </div>
                 )}
               </div>
-              <div className="pfm-col-hint">
-                {isIncome
-                  ? '现阶段可选；无凭证将标记「无凭证收入」直接入账，后续可补传'
-                  : '提交后后台校验'}
-              </div>
-            </div>
-
-            {/* 右列：收支模板图 */}
-            <div className="pfm-upload-col pfm-upload-col-template">
-              <div className="pfm-col-header">
-                <span className="pfm-col-title">
-                  <i className="pfm-seq">{seqNotes + 2}</i>收支模板图
-                  <span className="pfm-section-tag pfm-optional">智能填充</span>
-                </span>
-              </div>
-              <div className="pfm-col-content">
-                {extracting ? (
-                  <div className="pfm-extracting-state">
-                    <Spin size="small" />
-                    <span className="pfm-extracting-text">正在识别...</span>
-                  </div>
-                ) : extractedData && templateFile ? (
-                  <div className="pfm-file-preview">
-                    <div className="pfm-file-preview-left">
-                      {templateFile.preview_url ? (
-                        <div className="pfm-file-thumb-wrap">
-                          <img src={templateFile.preview_url} alt="模板截图" className="pfm-file-thumb" />
-                        </div>
-                      ) : (
-                        <div className="pfm-file-icon-wrap pfm-generic">
-                          <PictureOutlined style={{ fontSize: 28 }} />
-                        </div>
-                      )}
-                      <div className="pfm-file-meta">
-                        <span className="pfm-file-name">已识别填充</span>
-                        <span className="pfm-file-status">
-                          <CheckCircleOutlined style={{ color: 'var(--money-done)' }} />
-                          {extractedData.confidence && (
-                            <span className="pfm-confidence">
-                              置信度 {Math.round(extractedData.confidence * 100)}%
-                            </span>
-                          )}
-                        </span>
-                      </div>
-                    </div>
-                    <a className="pfm-file-remove" onClick={handleRemoveTemplate}>
-                      <DeleteOutlined />
-                    </a>
-                  </div>
-                ) : (
-                  <Upload.Dragger
-                    accept="image/*,.heic,.heif"
-                    maxCount={1}
-                    showUploadList={false}
-                    beforeUpload={handleTemplateUpload}
-                    className="pfm-uploader pfm-uploader-compact"
-                  >
-                    <p className="ant-upload-drag-icon" style={{ marginBottom: 4 }}><PictureOutlined style={{ fontSize: 22 }} /></p>
-                    <p className="ant-upload-text" style={{ fontSize: 13, marginBottom: 2 }}>点击或拖拽上传模板截图</p>
-                    <p className="ant-upload-hint" style={{ fontSize: 11 }}>JPG / PNG / HEIC</p>
-                  </Upload.Dragger>
-                )}
-              </div>
-              <div className="pfm-col-hint">
-                {extractedData ? '请核对后提交' : '上传后自动识别'}
-              </div>
+              <div className="pfm-col-hint">必传：仅作存储，可在合同详情查看</div>
             </div>
           </div>
 
@@ -1058,43 +948,12 @@ export default function PaymentFormModal({
         <div className="pfm-input-step" style={{ minHeight: 320, display: 'flex', flexDirection: 'column', gap: 16 }}>
           <Input.TextArea
             value={inputText}
-            onChange={e => {
-              setInputText(e.target.value)
-              if (inputImage?.preview_url) URL.revokeObjectURL(inputImage.preview_url)
-              setInputImage(null)
-            }}
-            placeholder="粘贴转账记录文本…"
-            rows={8}
+            onChange={e => setInputText(e.target.value)}
+            placeholder={isIncome ? INPUT_PLACEHOLDER_INCOME : INPUT_PLACEHOLDER_EXPENSE}
+            rows={10}
             maxLength={8000}
             showCount
           />
-          <div style={{ textAlign: 'center', color: '#bbb' }}><span>或</span></div>
-          {inputImage ? (
-            <div style={{ textAlign: 'center' }}>
-              <img src={inputImage.preview_url} alt="预览" style={{ maxHeight: 200, maxWidth: '100%', objectFit: 'contain' }} />
-              <br />
-              <a onClick={() => { URL.revokeObjectURL(inputImage.preview_url!); setInputImage(null) }}>
-                <DeleteOutlined /> 移除
-              </a>
-            </div>
-          ) : (
-            <Upload.Dragger
-              accept="image/*,.heic,.heif"
-              maxCount={1}
-              showUploadList={false}
-              beforeUpload={(file) => {
-                const isImage = file.type.startsWith('image/')
-                if (!isImage) { message.warning('仅支持图片格式'); return false }
-                setInputText('')
-                setInputImage({ file, preview_url: URL.createObjectURL(file) })
-                return false
-              }}
-            >
-              <p className="ant-upload-drag-icon"><PictureOutlined /></p>
-              <p className="ant-upload-text">点击或拖拽上传转账截图</p>
-              <p className="ant-upload-hint">JPG / PNG / HEIC</p>
-            </Upload.Dragger>
-          )}
         </div>
       )}
 
