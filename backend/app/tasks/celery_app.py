@@ -15,6 +15,7 @@ celery_app = Celery(
         "app.tasks.cleanup_tasks",
         "app.tasks.exchange_rate_tasks",
         "app.tasks.receipt_verification_tasks",
+        "app.tasks.outstanding_backfill_tasks",
     ],
 )
 
@@ -46,6 +47,10 @@ celery_app.conf.beat_schedule = {
     "sync-daily-exchange-rates": {
         "task": "app.tasks.exchange_rate_tasks.sync_daily_rates",
         "schedule": crontab(minute=30, hour=0),  # 每天凌晨0:30
+    },
+    "backfill-outstanding-daily": {
+        "task": "app.tasks.outstanding_backfill_tasks.backfill_outstanding",
+        "schedule": crontab(minute=0, hour=5),  # 每天凌晨5:00（避开 0:30/3/4）
     },
 }
 

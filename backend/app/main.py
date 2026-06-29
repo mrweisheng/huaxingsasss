@@ -104,6 +104,15 @@ async def on_startup():
 
     logger.info("app_starting: app=%s, env=%s", settings.APP_NAME, settings.APP_ENV)
 
+    # 存量 outstanding 字段回填（fire-and-forget 派发到 Celery，不阻塞启动）
+    # 任务内部用 outstanding_amount IS NULL 保证幂等；多次启动重复触发是安全的
+    try:
+        from app.tasks.outstanding_backfill_tasks import backfill_outstanding
+        backfill_outstanding.delay()
+        logger.info("outstanding_backfill_dispatched_on_startup")
+    except Exception as exc:
+        logger.warning("outstanding_backfill_dispatch_failed: %s", exc)
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
