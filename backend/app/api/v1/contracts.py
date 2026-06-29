@@ -180,6 +180,7 @@ def create_contract_via_form(
         status="active",
     )
 
+    contract = None
     try:
         contract = ContractService.create_contract(
             db=db,
@@ -198,13 +199,31 @@ def create_contract_via_form(
             source="form",
         )
     except FileNotFoundError as e:
-        db.rollback()
+        # 源文件不存在：create_contract 已 commit（合同主记录已入库），
+        # 需显式删除该空壳，否则会留下无文件、无 meta 的占位合同。
+        _safe_delete_contract(db, contract)
         raise HTTPException(status_code=400, detail=str(e))
     except ValueError as e:
-        db.rollback()
+        # hash 命中已有合同（去重拦截）：同样需清理已建主记录，避免占位合同残留。
+        _safe_delete_contract(db, contract)
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
 
     return contract
+
+
+def _safe_delete_contract(db: Session, contract) -> None:
+    """清理 persist 阶段失败时已建（已 commit）的合同主记录。
+
+    create_contract / persist_contract_file_and_meta 内部各自 commit，
+    因此普通 db.rollback() 无法撤销已落库的合同；必须显式删除。
+    用于 POST /contracts 失败路径，保证不留空壳合同。
+    """
+    try:
+        if contract is not None and contract.id is not None:
+            db.delete(contract)
+            db.commit()
+    except Exception:
+        db.rollback()
 
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)
