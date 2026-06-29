@@ -303,7 +303,6 @@ class PaymentService:
         """
         if currency == contract.currency:
             contract.paid_amount = (contract.paid_amount or Decimal('0')) + amount
-            contract.remaining_amount = (contract.total_amount or Decimal('0')) - contract.paid_amount
 
     @staticmethod
     def _add_to_contract_expense(
@@ -508,7 +507,6 @@ class PaymentService:
                         (contract.paid_amount or Decimal('0')) - (payment.paid_amount or Decimal('0')),
                         Decimal('0'),
                     )
-                    contract.remaining_amount = (contract.total_amount or Decimal('0')) - (contract.paid_amount or Decimal('0'))
 
         db.delete(payment)
         db.commit()
@@ -814,7 +812,6 @@ class PaymentService:
             contract.paid_amount = max(
                 (contract.paid_amount or Decimal('0')) - old_amount, Decimal('0')
             )
-            contract.remaining_amount = (contract.total_amount or Decimal('0')) - (contract.paid_amount or Decimal('0'))
         else:
             contract.total_expense = max(
                 (contract.total_expense or Decimal('0')) - old_amount, Decimal('0')

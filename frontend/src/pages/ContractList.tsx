@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Input, Select, DatePicker, Button, message, Empty, Popover, Pagination } from 'antd'
-import { PlusOutlined, SearchOutlined, FilterOutlined, FileTextOutlined, DownloadOutlined, WechatOutlined, UserOutlined } from '@ant-design/icons'
+import { PlusOutlined, SearchOutlined, FilterOutlined, FileTextOutlined, DownloadOutlined, WechatOutlined, UserOutlined, FormOutlined } from '@ant-design/icons'
 import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import ContractChatModal from '@/components/ContractChatModal'
+import ContractFormModal from '@/components/ContractFormModal'
 import ContractTable from '@/components/ContractTable'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { ContractWithPayments } from '@/types'
@@ -25,6 +26,7 @@ export default function ContractList() {
   const [statusFilter, setStatusFilter] = useState<string | undefined>(undefined)
   const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null] | null>(null)
   const [uploadModalOpen, setUploadModalOpen] = useState(false)
+  const [formModalOpen, setFormModalOpen] = useState(false)
   const abortControllerRef = useRef<AbortController | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 删除二次确认弹窗状态
@@ -199,9 +201,14 @@ export default function ContractList() {
             />
           </div>
           {(role === 'admin' || role === 'income') && (
-            <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
-              上传
-            </Button>
+            <>
+              <Button icon={<FormOutlined />} onClick={() => setFormModalOpen(true)}>
+                快速录入
+              </Button>
+              <Button type="primary" icon={<PlusOutlined />} onClick={() => setUploadModalOpen(true)}>
+                上传
+              </Button>
+            </>
           )}
           <Popover
             content={
@@ -347,6 +354,12 @@ export default function ContractList() {
       <ContractChatModal
         open={uploadModalOpen}
         onClose={(created) => { setUploadModalOpen(false); if (created) loadContracts() }}
+      />
+
+      {/* 表单录入通道（与 AI 对话通道并存） */}
+      <ContractFormModal
+        open={formModalOpen}
+        onClose={(created) => { setFormModalOpen(false); if (created) loadContracts() }}
       />
 
       {/* 删除合同二次确认（5 秒读秒） */}

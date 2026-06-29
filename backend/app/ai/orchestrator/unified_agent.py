@@ -143,9 +143,8 @@ def extract_tool_summary(tool_name: str, result: str) -> Optional[dict[str, Any]
         income = data.get("income", {})
         if income.get("total_amount"):
             items.append({"label": "合同总额", "value": _fmt(income["total_amount"])})
-        if income.get("remaining_amount"):
-
-            items.append({"label": "剩余金额", "value": _fmt(income["remaining_amount"])})
+        if income.get("outstanding_amount") is not None:
+            items.append({"label": "剩余尾款", "value": _fmt(income["outstanding_amount"])})
 
     elif tool_name == "create_customer":
         if data.get("customer_id"):

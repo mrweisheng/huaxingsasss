@@ -38,6 +38,36 @@ class ContractCreate(ContractBase):
     status: Optional[str] = Field("draft", description="初始状态: draft/active")
 
 
+class ContractFormCreate(BaseModel):
+    """表单通道创建合同的入参（与 Agent 通道的 ContractCreate 区分）。
+
+    设计要点（详见 .mimocode/plans/1782377932485-sunny-knight.md）：
+    - 不收 contract_number：后端自动 generate_contract_number()，前端无需感知
+    - file_id 替代 original_file_path：后端复用 resolve_file_path 定位源文件并复制，
+      前端不接触任何文件路径（也避免路径穿越风险）
+    - total_amount 可空：为空时由 contract_data['total_amount'] 兜底
+    - contract_data 必填：端点1 analyze 返回的 AI 结构化结果，落库到 contract.contract_data
+    - customer_id 可空：用户在预览步骤主动选，不自动绑（party_b 名字与系统客户名常对不上）
+    """
+
+    title: Optional[str] = Field(None, max_length=500, description="合同标题")
+    business_type: Optional[str] = Field(None, max_length=50, description="业务类型")
+    business_description: Optional[str] = Field(None, max_length=200, description="业务描述")
+    currency: str = Field(default="CNY", description="合同币种")
+    total_amount: Optional[Decimal] = Field(None, ge=0, description="合同总金额；为空时从 contract_data 兜底")
+    signed_date: Optional[date] = Field(None, description="签订日期")
+    start_date: Optional[date] = Field(None, description="生效日期")
+    end_date: Optional[date] = Field(None, description="到期日期")
+    remarks: Optional[str] = Field(None, description="备注")
+    wechat_group: Optional[str] = Field(None, max_length=200, description="业务微信群名称")
+
+    customer_id: Optional[int] = Field(None, description="客户ID（可选，用户主动关联）")
+    file_id: str = Field(..., description="上传接口返回的文件ID，后端据此定位并复制源文件")
+    contract_data: Dict[str, Any] = Field(..., description="端点1 analyze 返回的 AI 分析结果（结构化 JSON）")
+    contract_text: Optional[str] = Field(None, description="合同全文（通常取 contract_data['full_text']）")
+    confidence: Optional[float] = Field(None, description="AI 解析置信度")
+
+
 class ContractUpdate(BaseModel):
     """更新合同"""
 

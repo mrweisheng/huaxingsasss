@@ -63,12 +63,43 @@ class StatsService:
         ).group_by(Payment.currency).all()
 
         # 待收金额
-        remaining_by_currency = db.query(
-            Contract.currency,
-            func.sum(Contract.remaining_amount).label("total"),
-        ).filter(
-            Contract.is_deleted == False,
-        ).group_by(Contract.currency).all()
+        # ═══ 转换：待收口径从 sum(remaining_amount) 改为 outstanding 子查询 ═══
+        # 取每个合同最新一笔 income 的 outstanding 快照（PostgreSQL DISTINCT ON），
+        # 无快照时 fallback 到合同总额（用户已确认的边界）。
+        latest_outstanding = (
+            db.query(
+                Payment.contract_id,
+                Payment.outstanding_amount,
+                Payment.outstanding_currency,
+            )
+            .distinct(Payment.contract_id)
+            .filter(
+                Payment.is_deleted == False,
+                Payment.type == "income",
+                Payment.outstanding_amount.isnot(None),
+            )
+            .order_by(
+                Payment.contract_id,
+                Payment.paid_date.desc().nullslast(),
+                Payment.id.desc(),
+            )
+            .subquery()
+        )
+
+        resolved_currency = func.coalesce(latest_outstanding.c.outstanding_currency, Contract.currency)
+        resolved_amount = func.coalesce(latest_outstanding.c.outstanding_amount, Contract.total_amount)
+
+        remaining_by_currency = (
+            db.query(
+                resolved_currency.label("currency"),
+                func.sum(resolved_amount).label("total"),
+            )
+            .select_from(Contract)
+            .outerjoin(latest_outstanding, latest_outstanding.c.contract_id == Contract.id)
+            .filter(Contract.is_deleted == False)
+            .group_by(resolved_currency)
+            .all()
+        )
 
         # 支出金额：从 payments 表实时聚合
         expense_by_currency = db.query(

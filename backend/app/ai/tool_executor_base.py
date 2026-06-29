@@ -185,7 +185,7 @@ class ToolExecutor:
             # 改造后：按币种字典（如 {"HKD": 150000, "CNY": 20000}）
             "paid_by_currency": getattr(c, "paid_by_currency", {}) or {},
             "expense_by_currency": getattr(c, "expense_by_currency", {}) or {},
-            "outstanding_amount": float(c.outstanding_amount) if getattr(c, "outstanding_amount", None) else None,
+            "outstanding_amount": float(c.outstanding_amount) if getattr(c, "outstanding_amount", None) is not None else None,
             "outstanding_currency": getattr(c, "outstanding_currency", None),
             "status": c.status,
             "wechat_group": c.wechat_group,
@@ -209,7 +209,7 @@ class ToolExecutor:
             "currency": p.currency,
             "amount": float(p.amount) if p.amount else 0,
             "paid_amount": float(p.paid_amount) if p.paid_amount else 0,
-            "outstanding_amount": float(p.outstanding_amount) if p.outstanding_amount else None,
+            "outstanding_amount": float(p.outstanding_amount) if p.outstanding_amount is not None else None,
             "outstanding_currency": p.outstanding_currency,
             "due_date": str(p.due_date) if p.due_date else None,
             "paid_date": str(p.paid_date) if p.paid_date else None,
@@ -246,7 +246,7 @@ class ToolExecutor:
             "currency": p.currency,
             "amount": float(p.amount) if p.amount else 0,
             "paid_amount": float(p.paid_amount) if p.paid_amount else 0,
-            "outstanding_amount": float(p.outstanding_amount) if p.outstanding_amount else None,
+            "outstanding_amount": float(p.outstanding_amount) if p.outstanding_amount is not None else None,
             "outstanding_currency": p.outstanding_currency,
             "status": p.status,
             "due_date": str(p.due_date) if p.due_date else None,
@@ -414,6 +414,8 @@ class ToolExecutor:
                     "total_amount": float(contract.total_amount),
                     "paid_amount": float(contract.paid_amount),
                     "paid_by_currency": paid_by_currency,
+                    "outstanding_amount": float(contract.outstanding_amount) if contract.outstanding_amount is not None else None,
+                    "outstanding_currency": contract.outstanding_currency,
                 }
             if type_filter != "income":
                 result["expense"] = {
@@ -742,21 +744,25 @@ class ToolExecutor:
             return json.dumps({"error": f"客户不存在: {customer_id}"}, ensure_ascii=False)
 
         # 处理文件：路径解析委托 resolve_file_path（统一支持 AGENT_FILE_DIR / TEMP_UPLOAD_DIR）
+        # 文件复制 + meta 写入已下沉到 ContractService.persist_contract_file_and_meta，
+        # 本工具只负责：① 预去重（建合同前拦截，避免建了又删）② 生成合同编号 ③ 探测文件是否存在。
         temp_file_path = resolve_file_path(file_id, self.user.id)
-        file_hash = None
+        file_hash_hint = None
         original_file_path = f"agent_upload/{file_id}"
+        file_present = False
 
         if temp_file_path and os.path.exists(temp_file_path):
-            with open(temp_file_path, "rb") as f:
-                content = f.read()
+            file_present = True
             # 复用 _try_pre_analyze 计算的 hash，避免重复读取大文件
-            file_hash = self._file_hash_cache.get(temp_file_path)
-            if not file_hash:
-                file_hash = calculate_file_hash(content)
+            file_hash_hint = self._file_hash_cache.get(temp_file_path)
+            if not file_hash_hint:
+                with open(temp_file_path, "rb") as f:
+                    content = f.read()
+                file_hash_hint = calculate_file_hash(content)
 
-            # 基于文件 hash 检测重复
+            # 基于文件 hash 预检重复（建合同前拦截）
             existing = self.db.query(Contract).filter(
-                Contract.file_hash == file_hash,
+                Contract.file_hash == file_hash_hint,
                 Contract.is_deleted == False,
             ).first()
             if existing:
@@ -766,20 +772,7 @@ class ToolExecutor:
                     "existing_contract_id": existing.id,
                 }, ensure_ascii=False)
 
-            # 复制到正式合同目录
-            contract_number = ContractService.generate_contract_number()
-            year_month = datetime.now().strftime("%Y/%m")
-            target_dir = Path(settings.CONTRACT_UPLOAD_DIR) / year_month
-            target_dir.mkdir(parents=True, exist_ok=True)
-
-            ext = guess_extension(content)
-            target_filename = f"{contract_number}{ext}"
-            target_path = target_dir / target_filename
-            shutil.copy2(temp_file_path, str(target_path))
-
-            original_file_path = str(Path(year_month) / target_filename)
-        else:
-            contract_number = ContractService.generate_contract_number()
+        contract_number = ContractService.generate_contract_number()
 
         # ━━━ 构建合同字段：声明式映射，Agent 显式传入 > VL 缓存回退 ━━━
         # 原则：VL 已提取的数据不应因 Agent 漏传参数而丢失。
@@ -824,8 +817,11 @@ class ToolExecutor:
         contract_fields = {
             "contract_number": contract_number,
             "customer_id": customer_id,
+            # original_file_path / file_hash 先用占位（contract_number 已生成）；
+            # 文件存在时下方 persist_contract_file_and_meta 会覆盖为正式目录路径 + 真实 hash，
+            # 文件缺失（罕见降级）则保留占位，行为与改造前一致。
             "original_file_path": original_file_path,
-            "file_hash": file_hash,
+            "file_hash": file_hash_hint,
             "status": "active",
             # ── 以下字段：kwargs 优先，VL 缓存兜底 ──
             "title":               _resolve("title", "title"),
@@ -852,26 +848,36 @@ class ToolExecutor:
                 sales_person_id=self.user.id,
             )
 
-            # 写入 contract_data JSON（使用合并后的完整数据）
-            contract.contract_data = {
+            # 文件复制 + AI 元数据写入下沉到 ContractService.persist_contract_file_and_meta，
+            # 与表单通道（POST /contracts）共用同一段代码，避免逻辑漂移。
+            # 文件不存在时降级：仅写 meta（不复制文件），保留改造前对缺失文件的容错行为。
+            contract_data_with_meta = {
                 "source": "agent",
                 "file_id": file_id,
                 "data_source": data_source,
                 **merged,
             }
-            # 存储合同全文（用于知识库问答）
-            if merged.get("full_text"):
-                contract.contract_text = merged["full_text"]
-            # 写入 VL 解析元数据
-            if merged.get("confidence") is not None:
-                try:
-                    conf = float(merged["confidence"])
-                    contract.confidence = round(conf, 4)
-                    contract.needs_review = conf < 0.85
-                except (TypeError, ValueError):
-                    pass
-            self.db.commit()
-            self.db.refresh(contract)
+            if file_present:
+                contract = ContractService.persist_contract_file_and_meta(
+                    db=self.db,
+                    contract=contract,
+                    file_id=file_id,
+                    user_id=self.user.id,
+                    contract_data={"data_source": data_source, **merged},
+                    contract_text=merged.get("full_text"),
+                    confidence=merged.get("confidence"),
+                    source="agent",
+                    file_hash_hint=file_hash_hint,
+                )
+            else:
+                ContractService._write_ai_meta(
+                    contract,
+                    contract_data_with_meta,
+                    merged.get("full_text"),
+                    merged.get("confidence"),
+                )
+                self.db.commit()
+                self.db.refresh(contract)
 
             # 合同录入只生成付款计划（payment_terms），不再自动创建任何 payment 记录。
             # 付款记录只能通过合同卡片上的表单录入。

@@ -15,12 +15,15 @@ from app.db.session import get_db
 from app.models.contract import Contract
 from app.schemas.contract import (
     ContractCreate, ContractUpdate, ContractResponse, ContractDetailResponse, ContractWithPaymentsResponse,
+    ContractFormCreate,
 )
 from app.schemas.response import ResponseModel, PaginatedResponse, PaginationModel
 from app.api.dependencies import get_current_user, require_role
 from app.core.permissions import Role, is_admin, can_delete_contract
 from app.models.user import User
 from app.services.contract_service import ContractService
+from app.services.file_analyzer import FileAnalyzer
+from app.utils.file_utils import resolve_file_path
 from app.config import settings
 
 router = APIRouter()
@@ -92,6 +95,116 @@ def list_contracts(
             total_pages=(total + per_page - 1) // per_page
         )
     )
+
+
+@router.post("/analyze")
+def analyze_contract_file(
+    payload: dict,
+    current_user: User = Depends(require_role("admin", "income")),
+    db: Session = Depends(get_db),
+):
+    """表单通道 · 步骤1：分析已上传的合同文件，返回 AI 结构化解析结果。
+
+    与 Agent 通道的区别：纯分析，不建合同；前端拿到结果后进入预览步骤，
+    用户确认后再调 POST /contracts 建合同。
+
+    FileAnalyzer.analyze(purpose="contract") 会顺带做 hash 去重检测（需传 db），
+    命中时返回 duplicate_detected=True + existing_contract，前端据此终止流程。
+    """
+    file_id = payload.get("file_id")
+    if not file_id:
+        raise HTTPException(status_code=400, detail="缺少 file_id")
+
+    file_path = resolve_file_path(file_id, current_user.id)
+    if not file_path:
+        raise HTTPException(status_code=404, detail="文件不存在或已过期，请重新上传")
+
+    # 同步阻塞调用（内部走 VL 模型，图片型文件可能 10-30s）；前端需展示 loading
+    result = FileAnalyzer.analyze(
+        file_path=file_path,
+        file_name=Path(file_path).name,
+        purpose="contract",
+        db=db,
+        user_id=current_user.id,
+    )
+
+    if not result.get("success"):
+        raise HTTPException(status_code=400, detail=result.get("error", "文件分析失败"))
+
+    return result
+
+
+@router.post("", response_model=ContractResponse)
+def create_contract_via_form(
+    payload: ContractFormCreate,
+    current_user: User = Depends(require_role("admin", "income")),
+    db: Session = Depends(get_db),
+):
+    """表单通道 · 步骤2：根据预览确认的字段 + AI 解析结果创建合同。
+
+    流程：自动生成合同编号 → total_amount 兜底 → 建 Contract 主记录
+    → persist_contract_file_and_meta（复制源文件到正式目录 + 写 contract_data/text/confidence）。
+    失败回滚已建合同（hash 重复等）。
+    """
+    contract_number = ContractService.generate_contract_number()
+
+    # total_amount 兜底：表单传入优先，否则从 contract_data 取（AI 提取值）
+    total_amount = payload.total_amount
+    if total_amount is None:
+        raw = payload.contract_data.get("total_amount") if payload.contract_data else None
+        if raw is None:
+            raise HTTPException(status_code=400, detail="缺少合同金额，请手动填写")
+        try:
+            total_amount = Decimal(str(raw))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="合同金额格式非法")
+
+    # 构造 ContractCreate（contract_number 后端生成、status 固定 active）
+    contract_create = ContractCreate(
+        contract_number=contract_number,
+        title=payload.title,
+        business_type=payload.business_type,
+        business_description=payload.business_description,
+        customer_id=payload.customer_id,
+        currency=payload.currency,
+        total_amount=total_amount,
+        signed_date=payload.signed_date,
+        start_date=payload.start_date,
+        end_date=payload.end_date,
+        remarks=payload.remarks,
+        wechat_group=payload.wechat_group,
+        contract_text=payload.contract_text,
+        # original_file_path 是 NOT NULL，先用占位（必填），下方共享方法会覆盖
+        original_file_path=f"agent_upload/{payload.file_id}",
+        file_hash=None,
+        status="active",
+    )
+
+    try:
+        contract = ContractService.create_contract(
+            db=db,
+            contract_data=contract_create,
+            sales_person_id=current_user.id,
+        )
+        # 复制源文件 + 写 AI 元数据（与 Agent 通道共用）
+        contract = ContractService.persist_contract_file_and_meta(
+            db=db,
+            contract=contract,
+            file_id=payload.file_id,
+            user_id=current_user.id,
+            contract_data=payload.contract_data,
+            contract_text=payload.contract_text,
+            confidence=payload.confidence,
+            source="form",
+        )
+    except FileNotFoundError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(e))
+
+    return contract
 
 
 @router.get("/{contract_id}", response_model=ContractDetailResponse)

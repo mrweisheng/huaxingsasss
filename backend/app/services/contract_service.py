@@ -2,6 +2,8 @@
 合同服务层
 """
 import logging
+import os
+import shutil
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
@@ -18,6 +20,8 @@ from app.models.customer import Customer
 from app.models.payment import Payment
 from app.schemas.contract import ContractCreate, ContractUpdate
 from app.services.audit_service import AuditService
+from app.utils.file_analysis import guess_extension
+from app.utils.file_utils import calculate_file_hash, resolve_file_path
 
 logger = logging.getLogger(__name__)
 
@@ -318,7 +322,6 @@ class ContractService:
             currency=contract_data.currency,
             total_amount=contract_data.total_amount,
             paid_amount=Decimal('0'),
-            remaining_amount=contract_data.total_amount,
             original_file_path=contract_data.original_file_path,
             file_hash=contract_data.file_hash,
             signed_date=contract_data.signed_date,
@@ -356,7 +359,107 @@ class ContractService:
             logger.warning("审计日志写入失败: entity=contract, action=create, error=%s", e)
 
         return contract
-    
+
+    @staticmethod
+    def _write_ai_meta(
+        contract: Contract,
+        contract_data: Dict[str, Any],
+        contract_text: Optional[str],
+        confidence: Optional[float],
+    ) -> None:
+        """把 AI 解析的 contract_data / contract_text / confidence 写到合同对象上（不 commit）。
+
+        纯赋值辅助方法，被 persist_contract_file_and_meta（文件复制成功路径）与
+        Agent 降级路径（文件不存在但仍建合同）共用，避免 meta 写入逻辑漂移。
+        contract_data 应由调用方提前包装好 source/file_id 等追溯字段。
+        """
+        contract.contract_data = contract_data
+        contract.contract_text = contract_text or (contract_data or {}).get("full_text")
+        if confidence is not None:
+            try:
+                conf = float(confidence)
+                contract.confidence = round(conf, 4)
+                contract.needs_review = conf < 0.85
+            except (TypeError, ValueError):
+                pass
+
+    @staticmethod
+    def persist_contract_file_and_meta(
+        db: Session,
+        contract: Contract,
+        file_id: str,
+        user_id: int,
+        contract_data: Dict[str, Any],
+        contract_text: Optional[str],
+        confidence: Optional[float],
+        source: str = "form",
+        file_hash_hint: Optional[str] = None,
+    ) -> Contract:
+        """复制源文件到合同正式目录 + 写入 AI 解析元数据。
+
+        Agent 通道（tool_executor_base.create_contract）与表单通道（POST /contracts）
+        共用本方法，避免文件复制/去重/meta 写入逻辑漂移。
+
+        Args:
+            contract: 已通过 create_contract 建好的合同主记录（contract_number 已生成）
+            file_id: 上传接口返回的文件ID（用于 resolve_file_path 定位 agent 上传目录的源文件）
+            user_id: 当前用户ID（resolve_file_path 需按用户隔离目录查找）
+            contract_data: AI 结构化解析结果，落 contract.contract_data
+            contract_text: 合同全文；为 None 时回退 contract_data['full_text']
+            confidence: 置信度；<0.85 自动 needs_review=True
+            source: 数据来源标记，'agent' / 'form'，写入 contract_data.source 便于审计追溯
+            file_hash_hint: 调用方已算过的文件 hash（Agent 侧有 _file_hash_cache），避免重复读大文件；
+                            None 则本方法自行计算
+
+        Raises:
+            FileNotFoundError: 源文件不存在 / 已过期（resolve_file_path 返回 None）
+            ValueError: hash 命中已有合同（去重拦截）；此时调用方应回滚已建的 contract
+        """
+        # 1. 定位源文件（resolve_file_path 内含路径穿越防御）
+        temp_file_path = resolve_file_path(file_id, user_id)
+        if not temp_file_path or not os.path.exists(temp_file_path):
+            raise FileNotFoundError(f"合同源文件不存在或已过期: file_id={file_id}")
+
+        # 2. 计算 hash（优先用调用方传入的，避免重复读大文件）
+        with open(temp_file_path, "rb") as f:
+            content = f.read()
+        file_hash = file_hash_hint or calculate_file_hash(content)
+
+        # 3. hash 去重：排除自身（contract 已先建，避免把自己判重）
+        existing = db.query(Contract).filter(
+            Contract.file_hash == file_hash,
+            Contract.is_deleted == False,
+            Contract.id != contract.id,
+        ).first()
+        if existing:
+            raise ValueError(
+                f"该文件已创建过合同（编号: {existing.contract_number}, ID: {existing.id}）"
+            )
+
+        # 4. 复制到正式合同目录：CONTRACT_UPLOAD_DIR/{年月}/{合同编号}{扩展名}
+        #    （与改造前 Agent 侧行为完全一致，路径形如 "2026/06/HT20260629123456ABCDEF.pdf"）
+        year_month = datetime.now().strftime("%Y/%m")
+        target_dir = Path(settings.CONTRACT_UPLOAD_DIR) / year_month
+        target_dir.mkdir(parents=True, exist_ok=True)
+        ext = guess_extension(content)
+        target_filename = f"{contract.contract_number}{ext}"
+        target_path = target_dir / target_filename
+        shutil.copy2(temp_file_path, str(target_path))
+
+        # 5. 写入文件路径 + hash + AI 元数据（meta 赋值委托 _write_ai_meta）
+        contract.original_file_path = str(Path(year_month) / target_filename)
+        contract.file_hash = file_hash
+        ContractService._write_ai_meta(
+            contract,
+            {"source": source, "file_id": file_id, **(contract_data or {})},
+            contract_text,
+            confidence,
+        )
+
+        db.commit()
+        db.refresh(contract)
+        return contract
+
     @staticmethod
     def get_contract(db: Session, contract_id: int) -> Optional[Contract]:
         """获取合同详情（排除已软删除）"""
@@ -509,7 +612,6 @@ class ContractService:
         # 从解析数据中提取关键字段
         if 'total_amount' in contract_data:
             contract.total_amount = Decimal(str(contract_data['total_amount']))
-            contract.remaining_amount = contract.total_amount - contract.paid_amount
         
         if 'signed_date' in contract_data:
             try:

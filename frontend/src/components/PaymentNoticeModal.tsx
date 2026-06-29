@@ -26,16 +26,17 @@ export default function PaymentNoticeModal({ open, contract, incomePayments, onC
   const sheetRef = useRef<HTMLDivElement>(null)
   const [downloading, setDownloading] = useState(false)
 
-  /* ── 口径计算 ── */
+  /* ── 口径计算：今日需付 = outstanding（null 时 fallback 合同总额） ── */
   const cur = contract.currency
   const total = Number(contract.total_amount || 0)
-  const paid = Number((contract.paid_by_currency || {})[contract.currency] ?? contract.paid_amount ?? 0)
   const receivable = total
-  const unpaid = Math.max(0, receivable - paid)
-  const overpaid = Math.max(0, paid - receivable)
-  // 金额比较归一到「分」,避免浮点精度导致已结清的合同显示成 ¥0.00 未付
+  const paid = Number((contract.paid_by_currency || {})[contract.currency] ?? contract.paid_amount ?? 0)  // 仅用于已付合计展示
+  // 剩余尾款取最新一笔 income 的快照，null 表示从未录过带结算信息的收款
+  const outstandingAmount = contract.outstanding_amount != null ? Number(contract.outstanding_amount) : null
+  const unpaid = outstandingAmount !== null ? outstandingAmount : total
+  const overpaid = 0  // outstanding 口径下不存在超收
   const EPSILON = 0.005
-  const isCleared = unpaid < EPSILON
+  const isCleared = outstandingAmount !== null && unpaid < EPSILON
 
   const today = new Date()
   const dateStr = `${today.getFullYear()}年${today.getMonth() + 1}月${today.getDate()}日`

@@ -36,7 +36,7 @@ class Contract(BaseModel):
     currency = Column(String(3), nullable=False, default="CNY", comment="合同币种: CNY/HKD")
     total_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="合同总金额")
     paid_amount = Column(DECIMAL(15, 2), nullable=False, default=0, comment="已付金额（合同币种本币累加，跨币种不计入）")
-    remaining_amount = Column(DECIMAL(15, 2), comment="保留兼容字段，已不维护；尾款看最新一笔 income payment 的 outstanding")
+    remaining_amount = Column(DECIMAL(15, 2), comment="已废弃，不再读写；尾款统一看最新一笔 income payment 的 outstanding")
 
     # 支出汇总
     total_expense = Column(DECIMAL(15, 2), default=0, server_default="0", comment="总支出（合同币种本币累加，跨币种不计入）")
