@@ -28,7 +28,7 @@ export default function ContractList() {
   const abortControllerRef = useRef<AbortController | null>(null)
   const searchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   // 删除二次确认弹窗状态
-  const [deleteTarget, setDeleteTarget] = useState<{ id: number; number: string; title: string } | null>(null)
+  const [deleteTarget, setDeleteTarget] = useState<{ id: number; number: string; title: string; customerName: string; wechatGroup: string } | null>(null)
   const [deleting, setDeleting] = useState(false)
   // 导出台账
   const [exportDateRange, setExportDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([
@@ -97,6 +97,8 @@ export default function ContractList() {
       id,
       number: ct?.contract_number || String(id),
       title: ct?.business_description || ct?.title || '',
+      customerName: ct?.customer_name || '',
+      wechatGroup: ct?.wechat_group || '',
     })
   }
 
@@ -353,9 +355,10 @@ export default function ContractList() {
         title="确认删除合同"
         description={deleteTarget && (
           <>
-            即将删除合同 <strong>{deleteTarget.number}</strong>
-            {deleteTarget.title ? <>（{deleteTarget.title}）</> : null}。
-            该合同名下的<strong>付款计划与收付款记录将一并删除</strong>。
+            {deleteTarget.customerName && <div>客户：<strong>{deleteTarget.customerName}</strong></div>}
+            {deleteTarget.wechatGroup && <div>业务群：{deleteTarget.wechatGroup}</div>}
+            {deleteTarget.title && <div>业务：{deleteTarget.title}</div>}
+            <div style={{ marginTop: 8 }}>该合同名下的<strong>付款计划与收付款记录将一并删除</strong>。</div>
           </>
         )}
         warning="此操作不可撤销，金额统计、客户回款状态都会受影响。"
