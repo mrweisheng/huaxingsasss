@@ -55,8 +55,9 @@ class Contract(BaseModel):
     confidence = Column(DECIMAL(5, 4), comment="AI解析置信度")
     needs_review = Column(Boolean, default=False, comment="是否需要人工审核")
 
-    # 业务微信群（必填：每笔业务都关联一个业务群；群名是业务员查找合同的主要线索，故加索引）
-    wechat_group = Column(String(200), index=True, comment="业务微信群名称")
+    # 业务微信群（必填：每笔业务都关联一个业务群；群名是业务员查找合同的主要线索）
+    # 索引由 backend/sql/add_wechat_group_index.sql 创建（CLAUDE.md「无 alembic、DDL 走 SQL」原则）
+    wechat_group = Column(String(200), comment="业务微信群名称")
 
     # 合同状态
     status = Column(String(20), nullable=False, default="draft", index=True, comment="状态: draft/pending_review/active/completed/cancelled/disputed")

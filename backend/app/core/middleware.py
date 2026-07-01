@@ -79,6 +79,8 @@ class AuditLogMiddleware(BaseHTTPMiddleware):
                 finally:
                     db.close()
         except Exception:
+            # 审计写入失败不应阻塞正常响应（主路径先 return response），但要写日志便于排障
+            logger.warning("AuditLogMiddleware 审计写入失败", exc_info=True)
             pass
 
         return response

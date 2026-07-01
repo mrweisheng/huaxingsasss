@@ -54,6 +54,8 @@ class RateLimiter:
                     )
                 return
             except Exception:
+                # Redis 暂时不可用时降级到内存计数，异常详情写日志便于线上排障
+                logger.debug("rate_limiter: Redis pipeline 失败，降级内存计数", exc_info=True)
                 pass
 
         records = self._memory_store.get(key, [])

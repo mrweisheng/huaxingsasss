@@ -141,8 +141,8 @@ class AgentModelClient:
         self.api_key = settings.DEEPSEEK_API_KEY
         self.base_url = settings.DEEPSEEK_BASE_URL
         self.model = settings.DEEPSEEK_AGENT_MODEL
-        self.max_retries = getattr(settings, 'AGENT_MAX_RETRIES', 3)
-        self.retry_base_delay = getattr(settings, 'AGENT_RETRY_BASE_DELAY', 1.0)
+        self.max_retries = settings.AGENT_MAX_RETRIES
+        self.retry_base_delay = settings.AGENT_RETRY_BASE_DELAY
 
     async def chat_completion_stream(
         self,

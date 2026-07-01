@@ -40,27 +40,6 @@ class ChatRequest(BaseModel):
     attachments: Optional[List[AttachmentItem]] = Field(None, description="附件列表")
 
 
-class ChatResponse(BaseModel):
-    answer: str
-    session_id: str
-    tokens_used: int = 0
-
-
-class SessionResponse(BaseModel):
-    session_id: str
-    created_at: datetime
-    message_count: int = 0
-    title: Optional[str] = None
-    mode: str = "chat"
-    context: Optional[dict] = None
-
-
-class UploadResponse(BaseModel):
-    file_id: str
-    file_name: str
-    file_size: int
-
-
 class CreateSessionRequest(BaseModel):
     """创建会话请求 — 支持指定 mode 和 context"""
     title: Optional[str] = None

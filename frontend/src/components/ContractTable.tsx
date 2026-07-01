@@ -12,7 +12,7 @@ import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import PaymentFormModal from './PaymentFormModal'
 import PaymentNoticeModal from './PaymentNoticeModal'
-import { formatMoney } from '@/utils/money'
+import { fmt } from '@/utils/moneyFormat'
 import dayjs from 'dayjs'
 import './ContractTable.css'
 
@@ -37,15 +37,6 @@ function getBizToneClass(type?: string): 'vehicle' | 'cross' | 'insurance' | 'de
   if (type === '两地牌过户' || type === '中港牌业务') return 'cross'
   if (type === '年检保险') return 'insurance'
   return 'default'
-}
-
-// 货币符号
-const SYMBOL: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
-
-function fmt(amount: number, currency: string): string {
-  const m = formatMoney(amount)
-  const sym = SYMBOL[currency] || '¥'
-  return `${sym}${m.display}${m.unit ?? ''}`
 }
 
 function fmtDate(d: string | undefined): string {

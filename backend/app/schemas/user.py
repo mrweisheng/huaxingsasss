@@ -8,27 +8,10 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class UserBase(BaseModel):
     """用户基础模型"""
-    
+
     username: str = Field(..., min_length=3, max_length=50, description="用户名")
     email: Optional[EmailStr] = Field(None, description="邮箱")
     full_name: Optional[str] = Field(None, max_length=100, description="真实姓名")
-
-
-class UserCreate(UserBase):
-    """创建用户"""
-    
-    password: str = Field(..., min_length=8, description="密码")
-    role: str = Field(default="income", description="角色")
-    department: Optional[str] = Field(None, max_length=50, description="部门")
-
-
-class UserUpdate(BaseModel):
-    """更新用户"""
-    
-    email: Optional[EmailStr] = None
-    full_name: Optional[str] = None
-    department: Optional[str] = None
-    is_active: Optional[bool] = None
 
 
 class UserResponse(UserBase):

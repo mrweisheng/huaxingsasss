@@ -7,77 +7,11 @@ import { useDebounce } from '@/hooks/useDebounce'
 import { useAuthStore } from '@/store/useAuthStore'
 import { formatMoney } from '@/utils/money'
 import { isNoReceipt } from '@/utils/payment'
-import { methodMap } from '@/utils/moneyFormat'
+import { methodMap, currencySymbol, fmtFull as fmt, amountToChinese as amountToChineseCompact } from '@/utils/moneyFormat'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import PaymentFormModal from '@/components/PaymentFormModal'
 import type { Payment } from '@/types'
 import './PaymentList.css'
-
-const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
-
-function fmt(amount: number | undefined | null, currency: string): string {
-  if (amount === undefined || amount === null) return '-'
-  const symbol = currencySymbol[currency] || '¥'
-  return `${symbol}${amount.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
-
-function amountToChinese(amount: number, currency: string): string {
-  if (amount === 0) {
-    const cn = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency
-    return `${cn}零元整`
-  }
-  const digitMap = ['零', '壹', '貳', '叁', '肆', '伍', '陸', '柒', '捌', '玖']
-  const unitMap = ['', '拾', '佰', '仟']
-  const bigUnitMap = ['', '萬', '億']
-
-  const currencyName = currency === 'CNY' ? '人民幣' : currency === 'HKD' ? '港幣' : currency
-  const intPart = Math.floor(amount)
-  const fracPart = Math.round((amount - intPart) * 100)
-
-  let result = ''
-  let intStr = intPart.toString()
-  let unitIdx = -1
-  let bigUnitIdx = 0
-  let hasNonZero = false
-
-  for (let i = intStr.length - 1; i >= 0; i--) {
-    unitIdx++
-    const digit = parseInt(intStr[i])
-    if (digit !== 0) {
-      result = digitMap[digit] + unitMap[unitIdx] + result
-      hasNonZero = true
-    } else if (hasNonZero) {
-      result = digitMap[0] + result
-      hasNonZero = false
-    }
-    if (unitIdx === 3) {
-      unitIdx = -1
-      bigUnitIdx++
-      if (bigUnitIdx < bigUnitMap.length && i > 0) {
-        result = bigUnitMap[bigUnitIdx] + result
-      }
-    }
-  }
-
-  result = result.replace(/零+$/, '')
-  if (!result) result = '零'
-
-  if (fracPart > 0) {
-    result += '元'
-    const jiao = Math.floor(fracPart / 10)
-    const fen = fracPart % 10
-    if (jiao > 0) result += digitMap[jiao] + '角'
-    if (fen > 0) result += digitMap[fen] + '分'
-  } else {
-    result += '元整'
-  }
-
-  return `${currencyName}${result}`
-}
-
-function amountToChineseCompact(amount: number, currency: string): string {
-  return amountToChinese(amount, currency)
-}
 
 /** 从 receipt_data 中提取摘要信息用于展示 */
 function receiptDataSummary(data: Record<string, any> | undefined): string | null {

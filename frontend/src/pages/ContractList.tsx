@@ -9,6 +9,7 @@ import DangerConfirmModal from '@/components/DangerConfirmModal'
 import type { ContractWithPayments } from '@/types'
 import dayjs from 'dayjs'
 import { formatMoney } from '@/utils/money'
+import { currencySymbol as currencySymbolMap } from '@/utils/moneyFormat'
 import { exportLedger } from '@/utils/exportLedger'
 import './ContractList.css'
 
@@ -157,7 +158,6 @@ export default function ContractList() {
     return agg
   })()
   const summaryCurrencies = Object.keys(summary)
-  const currencySymbol2: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
   return (
     <div className="contract-list-container">
@@ -240,7 +240,7 @@ export default function ContractList() {
           const isZero = Math.abs(n) < 0.005
           return (
             <div key={cur} className="cell-row">
-              <span className="cur-sym">{currencySymbol2[cur] || cur}</span>
+              <span className="cur-sym">{currencySymbolMap[cur] || cur}</span>
               <span className="cur-lead" aria-hidden />
               <span className={`cur-val ${tone}${isZero ? ' zero' : ''}`}>
                 {isNeg && !isZero ? '-' : ''}{m.display}

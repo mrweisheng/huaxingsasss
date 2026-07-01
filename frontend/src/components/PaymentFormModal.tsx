@@ -13,6 +13,7 @@ import {
 import { paymentAccountApi, type PaymentAccount } from '@/services/paymentAccount'
 import { compressImage } from '@/utils/imageCompress'
 import { isNoReceipt } from '@/utils/payment'
+import { currencySymbol } from '@/utils/moneyFormat'
 import { groupMismatchLevel, normalizeForCompare } from '@/utils/textNormalize'
 import type { Payment } from '@/types'
 import './PaymentFormModal.css'
@@ -45,9 +46,6 @@ const BIZ_BADGE_STYLE: Record<string, { className: string; label: string }> = {
   '年检保险': { className: 'biz-insurance-chip', label: '年检保险' },
   '其他': { className: 'biz-other-chip', label: '其他业务' },
 }
-
-// 币种 → 货币符号
-const currencySymbol: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
 // 第一步文本框 placeholder：贴合收款 7 项 / 转出 6 项固定模板，引导用户照填（编号可省）
 const INPUT_PLACEHOLDER_INCOME = `粘贴收款信息（可参考模板，编号可省）：

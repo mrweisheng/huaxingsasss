@@ -76,11 +76,3 @@ export function formatMoneyShort(value: number | string | null | undefined): str
   const { display, unit } = formatMoney(value)
   return unit ? `${display} ${unit}` : display
 }
-
-/**
- * 完整精确金额（带千分位 + 2 位小数），不缩写。
- * 用于 tooltip / 详情页等需要看全值的场景。
- */
-export function formatMoneyFull(value: number | string | null | undefined): string {
-  return formatMoney(value).full
-}

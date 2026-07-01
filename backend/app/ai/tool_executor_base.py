@@ -71,7 +71,9 @@ class ToolExecutor:
         self.db = db
         self.user = user
         self.session_id = session_id
-        self.mode: str = "chat"  # 会话模式：chat | receipt_income | receipt_expense
+        # mode/session_context 由 orchestrator（unified_agent.py:397-398）在每轮执行时按真实值注入。
+        # 默认 None 表示"未约束模式"，execute() 的 mode guard 在 None 时直接放行所有白名单工具。
+        self.mode: Optional[str] = None  # chat | receipt_income | receipt_expense | None（未约束）
         self.session_context: Optional[dict] = None  # 模式上下文
         self._document_context: Optional[str] = None  # "receipt"|"contract"|"general"|None
         self._pending_receipt_path: Optional[str] = None  # 同请求内快速路径
@@ -97,15 +99,6 @@ class ToolExecutor:
             return f"vl:contract:{file_id}"
         sid = self.session_id or "nosession"
         return f"vl:{analysis_type}:{sid}:{file_id}"
-
-    def _summarize_analysis_for_context(self, structured: dict) -> dict:
-        """压缩 VL 分析结果再返回给 LLM context，剥离大字段（完整数据已缓存供后续工具取用）"""
-        if not isinstance(structured, dict):
-            return structured
-        summary = dict(structured)
-        # full_text 可能 2000+ tokens，已缓存在 Redis，create_contract 直接从缓存读取
-        summary.pop("full_text", None)
-        return summary
 
     def _cache_analysis(self, file_id: str, analysis_type: str, data: dict) -> None:
         """将 文件预分析 的 VL 完整输出缓存到 Redis（含内存降级）"""
@@ -1224,30 +1217,6 @@ class ToolExecutor:
             result["expense_by_currency"] = expense_by_currency
 
         return json.dumps(result, ensure_ascii=False)
-
-    # ── 文件分析工具 ──
-
-    def execute(self, tool_name: str, arguments: dict) -> str:
-        """统一执行入口（v1 版本，已被 ToolExecutorV2 重写）
-        
-        注意：此方法在 v2 主链路中不被调用，保留仅为向后兼容。
-        v2 的 execute() 在 tools_v2.py 中，无模式守卫，仅角色权限控制。
-        """
-        handler = getattr(self, tool_name, None)
-        if not handler:
-            logger.warning("未知工具调用: %s", tool_name)
-            return json.dumps({"error": f"未知工具: {tool_name}"}, ensure_ascii=False)
-
-        args_preview = json.dumps(arguments, ensure_ascii=False, default=str)[:300]
-        logger.info("工具调用: %s | mode=%s | 参数: %s", tool_name, self.mode, args_preview)
-
-        try:
-            result = handler(**arguments)
-            logger.info("工具结果: %s → %s", tool_name, result[:200] if result else "empty")
-            return result
-        except Exception as e:
-            logger.exception("工具执行失败: %s", tool_name)
-            return json.dumps({"error": f"工具执行失败: {str(e)}"}, ensure_ascii=False)
 
 
 # v1 TOOL_DEFINITIONS 已删除（被 tools_v2.py 的 TOOL_DEFINITIONS 替代）

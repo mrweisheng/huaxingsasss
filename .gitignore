@@ -75,6 +75,7 @@ backend/nul
 # Claude / Agent 工具数据目录
 .claude/
 .workbuddy/
+.mimocode/
 
 .codegraph/
 

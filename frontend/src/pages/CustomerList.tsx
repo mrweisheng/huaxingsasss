@@ -17,6 +17,7 @@ import { contractApi } from '@/services/contract'
 import { useAuthStore } from '@/store/useAuthStore'
 import DangerConfirmModal from '@/components/DangerConfirmModal'
 import { formatMoney } from '@/utils/money'
+import { currencySymbol } from '@/utils/moneyFormat'
 import type { Customer, Contract } from '@/types'
 import './CustomerList.css'
 
@@ -34,8 +35,6 @@ interface TableRow {
   isLastOfCustomer: boolean
   contractCount: number
 }
-
-const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
 
 // 业务徽章视觉映射（标准值 + legacy 兼容）
 type BizTone = 'vehicle' | 'cross' | 'insurance' | 'other'
@@ -105,7 +104,7 @@ function flattenRows(items: CustomerWithContracts[]): TableRow[] {
 // 金额渲染：拆 display + unit，单位字号略小
 function AmountCell({ value, currency, kind }: { value: number; currency: string; kind: 'total' | 'paid' | 'done' | 'zero' }) {
   const m = formatMoney(value)
-  const sym = CURRENCY_SYMBOL[currency] || '¥'
+  const sym = currencySymbol[currency] || '¥'
   return (
     <span className={`cl-amount cl-amount--${kind}`}>
       <span className="cl-amount-cur">{sym}</span>

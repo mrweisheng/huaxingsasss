@@ -23,14 +23,6 @@ class ExchangeRateCreate(ExchangeRateBase):
     pass
 
 
-class ExchangeRateUpdate(BaseModel):
-    """更新汇率"""
-    
-    rate: Optional[Decimal] = Field(None, gt=0)
-    is_active: Optional[bool] = None
-    remarks: Optional[str] = None
-
-
 class ExchangeRateResponse(ExchangeRateBase):
     """汇率响应"""
     

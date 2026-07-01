@@ -115,26 +115,6 @@ export interface Payment {
   updated_at: string
 }
 
-export interface ExchangeRate {
-  id: number
-  from_currency: string
-  to_currency: string
-  rate: number
-  rate_date: string
-  source: string
-  is_active: boolean
-  remarks?: string
-  created_at: string
-  updated_at: string
-}
-
-export interface ApiResponse<T = any> {
-  code: number
-  message: string
-  data?: T
-  timestamp: string
-}
-
 export interface PaginatedResponse<T> {
   items: T[]
   pagination: {

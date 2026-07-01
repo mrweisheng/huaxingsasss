@@ -19,7 +19,7 @@ from app.core.permissions import is_admin
 from app.models.user import User
 from app.models.chat_session import ChatSession
 from app.models.agent_file import AgentFile
-from app.schemas.agent import ChatRequest, UploadResponse, CreateSessionRequest
+from app.schemas.agent import ChatRequest, CreateSessionRequest
 from app.ai.chat_session_service import ContractAgent
 from app.config import settings
 

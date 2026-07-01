@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     # 应用基础配置
     APP_NAME: str = "合同管理系统"
     APP_ENV: str = "development"
-    DEBUG: bool = True
     API_V1_STR: str = "/api/v1"
     SECRET_KEY: str
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
@@ -57,13 +56,13 @@ class Settings(BaseSettings):
 
     # Agent 重试配置
     AGENT_MAX_RETRIES: int = 3
+    AGENT_RETRY_BASE_DELAY: float = 1.0
 
     # LangSmith 可观测性（Phase 2.7）
     # 设为 true 后 LangChain/LangGraph 自动追踪到 LangSmith UI
     LANGCHAIN_TRACING_V2: bool = False
     LANGCHAIN_API_KEY: str = ""
     LANGCHAIN_PROJECT: str = "huaxing-agent"
-    AGENT_RETRY_BASE_DELAY: float = 1.0
 
     # Agent配置
     AGENT_MAX_ITERATIONS: int = 8

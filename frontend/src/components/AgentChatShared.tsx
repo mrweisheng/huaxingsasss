@@ -2,7 +2,6 @@ import { useState, useEffect, memo, useRef } from 'react'
 import { Spin, Button } from 'antd'
 import {
   CheckCircleOutlined,
-  LoadingOutlined,
   DownOutlined,
   RightOutlined,
   ToolOutlined,
@@ -17,7 +16,7 @@ import {
 } from '@ant-design/icons'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import type { ThoughtStep, ToolCall, QuickReplyAction } from '@/types/agent'
+import type { ToolCall, QuickReplyAction } from '@/types/agent'
 
 /* ═══════════════════════════════════════════════════════════
    工具 → 业务图标 映射（让 ToolCallBlock 更可读）
@@ -347,51 +346,6 @@ export const WittyLoadingText = memo(function WittyLoadingText({ message }: { me
           {stablePhrase}
         </span>
       </div>
-    </div>
-  )
-})
-
-/* ── 思考步骤指示器 ── */
-export const ThoughtStepIndicator = memo(function ThoughtStepIndicator({ thoughts }: { thoughts: ThoughtStep[] }) {
-  if (!thoughts.length) return null
-
-  // 分离已完成和运行中的步骤
-  const doneSteps = thoughts.filter(t => t.status === 'done')
-  const runningStep = thoughts.find(t => t.status === 'running')
-
-  // 只显示：最近1个完成步骤 + 当前运行步骤；历史完成步骤折叠
-  const recentDone = doneSteps.length > 1 ? doneSteps.slice(-1) : doneSteps
-  const foldedCount = doneSteps.length - recentDone.length
-
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 6, flexWrap: 'wrap' }}>
-      {foldedCount > 0 && (
-        <span style={{
-          fontSize: 11, color: 'var(--text-tertiary)', opacity: 0.7,
-          background: 'var(--bg-subtle)', padding: '1px 6px', borderRadius: 4,
-        }}>
-          ✓ {foldedCount}步已完成
-        </span>
-      )}
-      {recentDone.map((t) => (
-        <span key={t.id} style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 12, color: 'var(--text-tertiary)', opacity: 0.6,
-        }}>
-          <CheckCircleOutlined style={{ fontSize: 11 }} />
-          {t.message}
-        </span>
-      ))}
-      {runningStep && (
-        <span style={{
-          display: 'inline-flex', alignItems: 'center', gap: 4,
-          fontSize: 12, color: 'var(--brand-primary)',
-        }}>
-          <LoadingOutlined style={{ fontSize: 11 }} />
-          {runningStep.message}
-        </span>
-      )}
-      {runningStep && <Spin size="small" />}
     </div>
   )
 })

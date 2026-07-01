@@ -5,17 +5,16 @@ import { authApi, type LoginData, type TokenResponse } from '@/services/auth'
 interface AuthState {
   user: User | null
   accessToken: string | null
-  refreshToken: string | null
   isAuthenticated: boolean
   login: (data: LoginData) => Promise<void>
   logout: () => void
-  refreshAccessToken: () => Promise<void>
 }
 
-export const useAuthStore = create<AuthState>((set, get) => ({
+// 凭证刷新（401 时）走 src/services/api.ts 的响应拦截器直接 api.post('/auth/refresh')，
+// 因此本 store 不再保留 refreshToken 字段 / refreshAccessToken action。
+export const useAuthStore = create<AuthState>((set) => ({
   user: JSON.parse(localStorage.getItem('user') || 'null'),
   accessToken: localStorage.getItem('access_token'),
-  refreshToken: localStorage.getItem('refresh_token'),
   isAuthenticated: !!localStorage.getItem('access_token'),
 
   login: async (data: LoginData) => {
@@ -26,7 +25,6 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       user: response.user,
       accessToken: response.access_token,
-      refreshToken: response.refresh_token,
       isAuthenticated: true,
     })
   },
@@ -38,22 +36,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     set({
       user: null,
       accessToken: null,
-      refreshToken: null,
       isAuthenticated: false,
     })
-  },
-
-  refreshAccessToken: async () => {
-    const { refreshToken } = get()
-    if (!refreshToken) return
-    
-    const response = await authApi.refreshToken(refreshToken)
-    localStorage.setItem('access_token', response.access_token)
-    if (response.user) {
-      localStorage.setItem('user', JSON.stringify(response.user))
-      set({ accessToken: response.access_token, user: response.user as User })
-    } else {
-      set({ accessToken: response.access_token })
-    }
   },
 }))

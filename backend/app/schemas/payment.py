@@ -34,16 +34,6 @@ class CounterpartyAccount(BaseModel):
     swift_code: Optional[str] = Field(None, max_length=50, description="SWIFT Code")
 
 
-class VerificationResult(BaseModel):
-    """凭证校验明细"""
-
-    expected: Optional[dict] = Field(None, description="表单填写值 {amount, currency, payer}")
-    extracted: Optional[dict] = Field(None, description="凭证提取值 {amount, currency, payer_name}")
-    match: Optional[dict] = Field(None, description="比对结果 {amount: bool, payer: bool}")
-    confidence: Optional[float] = Field(None, description="VL 置信度 0-1")
-    reason: Optional[str] = Field(None, description="判定原因")
-
-
 class PaymentCreate(BaseModel):
     """表单创建付款（收入/支出统一入口）
 

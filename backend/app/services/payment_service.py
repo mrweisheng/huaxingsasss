@@ -56,6 +56,73 @@ class PaymentService:
         return None
 
     @staticmethod
+    def _prepare_payment_base(
+        db: Session,
+        contract_id: int,
+        payment_type: str,
+        receipt_path: Optional[str],
+        receipt_file_hash: Optional[str],
+        payment_method: Optional[str],
+        payment_account_id: Optional[int] = None,
+    ) -> Tuple[Contract, int, Optional[str]]:
+        """付款创建前的公共准备：合同存在性 + 凭证去重 + payment_method 兜底 + 期数分配。
+
+        三处入口（create_payment_from_form / 对话流 / create_payment_with_override）
+        都需要这 4 步，差异在于去重的 receipt_file_hash 是否必传 / payment_method 推导顺序，
+        因此提取到一处统一处理。
+
+        Returns:
+            (contract, installment_number, eff_method)
+            - contract: 校验通过的合同 ORM 实例
+            - installment_number: get_next_installment_number 算出的下一期数
+            - eff_method: 兜底后的 payment_method（None 表示仍需后续步骤补全）
+
+        Raises:
+            ValueError: 合同不存在 / 凭证已在此合同下录入
+        """
+        contract = db.query(Contract).filter(Contract.id == contract_id).first()
+        if not contract:
+            raise ValueError(f"合同不存在：{contract_id}")
+
+        # 凭证去重：同合同同 hash 拦截（与 AI 路径口径一致，scope = 合同内）
+        if receipt_path and receipt_file_hash:
+            dup = db.query(Payment).filter(
+                Payment.contract_id == contract_id,
+                Payment.receipt_file_hash == receipt_file_hash,
+                Payment.is_deleted == False,
+            ).first()
+            if dup:
+                raise ValueError(
+                    f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
+                    f" {dup.amount} {dup.currency}），请勿重复录入"
+                )
+
+        # payment_method 兜底：收入且前端未传/为空时，按所选收款账户的 account_type 推导
+        is_income = payment_type == "income"
+        eff_method = payment_method
+        if not eff_method and is_income and payment_account_id:
+            account = db.query(PaymentAccount).filter(
+                PaymentAccount.id == payment_account_id
+            ).first()
+            eff_method = PaymentService._method_from_account_type(
+                account.account_type if account else None
+            )
+
+        installment_number = PaymentService.get_next_installment_number(
+            db, contract_id, payment_type
+        )
+        return contract, installment_number, eff_method
+
+    @staticmethod
+    def _prepend_note_marker(payment: Payment, prefix: str) -> None:
+        """在 payment.notes 开头拼审计标记前缀（[无凭证收入] / [无凭证支出] 等）。
+
+        前端按此前缀在 chip 上显示「无凭证」语义；对话流与表单路径口径必须一致。
+        """
+        base_note = (payment.notes or "").strip()
+        payment.notes = f"{prefix} {base_note}".strip()
+
+    @staticmethod
     def get_payments(
         db: Session,
         page: int = 1,
@@ -554,43 +621,21 @@ class PaymentService:
             receipt_path: 已解析的凭证绝对路径（由 API 层从 file_id 解析）。None 表示无凭证。
             receipt_file_hash: 凭证文件哈希（用于去重）。
         """
-        contract = db.query(Contract).filter(Contract.id == contract_id).first()
-        if not contract:
-            raise ValueError(f"合同不存在：{contract_id}")
-
-        # 期数自动递增（同合同同类型）
-        installment_number = PaymentService.get_next_installment_number(db, contract_id, payload.type)
-
         is_income = payload.type == "income"
         has_receipt = bool(receipt_path)
         # 收入凭证校验：仅 INCOME_RECEIPT_REQUIRED=True 时走 pending→异步校验（现阶段关闭，直接结算）
         # 支出恒 False
         require_verification = is_income and settings.INCOME_RECEIPT_REQUIRED
 
-        # 凭证去重：同一合同下，同一张凭证（按文件哈希）不允许重复录入。
-        # 与 AI 路径（file_analyzer / tool_executor）口径一致，scope = 合同内。
-        if receipt_path and receipt_file_hash:
-            dup = db.query(Payment).filter(
-                Payment.contract_id == contract_id,
-                Payment.receipt_file_hash == receipt_file_hash,
-                Payment.is_deleted == False,
-            ).first()
-            if dup:
-                raise ValueError(
-                    f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
-                    f" {dup.amount} {dup.currency}），请勿重复录入"
-                )
-
-        # payment_method 兜底推导：收入且前端未传/为空时，按所选收款账户的 account_type 推导
-        # （bank→bank_transfer 等），避免 payment_method 落 null/unknown。other 及支出留空交 AI 凭证检测。
-        payment_method = payload.payment_method
-        if not payment_method and is_income and payload.payment_account_id:
-            account = db.query(PaymentAccount).filter(
-                PaymentAccount.id == payload.payment_account_id
-            ).first()
-            payment_method = PaymentService._method_from_account_type(
-                account.account_type if account else None
-            )
+        contract, installment_number, payment_method = PaymentService._prepare_payment_base(
+            db=db,
+            contract_id=contract_id,
+            payment_type=payload.type,
+            receipt_path=receipt_path,
+            receipt_file_hash=receipt_file_hash,
+            payment_method=payload.payment_method,
+            payment_account_id=payload.payment_account_id if is_income else None,
+        )
 
         payment = PaymentService.create_payment_with_exchange_rate(
             db=db,
@@ -617,8 +662,7 @@ class PaymentService:
             # 现阶段（开关关闭）：收入无凭证直接打 [无凭证收入] 标记，便于前端识别与将来补凭证
             if not has_receipt:
                 from app.core.payment_audit import NO_RECEIPT_INCOME_PREFIX
-                base_note = (payment.notes or "").strip()
-                payment.notes = f"{NO_RECEIPT_INCOME_PREFIX} {base_note}".strip()
+                PaymentService._prepend_note_marker(payment, NO_RECEIPT_INCOME_PREFIX)
         else:
             payment.counterparty_account = (
                 payload.counterparty_account.model_dump(exclude_none=True)
@@ -628,8 +672,7 @@ class PaymentService:
             # 与 AI 路径（tool_executor）口径一致，避免表单录入的无凭证支出前端无法识别。
             if payload.no_receipt:
                 from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
-                base_note = (payment.notes or "").strip()
-                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
+                PaymentService._prepend_note_marker(payment, NO_RECEIPT_NOTE_PREFIX)
 
         # verification_status：收入有凭证→pending（等校验）；无凭证或支出→保持 None（不参与校验流程）
         if is_income and has_receipt:
@@ -919,7 +962,7 @@ class PaymentService:
     # ──────────────────────────────────────────────────────────────
     # 对话流（Agent v3）专用方法
     # 跟表单路径区别：
-    #   1. 凭证识别 + 匹配判定在工具层同步完成（ReceiptMatcher），不投递异步校验
+    #   1. 凭证识别 + 匹配判定在工具层同步完成（app.services.receipt_matcher.match_receipt），不投递异步校验
     #   2. ok 状态直接落 paid + verification_status=passed
     #   3. soft_mismatch 用 create_payment_with_override 走放行通道
     # ──────────────────────────────────────────────────────────────
@@ -953,46 +996,27 @@ class PaymentService:
         与 create_payment_from_form 的差别：
           - 收入：跳过 require_verification（直接 paid 结算 + verification_status=passed）
           - 不依赖 Celery 异步校验
-          - verification_result 写入 ReceiptMatcher 的对比快照（含 expected/extracted_norm）
+          - verification_result 写入 ReceiptMatcher 模块 match_receipt 的对比快照（含 expected/extracted_norm）
 
         其它（凭证去重、payment_method 兜底、source 标记）保持一致。
         """
         if payment_type not in ("income", "expense"):
             raise ValueError(f"无效的付款类型: {payment_type}")
 
-        contract = db.query(Contract).filter(Contract.id == contract_id).first()
-        if not contract:
-            raise ValueError(f"合同不存在：{contract_id}")
-
         is_income = payment_type == "income"
         # 收入凭证强制：仅开关开启时拦截（现阶段关闭，对话流可无凭证直落 paid）
         if is_income and not receipt_path and settings.INCOME_RECEIPT_REQUIRED:
             raise ValueError("收入必须有凭证")
 
-        # 凭证去重：同合同同 hash 拦截
-        if receipt_path and receipt_file_hash:
-            dup = db.query(Payment).filter(
-                Payment.contract_id == contract_id,
-                Payment.receipt_file_hash == receipt_file_hash,
-                Payment.is_deleted == False,
-            ).first()
-            if dup:
-                raise ValueError(
-                    f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
-                    f" {dup.amount} {dup.currency}），请勿重复录入"
-                )
-
-        # payment_method 兜底（收入用账户类型推导，支出留空）
-        eff_method = payment_method
-        if not eff_method and is_income and payment_account_id:
-            account = db.query(PaymentAccount).filter(
-                PaymentAccount.id == payment_account_id
-            ).first()
-            eff_method = PaymentService._method_from_account_type(
-                account.account_type if account else None
-            )
-
-        installment_number = PaymentService.get_next_installment_number(db, contract_id, payment_type)
+        contract, installment_number, eff_method = PaymentService._prepare_payment_base(
+            db=db,
+            contract_id=contract_id,
+            payment_type=payment_type,
+            receipt_path=receipt_path,
+            receipt_file_hash=receipt_file_hash,
+            payment_method=payment_method,
+            payment_account_id=payment_account_id if is_income else None,
+        )
 
         payment = PaymentService.create_payment_with_exchange_rate(
             db=db,
@@ -1029,8 +1053,7 @@ class PaymentService:
                 # （已直接 paid 结算，校验状态也应是 passed；避免 UI 出现 "已收 + 待校验" 的双重歧义）
                 # notes 里的 [无凭证收入] 前缀已经标识"无凭证"语义，前端 ReceiptChatModal 按此前缀显示"无凭证"标签
                 from app.core.payment_audit import NO_RECEIPT_INCOME_PREFIX
-                base_note = (payment.notes or "").strip()
-                payment.notes = f"{NO_RECEIPT_INCOME_PREFIX} {base_note}".strip()
+                PaymentService._prepend_note_marker(payment, NO_RECEIPT_INCOME_PREFIX)
                 payment.verification_status = "passed"
                 payment.verified_at = datetime.now(timezone.utc)
         else:
@@ -1038,8 +1061,7 @@ class PaymentService:
                 payment.counterparty_account = counterparty_account
             if no_receipt:
                 from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
-                base_note = (payment.notes or "").strip()
-                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
+                PaymentService._prepend_note_marker(payment, NO_RECEIPT_NOTE_PREFIX)
             if verification_snapshot is not None:
                 payment.verification_result = verification_snapshot
         payment.source = "screenshot" if receipt_path else "manual"
@@ -1109,33 +1131,16 @@ class PaymentService:
             raise ValueError(f"非法的审计来源 source: {source}")
 
         is_income = payment_type == "income"
-        contract = db.query(Contract).filter(Contract.id == contract_id).first()
-        if not contract:
-            raise ValueError(f"合同不存在：{contract_id}")
 
-        # 凭证去重
-        if receipt_path and receipt_file_hash:
-            dup = db.query(Payment).filter(
-                Payment.contract_id == contract_id,
-                Payment.receipt_file_hash == receipt_file_hash,
-                Payment.is_deleted == False,
-            ).first()
-            if dup:
-                raise ValueError(
-                    f"该凭证已在此合同下录入过（{('收入' if dup.type == 'income' else '支出')}"
-                    f" {dup.amount} {dup.currency}），请勿重复录入"
-                )
-
-        eff_method = payment_method
-        if not eff_method and is_income and payment_account_id:
-            account = db.query(PaymentAccount).filter(
-                PaymentAccount.id == payment_account_id
-            ).first()
-            eff_method = PaymentService._method_from_account_type(
-                account.account_type if account else None
-            )
-
-        installment_number = PaymentService.get_next_installment_number(db, contract_id, payment_type)
+        contract, installment_number, eff_method = PaymentService._prepare_payment_base(
+            db=db,
+            contract_id=contract_id,
+            payment_type=payment_type,
+            receipt_path=receipt_path,
+            receipt_file_hash=receipt_file_hash,
+            payment_method=payment_method,
+            payment_account_id=payment_account_id if is_income else None,
+        )
         now = datetime.now(timezone.utc)
 
         payment = PaymentService.create_payment_with_exchange_rate(
@@ -1172,8 +1177,7 @@ class PaymentService:
                 payment.counterparty_account = counterparty_account
             if no_receipt:
                 from app.core.payment_audit import NO_RECEIPT_NOTE_PREFIX
-                base_note = (payment.notes or "").strip()
-                payment.notes = f"{NO_RECEIPT_NOTE_PREFIX} {base_note}".strip()
+                PaymentService._prepend_note_marker(payment, NO_RECEIPT_NOTE_PREFIX)
 
         # 把"放行印记"写入 verification_result（前端可直接显示"已放行 by X"）
         result = {

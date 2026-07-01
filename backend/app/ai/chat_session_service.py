@@ -2,18 +2,18 @@
 ContractAgent — LangGraph 编排下的会话/消息/模式上下文服务器。
 
 ReAct 循环已移除（PR-R-3 之后由 LangGraph root graph 接手），当下该服务器只负责：
-  - 会话管理（create/list/delete session）
-  - 消息结果录入 chat_history 表（finalize_node 调用 _save_message / save_tool_message）
-  - mode / session_context 加载（api/v1/agent.py 用于 root graph 的 executor_mode 注入）
+  - 会话管理（list/delete session）
+  - 模式上下文加载（api/v1/agent.py 用于 root graph 的 executor_mode 注入）
+
+注：早期 finalize_node 调用的 _save_message / save_tool_message 已废弃——消息落库
+改由 orchestrator.finalize_node 直接走 ORM（chat_history 持久化），不再经过本服务。
 """
 import logging
 import json
-from typing import List, Optional
+from typing import List
 
 from sqlalchemy.orm import Session
 
-from app.ai.tool_executor_base import ToolExecutor
-from app.config import settings
 from app.models.chat_history import ChatHistory
 from app.models.chat_session import ChatSession
 from app.models.user import User
@@ -24,89 +24,15 @@ logger = logging.getLogger(__name__)
 class ContractAgent:
     """会话/消息/模式上下文服务器。
 
-    不再提供 ReAct 循环服务（PR-R-3 已移除）。实际工具并发和 LLM 调用现在由
-    app.ai.orchestrator.* 中的 LangGraph root graph 负责，服务器为其提供轻量的
-    chat_history 上下文。
+    不再提供 ReAct 循环服务（PR-R-3 已移除），也不再保存单条消息（_save_message
+    / save_tool_message 已废弃）。实际工具并发、LLM 调用、chat_history 持久化
+    现在由 app.ai.orchestrator.* 中的 LangGraph root graph 负责，本服务只提供
+    会话列表/历史查询 + mode/context 注入。
     """
 
     def __init__(self, db: Session, user: User):
         self.db = db
         self.user = user
-        self._mode: str = "chat"
-        self._session_context: Optional[dict] = None
-
-    # ------------------------------------------------------------------
-    # mode / session_context
-    # ------------------------------------------------------------------
-
-    def _load_session_meta(self, session_id: str) -> None:
-        """从 chat_sessions 表加载 mode 和 context，注入到 self._mode / self._session_context。
-
-        api/v1/agent.py 调用此方法确保 root graph 接收到用户的 mode 和 session_context。
-        """
-        session_record = (
-            self.db.query(ChatSession)
-            .filter(ChatSession.session_id == session_id)
-            .first()
-        )
-        if session_record:
-            self._mode = session_record.mode or "chat"
-            self._session_context = session_record.context
-        else:
-            self._mode = "chat"
-            self._session_context = None
-
-    # ------------------------------------------------------------------
-    # chat_history 上下文（finalize_node 调用）
-    # ------------------------------------------------------------------
-
-    def _save_message(
-        self,
-        session_id: str,
-        role: str,
-        content: str,
-        tool_calls: Optional[list] = None,
-        metadata: Optional[dict] = None,
-        tokens_used: int = 0,
-    ):
-        """保存消息到 chat_history 表，由 finalize_node 调用。"""
-        question = content if role == "user" else ""
-        answer = None if role == "user" else content
-
-        record = ChatHistory(
-            user_id=self.user.id,
-            session_id=session_id,
-            question=question,
-            answer=answer,
-            role=role,
-            tool_calls=tool_calls,
-            extra_metadata=metadata or {},
-            llm_model=settings.DEEPSEEK_AGENT_MODEL,
-            tokens_used=tokens_used or None,
-        )
-        self.db.add(record)
-        self.db.commit()
-
-    def save_tool_message(
-        self,
-        session_id: str,
-        tool_call_id: str,
-        tool_name: str,
-        result: str,
-    ):
-        """保存工具调用结果消息，由 finalize_node 调用。"""
-        record = ChatHistory(
-            user_id=self.user.id,
-            session_id=session_id,
-            question="",
-            answer=result,
-            role="tool",
-            intent_type=tool_name,
-            extra_metadata={"tool_call_id": tool_call_id},
-            llm_model=settings.DEEPSEEK_AGENT_MODEL,
-        )
-        self.db.add(record)
-        self.db.commit()
 
     # ------------------------------------------------------------------
     # 会话管理

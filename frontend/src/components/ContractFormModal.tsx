@@ -14,6 +14,7 @@ import { contractApi, type ContractAnalyzeResult, type ContractAnalyzeData, type
 import { customerApi } from '@/services/customer'
 import { agentApi } from '@/services/agent'
 import { compressImage } from '@/utils/imageCompress'
+import { fmtFull } from '@/utils/moneyFormat'
 import type { Customer } from '@/types'
 
 interface Props {
@@ -43,8 +44,6 @@ const CURRENCY_OPTIONS = [
   { label: '港币 HKD', value: 'HKD' },
 ]
 
-const CURRENCY_SYMBOL: Record<string, string> = { CNY: '¥', HKD: 'HK$' }
-
 const ACCEPT = 'image/*,.heic,.heif,.pdf,.doc,.docx,.xls,.xlsx'
 
 /** 去重命中信息（用于预览页明确提示，替代一闪而过的 message） */
@@ -60,12 +59,6 @@ interface DuplicateInfo {
 
 /** 客户关联模式：三态 */
 type CustomerMode = 'existing' | 'new' | 'none'
-
-const fmtMoney = (n?: number, currency?: string) => {
-  if (n == null) return '-'
-  const sym = CURRENCY_SYMBOL[currency || ''] || ''
-  return `${sym}${n.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
-}
 
 const fmtDate = (d?: string) => {
   if (!d) return '-'
@@ -483,7 +476,7 @@ export default function ContractFormModal({ open, onClose }: Props) {
                   <div>合同编号：<b>{duplicateInfo.contractNumber}</b></div>
                   {duplicateInfo.title && <div>标题：{duplicateInfo.title}</div>}
                   <div>
-                    金额：{fmtMoney(duplicateInfo.totalAmount, duplicateInfo.currency)}
+                    金额：{fmtFull(duplicateInfo.totalAmount, duplicateInfo.currency || '')}
                     {duplicateInfo.customerName ? ` · 客户：${duplicateInfo.customerName}` : ''}
                     {duplicateInfo.status ? ` · 状态：${duplicateInfo.status}` : ''}
                   </div>
@@ -656,7 +649,7 @@ export default function ContractFormModal({ open, onClose }: Props) {
                         )}
                       </div>
                       <div style={{ fontWeight: 500, color: 'var(--color-success, #52c41a)' }}>
-                        {fmtMoney(term.amount, term.currency || data?.currency)}
+                        {fmtFull(term.amount, term.currency || data?.currency || '')}
                       </div>
                       <div style={{ fontSize: 12, color: 'var(--text-secondary, #666)', minWidth: 96, textAlign: 'right' }}>
                         {fmtDate(term.due_date)}

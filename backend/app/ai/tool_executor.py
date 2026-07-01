@@ -2,10 +2,10 @@
 
 变更（相对 tools.py）：
   - 继承原 ToolExecutor，复用所有业务逻辑
-  - 删除 mode guard / document guard / set_pending_plan
+  - 删除 v1 重型 mode guard / document guard / set_pending_plan，保留轻量 mode guard（MODE_TOOL_WHITELIST 按 session_mode 裁剪工具集）
   - 新增 analyze_files
   - 凭证录入对话流（v3）：analyze_receipt / create_income_payment / create_expense_payment / override_receipt_mismatch
-  - 工具集 20→16→20
+  - 工具集 18 个（14 个基础 + 4 个凭证录入对话流）
 
 设计原则：
   - 轻量确认：写入工具执行前检查 LLM 上文是否展示确认请求
@@ -45,15 +45,14 @@ class ToolExecutorV2(ToolExecutor):
     """精简版工具执行器。
 
     继承原 ToolExecutor，复用所有查询/写入工具的业务逻辑。
-    重写 execute() 入口，删除 mode guard / document guard。
+    重写 execute() 入口，删除 v1 重型 mode guard / document guard，保留轻量 mode guard。
     """
 
     def __init__(self, db, user, session_id: Optional[str] = None):
         super().__init__(db, user, session_id)
-        # 删除 mode 相关成员（不再需要模式锁定）
-        self.mode = None
-        self.session_context = None
-        self._document_context = None
+        # mode/session_context/document_context 由 orchestrator（unified_agent.py）每轮注入真实值。
+        # 父类默认值已统一为 None（表示"未约束模式"），v2 不再覆盖——执行入口 execute() 的
+        # mode guard 在 None 时放行所有白名单工具。
 
     # ═══════════════════════════════════════════════════════════
     # 辅助方法
@@ -1052,8 +1051,8 @@ class ToolExecutorV2(ToolExecutor):
 
 
 # ═══════════════════════════════════════════════════════════════
-# TOOL_DEFINITIONS v3 — 20 个工具
-#   16 个基础 + 4 个凭证录入对话流（analyze_receipt / create_income_payment /
+# TOOL_DEFINITIONS v3 — 18 个工具
+#   14 个基础 + 4 个凭证录入对话流（analyze_receipt / create_income_payment /
 #   create_expense_payment / override_receipt_mismatch）
 # ═══════════════════════════════════════════════════════════════
 

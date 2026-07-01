@@ -23,9 +23,6 @@ export const authApi = {
   login: (data: LoginData): Promise<TokenResponse> =>
     api.post('/auth/login', data),
 
-  refreshToken: (refreshToken: string): Promise<{ access_token: string; expires_in: number; user?: User }> =>
-    api.post('/auth/refresh', { refresh_token: refreshToken }),
-
   getCurrentUser: (): Promise<User> =>
     api.get('/auth/me'),
 

@@ -11,11 +11,10 @@ import {
 import ReactECharts from 'echarts-for-react'
 import { statsApi, FinancialOverview as FinancialOverviewType } from '@/services/stats'
 import { formatMoney, formatMoneyShort } from '@/utils/money'
+import { currencySymbol } from '@/utils/moneyFormat'
 import './FinancialOverview.css'
 
 type Currency = 'CNY' | 'HKD'
-
-const CURRENCY_SYMBOL: Record<Currency, string> = { CNY: '¥', HKD: 'HK$' }
 
 export default function FinancialOverview() {
   const [loading, setLoading] = useState(true)
@@ -85,21 +84,21 @@ export default function FinancialOverview() {
     const hkdM = formatMoney(hkd)
     return (
       <>
-        <Tooltip title={`CNY ${CURRENCY_SYMBOL.CNY}${cnyM.full}`} placement="top" mouseEnterDelay={0.3}>
+        <Tooltip title={`CNY ${currencySymbol.CNY}${cnyM.full}`} placement="top" mouseEnterDelay={0.3}>
           <div className="fo-kpi-ledger__row">
             <span className="fo-kpi-ledger__code">
               CNY{cnyM.unit && <em className="fo-kpi-ledger__unit">{cnyM.unit}</em>}
             </span>
-            <span className="fo-kpi-ledger__sym">{CURRENCY_SYMBOL.CNY}</span>
+            <span className="fo-kpi-ledger__sym">{currencySymbol.CNY}</span>
             <span className="fo-kpi-ledger__num">{cnyM.display}</span>
           </div>
         </Tooltip>
-        <Tooltip title={`HKD ${CURRENCY_SYMBOL.HKD}${hkdM.full}`} placement="top" mouseEnterDelay={0.3}>
+        <Tooltip title={`HKD ${currencySymbol.HKD}${hkdM.full}`} placement="top" mouseEnterDelay={0.3}>
           <div className="fo-kpi-ledger__row">
             <span className="fo-kpi-ledger__code">
               HKD{hkdM.unit && <em className="fo-kpi-ledger__unit">{hkdM.unit}</em>}
             </span>
-            <span className="fo-kpi-ledger__sym">{CURRENCY_SYMBOL.HKD}</span>
+            <span className="fo-kpi-ledger__sym">{currencySymbol.HKD}</span>
             <span className="fo-kpi-ledger__num">{hkdM.display}</span>
           </div>
         </Tooltip>
@@ -357,7 +356,7 @@ function monthlyReceiptTrendOption(data: FinancialOverviewType['monthly_receipt_
         const date = fullDates[idx]
         let s = `<b>${date}</b><br/>`
         params.forEach(p => {
-          const sym = p.seriesName === 'CNY' ? CURRENCY_SYMBOL.CNY : CURRENCY_SYMBOL.HKD
+          const sym = p.seriesName === 'CNY' ? currencySymbol.CNY : currencySymbol.HKD
           s += `${p.marker} ${p.seriesName}：<b>${sym}${formatMoney(Number(p.value)).full}</b><br/>`
         })
         return s

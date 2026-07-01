@@ -21,15 +21,10 @@
 import json
 import os
 import logging
-import shutil
 import redis as redis_lib
-from datetime import date, datetime
-from pathlib import Path
 from typing import Optional
 
 from sqlalchemy.orm import Session
-
-from app.config import settings
 from app.models.contract import Contract
 from app.ai.prompts import (
     CONTRACT_ANALYSIS_PROMPT,
@@ -43,7 +38,6 @@ from app.ai.tool_executor_base import _get_redis_pool
 from app.utils.file_analysis import (
     compress_image,
     detect_image_mime,
-    guess_extension,
     normalize_payment_terms,
     make_text_extraction_prompt,
     call_vl_model,
@@ -477,17 +471,3 @@ class FileAnalyzer:
             "data": None,
             "file_type": None,
         }
-
-    @staticmethod
-    def copy_to_contract_dir(temp_file_path: str, contract_number: str) -> str:
-        """将临时文件复制到合同永久目录。返回相对路径。"""
-        with open(temp_file_path, "rb") as f:
-            content = f.read()
-        ext = guess_extension(content)
-        year_month = datetime.now().strftime("%Y/%m")
-        target_dir = Path(settings.CONTRACT_UPLOAD_DIR) / year_month
-        target_dir.mkdir(parents=True, exist_ok=True)
-        target_filename = f"{contract_number}{ext}"
-        target_path = target_dir / target_filename
-        shutil.copy2(temp_file_path, str(target_path))
-        return str(Path(year_month) / target_filename)

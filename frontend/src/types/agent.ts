@@ -66,18 +66,6 @@ export interface ChatSession {
   context?: Record<string, any> | null
 }
 
-export interface ToolCallSummary {
-  tool: string
-  description: string
-  args: Record<string, any>
-}
-
-export interface ContractInfo {
-  contract_number: string
-  customer_name: string
-  business_type: string
-}
-
 export interface SSEEvent {
   event: 'text' | 'tool_call' | 'tool_result' | 'thinking' | 'done' | 'error' | 'ui_actions'
   data: Record<string, any>
